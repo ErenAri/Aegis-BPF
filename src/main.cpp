@@ -1,7 +1,10 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <algorithm>
+#include <cctype>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <errno.h>
 #include <filesystem>
@@ -14,6 +17,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 static constexpr const char *kPinRoot = "/sys/fs/bpf/aegisbpf";
@@ -99,6 +103,19 @@ struct AgentConfig {
 
 struct AgentMeta {
     uint32_t layout_version;
+};
+
+struct Policy {
+    int version = 0;
+    std::vector<std::string> deny_paths;
+    std::vector<InodeId> deny_inodes;
+    std::vector<std::string> allow_cgroup_paths;
+    std::vector<uint64_t> allow_cgroup_ids;
+};
+
+struct PolicyIssues {
+    std::vector<std::string> errors;
+    std::vector<std::string> warnings;
 };
 
 struct BpfState {
@@ -265,6 +282,163 @@ static std::string resolve_relative_path(uint32_t pid, uint64_t start_time, cons
     return combined.lexically_normal().string();
 }
 
+static std::string trim(const std::string &s)
+{
+    size_t start = 0;
+    while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start])))
+        ++start;
+    size_t end = s.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1])))
+        --end;
+    return s.substr(start, end - start);
+}
+
+static bool parse_key_value(const std::string &line, std::string &key, std::string &value)
+{
+    size_t pos = line.find('=');
+    if (pos == std::string::npos)
+        return false;
+    key = trim(line.substr(0, pos));
+    value = trim(line.substr(pos + 1));
+    return !key.empty();
+}
+
+static bool parse_uint64(const std::string &text, uint64_t &out)
+{
+    if (text.empty())
+        return false;
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long val = std::strtoull(text.c_str(), &end, 10);
+    if (errno != 0 || end == text.c_str() || *end != '\0')
+        return false;
+    out = static_cast<uint64_t>(val);
+    return true;
+}
+
+static bool parse_inode_id(const std::string &text, InodeId &out)
+{
+    size_t pos = text.find(':');
+    if (pos == std::string::npos)
+        return false;
+    std::string dev_str = trim(text.substr(0, pos));
+    std::string ino_str = trim(text.substr(pos + 1));
+    uint64_t dev = 0;
+    uint64_t ino = 0;
+    if (!parse_uint64(dev_str, dev) || !parse_uint64(ino_str, ino))
+        return false;
+    if (dev > UINT32_MAX)
+        return false;
+    out.dev = static_cast<uint32_t>(dev);
+    out.ino = ino;
+    return true;
+}
+
+static void report_policy_issues(const PolicyIssues &issues)
+{
+    for (const auto &err : issues.errors)
+        std::cerr << "Policy error: " << err << std::endl;
+    for (const auto &warn : issues.warnings)
+        std::cerr << "Policy warning: " << warn << std::endl;
+}
+
+static bool parse_policy_file(const std::string &path, Policy &policy, PolicyIssues &issues)
+{
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        issues.errors.push_back("Failed to open '" + path + "': " + std::strerror(errno));
+        return false;
+    }
+
+    std::string section;
+    std::unordered_set<std::string> deny_path_seen;
+    std::unordered_set<std::string> deny_inode_seen;
+    std::unordered_set<std::string> allow_path_seen;
+    std::unordered_set<uint64_t> allow_id_seen;
+    std::string line;
+    size_t line_no = 0;
+    while (std::getline(in, line)) {
+        ++line_no;
+        std::string trimmed = trim(line);
+        if (trimmed.empty() || trimmed[0] == '#')
+            continue;
+        if (trimmed.front() == '[' && trimmed.back() == ']') {
+            section = trim(trimmed.substr(1, trimmed.size() - 2));
+            if (section != "deny_path" && section != "deny_inode" && section != "allow_cgroup") {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": unknown section '" + section + "'");
+                section.clear();
+            }
+            continue;
+        }
+        if (section.empty()) {
+            std::string key;
+            std::string value;
+            if (!parse_key_value(trimmed, key, value)) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": expected key=value in header");
+                continue;
+            }
+            if (key == "version") {
+                uint64_t version = 0;
+                if (!parse_uint64(value, version) || version == 0 || version > INT_MAX) {
+                    issues.errors.push_back("line " + std::to_string(line_no) + ": invalid version");
+                    continue;
+                }
+                policy.version = static_cast<int>(version);
+            } else {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": unknown header key '" + key + "'");
+            }
+            continue;
+        }
+
+        if (section == "deny_path") {
+            if (trimmed.size() >= kDenyPathMax) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": deny_path is too long");
+                continue;
+            }
+            if (!trimmed.empty() && trimmed.front() != '/')
+                issues.warnings.push_back("line " + std::to_string(line_no) + ": deny_path is relative");
+            if (deny_path_seen.insert(trimmed).second)
+                policy.deny_paths.push_back(trimmed);
+            continue;
+        }
+        if (section == "deny_inode") {
+            InodeId id {};
+            if (!parse_inode_id(trimmed, id)) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": invalid inode format (dev:ino)");
+                continue;
+            }
+            std::string id_key = inode_to_string(id);
+            if (deny_inode_seen.insert(id_key).second)
+                policy.deny_inodes.push_back(id);
+            continue;
+        }
+        if (section == "allow_cgroup") {
+            if (trimmed.rfind("cgid:", 0) == 0) {
+                std::string id_str = trim(trimmed.substr(5));
+                uint64_t cgid = 0;
+                if (!parse_uint64(id_str, cgid)) {
+                    issues.errors.push_back("line " + std::to_string(line_no) + ": invalid cgid value");
+                    continue;
+                }
+                if (allow_id_seen.insert(cgid).second)
+                    policy.allow_cgroup_ids.push_back(cgid);
+                continue;
+            }
+            if (!trimmed.empty() && trimmed.front() != '/')
+                issues.warnings.push_back("line " + std::to_string(line_no) + ": allow_cgroup path is relative");
+            if (allow_path_seen.insert(trimmed).second)
+                policy.allow_cgroup_paths.push_back(trimmed);
+            continue;
+        }
+    }
+
+    if (policy.version == 0)
+        issues.errors.push_back("missing header key: version");
+    if (policy.version != 1)
+        issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
+    return issues.errors.empty();
+}
+
 static size_t map_entry_count(bpf_map *map)
 {
     if (!map)
@@ -281,6 +455,24 @@ static size_t map_entry_count(bpf_map *map)
         key.swap(next_key);
     }
     return count;
+}
+
+static int clear_map_entries(bpf_map *map)
+{
+    if (!map)
+        return -ENOENT;
+    int fd = bpf_map__fd(map);
+    const size_t key_sz = bpf_map__key_size(map);
+    std::vector<uint8_t> key(key_sz);
+    std::vector<uint8_t> next_key(key_sz);
+    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
+    while (!rc) {
+        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
+        bpf_map_delete_elem(fd, key.data());
+        if (!rc)
+            key.swap(next_key);
+    }
+    return 0;
 }
 
 static DenyEntries read_deny_db()
@@ -795,13 +987,19 @@ static int run(bool audit_only)
     return err < 0 ? 1 : 0;
 }
 
-static int deny_path(const std::string &path)
+static int add_deny_inode(BpfState &state, const InodeId &id, DenyEntries &entries)
 {
+    uint8_t one = 1;
+    if (bpf_map_update_elem(bpf_map__fd(state.deny_inode), &id, &one, BPF_ANY)) {
+        std::cerr << "Failed to update deny_inode_map: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+    if (entries.find(id) == entries.end())
+        entries[id] = "";
     return 0;
 }
 
-// Populate the inode deny map using a real path (symlinks resolved).
-static int block_file(const std::string &path)
+static int add_deny_path(BpfState &state, const std::string &path, DenyEntries &entries)
 {
     if (path.empty()) {
         std::cerr << "Path is empty" << std::endl;
@@ -825,6 +1023,51 @@ static int block_file(const std::string &path)
     id.ino = st.st_ino;
     id.dev = static_cast<uint32_t>(st.st_dev);
 
+    if (add_deny_inode(state, id, entries))
+        return 1;
+
+    uint8_t one = 1;
+    std::string resolved_str = resolved.string();
+    PathKey path_key {};
+    fill_path_key(resolved_str, path_key);
+    if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &path_key, &one, BPF_ANY)) {
+        std::cerr << "Failed to update deny_path_map: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+    if (path != resolved_str) {
+        PathKey raw_key {};
+        fill_path_key(path, raw_key);
+        if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &raw_key, &one, BPF_ANY)) {
+            std::cerr << "Failed to update deny_path_map (raw): " << std::strerror(errno) << std::endl;
+            return 1;
+        }
+    }
+
+    entries[id] = resolved_str;
+    return 0;
+}
+
+static int add_allow_cgroup(BpfState &state, uint64_t cgid)
+{
+    uint8_t one = 1;
+    if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
+        std::cerr << "Failed to update allow_cgroup_map: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
+static int add_allow_cgroup_path(BpfState &state, const std::string &path)
+{
+    uint64_t cgid = 0;
+    if (!path_to_cgid(path, cgid))
+        return 1;
+    return add_allow_cgroup(state, cgid);
+}
+
+// Populate the inode deny map using a real path (symlinks resolved).
+static int block_file(const std::string &path)
+{
     if (bump_memlock_rlimit()) {
         std::cerr << "Failed to raise memlock rlimit: " << std::strerror(errno) << std::endl;
         return 1;
@@ -837,33 +1080,11 @@ static int block_file(const std::string &path)
         return 1;
     }
 
-    uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_inode), &id, &one, BPF_ANY)) {
-        std::cerr << "Failed to update deny_inode_map: " << std::strerror(errno) << std::endl;
-        cleanup_bpf(state);
-        return 1;
-    }
-
-    std::string resolved_str = resolved.string();
-    PathKey path_key {};
-    fill_path_key(resolved_str, path_key);
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &path_key, &one, BPF_ANY)) {
-        std::cerr << "Failed to update deny_path_map: " << std::strerror(errno) << std::endl;
-        cleanup_bpf(state);
-        return 1;
-    }
-    if (path != resolved_str) {
-        PathKey raw_key {};
-        fill_path_key(path, raw_key);
-        if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &raw_key, &one, BPF_ANY)) {
-            std::cerr << "Failed to update deny_path_map (raw): " << std::strerror(errno) << std::endl;
-            cleanup_bpf(state);
-            return 1;
-        }
-    }
-
     auto entries = read_deny_db();
-    entries[id] = resolved_str;
+    if (add_deny_path(state, path, entries)) {
+        cleanup_bpf(state);
+        return 1;
+    }
     write_deny_db(entries);
 
     cleanup_bpf(state);
@@ -968,6 +1189,20 @@ static int read_path_block_counts(bpf_map *map, std::vector<std::pair<std::strin
             sum += v;
         std::string path = to_string(key.path, sizeof(key.path));
         out.emplace_back(path, sum);
+        rc = bpf_map_get_next_key(fd, &key, &next_key);
+        key = next_key;
+    }
+    return 0;
+}
+
+static int read_allow_cgroup_ids(bpf_map *map, std::vector<uint64_t> &out)
+{
+    int fd = bpf_map__fd(map);
+    uint64_t key = 0;
+    uint64_t next_key = 0;
+    int rc = bpf_map_get_next_key(fd, nullptr, &key);
+    while (!rc) {
+        out.push_back(key);
         rc = bpf_map_get_next_key(fd, &key, &next_key);
         key = next_key;
     }
@@ -1133,10 +1368,6 @@ static int block_clear()
 
 static int allow_add(const std::string &path)
 {
-    uint64_t cgid = 0;
-    if (!path_to_cgid(path, cgid))
-        return 1;
-
     if (bump_memlock_rlimit()) {
         std::cerr << "Failed to raise memlock rlimit: " << std::strerror(errno) << std::endl;
         return 1;
@@ -1149,9 +1380,7 @@ static int allow_add(const std::string &path)
         return 1;
     }
 
-    uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
-        std::cerr << "Failed to update allow_cgroup_map: " << std::strerror(errno) << std::endl;
+    if (add_allow_cgroup_path(state, path)) {
         cleanup_bpf(state);
         return 1;
     }
@@ -1185,17 +1414,196 @@ static int allow_list()
         return 1;
     }
 
-    uint64_t key = 0;
-    uint64_t next_key = 0;
-    int rc = bpf_map_get_next_key(bpf_map__fd(state.allow_cgroup), nullptr, &key);
-    while (!rc) {
-        std::cout << key << std::endl;
-        rc = bpf_map_get_next_key(bpf_map__fd(state.allow_cgroup), &key, &next_key);
-        key = next_key;
-    }
+    std::vector<uint64_t> ids;
+    read_allow_cgroup_ids(state.allow_cgroup, ids);
+    for (uint64_t id : ids)
+        std::cout << id << std::endl;
 
     cleanup_bpf(state);
     return 0;
+}
+
+static int reset_policy_maps(BpfState &state)
+{
+    if (clear_map_entries(state.deny_inode)) {
+        std::cerr << "Failed to clear deny_inode_map" << std::endl;
+        return 1;
+    }
+    if (clear_map_entries(state.deny_path)) {
+        std::cerr << "Failed to clear deny_path_map" << std::endl;
+        return 1;
+    }
+    if (clear_map_entries(state.allow_cgroup)) {
+        std::cerr << "Failed to clear allow_cgroup_map" << std::endl;
+        return 1;
+    }
+    if (clear_map_entries(state.deny_cgroup_stats)) {
+        std::cerr << "Failed to clear deny_cgroup_stats" << std::endl;
+        return 1;
+    }
+    if (clear_map_entries(state.deny_inode_stats)) {
+        std::cerr << "Failed to clear deny_inode_stats" << std::endl;
+        return 1;
+    }
+    if (clear_map_entries(state.deny_path_stats)) {
+        std::cerr << "Failed to clear deny_path_stats" << std::endl;
+        return 1;
+    }
+    if (state.block_stats)
+        reset_block_stats_map(state.block_stats);
+
+    std::error_code ec;
+    std::filesystem::remove(kDenyDbPath, ec);
+    return 0;
+}
+
+static int policy_lint(const std::string &path)
+{
+    Policy policy {};
+    PolicyIssues issues;
+    bool ok = parse_policy_file(path, policy, issues);
+    report_policy_issues(issues);
+    return ok ? 0 : 1;
+}
+
+static int policy_apply(const std::string &path, bool reset)
+{
+    Policy policy {};
+    PolicyIssues issues;
+    bool ok = parse_policy_file(path, policy, issues);
+    report_policy_issues(issues);
+    if (!ok)
+        return 1;
+
+    if (bump_memlock_rlimit()) {
+        std::cerr << "Failed to raise memlock rlimit: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+
+    BpfState state;
+    int err = load_bpf(true, false, state);
+    if (err) {
+        std::cerr << "Failed to load BPF object: " << std::strerror(-err) << std::endl;
+        return 1;
+    }
+
+    err = ensure_layout_version(state);
+    if (err) {
+        cleanup_bpf(state);
+        return 1;
+    }
+
+    if (reset) {
+        if (reset_policy_maps(state)) {
+            cleanup_bpf(state);
+            return 1;
+        }
+    }
+
+    DenyEntries entries = reset ? DenyEntries {} : read_deny_db();
+
+    for (const auto &deny_path : policy.deny_paths) {
+        if (add_deny_path(state, deny_path, entries)) {
+            cleanup_bpf(state);
+            return 1;
+        }
+    }
+    for (const auto &id : policy.deny_inodes) {
+        if (add_deny_inode(state, id, entries)) {
+            cleanup_bpf(state);
+            return 1;
+        }
+    }
+    for (const auto &cgid : policy.allow_cgroup_ids) {
+        if (add_allow_cgroup(state, cgid)) {
+            cleanup_bpf(state);
+            return 1;
+        }
+    }
+    for (const auto &cgpath : policy.allow_cgroup_paths) {
+        if (add_allow_cgroup_path(state, cgpath)) {
+            cleanup_bpf(state);
+            return 1;
+        }
+    }
+
+    write_deny_db(entries);
+    cleanup_bpf(state);
+    return 0;
+}
+
+static int write_policy_file(const std::string &path, std::vector<std::string> deny_paths,
+                             std::vector<std::string> deny_inodes, std::vector<std::string> allow_cgroups)
+{
+    std::sort(deny_paths.begin(), deny_paths.end());
+    deny_paths.erase(std::unique(deny_paths.begin(), deny_paths.end()), deny_paths.end());
+    std::sort(deny_inodes.begin(), deny_inodes.end());
+    deny_inodes.erase(std::unique(deny_inodes.begin(), deny_inodes.end()), deny_inodes.end());
+    std::sort(allow_cgroups.begin(), allow_cgroups.end());
+    allow_cgroups.erase(std::unique(allow_cgroups.begin(), allow_cgroups.end()), allow_cgroups.end());
+
+    std::ofstream out(path, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "Failed to write policy file '" << path << "'" << std::endl;
+        return 1;
+    }
+    out << "version=1\n";
+    if (!deny_paths.empty()) {
+        out << "\n[deny_path]\n";
+        for (const auto &p : deny_paths)
+            out << p << "\n";
+    }
+    if (!deny_inodes.empty()) {
+        out << "\n[deny_inode]\n";
+        for (const auto &p : deny_inodes)
+            out << p << "\n";
+    }
+    if (!allow_cgroups.empty()) {
+        out << "\n[allow_cgroup]\n";
+        for (const auto &p : allow_cgroups)
+            out << p << "\n";
+    }
+    return 0;
+}
+
+static int policy_export(const std::string &path)
+{
+    if (bump_memlock_rlimit()) {
+        std::cerr << "Failed to raise memlock rlimit: " << std::strerror(errno) << std::endl;
+        return 1;
+    }
+
+    BpfState state;
+    int err = load_bpf(true, false, state);
+    if (err) {
+        std::cerr << "Failed to load BPF object: " << std::strerror(-err) << std::endl;
+        return 1;
+    }
+
+    auto db = read_deny_db();
+    std::vector<std::string> deny_paths;
+    std::vector<std::string> deny_inodes;
+    for (const auto &kv : db) {
+        if (!kv.second.empty())
+            deny_paths.push_back(kv.second);
+        else
+            deny_inodes.push_back(inode_to_string(kv.first));
+    }
+
+    std::vector<uint64_t> allow_ids;
+    read_allow_cgroup_ids(state.allow_cgroup, allow_ids);
+    std::vector<std::string> allow_entries;
+    for (uint64_t id : allow_ids) {
+        std::string path = resolve_cgroup_path(id);
+        if (!path.empty())
+            allow_entries.push_back(path);
+        else
+            allow_entries.push_back("cgid:" + std::to_string(id));
+    }
+
+    int rc = write_policy_file(path, deny_paths, deny_inodes, allow_entries);
+    cleanup_bpf(state);
+    return rc;
 }
 
 static int print_stats()
@@ -1280,6 +1688,7 @@ static int usage(const char *prog)
               << " run [--audit|--enforce]"
               << " | block {add|del|list|clear} [path]"
               << " | allow {add|del} <cgroup_path> | allow list"
+              << " | policy {lint|apply|export} <file> [--reset]"
               << " | stats" << std::endl;
     return 1;
 }
@@ -1343,6 +1752,34 @@ int main(int argc, char **argv)
         } else {
             return usage(argv[0]);
         }
+    }
+    if (cmd == "policy") {
+        if (argc < 4)
+            return usage(argv[0]);
+        std::string sub = argv[2];
+        if (sub == "lint") {
+            if (argc != 4)
+                return usage(argv[0]);
+            return policy_lint(argv[3]);
+        }
+        if (sub == "apply") {
+            bool reset = false;
+            for (int i = 4; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "--reset") {
+                    reset = true;
+                } else {
+                    return usage(argv[0]);
+                }
+            }
+            return policy_apply(argv[3], reset);
+        }
+        if (sub == "export") {
+            if (argc != 4)
+                return usage(argv[0]);
+            return policy_export(argv[3]);
+        }
+        return usage(argv[0]);
     }
     if (cmd == "stats") {
         if (argc > 2)

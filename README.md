@@ -70,6 +70,28 @@ sudo ./build/aegisbpf allow list
 sudo ./build/aegisbpf allow del /sys/fs/cgroup/my_service
 ```
 
+## Policy file
+
+Use policy files for repeatable rule sets (see `docs/POLICY.md`).
+
+```
+sudo ./build/aegisbpf policy lint config/policy.example
+sudo ./build/aegisbpf policy apply config/policy.example --reset
+sudo ./build/aegisbpf policy export /tmp/aegis.policy
+```
+
+`policy apply` is additive by default; use `--reset` to clear deny/allow maps and
+counters before applying. `deny_path` entries must exist at apply time.
+
+## Systemd packaging
+
+Baseline units live in `packaging/systemd/`:
+- `packaging/systemd/aegisbpf.service`
+- `packaging/systemd/aegisbpf.env`
+
+Copy the env file to `/etc/default/aegisbpf` and set `AEGIS_POLICY` to your
+policy file path (for example `/etc/aegisbpf/policy.conf`).
+
 ## Stats
 
 ```
