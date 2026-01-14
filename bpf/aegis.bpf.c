@@ -5,6 +5,7 @@
 #include <asm-generic/errno-base.h>
 
 #define SIGKILL 9
+#define DENY_PATH_MAX 256
 
 enum event_type {
     EVENT_EXEC = 1,
@@ -39,6 +40,7 @@ struct event {
             char comm[16];
             __u64 ino;
             __u32 dev;
+            char path[DENY_PATH_MAX];
             char action[8];
         } block;
     };
@@ -47,6 +49,10 @@ struct event {
 struct inode_id {
     __u64 ino;
     __u32 dev;
+};
+
+struct path_key {
+    char path[DENY_PATH_MAX];
 };
 
 struct {
@@ -108,11 +114,25 @@ struct {
 } deny_inode_map SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct path_key);
+    __type(value, __u8);
+} deny_path_map SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
     __uint(max_entries, 4096);
     __type(key, __u64);
     __type(value, __u64);
 } deny_cgroup_stats SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct path_key);
+    __type(value, __u64);
+} deny_path_stats SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
@@ -280,6 +300,7 @@ int BPF_PROG(handle_file_open, struct file *file)
             bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
             e->block.ino = key.ino;
             e->block.dev = key.dev;
+            __builtin_memset(e->block.path, 0, sizeof(e->block.path));
             if (audit)
                 __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
             else
@@ -300,6 +321,98 @@ out_audit:
     return 0;
 out_enforce:
     return -EPERM;
+}
+
+SEC("tracepoint/syscalls/sys_enter_openat")
+int handle_openat(struct trace_event_raw_sys_enter *ctx)
+{
+    const char *filename = (const char *)ctx->args[1];
+    struct path_key key = {};
+    __u8 *deny;
+    long len;
+    __u32 pid;
+    __u64 cgid;
+    struct event *e;
+    __u32 zero = 0;
+    struct {
+        __u64 blocks;
+        __u64 ringbuf_drops;
+    } *stats;
+    __u64 *cg_stat;
+    __u64 *path_stat;
+    __u64 zero64 = 0;
+    struct task_struct *task = bpf_get_current_task_btf();
+
+    if (!filename)
+        return 0;
+
+    len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
+    if (len <= 0)
+        return 0;
+
+    deny = bpf_map_lookup_elem(&deny_path_map, &key);
+    if (!deny)
+        return 0;
+
+    pid = bpf_get_current_pid_tgid() >> 32;
+    cgid = bpf_get_current_cgroup_id();
+    if (bpf_map_lookup_elem(&allow_cgroup_map, &cgid))
+        return 0;
+
+    stats = bpf_map_lookup_elem(&block_stats, &zero);
+    if (stats)
+        __sync_fetch_and_add(&stats->blocks, 1);
+
+    cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
+    if (!cg_stat) {
+        bpf_map_update_elem(&deny_cgroup_stats, &cgid, &zero64, BPF_NOEXIST);
+        cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
+    }
+    if (cg_stat)
+        __sync_fetch_and_add(cg_stat, 1);
+
+    path_stat = bpf_map_lookup_elem(&deny_path_stats, &key);
+    if (!path_stat) {
+        bpf_map_update_elem(&deny_path_stats, &key, &zero64, BPF_NOEXIST);
+        path_stat = bpf_map_lookup_elem(&deny_path_stats, &key);
+    }
+    if (path_stat)
+        __sync_fetch_and_add(path_stat, 1);
+
+    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (e) {
+        e->type = EVENT_BLOCK;
+        e->block.pid = pid;
+        e->block.ppid = 0;
+        e->block.start_time = 0;
+        e->block.parent_start_time = 0;
+        e->block.cgid = cgid;
+        struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
+        if (!pi && task) {
+            struct process_info info = {};
+            info.pid = pid;
+            info.ppid = BPF_CORE_READ(task, real_parent, tgid);
+            info.start_time = BPF_CORE_READ(task, start_time);
+            info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
+            bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
+            pi = bpf_map_lookup_elem(&process_tree, &pid);
+        }
+        if (pi) {
+            e->block.ppid = pi->ppid;
+            e->block.start_time = pi->start_time;
+            e->block.parent_start_time = pi->parent_start_time;
+        }
+        bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
+        e->block.ino = 0;
+        e->block.dev = 0;
+        __builtin_memcpy(e->block.path, key.path, sizeof(e->block.path));
+        __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
+        bpf_ringbuf_submit(e, 0);
+    } else if (stats) {
+        __sync_fetch_and_add(&stats->ringbuf_drops, 1);
+    }
+
+    return 0;
 }
 
 SEC("tracepoint/sched/sched_process_fork")

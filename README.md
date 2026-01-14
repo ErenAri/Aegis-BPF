@@ -29,6 +29,10 @@ sudo ./build/aegisbpf run
 sudo ./build/aegisbpf run --audit
 ```
 
+If BPF LSM is not enabled, the agent automatically falls back to tracepoint audit-only mode
+(no enforcement). In that mode, file access auditing matches raw `openat` path strings and
+may not resolve relative paths.
+
 Startup does the following:
 - Verifies cgroup v2 and bpffs mounts.
 - Loads BPF and pins maps under `/sys/fs/bpf/aegisbpf`.
@@ -44,10 +48,18 @@ sudo ./build/aegisbpf block del /etc/shadow
 sudo ./build/aegisbpf block clear   # clears pins and DB, resets counters
 ```
 
+In tracepoint audit fallback, path matching uses raw `openat` strings. Use absolute paths to
+avoid mismatches; the agent stores both the canonical path and the raw input string.
+
 State is persisted in:
 - `/sys/fs/bpf/aegisbpf/deny_inode`
+- `/sys/fs/bpf/aegisbpf/deny_path`
 - `/sys/fs/bpf/aegisbpf/allow_cgroup`
 - `/sys/fs/bpf/aegisbpf/block_stats`
+- `/sys/fs/bpf/aegisbpf/deny_cgroup_stats`
+- `/sys/fs/bpf/aegisbpf/deny_inode_stats`
+- `/sys/fs/bpf/aegisbpf/deny_path_stats`
+- `/sys/fs/bpf/aegisbpf/agent_meta`
 - `/var/lib/aegisbpf/deny.db` (dev/ino + optional path notes)
 
 ## Manage allowlist (cgroup based)
@@ -64,13 +76,13 @@ sudo ./build/aegisbpf allow del /sys/fs/cgroup/my_service
 sudo ./build/aegisbpf stats
 ```
 
-Outputs counts of deny/allow entries plus per-CPU aggregated `blocks` and `ringbuf_drops`, and per-cgroup/per-inode block counters (with best-effort cgroup path resolution).
+Outputs counts of deny inode/path/allow entries plus per-CPU aggregated `blocks` and `ringbuf_drops`, and per-cgroup/per-inode/per-path block counters (with best-effort cgroup path resolution).
 
 ## Event format
 
 Ring buffer events are newline-delimited JSON:
 - EXEC: `{"type":"exec","pid":123,"ppid":1,"start_time":1234567890,"cgid":987,"cgroup_path":"/sys/fs/cgroup/...", "comm":"bash"}`
-- BLOCK: `{"type":"block","pid":123,"ppid":1,"start_time":1234,"parent_start_time":5678,"cgid":987,"cgroup_path":"/sys/fs/cgroup/...", "ino":42,"dev":2049,"action":"KILL","comm":"cat"}` (action is `AUDIT` when running with `--audit`)
+- BLOCK: `{"type":"block","pid":123,"ppid":1,"start_time":1234,"parent_start_time":5678,"cgid":987,"cgroup_path":"/sys/fs/cgroup/...", "path":"/tmp/foo","resolved_path":"/tmp/foo","ino":42,"dev":2049,"action":"KILL","comm":"cat"}` (action is `AUDIT` when running with `--audit` or in tracepoint fallback)
 
 ## Smoke test
 
@@ -81,3 +93,9 @@ sudo scripts/smoke_block.sh
 ```
 
 It starts the agent, blocks a temp file, attempts to read it (expects KILL/EPERM), prints stats, and cleans up.
+
+If BPF LSM is not enabled, use the audit fallback smoke test instead:
+
+```
+sudo scripts/smoke_audit_fallback.sh
+```
