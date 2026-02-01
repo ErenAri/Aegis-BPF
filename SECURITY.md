@@ -6,34 +6,6 @@
 | ------- | ------------------ |
 | 0.1.x   | :white_check_mark: |
 
-## Reporting a Vulnerability
-
-We take security vulnerabilities seriously. If you discover a security issue, please report it responsibly.
-
-### How to Report
-
-1. **Do NOT open a public GitHub issue** for security vulnerabilities.
-
-2. **Email the security team** at: security@aegisbpf.localhost (replace with actual email)
-
-3. **Include the following information:**
-   - Description of the vulnerability
-   - Steps to reproduce the issue
-   - Potential impact assessment
-   - Any suggested fixes (optional)
-
-### What to Expect
-
-- **Acknowledgment**: We will acknowledge receipt within 48 hours.
-- **Assessment**: We will assess the vulnerability and determine severity within 7 days.
-- **Updates**: We will provide status updates at least every 14 days.
-- **Resolution**: We aim to resolve critical vulnerabilities within 30 days.
-
-### Disclosure Policy
-
-- We follow a coordinated disclosure process.
-- We will credit reporters in our security advisories (unless anonymity is requested).
-- We request a 90-day disclosure window before public disclosure.
 
 ## Security Hardening
 
