@@ -45,6 +45,10 @@ bool parse_uint64(const std::string &text, uint64_t &out)
     if (text.empty()) {
         return false;
     }
+    // Reject negative numbers (strtoull accepts them and wraps around)
+    if (text[0] == '-') {
+        return false;
+    }
     char *end = nullptr;
     errno = 0;
     unsigned long long val = std::strtoull(text.c_str(), &end, 10);

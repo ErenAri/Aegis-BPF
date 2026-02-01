@@ -29,7 +29,7 @@ namespace {
 
 // Syscall allowlist - these are the only syscalls aegisbpf needs
 // Organized by category for maintainability
-constexpr int ALLOWED_SYSCALLS[] = {
+constexpr unsigned int ALLOWED_SYSCALLS[] = {
     // BPF operations (core functionality)
     SYS_bpf,
     SYS_perf_event_open,
@@ -169,7 +169,7 @@ bool seccomp_available()
 Result<void> apply_seccomp_filter()
 {
     if (!seccomp_available()) {
-        return Error(ErrorCode::OperationFailed, "seccomp not available on this system");
+        return Error(ErrorCode::PermissionDenied, "seccomp not available on this system");
     }
 
     // Build BPF filter program
@@ -224,7 +224,7 @@ Result<void> apply_seccomp_filter()
         return Error::system(errno, "prctl(PR_SET_SECCOMP)");
     }
 
-    SLOG_INFO("Seccomp filter applied").field("allowed_syscalls", NUM_ALLOWED).emit();
+    logger().log(SLOG_INFO("Seccomp filter applied").field("allowed_syscalls", NUM_ALLOWED));
     return {};
 }
 
