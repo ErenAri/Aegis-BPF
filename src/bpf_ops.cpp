@@ -578,7 +578,7 @@ Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries
 
     InodeId id{};
     id.ino = st.st_ino;
-    id.dev = static_cast<uint32_t>(st.st_dev);
+    id.dev = static_cast<uint32_t>(gnu_dev_makedev(major(st.st_dev), minor(st.st_dev)));
     id.pad = 0;
 
     TRY(add_deny_inode(state, id, entries));
@@ -721,7 +721,7 @@ Result<void> populate_survival_allowlist(BpfState &state)
 
         InodeId id{};
         id.ino = st.st_ino;
-        id.dev = static_cast<uint32_t>(st.st_dev);
+        id.dev = static_cast<uint32_t>(gnu_dev_makedev(major(st.st_dev), minor(st.st_dev)));
         id.pad = 0;
 
         auto result = add_survival_entry(state, id);
