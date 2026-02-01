@@ -141,9 +141,15 @@ void BpfState::cleanup()
 
 static Result<void> attach_prog(bpf_program *prog, BpfState &state)
 {
-    bpf_link *link = bpf_program__attach(prog);
+    const char *sec = bpf_program__section_name(prog);
+    const bool is_lsm = sec && (std::strncmp(sec, "lsm/", 4) == 0 || std::strncmp(sec, "lsm.s/", 6) == 0);
+
+    bpf_link *link = is_lsm ? bpf_program__attach_lsm(prog) : bpf_program__attach(prog);
     int err = libbpf_get_error(link);
-    if (err) {
+    if (err || !link) {
+        if (err == 0) {
+            err = -EINVAL;
+        }
         return Error::bpf_error(err, "Failed to attach BPF program");
     }
     state.links.push_back(link);
@@ -201,6 +207,10 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
 
     if (!kernel_bpf_lsm_enabled()) {
         bpf_program *lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+        if (lsm_prog) {
+            bpf_program__set_autoload(lsm_prog, false);
+        }
+        lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
         if (lsm_prog) {
             bpf_program__set_autoload(lsm_prog, false);
         }
@@ -274,14 +284,27 @@ Result<void> attach_all(BpfState &state, bool lsm_enabled)
     TRY(attach_prog(prog, state));
 
     if (lsm_enabled) {
+        bool attached = false;
+        prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
+        if (prog) {
+            TRY(attach_prog(prog, state));
+            attached = true;
+        }
         prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+        if (prog) {
+            TRY(attach_prog(prog, state));
+            attached = true;
+        }
+        if (!attached) {
+            return Error(ErrorCode::BpfAttachFailed, "LSM file open programs not found");
+        }
     } else {
         prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
+        if (!prog) {
+            return Error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
+        }
+        TRY(attach_prog(prog, state));
     }
-    if (!prog) {
-        return Error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
-    }
-    TRY(attach_prog(prog, state));
 
     prog = bpf_object__find_program_by_name(state.obj, "handle_fork");
     if (!prog) {
@@ -556,6 +579,7 @@ Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries
     InodeId id{};
     id.ino = st.st_ino;
     id.dev = static_cast<uint32_t>(st.st_dev);
+    id.pad = 0;
 
     TRY(add_deny_inode(state, id, entries));
 
@@ -698,6 +722,7 @@ Result<void> populate_survival_allowlist(BpfState &state)
         InodeId id{};
         id.ino = st.st_ino;
         id.dev = static_cast<uint32_t>(st.st_dev);
+        id.pad = 0;
 
         auto result = add_survival_entry(state, id);
         if (result) {

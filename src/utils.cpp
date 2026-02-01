@@ -77,6 +77,7 @@ bool parse_inode_id(const std::string &text, InodeId &out)
     }
     out.dev = static_cast<uint32_t>(dev);
     out.ino = ino;
+    out.pad = 0;
     return true;
 }
 
@@ -149,6 +150,7 @@ Result<InodeId> path_to_inode(const std::string &path)
     InodeId id{};
     id.ino = st.st_ino;
     id.dev = static_cast<uint32_t>(st.st_dev);
+    id.pad = 0;
     return id;
 }
 
@@ -508,6 +510,7 @@ Result<std::pair<InodeId, std::string>> canonicalize_path(const std::string &pat
     InodeId id{};
     id.ino = st.st_ino;
     id.dev = static_cast<uint32_t>(st.st_dev);
+    id.pad = 0;
 
     return std::make_pair(id, resolved_str);
 }
@@ -533,6 +536,7 @@ Result<InodeId> resolve_to_inode(const std::string &path, bool follow_symlinks)
     InodeId id{};
     id.ino = st.st_ino;
     id.dev = static_cast<uint32_t>(st.st_dev);
+    id.pad = 0;
     return id;
 }
 

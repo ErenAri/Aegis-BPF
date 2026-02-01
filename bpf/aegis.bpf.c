@@ -14,6 +14,11 @@
 
 #define SIGKILL 9
 #define DENY_PATH_MAX 256
+#ifndef MAY_EXEC
+#define MAY_EXEC 0x01
+#define MAY_WRITE 0x02
+#define MAY_READ 0x04
+#endif
 
 /* ============================================================================
  * Type Definitions
@@ -63,6 +68,7 @@ struct event {
 struct inode_id {
     __u64 ino;
     __u32 dev;
+    __u32 pad;
 };
 
 struct path_key {
@@ -367,10 +373,9 @@ int BPF_PROG(handle_file_open, struct file *file)
     if (!inode)
         return 0;
 
-    struct inode_id key = {
-        .ino = BPF_CORE_READ(inode, i_ino),
-        .dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev),
-    };
+    struct inode_id key = {};
+    key.ino = BPF_CORE_READ(inode, i_ino);
+    key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
 
     /* FIRST: Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
@@ -418,6 +423,70 @@ int BPF_PROG(handle_file_open, struct file *file)
     }
 
     return audit ? 0 : -EPERM;
+}
+
+static __always_inline int handle_inode_permission_impl(struct inode *inode, int mask)
+{
+    if (!inode)
+        return 0;
+    (void)mask;
+
+    struct inode_id key = {};
+    key.ino = BPF_CORE_READ(inode, i_ino);
+    key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
+
+    /* FIRST: Survival allowlist - always allow critical binaries */
+    if (bpf_map_lookup_elem(&survival_allowlist, &key))
+        return 0;
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u64 cgid = bpf_get_current_cgroup_id();
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u8 audit = get_effective_audit_mode();
+
+    /* Skip allowed cgroups */
+    if (is_cgroup_allowed(cgid))
+        return 0;
+
+    /* Check if inode is in deny list */
+    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+        return 0;
+
+    /* Update statistics */
+    increment_block_stats();
+    increment_cgroup_stat(cgid);
+    increment_inode_stat(&key);
+
+    /* Send SIGKILL in enforce mode */
+    if (!audit)
+        bpf_send_signal(SIGKILL);
+
+    /* Send block event */
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (e) {
+        e->type = EVENT_BLOCK;
+        fill_block_event_process_info(&e->block, pid, task);
+        e->block.cgid = cgid;
+        bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
+        e->block.ino = key.ino;
+        e->block.dev = key.dev;
+        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+        if (audit)
+            __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
+        else
+            __builtin_memcpy(e->block.action, "KILL", sizeof("KILL"));
+        bpf_ringbuf_submit(e, 0);
+    } else {
+        increment_ringbuf_drops();
+    }
+
+    return audit ? 0 : -EPERM;
+}
+
+SEC("lsm/inode_permission")
+int BPF_PROG(handle_inode_permission, struct inode *inode, int mask)
+{
+    return handle_inode_permission_impl(inode, mask);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat")

@@ -174,7 +174,7 @@ TEST(PrometheusEscapeLabelTest, Newline) {
 }
 
 TEST(InodeToStringTest, Format) {
-    InodeId id{12345, 259};
+    InodeId id{12345, 259, 0};
     EXPECT_EQ(inode_to_string(id), "259:12345");
 }
 

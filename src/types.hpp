@@ -81,6 +81,7 @@ struct BlockStats {
 struct InodeId {
     uint64_t ino;
     uint32_t dev;
+    uint32_t pad;
 
     bool operator==(const InodeId &other) const noexcept
     {
