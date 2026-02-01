@@ -1,3 +1,11 @@
+/*
+ * AegisBPF - eBPF-based runtime security agent
+ *
+ * This BPF program provides file access control using LSM hooks (when available)
+ * or tracepoints (as fallback). It tracks process lineage, blocks access to
+ * denied inodes/paths, and reports events via ring buffer.
+ */
+
 #include "vmlinux.h"
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -6,6 +14,10 @@
 
 #define SIGKILL 9
 #define DENY_PATH_MAX 256
+
+/* ============================================================================
+ * Type Definitions
+ * ============================================================================ */
 
 enum event_type {
     EVENT_EXEC = 1,
@@ -27,22 +39,24 @@ struct exec_event {
     char comm[16];
 };
 
+struct block_event {
+    __u32 ppid;
+    __u64 start_time;
+    __u64 parent_start_time;
+    __u32 pid;
+    __u64 cgid;
+    char comm[16];
+    __u64 ino;
+    __u32 dev;
+    char path[DENY_PATH_MAX];
+    char action[8];
+};
+
 struct event {
     __u32 type;
     union {
         struct exec_event exec;
-        struct {
-            __u32 ppid;
-            __u64 start_time;
-            __u64 parent_start_time;
-            __u32 pid;
-            __u64 cgid;
-            char comm[16];
-            __u64 ino;
-            __u32 dev;
-            char path[DENY_PATH_MAX];
-            char action[8];
-        } block;
+        struct block_event block;
     };
 };
 
@@ -54,6 +68,23 @@ struct inode_id {
 struct path_key {
     char path[DENY_PATH_MAX];
 };
+
+struct agent_config {
+    __u8 audit_only;
+};
+
+struct agent_meta {
+    __u32 layout_version;
+};
+
+struct block_stats_entry {
+    __u64 blocks;
+    __u64 ringbuf_drops;
+};
+
+/* ============================================================================
+ * BPF Maps
+ * ============================================================================ */
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -69,20 +100,12 @@ struct {
     __type(value, __u8);
 } allow_cgroup_map SEC(".maps");
 
-struct agent_config {
-    __u8 audit_only;
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, __u32);
     __type(value, struct agent_config);
 } agent_config_map SEC(".maps");
-
-struct agent_meta {
-    __u32 layout_version;
-};
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -145,10 +168,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, __u32);
-    __type(value, struct {
-        __u64 blocks;
-        __u64 ringbuf_drops;
-    });
+    __type(value, struct block_stats_entry);
 } block_stats SEC(".maps");
 
 struct {
@@ -156,44 +176,141 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+/* ============================================================================
+ * Helper Functions
+ * ============================================================================ */
+
+static __always_inline void increment_block_stats(void)
+{
+    __u32 zero = 0;
+    struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
+    if (stats)
+        __sync_fetch_and_add(&stats->blocks, 1);
+}
+
+static __always_inline void increment_ringbuf_drops(void)
+{
+    __u32 zero = 0;
+    struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
+    if (stats)
+        __sync_fetch_and_add(&stats->ringbuf_drops, 1);
+}
+
+static __always_inline void increment_cgroup_stat(__u64 cgid)
+{
+    __u64 zero64 = 0;
+    __u64 *cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
+    if (!cg_stat) {
+        bpf_map_update_elem(&deny_cgroup_stats, &cgid, &zero64, BPF_NOEXIST);
+        cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
+    }
+    if (cg_stat)
+        __sync_fetch_and_add(cg_stat, 1);
+}
+
+static __always_inline void increment_inode_stat(const struct inode_id *key)
+{
+    __u64 zero64 = 0;
+    __u64 *ino_stat = bpf_map_lookup_elem(&deny_inode_stats, key);
+    if (!ino_stat) {
+        bpf_map_update_elem(&deny_inode_stats, key, &zero64, BPF_NOEXIST);
+        ino_stat = bpf_map_lookup_elem(&deny_inode_stats, key);
+    }
+    if (ino_stat)
+        __sync_fetch_and_add(ino_stat, 1);
+}
+
+static __always_inline void increment_path_stat(const struct path_key *key)
+{
+    __u64 zero64 = 0;
+    __u64 *path_stat = bpf_map_lookup_elem(&deny_path_stats, key);
+    if (!path_stat) {
+        bpf_map_update_elem(&deny_path_stats, key, &zero64, BPF_NOEXIST);
+        path_stat = bpf_map_lookup_elem(&deny_path_stats, key);
+    }
+    if (path_stat)
+        __sync_fetch_and_add(path_stat, 1);
+}
+
+static __always_inline struct process_info *get_or_create_process_info(
+    __u32 pid, struct task_struct *task)
+{
+    struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
+    if (!pi && task) {
+        struct process_info info = {};
+        info.pid = pid;
+        info.ppid = BPF_CORE_READ(task, real_parent, tgid);
+        info.start_time = BPF_CORE_READ(task, start_time);
+        info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
+        bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
+        pi = bpf_map_lookup_elem(&process_tree, &pid);
+    }
+    return pi;
+}
+
+static __always_inline void fill_block_event_process_info(
+    struct block_event *block, __u32 pid, struct task_struct *task)
+{
+    block->pid = pid;
+    block->ppid = 0;
+    block->start_time = 0;
+    block->parent_start_time = 0;
+
+    struct process_info *pi = get_or_create_process_info(pid, task);
+    if (pi) {
+        block->ppid = pi->ppid;
+        block->start_time = pi->start_time;
+        block->parent_start_time = pi->parent_start_time;
+    }
+}
+
+static __always_inline __u8 get_audit_mode(void)
+{
+    __u32 zero = 0;
+    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
+    return cfg ? (cfg->audit_only & 1) : 0;
+}
+
+static __always_inline int is_cgroup_allowed(__u64 cgid)
+{
+    return bpf_map_lookup_elem(&allow_cgroup_map, &cgid) != NULL;
+}
+
+/* ============================================================================
+ * BPF Programs
+ * ============================================================================ */
+
 SEC("tracepoint/syscalls/sys_enter_execve")
 int handle_execve(struct trace_event_raw_sys_enter *ctx)
 {
-    struct event *e;
-    struct process_info info = {};
-    struct process_info *existing;
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    __u64 start_time = 0;
-    __u64 parent_start_time = 0;
-    __u32 ppid = 0;
     struct task_struct *task = bpf_get_current_task_btf();
 
-    if (task) {
-        start_time = BPF_CORE_READ(task, start_time);
-        parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
-        ppid = BPF_CORE_READ(task, real_parent, tgid);
-    }
-
-    existing = bpf_map_lookup_elem(&process_tree, &pid);
+    /* Collect process info from task or existing entry */
+    struct process_info info = {};
+    struct process_info *existing = bpf_map_lookup_elem(&process_tree, &pid);
     if (existing) {
-        info.pid = existing->pid;
-        info.ppid = existing->ppid;
-        info.start_time = existing->start_time;
-        info.parent_start_time = existing->parent_start_time;
+        info = *existing;
     }
 
     info.pid = pid;
-    if (ppid)
-        info.ppid = ppid;
-    if (start_time)
-        info.start_time = start_time;
-    if (parent_start_time)
-        info.parent_start_time = parent_start_time;
+    if (task) {
+        __u32 ppid = BPF_CORE_READ(task, real_parent, tgid);
+        __u64 start_time = BPF_CORE_READ(task, start_time);
+        __u64 parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
+        if (ppid)
+            info.ppid = ppid;
+        if (start_time)
+            info.start_time = start_time;
+        if (parent_start_time)
+            info.parent_start_time = parent_start_time;
+    }
 
     bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
 
-    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    /* Send exec event */
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e)
         return 0;
 
@@ -210,206 +327,107 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
 SEC("lsm/file_open")
 int BPF_PROG(handle_file_open, struct file *file)
 {
-    const struct inode *inode;
-    struct inode_id key = {};
-    __u8 *deny;
-    __u32 zero = 0;
-    struct agent_config *cfg;
-    __u8 audit = 0;
-    struct task_struct *task;
-    __u32 pid;
-    __u64 cgid;
-    struct {
-        __u64 blocks;
-        __u64 ringbuf_drops;
-    } *stats;
-    __u64 *cg_stat;
-    __u64 *ino_stat;
-    __u64 zero64 = 0;
-
     if (!file)
         return 0;
 
-    pid = bpf_get_current_pid_tgid() >> 32;
-    task = bpf_get_current_task_btf();
-    cgid = bpf_get_current_cgroup_id();
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u64 cgid = bpf_get_current_cgroup_id();
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u8 audit = get_audit_mode();
 
-    cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (cfg)
-        audit = cfg->audit_only & 1;
-
-    if (bpf_map_lookup_elem(&allow_cgroup_map, &cgid))
+    /* Skip allowed cgroups */
+    if (is_cgroup_allowed(cgid))
         return 0;
 
-    inode = BPF_CORE_READ(file, f_inode);
+    /* Get inode info */
+    const struct inode *inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
         return 0;
 
-    key.ino = BPF_CORE_READ(inode, i_ino);
-    key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
+    struct inode_id key = {
+        .ino = BPF_CORE_READ(inode, i_ino),
+        .dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev),
+    };
 
-    deny = bpf_map_lookup_elem(&deny_inode_map, &key);
-    if (deny) {
-        struct event *e;
-        stats = bpf_map_lookup_elem(&block_stats, &zero);
-        if (stats)
-            __sync_fetch_and_add(&stats->blocks, 1);
+    /* Check if inode is in deny list */
+    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+        return 0;
 
-        cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
-        if (!cg_stat) {
-            bpf_map_update_elem(&deny_cgroup_stats, &cgid, &zero64, BPF_NOEXIST);
-            cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
-        }
-        if (cg_stat)
-            __sync_fetch_and_add(cg_stat, 1);
+    /* Update statistics */
+    increment_block_stats();
+    increment_cgroup_stat(cgid);
+    increment_inode_stat(&key);
 
-        ino_stat = bpf_map_lookup_elem(&deny_inode_stats, &key);
-        if (!ino_stat) {
-            bpf_map_update_elem(&deny_inode_stats, &key, &zero64, BPF_NOEXIST);
-            ino_stat = bpf_map_lookup_elem(&deny_inode_stats, &key);
-        }
-        if (ino_stat)
-            __sync_fetch_and_add(ino_stat, 1);
+    /* Send SIGKILL in enforce mode */
+    if (!audit)
+        bpf_send_signal(SIGKILL);
 
-        if (!audit)
-            bpf_send_signal(SIGKILL);
-
-        e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_BLOCK;
-            e->block.pid = pid;
-            e->block.ppid = 0;
-            e->block.start_time = 0;
-            e->block.parent_start_time = 0;
-            e->block.cgid = cgid;
-            struct process_info *pi = bpf_map_lookup_elem(&process_tree, &e->block.pid);
-            if (!pi && task) {
-                struct process_info info = {};
-                info.pid = pid;
-                info.ppid = BPF_CORE_READ(task, real_parent, tgid);
-                info.start_time = BPF_CORE_READ(task, start_time);
-                info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
-                bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
-                pi = bpf_map_lookup_elem(&process_tree, &pid);
-            }
-            if (pi) {
-                e->block.ppid = pi->ppid;
-                e->block.start_time = pi->start_time;
-                e->block.parent_start_time = pi->parent_start_time;
-            }
-            bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
-            e->block.ino = key.ino;
-            e->block.dev = key.dev;
-            __builtin_memset(e->block.path, 0, sizeof(e->block.path));
-            if (audit)
-                __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
-            else
-                __builtin_memcpy(e->block.action, "KILL", sizeof("KILL"));
-            bpf_ringbuf_submit(e, 0);
-        } else if (stats) {
-            __sync_fetch_and_add(&stats->ringbuf_drops, 1);
-        }
-
+    /* Send block event */
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (e) {
+        e->type = EVENT_BLOCK;
+        fill_block_event_process_info(&e->block, pid, task);
+        e->block.cgid = cgid;
+        bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
+        e->block.ino = key.ino;
+        e->block.dev = key.dev;
+        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
         if (audit)
-            goto out_audit;
-        goto out_enforce;
+            __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
+        else
+            __builtin_memcpy(e->block.action, "KILL", sizeof("KILL"));
+        bpf_ringbuf_submit(e, 0);
+    } else {
+        increment_ringbuf_drops();
     }
 
-    return 0;
-
-out_audit:
-    return 0;
-out_enforce:
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat")
 int handle_openat(struct trace_event_raw_sys_enter *ctx)
 {
     const char *filename = (const char *)ctx->args[1];
-    struct path_key key = {};
-    __u8 *deny;
-    long len;
-    __u32 pid;
-    __u64 cgid;
-    struct event *e;
-    __u32 zero = 0;
-    struct {
-        __u64 blocks;
-        __u64 ringbuf_drops;
-    } *stats;
-    __u64 *cg_stat;
-    __u64 *path_stat;
-    __u64 zero64 = 0;
-    struct task_struct *task = bpf_get_current_task_btf();
-
     if (!filename)
         return 0;
 
-    len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
+    /* Read path from userspace */
+    struct path_key key = {};
+    long len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
     if (len <= 0)
         return 0;
 
-    deny = bpf_map_lookup_elem(&deny_path_map, &key);
-    if (!deny)
+    /* Check if path is in deny list */
+    if (!bpf_map_lookup_elem(&deny_path_map, &key))
         return 0;
 
-    pid = bpf_get_current_pid_tgid() >> 32;
-    cgid = bpf_get_current_cgroup_id();
-    if (bpf_map_lookup_elem(&allow_cgroup_map, &cgid))
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u64 cgid = bpf_get_current_cgroup_id();
+    struct task_struct *task = bpf_get_current_task_btf();
+
+    /* Skip allowed cgroups */
+    if (is_cgroup_allowed(cgid))
         return 0;
 
-    stats = bpf_map_lookup_elem(&block_stats, &zero);
-    if (stats)
-        __sync_fetch_and_add(&stats->blocks, 1);
+    /* Update statistics */
+    increment_block_stats();
+    increment_cgroup_stat(cgid);
+    increment_path_stat(&key);
 
-    cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
-    if (!cg_stat) {
-        bpf_map_update_elem(&deny_cgroup_stats, &cgid, &zero64, BPF_NOEXIST);
-        cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
-    }
-    if (cg_stat)
-        __sync_fetch_and_add(cg_stat, 1);
-
-    path_stat = bpf_map_lookup_elem(&deny_path_stats, &key);
-    if (!path_stat) {
-        bpf_map_update_elem(&deny_path_stats, &key, &zero64, BPF_NOEXIST);
-        path_stat = bpf_map_lookup_elem(&deny_path_stats, &key);
-    }
-    if (path_stat)
-        __sync_fetch_and_add(path_stat, 1);
-
-    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    /* Send block event (audit only - tracepoints can't block) */
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
-        e->block.pid = pid;
-        e->block.ppid = 0;
-        e->block.start_time = 0;
-        e->block.parent_start_time = 0;
+        fill_block_event_process_info(&e->block, pid, task);
         e->block.cgid = cgid;
-        struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
-        if (!pi && task) {
-            struct process_info info = {};
-            info.pid = pid;
-            info.ppid = BPF_CORE_READ(task, real_parent, tgid);
-            info.start_time = BPF_CORE_READ(task, start_time);
-            info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
-            bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
-            pi = bpf_map_lookup_elem(&process_tree, &pid);
-        }
-        if (pi) {
-            e->block.ppid = pi->ppid;
-            e->block.start_time = pi->start_time;
-            e->block.parent_start_time = pi->parent_start_time;
-        }
         bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
         e->block.ino = 0;
         e->block.dev = 0;
         __builtin_memcpy(e->block.path, key.path, sizeof(e->block.path));
         __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
         bpf_ringbuf_submit(e, 0);
-    } else if (stats) {
-        __sync_fetch_and_add(&stats->ringbuf_drops, 1);
+    } else {
+        increment_ringbuf_drops();
     }
 
     return 0;
@@ -418,15 +436,16 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
 SEC("tracepoint/sched/sched_process_fork")
 int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 {
-    struct process_info info = {};
     __u32 child_pid = ctx->child_pid;
     __u32 parent_pid = ctx->parent_pid;
     struct task_struct *task = bpf_get_current_task_btf();
 
-    info.pid = child_pid;
-    info.ppid = parent_pid;
-    if (task)
-        info.parent_start_time = BPF_CORE_READ(task, start_time);
+    struct process_info info = {
+        .pid = child_pid,
+        .ppid = parent_pid,
+        .start_time = 0,
+        .parent_start_time = task ? BPF_CORE_READ(task, start_time) : 0,
+    };
 
     bpf_map_update_elem(&process_tree, &child_pid, &info, BPF_ANY);
     return 0;
@@ -436,7 +455,6 @@ SEC("tracepoint/sched/sched_process_exit")
 int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     bpf_map_delete_elem(&process_tree, &pid);
     return 0;
 }

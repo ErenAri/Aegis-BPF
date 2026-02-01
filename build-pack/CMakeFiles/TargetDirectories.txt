@@ -1,0 +1,10 @@
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/bpf_skel.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/aegisbpf.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/package.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/package_source.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/edit_cache.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/rebuild_cache.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/list_install_components.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/install.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/install/local.dir
+/home/ern42/CLionProjects/aegisbpf/build-pack/CMakeFiles/install/strip.dir

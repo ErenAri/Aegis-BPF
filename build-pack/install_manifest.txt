@@ -1,0 +1,5 @@
+/usr/bin/aegisbpf
+/usr/lib/aegisbpf/aegis.bpf.o
+/usr/lib/systemd/system/aegisbpf.service
+/etc/default/aegisbpf
+/etc/aegisbpf/policy.example

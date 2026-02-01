@@ -1,0 +1,131 @@
+# AegisBPF SELinux Policy Module
+# Type Enforcement file
+# ------------------------------------------------------------------
+# This policy defines the security context for aegisbpf daemon
+# ------------------------------------------------------------------
+
+policy_module(aegisbpf, 1.0.0)
+
+########################################
+# Type Declarations
+########################################
+
+type aegisbpf_t;
+type aegisbpf_exec_t;
+init_daemon_domain(aegisbpf_t, aegisbpf_exec_t)
+
+# Configuration files
+type aegisbpf_conf_t;
+files_config_file(aegisbpf_conf_t)
+
+# Runtime data
+type aegisbpf_var_lib_t;
+files_type(aegisbpf_var_lib_t)
+
+# BPF pins
+type aegisbpf_bpf_t;
+files_type(aegisbpf_bpf_t)
+
+########################################
+# Local Policy Rules
+########################################
+
+# Allow aegisbpf to read its own executable
+allow aegisbpf_t aegisbpf_exec_t:file { read_file_perms execute };
+
+# Configuration file access
+allow aegisbpf_t aegisbpf_conf_t:dir list_dir_perms;
+allow aegisbpf_t aegisbpf_conf_t:file read_file_perms;
+
+# Runtime data directory
+allow aegisbpf_t aegisbpf_var_lib_t:dir manage_dir_perms;
+allow aegisbpf_t aegisbpf_var_lib_t:file manage_file_perms;
+
+# BPF filesystem access
+allow aegisbpf_t aegisbpf_bpf_t:dir manage_dir_perms;
+allow aegisbpf_t aegisbpf_bpf_t:file manage_file_perms;
+
+########################################
+# BPF Permissions
+########################################
+
+# BPF syscall access
+allow aegisbpf_t self:bpf { map_create map_read map_write prog_load prog_run };
+allow aegisbpf_t self:capability { sys_admin net_admin sys_resource };
+allow aegisbpf_t self:capability2 { bpf perfmon };
+
+# Perf event access for BPF programs
+allow aegisbpf_t self:perf_event { open read write };
+
+########################################
+# Cgroup Access (Read-Only)
+########################################
+
+fs_read_cgroup_files(aegisbpf_t)
+fs_list_cgroup_dirs(aegisbpf_t)
+
+########################################
+# Proc Filesystem Access
+########################################
+
+kernel_read_system_state(aegisbpf_t)
+kernel_read_kernel_sysctls(aegisbpf_t)
+
+# Read process cgroup info
+domain_read_all_domains_state(aegisbpf_t)
+
+########################################
+# Sysfs Access
+########################################
+
+dev_read_sysfs(aegisbpf_t)
+
+# BPF filesystem mount
+fs_manage_bpf_dirs(aegisbpf_t)
+fs_manage_bpf_files(aegisbpf_t)
+
+# Kernel BTF access
+kernel_read_debugfs(aegisbpf_t)
+
+########################################
+# Logging
+########################################
+
+# Journald access
+logging_send_syslog_msg(aegisbpf_t)
+
+########################################
+# Networking (Restricted)
+########################################
+
+# Unix domain sockets only (for journald)
+allow aegisbpf_t self:unix_stream_socket create_stream_socket_perms;
+allow aegisbpf_t self:unix_dgram_socket create_socket_perms;
+
+# Deny network access
+corenet_dontaudit_all_nodes(aegisbpf_t)
+
+########################################
+# Security Constraints
+########################################
+
+# Prevent ptrace
+dontaudit aegisbpf_t self:process ptrace;
+
+# Prevent loading other kernel modules
+dontaudit aegisbpf_t self:capability sys_module;
+
+########################################
+# Temporary Files
+########################################
+
+files_tmp_filetrans(aegisbpf_t, aegisbpf_var_lib_t, { file dir })
+
+########################################
+# Signal Handling
+########################################
+
+allow aegisbpf_t self:process { signal sigkill sigstop };
+
+# Allow init to send signals
+init_signal_script(aegisbpf_t)

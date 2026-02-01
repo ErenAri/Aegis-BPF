@@ -1,0 +1,455 @@
+#include "utils.hpp"
+#include "bpf_ops.hpp"
+#include "logging.hpp"
+
+#include <cctype>
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <limits.h>
+#include <sstream>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <unistd.h>
+
+namespace aegis {
+
+std::string trim(const std::string &s)
+{
+    size_t start = 0;
+    while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) {
+        ++start;
+    }
+    size_t end = s.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        --end;
+    }
+    return s.substr(start, end - start);
+}
+
+bool parse_key_value(const std::string &line, std::string &key, std::string &value)
+{
+    size_t pos = line.find('=');
+    if (pos == std::string::npos) {
+        return false;
+    }
+    key = trim(line.substr(0, pos));
+    value = trim(line.substr(pos + 1));
+    return !key.empty();
+}
+
+bool parse_uint64(const std::string &text, uint64_t &out)
+{
+    if (text.empty()) {
+        return false;
+    }
+    char *end = nullptr;
+    errno = 0;
+    unsigned long long val = std::strtoull(text.c_str(), &end, 10);
+    if (errno != 0 || end == text.c_str() || *end != '\0') {
+        return false;
+    }
+    out = static_cast<uint64_t>(val);
+    return true;
+}
+
+bool parse_inode_id(const std::string &text, InodeId &out)
+{
+    size_t pos = text.find(':');
+    if (pos == std::string::npos) {
+        return false;
+    }
+    std::string dev_str = trim(text.substr(0, pos));
+    std::string ino_str = trim(text.substr(pos + 1));
+    uint64_t dev = 0;
+    uint64_t ino = 0;
+    if (!parse_uint64(dev_str, dev) || !parse_uint64(ino_str, ino)) {
+        return false;
+    }
+    if (dev > UINT32_MAX) {
+        return false;
+    }
+    out.dev = static_cast<uint32_t>(dev);
+    out.ino = ino;
+    return true;
+}
+
+std::string join_list(const std::vector<std::string> &items)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i) {
+            oss << ", ";
+        }
+        oss << items[i];
+    }
+    return oss.str();
+}
+
+std::string to_string(const char *buf, size_t sz)
+{
+    return std::string(buf, strnlen(buf, sz));
+}
+
+std::string json_escape(const std::string &in)
+{
+    std::string out;
+    out.reserve(in.size() + 4);
+    for (char c : in) {
+        switch (c) {
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        default:
+            out += c;
+            break;
+        }
+    }
+    return out;
+}
+
+std::string prometheus_escape_label(const std::string &in)
+{
+    std::string out;
+    out.reserve(in.size() + 4);
+    for (char c : in) {
+        switch (c) {
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        default:
+            out += c;
+            break;
+        }
+    }
+    return out;
+}
+
+Result<InodeId> path_to_inode(const std::string &path)
+{
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) {
+        return Error::system(errno, "stat failed for " + path);
+    }
+    InodeId id{};
+    id.ino = st.st_ino;
+    id.dev = static_cast<uint32_t>(st.st_dev);
+    return id;
+}
+
+Result<uint64_t> path_to_cgid(const std::string &path)
+{
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) {
+        return Error::system(errno, "stat failed for " + path);
+    }
+    return static_cast<uint64_t>(st.st_ino);
+}
+
+void fill_path_key(const std::string &path, PathKey &key)
+{
+    std::memset(&key, 0, sizeof(key));
+    size_t len = path.size();
+    if (len >= sizeof(key.path)) {
+        len = sizeof(key.path) - 1;
+    }
+    std::memcpy(key.path, path.data(), len);
+}
+
+std::string inode_to_string(const InodeId &id)
+{
+    std::ostringstream oss;
+    oss << id.dev << ":" << id.ino;
+    return oss.str();
+}
+
+// Thread-safe cgroup path cache implementation
+CgroupPathCache& CgroupPathCache::instance()
+{
+    static CgroupPathCache instance;
+    return instance;
+}
+
+std::string CgroupPathCache::resolve(uint64_t cgid)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = cache_.find(cgid);
+        if (it != cache_.end()) {
+            return it->second;
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::recursive_directory_iterator dir(
+        "/sys/fs/cgroup",
+        std::filesystem::directory_options::skip_permission_denied,
+        ec);
+    std::string found;
+    for (; dir != std::filesystem::recursive_directory_iterator(); ++dir) {
+        if (!dir->is_directory()) {
+            continue;
+        }
+        struct stat st{};
+        if (stat(dir->path().c_str(), &st) != 0) {
+            continue;
+        }
+        if (static_cast<uint64_t>(st.st_ino) == cgid) {
+            found = dir->path().string();
+            break;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cache_[cgid] = found;
+    }
+    return found;
+}
+
+std::string resolve_cgroup_path(uint64_t cgid)
+{
+    return CgroupPathCache::instance().resolve(cgid);
+}
+
+std::string read_proc_cwd(uint32_t pid)
+{
+    std::string link = "/proc/" + std::to_string(pid) + "/cwd";
+    char buf[PATH_MAX];
+    ssize_t len = readlink(link.c_str(), buf, sizeof(buf) - 1);
+    if (len < 0) {
+        return {};
+    }
+    buf[len] = '\0';
+    return std::string(buf);
+}
+
+// Thread-safe CWD cache implementation
+CwdCache& CwdCache::instance()
+{
+    static CwdCache instance;
+    return instance;
+}
+
+std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::string &path)
+{
+    if (path.empty() || path.front() == '/') {
+        return path;
+    }
+
+    std::string cwd;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = cache_.find(pid);
+        if (it != cache_.end() && (!start_time || it->second.start_time == start_time)) {
+            cwd = it->second.cwd;
+        } else {
+            cwd = read_proc_cwd(pid);
+            if (cwd.empty()) {
+                return path;
+            }
+            cache_[pid] = {start_time, cwd};
+        }
+    }
+
+    std::filesystem::path combined = std::filesystem::path(cwd) / path;
+    return combined.lexically_normal().string();
+}
+
+std::string resolve_relative_path(uint32_t pid, uint64_t start_time, const std::string &path)
+{
+    return CwdCache::instance().resolve(pid, start_time, path);
+}
+
+bool path_exists(const char *path, std::error_code &ec)
+{
+    ec.clear();
+    return std::filesystem::exists(path, ec);
+}
+
+Result<std::string> validate_path(const std::string &path)
+{
+    if (path.empty()) {
+        return Error(ErrorCode::InvalidArgument, "Path is empty");
+    }
+    if (path.size() >= kDenyPathMax) {
+        return Error(ErrorCode::PathTooLong, "Path exceeds maximum length", path);
+    }
+    // Check for null bytes
+    if (path.find('\0') != std::string::npos) {
+        return Error(ErrorCode::InvalidArgument, "Path contains null bytes", path);
+    }
+    return path;
+}
+
+Result<std::string> validate_existing_path(const std::string &path)
+{
+    auto validated = validate_path(path);
+    if (!validated) {
+        return validated.error();
+    }
+
+    std::error_code ec;
+    std::filesystem::path resolved = std::filesystem::canonical(path, ec);
+    if (ec) {
+        return Error(ErrorCode::PathNotFound, "Path does not exist or cannot be resolved", path);
+    }
+    return resolved.string();
+}
+
+Result<std::string> validate_cgroup_path(const std::string &path)
+{
+    auto validated = validate_existing_path(path);
+    if (!validated) {
+        return validated.error();
+    }
+
+    // Verify it's under /sys/fs/cgroup
+    std::string resolved = *validated;
+    if (resolved.rfind("/sys/fs/cgroup", 0) != 0) {
+        return Error(ErrorCode::InvalidArgument, "Path is not under /sys/fs/cgroup", path);
+    }
+
+    // Verify it's a directory
+    std::error_code ec;
+    if (!std::filesystem::is_directory(resolved, ec)) {
+        return Error(ErrorCode::InvalidArgument, "Cgroup path is not a directory", path);
+    }
+
+    return resolved;
+}
+
+std::string read_file_first_line(const std::string &path)
+{
+    std::ifstream in(path);
+    std::string line;
+    if (!in.is_open()) {
+        return {};
+    }
+    if (!std::getline(in, line)) {
+        return {};
+    }
+    return line;
+}
+
+std::string find_kernel_config_value_in_file(const std::string &path, const std::string &key)
+{
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return {};
+    }
+    std::string line;
+    std::string prefix = key + "=";
+    while (std::getline(in, line)) {
+        if (line.rfind(prefix, 0) == 0) {
+            return line.substr(prefix.size());
+        }
+    }
+    return {};
+}
+
+std::string find_kernel_config_value_in_proc(const std::string &key)
+{
+    if (!std::filesystem::exists("/proc/config.gz")) {
+        return {};
+    }
+    PipeGuard fp(popen("zcat /proc/config.gz 2>/dev/null", "r"));
+    if (!fp) {
+        return {};
+    }
+    std::string prefix = key + "=";
+    char buf[4096];
+    std::string value;
+    while (fgets(buf, sizeof(buf), fp.get())) {
+        std::string line(buf);
+        if (line.rfind(prefix, 0) == 0) {
+            value = line.substr(prefix.size());
+            value = trim(value);
+            break;
+        }
+    }
+    return value;
+}
+
+std::string kernel_config_value(const std::string &key)
+{
+    struct utsname uts{};
+    if (uname(&uts) == 0) {
+        std::string path = std::string("/boot/config-") + uts.release;
+        std::string value = find_kernel_config_value_in_file(path, key);
+        if (!value.empty()) {
+            return value;
+        }
+    }
+    return find_kernel_config_value_in_proc(key);
+}
+
+DenyEntries read_deny_db()
+{
+    DenyEntries entries;
+    std::ifstream in(kDenyDbPath);
+    if (!in.is_open()) {
+        return entries;
+    }
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream iss(line);
+        uint32_t dev = 0;
+        uint64_t ino = 0;
+        std::string path;
+        if (!(iss >> dev >> ino)) {
+            continue;
+        }
+        if (!(iss >> path)) {
+            path.clear();
+        }
+        InodeId id{};
+        id.ino = ino;
+        id.dev = dev;
+        entries[id] = path;
+    }
+    return entries;
+}
+
+Result<void> write_deny_db(const DenyEntries &entries)
+{
+    if (ensure_db_dir()) {
+        return Error(ErrorCode::IoError, "Failed to create database directory", kDenyDbDir);
+    }
+    std::ofstream out(kDenyDbPath, std::ios::trunc);
+    if (!out.is_open()) {
+        return Error(ErrorCode::IoError, "Failed to open deny database for writing", kDenyDbPath);
+    }
+    for (const auto &kv : entries) {
+        out << kv.first.dev << " " << kv.first.ino;
+        if (!kv.second.empty()) {
+            out << " " << kv.second;
+        }
+        out << "\n";
+    }
+    if (!out.good()) {
+        return Error(ErrorCode::IoError, "Failed to write deny database", kDenyDbPath);
+    }
+    return {};
+}
+
+std::string build_exec_id(uint32_t pid, uint64_t start_time)
+{
+    if (pid == 0 || start_time == 0) {
+        return {};
+    }
+    return std::to_string(start_time) + "-" + std::to_string(pid);
+}
+
+} // namespace aegis

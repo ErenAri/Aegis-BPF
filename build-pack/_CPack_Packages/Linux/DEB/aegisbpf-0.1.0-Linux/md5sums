@@ -1,0 +1,5 @@
+838fe6f418b98f1c76b2b1328b80bd62  etc/aegisbpf/policy.example
+9599d118bc552c980d90af643046203d  etc/default/aegisbpf
+1e1e74ae7dfb357b83c8c1ac083d73aa  usr/bin/aegisbpf
+1d1120ead3fe6e0bf07047b12aa48665  usr/lib/aegisbpf/aegis.bpf.o
+7b77af09a1796690136dc1ecad0cf4f9  usr/lib/systemd/system/aegisbpf.service

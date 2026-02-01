@@ -1,0 +1,103 @@
+# AegisBPF AppArmor Profile
+# vim:syntax=apparmor
+# ------------------------------------------------------------------
+# This profile restricts aegisbpf to the minimum required permissions
+# for its security monitoring functionality.
+# ------------------------------------------------------------------
+
+abi <abi/3.0>,
+
+include <tunables/global>
+
+profile aegisbpf /usr/bin/aegisbpf flags=(attach_disconnected) {
+  include <abstractions/base>
+
+  # Capabilities required for BPF and security monitoring
+  capability sys_admin,       # Required for BPF operations
+  capability bpf,             # BPF syscall access
+  capability perfmon,         # Performance monitoring for BPF
+  capability sys_resource,    # Resource limits for BPF maps
+  capability net_admin,       # Network-related BPF operations
+  capability dac_read_search, # Read access to /proc for cgroup resolution
+
+  # BPF filesystem access
+  /sys/fs/bpf/                   r,
+  /sys/fs/bpf/**                 rwk,
+
+  # Cgroup filesystem (read-only for monitoring)
+  /sys/fs/cgroup/                r,
+  /sys/fs/cgroup/**              r,
+
+  # Kernel configuration and features
+  /sys/kernel/security/lsm      r,
+  /boot/config-*                r,
+  /proc/config.gz               r,
+
+  # Proc filesystem for process info and cgroup resolution
+  @{PROC}/                       r,
+  @{PROC}/[0-9]*/                r,
+  @{PROC}/[0-9]*/cgroup          r,
+  @{PROC}/[0-9]*/exe             r,
+  @{PROC}/[0-9]*/comm            r,
+  @{PROC}/[0-9]*/cmdline         r,
+  @{PROC}/[0-9]*/fd/             r,
+  @{PROC}/[0-9]*/fd/*            r,
+  @{PROC}/sys/kernel/osrelease   r,
+
+  # Application data directory
+  /var/lib/aegisbpf/             rw,
+  /var/lib/aegisbpf/**           rwk,
+
+  # Configuration files
+  /etc/aegisbpf/                 r,
+  /etc/aegisbpf/**               r,
+
+  # Binary and library access
+  /usr/bin/aegisbpf              mr,
+  /usr/lib/**                    mr,
+  /lib/**                        mr,
+  /{usr/,}lib{,32,64}/**         mr,
+
+  # Temporary files
+  owner /tmp/aegisbpf.*          rw,
+
+  # Journald socket for structured logging
+  /run/systemd/journal/socket    w,
+  /run/systemd/journal/stdout    w,
+
+  # Device access for random numbers
+  /dev/urandom                   r,
+  /dev/random                    r,
+  /dev/null                      rw,
+
+  # Kernel ring buffer (for BPF tracing)
+  /sys/kernel/debug/             r,
+  /sys/kernel/debug/tracing/     r,
+  /sys/kernel/debug/tracing/**   r,
+
+  # BTF (BPF Type Format) access
+  /sys/kernel/btf/               r,
+  /sys/kernel/btf/**             r,
+
+  # Deny network access (aegisbpf is local-only)
+  deny network inet,
+  deny network inet6,
+
+  # Allow Unix domain sockets (for journald)
+  network unix stream,
+  network unix dgram,
+
+  # Signal handling
+  signal receive set=(term, int, hup, usr1),
+
+  # Deny ptrace (security hardening)
+  deny ptrace,
+
+  # Deny mount operations
+  deny mount,
+  deny umount,
+
+  # Deny raw I/O
+  deny @{PROC}/[0-9]*/mem rw,
+  deny @{PROC}/kcore r,
+}

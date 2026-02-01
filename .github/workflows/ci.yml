@@ -1,0 +1,197 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --timeout 120
+
+  sanitizers:
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer:
+          - asan
+          - ubsan
+          - tsan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure with ${{ matrix.sanitizer }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DENABLE_ASAN=${{ matrix.sanitizer == 'asan' && 'ON' || 'OFF' }} \
+            -DENABLE_UBSAN=${{ matrix.sanitizer == 'ubsan' && 'ON' || 'OFF' }} \
+            -DENABLE_TSAN=${{ matrix.sanitizer == 'tsan' && 'ON' || 'OFF' }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests with sanitizer
+        run: ctest --test-dir build --output-on-failure --timeout 300
+        env:
+          ASAN_OPTIONS: abort_on_error=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          TSAN_OPTIONS: abort_on_error=1:halt_on_error=1
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr
+
+      - name: Configure with coverage
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --timeout 120
+
+      - name: Generate coverage report
+        run: |
+          gcovr --root . --exclude tests --exclude build/_deps \
+            --xml coverage.xml \
+            --html coverage.html \
+            --html-details
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage*.html
+
+  smoke-test:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Check BPF LSM availability
+        id: check_lsm
+        run: |
+          if grep -q bpf /sys/kernel/security/lsm 2>/dev/null; then
+            echo "bpf_lsm=true" >> $GITHUB_OUTPUT
+          else
+            echo "bpf_lsm=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run health check
+        run: sudo ./build/aegisbpf health
+
+      - name: Run smoke test (audit mode)
+        if: steps.check_lsm.outputs.bpf_lsm == 'true'
+        timeout-minutes: 1
+        run: |
+          sudo timeout 5 ./build/aegisbpf run --audit || true
+          echo "Smoke test completed"
+
+  build-arm64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - name: Build (arm64 via QEMU)
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/src \
+            -v /sys:/sys:ro \
+            -w /src \
+            ubuntu:24.04 \
+            bash -lc "apt-get update && apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build && cmake -S . -B build-arm64 -G Ninja -DBUILD_TESTING=OFF && cmake --build build-arm64"
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cppcheck
+
+      - name: Check clang-format
+        run: |
+          find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror || echo "Format check failed (non-blocking)"
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=all --error-exitcode=0 --inline-suppr \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            -I src \
+            src/ tests/ || true

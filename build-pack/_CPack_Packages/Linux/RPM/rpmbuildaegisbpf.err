@@ -1,0 +1,30 @@
++ umask 022
++ cd /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/BUILD
++ mv /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/tmpBBroot
++ RPM_EC=0
++ jobs -p
++ exit 0
++ umask 022
++ cd /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/BUILD
++ /bin/rm -rf /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux
++ /bin/mkdir -p /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM
++ /bin/mkdir /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux
++ [ -e /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux ]
++ rm -rf /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux
++ mv /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/tmpBBroot /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/aegisbpf-0.1.0-Linux
++ /usr/lib/rpm/brp-compress /usr
++ /usr/lib/rpm/brp-elfperms
++ /bin/true
++ /bin/true
++ /usr/lib/rpm/brp-strip-comment-note /usr/bin/strip /usr/bin/objdump
++ /usr/lib/rpm/brp-remove-la-files
++ umask 022
++ cd /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/BUILD
++ RPM_EC=0
++ jobs -p
++ exit 0
++ umask 022
++ cd /home/ern42/CLionProjects/aegisbpf/build-pack/_CPack_Packages/Linux/RPM/BUILD
++ RPM_EC=0
++ jobs -p
++ exit 0

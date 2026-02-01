@@ -1,0 +1,19 @@
+# AegisBPF SELinux File Contexts
+# ------------------------------------------------------------------
+# Maps file paths to SELinux security contexts
+# ------------------------------------------------------------------
+
+# Executable
+/usr/bin/aegisbpf                       --  gen_context(system_u:object_r:aegisbpf_exec_t,s0)
+
+# Configuration directory
+/etc/aegisbpf(/.*)?                         gen_context(system_u:object_r:aegisbpf_conf_t,s0)
+
+# Runtime data directory
+/var/lib/aegisbpf(/.*)?                     gen_context(system_u:object_r:aegisbpf_var_lib_t,s0)
+
+# BPF pins directory
+/sys/fs/bpf/aegis(/.*)?                     gen_context(system_u:object_r:aegisbpf_bpf_t,s0)
+
+# Systemd service files
+/usr/lib/systemd/system/aegisbpf\.service   gen_context(system_u:object_r:aegisbpf_unit_file_t,s0)

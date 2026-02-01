@@ -1,0 +1,36 @@
+[Unit]
+Description=AegisBPF Runtime Security Agent
+After=network.target
+ConditionPathExists=/sys/fs/bpf
+ConditionPathExists=/sys/fs/cgroup/cgroup.controllers
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/aegisbpf
+ExecStartPre=/bin/sh -c '[ -n "${AEGIS_POLICY:-}" ] && [ -f "${AEGIS_POLICY}" ] && /usr/bin/aegisbpf policy apply "${AEGIS_POLICY}" --reset'
+ExecStart=/usr/bin/aegisbpf run ${AEGIS_MODE} ${AEGIS_LOG}
+ExecStartPost=/bin/sh -c '[ "${AEGIS_SMOKE_TEST:-0}" = "1" ] && /usr/bin/aegisbpf health || true'
+Restart=on-failure
+RestartSec=2
+LimitMEMLOCK=infinity
+StateDirectory=aegisbpf
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=no
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=/sys/fs/bpf /sys/fs/cgroup /var/lib/aegisbpf
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON
+
+[Install]
+WantedBy=multi-user.target
