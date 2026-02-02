@@ -2,6 +2,7 @@
 #include "logging.hpp"
 #include "utils.hpp"
 
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <limits.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #ifndef AEGIS_BPF_OBJ_PATH
@@ -18,8 +20,9 @@
 namespace aegis {
 
 namespace {
-constexpr const char *kBpfObjPath = AEGIS_BPF_OBJ_PATH;
-} // namespace
+constexpr const char* kBpfObjPath = AEGIS_BPF_OBJ_PATH;
+std::atomic<uint32_t> g_ringbuf_bytes{0};
+}  // namespace
 
 bool kernel_bpf_lsm_enabled()
 {
@@ -63,7 +66,7 @@ Result<void> ensure_db_dir()
 
 std::string resolve_bpf_obj_path()
 {
-    const char *env = std::getenv("AEGIS_BPF_OBJ");
+    const char* env = std::getenv("AEGIS_BPF_OBJ");
     if (env && *env) {
         return std::string(env);
     }
@@ -87,7 +90,8 @@ std::string resolve_bpf_obj_path()
         if (std::filesystem::exists(kBpfObjPath, ec)) {
             return kBpfObjPath;
         }
-    } else {
+    }
+    else {
         if (std::filesystem::exists(kBpfObjPath, ec)) {
             return kBpfObjPath;
         }
@@ -98,7 +102,7 @@ std::string resolve_bpf_obj_path()
     return kBpfObjPath;
 }
 
-Result<void> reuse_pinned_map(bpf_map *map, const char *path, bool &reused)
+Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused)
 {
     int fd = bpf_obj_get(path);
     if (fd < 0) {
@@ -113,7 +117,7 @@ Result<void> reuse_pinned_map(bpf_map *map, const char *path, bool &reused)
     return {};
 }
 
-Result<void> pin_map(bpf_map *map, const char *path)
+Result<void> pin_map(bpf_map* map, const char* path)
 {
     int err = bpf_map__pin(map, path);
     if (err) {
@@ -122,9 +126,9 @@ Result<void> pin_map(bpf_map *map, const char *path)
     return {};
 }
 
-void cleanup_bpf(BpfState &state)
+void cleanup_bpf(BpfState& state)
 {
-    for (auto *link : state.links) {
+    for (auto* link : state.links) {
         bpf_link__destroy(link);
     }
     if (state.obj) {
@@ -139,12 +143,12 @@ void BpfState::cleanup()
     cleanup_bpf(*this);
 }
 
-static Result<void> attach_prog(bpf_program *prog, BpfState &state)
+static Result<void> attach_prog(bpf_program* prog, BpfState& state)
 {
-    const char *sec = bpf_program__section_name(prog);
+    const char* sec = bpf_program__section_name(prog);
     const bool is_lsm = sec && (std::strncmp(sec, "lsm/", 4) == 0 || std::strncmp(sec, "lsm.s/", 6) == 0);
 
-    bpf_link *link = is_lsm ? bpf_program__attach_lsm(prog) : bpf_program__attach(prog);
+    bpf_link* link = is_lsm ? bpf_program__attach_lsm(prog) : bpf_program__attach(prog);
     int err = libbpf_get_error(link);
     if (err || !link) {
         if (err == 0) {
@@ -156,7 +160,12 @@ static Result<void> attach_prog(bpf_program *prog, BpfState &state)
     return {};
 }
 
-Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
+void set_ringbuf_bytes(uint32_t bytes)
+{
+    g_ringbuf_bytes.store(bytes, std::memory_order_relaxed);
+}
+
+Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 {
     std::string obj_path = resolve_bpf_obj_path();
     state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
@@ -184,8 +193,17 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
         return Error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
     }
 
+    uint32_t ringbuf_bytes = g_ringbuf_bytes.load(std::memory_order_relaxed);
+    if (ringbuf_bytes > 0) {
+        int err = bpf_map__set_max_entries(state.events, ringbuf_bytes);
+        if (err) {
+            cleanup_bpf(state);
+            return Error::bpf_error(err, "Failed to set ring buffer size");
+        }
+    }
+
     if (reuse_pins) {
-        auto try_reuse = [&state](bpf_map *map, const char *path, bool &reused) -> Result<void> {
+        auto try_reuse = [&state](bpf_map* map, const char* path, bool& reused) -> Result<void> {
             auto result = reuse_pinned_map(map, path, reused);
             if (!result) {
                 cleanup_bpf(state);
@@ -206,7 +224,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
     }
 
     if (!kernel_bpf_lsm_enabled()) {
-        bpf_program *lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+        bpf_program* lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
         if (lsm_prog) {
             bpf_program__set_autoload(lsm_prog, false);
         }
@@ -234,7 +252,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
             return pin_result.error();
         }
 
-        auto try_pin = [&state](bpf_map *map, const char *path, bool reused) -> Result<void> {
+        auto try_pin = [&state](bpf_map* map, const char* path, bool reused) -> Result<void> {
             if (!reused) {
                 auto result = pin_map(map, path);
                 if (!result) {
@@ -259,7 +277,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
     if (attach_links) {
         const char* progs[] = {"handle_execve", "handle_file_open", "handle_fork", "handle_exit"};
         for (const char* prog_name : progs) {
-            bpf_program *prog = bpf_object__find_program_by_name(state.obj, prog_name);
+            bpf_program* prog = bpf_object__find_program_by_name(state.obj, prog_name);
             if (!prog) {
                 cleanup_bpf(state);
                 return Error(ErrorCode::BpfLoadFailed, std::string("BPF program not found: ") + prog_name);
@@ -275,9 +293,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state)
     return {};
 }
 
-Result<void> attach_all(BpfState &state, bool lsm_enabled)
+Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open)
 {
-    bpf_program *prog = bpf_object__find_program_by_name(state.obj, "handle_execve");
+    bpf_program* prog = bpf_object__find_program_by_name(state.obj, "handle_execve");
     if (!prog) {
         return Error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_execve");
     }
@@ -285,20 +303,25 @@ Result<void> attach_all(BpfState &state, bool lsm_enabled)
 
     if (lsm_enabled) {
         bool attached = false;
-        prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
-        if (prog) {
-            TRY(attach_prog(prog, state));
-            attached = true;
+        if (use_inode_permission) {
+            prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
+            if (prog) {
+                TRY(attach_prog(prog, state));
+                attached = true;
+            }
         }
-        prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
-        if (prog) {
-            TRY(attach_prog(prog, state));
-            attached = true;
+        if (use_file_open) {
+            prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+            if (prog) {
+                TRY(attach_prog(prog, state));
+                attached = true;
+            }
         }
         if (!attached) {
             return Error(ErrorCode::BpfAttachFailed, "LSM file open programs not found");
         }
-    } else {
+    }
+    else {
         prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
         if (!prog) {
             return Error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
@@ -321,7 +344,7 @@ Result<void> attach_all(BpfState &state, bool lsm_enabled)
     return {};
 }
 
-size_t map_entry_count(bpf_map *map)
+size_t map_entry_count(bpf_map* map)
 {
     if (!map) {
         return 0;
@@ -340,7 +363,7 @@ size_t map_entry_count(bpf_map *map)
     return count;
 }
 
-Result<void> clear_map_entries(bpf_map *map)
+Result<void> clear_map_entries(bpf_map* map)
 {
     if (!map) {
         return Error(ErrorCode::InvalidArgument, "Map is null");
@@ -360,7 +383,7 @@ Result<void> clear_map_entries(bpf_map *map)
     return {};
 }
 
-Result<BlockStats> read_block_stats_map(bpf_map *map)
+Result<BlockStats> read_block_stats_map(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     int cpu_cnt = libbpf_num_possible_cpus();
@@ -373,14 +396,14 @@ Result<BlockStats> read_block_stats_map(bpf_map *map)
         return Error::system(errno, "Failed to read block_stats");
     }
     BlockStats out{};
-    for (const auto &v : vals) {
+    for (const auto& v : vals) {
         out.blocks += v.blocks;
         out.ringbuf_drops += v.ringbuf_drops;
     }
     return out;
 }
 
-Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_map *map)
+Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     int cpu_cnt = libbpf_num_possible_cpus();
@@ -407,7 +430,7 @@ Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_
     return out;
 }
 
-Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_map *map)
+Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     int cpu_cnt = libbpf_num_possible_cpus();
@@ -434,7 +457,7 @@ Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_ma
     return out;
 }
 
-Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map *map)
+Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     int cpu_cnt = libbpf_num_possible_cpus();
@@ -462,7 +485,7 @@ Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf
     return out;
 }
 
-Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map *map)
+Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     uint64_t key = 0;
@@ -477,7 +500,7 @@ Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map *map)
     return out;
 }
 
-Result<void> reset_block_stats_map(bpf_map *map)
+Result<void> reset_block_stats_map(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
     int cpu_cnt = libbpf_num_possible_cpus();
@@ -492,7 +515,7 @@ Result<void> reset_block_stats_map(bpf_map *map)
     return {};
 }
 
-Result<void> set_agent_config(BpfState &state, bool audit_only)
+Result<void> set_agent_config(BpfState& state, bool audit_only)
 {
     if (!state.config_map) {
         return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
@@ -507,7 +530,7 @@ Result<void> set_agent_config(BpfState &state, bool audit_only)
     return {};
 }
 
-Result<void> ensure_layout_version(BpfState &state)
+Result<void> ensure_layout_version(BpfState& state)
 {
     if (!state.agent_meta) {
         return Error(ErrorCode::BpfMapOperationFailed, "Agent meta map not found");
@@ -530,8 +553,8 @@ Result<void> ensure_layout_version(BpfState &state)
         return Error(ErrorCode::LayoutVersionMismatch,
                      "Pinned maps layout version mismatch",
                      "found " + std::to_string(meta.layout_version) +
-                     ", expected " + std::to_string(kLayoutVersion) +
-                     ". Run 'sudo aegisbpf block clear' to reset pins.");
+                         ", expected " + std::to_string(kLayoutVersion) +
+                         ". Run 'sudo aegisbpf block clear' to reset pins.");
     }
     return {};
 }
@@ -547,7 +570,7 @@ Result<bool> check_prereqs()
     return kernel_bpf_lsm_enabled();
 }
 
-Result<void> add_deny_inode(BpfState &state, const InodeId &id, DenyEntries &entries)
+Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& entries)
 {
     uint8_t one = 1;
     if (bpf_map_update_elem(bpf_map__fd(state.deny_inode), &id, &one, BPF_ANY)) {
@@ -559,7 +582,7 @@ Result<void> add_deny_inode(BpfState &state, const InodeId &id, DenyEntries &ent
     return {};
 }
 
-Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries &entries)
+Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries)
 {
     if (path.empty()) {
         return Error(ErrorCode::InvalidArgument, "Path is empty");
@@ -578,7 +601,7 @@ Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries
 
     InodeId id{};
     id.ino = st.st_ino;
-    id.dev = static_cast<uint32_t>(gnu_dev_makedev(major(st.st_dev), minor(st.st_dev)));
+    id.dev = encode_dev(st.st_dev);
     id.pad = 0;
 
     TRY(add_deny_inode(state, id, entries));
@@ -602,7 +625,7 @@ Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries
     return {};
 }
 
-Result<void> add_allow_cgroup(BpfState &state, uint64_t cgid)
+Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid)
 {
     uint8_t one = 1;
     if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
@@ -611,7 +634,7 @@ Result<void> add_allow_cgroup(BpfState &state, uint64_t cgid)
     return {};
 }
 
-Result<void> add_allow_cgroup_path(BpfState &state, const std::string &path)
+Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path)
 {
     auto cgid_result = path_to_cgid(path);
     if (!cgid_result) {
@@ -620,7 +643,7 @@ Result<void> add_allow_cgroup_path(BpfState &state, const std::string &path)
     return add_allow_cgroup(state, *cgid_result);
 }
 
-Result<void> set_agent_config_full(BpfState &state, const AgentConfig &config)
+Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 {
     if (!state.config_map) {
         return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
@@ -633,7 +656,7 @@ Result<void> set_agent_config_full(BpfState &state, const AgentConfig &config)
     return {};
 }
 
-Result<void> update_deadman_deadline(BpfState &state, uint64_t deadline_ns)
+Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
 {
     if (!state.config_map) {
         return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
@@ -659,7 +682,7 @@ Result<void> update_deadman_deadline(BpfState &state, uint64_t deadline_ns)
 }
 
 // Default critical binaries that should never be blocked
-static const char *kSurvivalBinaries[] = {
+static const char* kSurvivalBinaries[] = {
     "/sbin/init",
     "/lib/systemd/systemd",
     "/usr/lib/systemd/systemd",
@@ -687,10 +710,9 @@ static const char *kSurvivalBinaries[] = {
     "/sbin/shutdown",
     "/usr/sbin/reboot",
     "/usr/sbin/shutdown",
-    nullptr
-};
+    nullptr};
 
-Result<void> add_survival_entry(BpfState &state, const InodeId &id)
+Result<void> add_survival_entry(BpfState& state, const InodeId& id)
 {
     if (!state.survival_allowlist) {
         return Error(ErrorCode::BpfMapOperationFailed, "Survival allowlist map not found");
@@ -703,7 +725,7 @@ Result<void> add_survival_entry(BpfState &state, const InodeId &id)
     return {};
 }
 
-Result<void> populate_survival_allowlist(BpfState &state)
+Result<void> populate_survival_allowlist(BpfState& state)
 {
     if (!state.survival_allowlist) {
         return Error(ErrorCode::BpfMapOperationFailed, "Survival allowlist map not found");
@@ -711,7 +733,7 @@ Result<void> populate_survival_allowlist(BpfState &state)
 
     int count = 0;
     for (int i = 0; kSurvivalBinaries[i] != nullptr; ++i) {
-        const char *path = kSurvivalBinaries[i];
+        const char* path = kSurvivalBinaries[i];
 
         struct stat st{};
         if (stat(path, &st) != 0) {
@@ -721,7 +743,7 @@ Result<void> populate_survival_allowlist(BpfState &state)
 
         InodeId id{};
         id.ino = st.st_ino;
-        id.dev = static_cast<uint32_t>(gnu_dev_makedev(major(st.st_dev), minor(st.st_dev)));
+        id.dev = encode_dev(st.st_dev);
         id.pad = 0;
 
         auto result = add_survival_entry(state, id);
@@ -731,11 +753,11 @@ Result<void> populate_survival_allowlist(BpfState &state)
     }
 
     logger().log(SLOG_INFO("Populated survival allowlist")
-        .field("count", static_cast<int64_t>(count)));
+                     .field("count", static_cast<int64_t>(count)));
     return {};
 }
 
-Result<std::vector<InodeId>> read_survival_allowlist(BpfState &state)
+Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
 {
     if (!state.survival_allowlist) {
         return Error(ErrorCode::BpfMapOperationFailed, "Survival allowlist map not found");
@@ -755,4 +777,4 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState &state)
     return entries;
 }
 
-} // namespace aegis
+}  // namespace aegis

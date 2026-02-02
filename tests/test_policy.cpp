@@ -8,17 +8,20 @@ namespace aegis {
 namespace {
 
 class PolicyTest : public ::testing::Test {
-protected:
-    void SetUp() override {
+  protected:
+    void SetUp() override
+    {
         test_dir_ = std::filesystem::temp_directory_path() / "aegisbpf_test";
         std::filesystem::create_directories(test_dir_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         std::filesystem::remove_all(test_dir_);
     }
 
-    std::string CreateTestPolicy(const std::string& content) {
+    std::string CreateTestPolicy(const std::string& content)
+    {
         std::string path = test_dir_ / "test_policy.conf";
         std::ofstream out(path);
         out << content;
@@ -28,7 +31,8 @@ protected:
     std::filesystem::path test_dir_;
 };
 
-TEST_F(PolicyTest, ParseValidPolicy) {
+TEST_F(PolicyTest, ParseValidPolicy)
+{
     std::string content = R"(
 version=1
 
@@ -52,7 +56,8 @@ version=1
     EXPECT_EQ(result->allow_cgroup_paths.size(), 1u);
 }
 
-TEST_F(PolicyTest, ParsePolicyWithInodes) {
+TEST_F(PolicyTest, ParsePolicyWithInodes)
+{
     std::string content = R"(
 version=1
 
@@ -70,7 +75,8 @@ version=1
     EXPECT_EQ(result->deny_inodes[0].ino, 12345u);
 }
 
-TEST_F(PolicyTest, ParsePolicyWithCgid) {
+TEST_F(PolicyTest, ParsePolicyWithCgid)
+{
     std::string content = R"(
 version=1
 
@@ -88,7 +94,8 @@ cgid:1234567
     EXPECT_EQ(result->allow_cgroup_paths.size(), 1u);
 }
 
-TEST_F(PolicyTest, MissingVersion) {
+TEST_F(PolicyTest, MissingVersion)
+{
     std::string content = R"(
 [deny_path]
 /usr/bin/test
@@ -101,7 +108,8 @@ TEST_F(PolicyTest, MissingVersion) {
     EXPECT_TRUE(issues.has_errors());
 }
 
-TEST_F(PolicyTest, InvalidVersion) {
+TEST_F(PolicyTest, InvalidVersion)
+{
     std::string content = R"(
 version=99
 
@@ -116,7 +124,8 @@ version=99
     EXPECT_TRUE(issues.has_errors());
 }
 
-TEST_F(PolicyTest, UnknownSection) {
+TEST_F(PolicyTest, UnknownSection)
+{
     std::string content = R"(
 version=1
 
@@ -131,7 +140,8 @@ something
     EXPECT_TRUE(issues.has_errors());
 }
 
-TEST_F(PolicyTest, CommentsIgnored) {
+TEST_F(PolicyTest, CommentsIgnored)
+{
     std::string content = R"(
 # This is a comment
 version=1
@@ -149,7 +159,8 @@ version=1
     EXPECT_EQ(result->deny_paths.size(), 1u);
 }
 
-TEST_F(PolicyTest, EmptyLinesIgnored) {
+TEST_F(PolicyTest, EmptyLinesIgnored)
+{
     std::string content = R"(
 version=1
 
@@ -168,7 +179,8 @@ version=1
     EXPECT_EQ(result->deny_paths.size(), 1u);
 }
 
-TEST_F(PolicyTest, DuplicatePathsDeduped) {
+TEST_F(PolicyTest, DuplicatePathsDeduped)
+{
     std::string content = R"(
 version=1
 
@@ -186,7 +198,8 @@ version=1
     EXPECT_EQ(result->deny_paths.size(), 2u);
 }
 
-TEST_F(PolicyTest, RelativePathWarning) {
+TEST_F(PolicyTest, RelativePathWarning)
+{
     std::string content = R"(
 version=1
 
@@ -201,7 +214,8 @@ relative/path/test
     EXPECT_TRUE(issues.has_warnings());
 }
 
-TEST_F(PolicyTest, InvalidInodeFormat) {
+TEST_F(PolicyTest, InvalidInodeFormat)
+{
     std::string content = R"(
 version=1
 
@@ -216,7 +230,8 @@ notanumber:12345
     EXPECT_TRUE(issues.has_errors());
 }
 
-TEST_F(PolicyTest, NonexistentFile) {
+TEST_F(PolicyTest, NonexistentFile)
+{
     PolicyIssues issues;
     auto result = parse_policy_file("/nonexistent/path/policy.conf", issues);
 
@@ -224,5 +239,5 @@ TEST_F(PolicyTest, NonexistentFile) {
     EXPECT_TRUE(issues.has_errors());
 }
 
-} // namespace
-} // namespace aegis
+}  // namespace
+}  // namespace aegis

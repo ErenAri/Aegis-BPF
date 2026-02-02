@@ -18,7 +18,7 @@ namespace aegis {
  * Non-copyable but movable.
  */
 class BpfState {
-public:
+  public:
     BpfState() = default;
     ~BpfState() { cleanup(); }
 
@@ -28,7 +28,8 @@ public:
 
     // Movable
     BpfState(BpfState&& other) noexcept { *this = std::move(other); }
-    BpfState& operator=(BpfState&& other) noexcept {
+    BpfState& operator=(BpfState&& other) noexcept
+    {
         if (this != &other) {
             cleanup();
             obj = other.obj;
@@ -70,18 +71,18 @@ public:
     void cleanup();
 
     // BPF object and maps
-    bpf_object *obj = nullptr;
-    bpf_map *events = nullptr;
-    bpf_map *deny_inode = nullptr;
-    bpf_map *deny_path = nullptr;
-    bpf_map *allow_cgroup = nullptr;
-    bpf_map *block_stats = nullptr;
-    bpf_map *deny_cgroup_stats = nullptr;
-    bpf_map *deny_inode_stats = nullptr;
-    bpf_map *deny_path_stats = nullptr;
-    bpf_map *agent_meta = nullptr;
-    bpf_map *config_map = nullptr;
-    std::vector<bpf_link *> links;
+    bpf_object* obj = nullptr;
+    bpf_map* events = nullptr;
+    bpf_map* deny_inode = nullptr;
+    bpf_map* deny_path = nullptr;
+    bpf_map* allow_cgroup = nullptr;
+    bpf_map* block_stats = nullptr;
+    bpf_map* deny_cgroup_stats = nullptr;
+    bpf_map* deny_inode_stats = nullptr;
+    bpf_map* deny_path_stats = nullptr;
+    bpf_map* agent_meta = nullptr;
+    bpf_map* config_map = nullptr;
+    std::vector<bpf_link*> links;
 
     // Reuse flags
     bool inode_reused = false;
@@ -95,44 +96,45 @@ public:
     bool survival_allowlist_reused = false;
 
     // Survival allowlist map
-    bpf_map *survival_allowlist = nullptr;
+    bpf_map* survival_allowlist = nullptr;
 };
 
 // BPF loading and lifecycle
-Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState &state);
-Result<void> attach_all(BpfState &state, bool lsm_enabled);
-void cleanup_bpf(BpfState &state);
+Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
+Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open);
+void set_ringbuf_bytes(uint32_t bytes);
+void cleanup_bpf(BpfState& state);
 
 // Map operations
-Result<void> reuse_pinned_map(bpf_map *map, const char *path, bool &reused);
-Result<void> pin_map(bpf_map *map, const char *path);
-size_t map_entry_count(bpf_map *map);
-Result<void> clear_map_entries(bpf_map *map);
+Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused);
+Result<void> pin_map(bpf_map* map, const char* path);
+size_t map_entry_count(bpf_map* map);
+Result<void> clear_map_entries(bpf_map* map);
 
 // Stats operations
-Result<BlockStats> read_block_stats_map(bpf_map *map);
-Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_map *map);
-Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_map *map);
-Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map *map);
-Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map *map);
-Result<void> reset_block_stats_map(bpf_map *map);
+Result<BlockStats> read_block_stats_map(bpf_map* map);
+Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_map* map);
+Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_map* map);
+Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map* map);
+Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map);
+Result<void> reset_block_stats_map(bpf_map* map);
 
 // Configuration
-Result<void> set_agent_config(BpfState &state, bool audit_only);
-Result<void> set_agent_config_full(BpfState &state, const AgentConfig &config);
-Result<void> update_deadman_deadline(BpfState &state, uint64_t deadline_ns);
-Result<void> ensure_layout_version(BpfState &state);
+Result<void> set_agent_config(BpfState& state, bool audit_only);
+Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
+Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns);
+Result<void> ensure_layout_version(BpfState& state);
 
 // Survival allowlist operations
-Result<void> populate_survival_allowlist(BpfState &state);
-Result<void> add_survival_entry(BpfState &state, const InodeId &id);
-Result<std::vector<InodeId>> read_survival_allowlist(BpfState &state);
+Result<void> populate_survival_allowlist(BpfState& state);
+Result<void> add_survival_entry(BpfState& state, const InodeId& id);
+Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state);
 
 // Deny/allow operations
-Result<void> add_deny_inode(BpfState &state, const InodeId &id, DenyEntries &entries);
-Result<void> add_deny_path(BpfState &state, const std::string &path, DenyEntries &entries);
-Result<void> add_allow_cgroup(BpfState &state, uint64_t cgid);
-Result<void> add_allow_cgroup_path(BpfState &state, const std::string &path);
+Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& entries);
+Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries);
+Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid);
+Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path);
 
 // System checks
 bool kernel_bpf_lsm_enabled();
@@ -146,15 +148,19 @@ std::string resolve_bpf_obj_path();
 
 // RAII wrapper for ring_buffer
 class RingBufferGuard {
-public:
-    explicit RingBufferGuard(ring_buffer *rb) : rb_(rb) {}
-    ~RingBufferGuard() { if (rb_) ring_buffer__free(rb_); }
+  public:
+    explicit RingBufferGuard(ring_buffer* rb) : rb_(rb) {}
+    ~RingBufferGuard()
+    {
+        if (rb_) ring_buffer__free(rb_);
+    }
 
     RingBufferGuard(const RingBufferGuard&) = delete;
     RingBufferGuard& operator=(const RingBufferGuard&) = delete;
 
     RingBufferGuard(RingBufferGuard&& other) noexcept : rb_(other.rb_) { other.rb_ = nullptr; }
-    RingBufferGuard& operator=(RingBufferGuard&& other) noexcept {
+    RingBufferGuard& operator=(RingBufferGuard&& other) noexcept
+    {
         if (this != &other) {
             if (rb_) ring_buffer__free(rb_);
             rb_ = other.rb_;
@@ -166,14 +172,15 @@ public:
     [[nodiscard]] ring_buffer* get() const { return rb_; }
     [[nodiscard]] explicit operator bool() const { return rb_ != nullptr; }
 
-    ring_buffer* release() {
+    ring_buffer* release()
+    {
         ring_buffer* tmp = rb_;
         rb_ = nullptr;
         return tmp;
     }
 
-private:
-    ring_buffer *rb_;
+  private:
+    ring_buffer* rb_;
 };
 
-} // namespace aegis
+}  // namespace aegis

@@ -11,12 +11,13 @@
 #include <limits.h>
 #include <sstream>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
 namespace aegis {
 
-std::string trim(const std::string &s)
+std::string trim(const std::string& s)
 {
     size_t start = 0;
     while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) {
@@ -29,7 +30,7 @@ std::string trim(const std::string &s)
     return s.substr(start, end - start);
 }
 
-bool parse_key_value(const std::string &line, std::string &key, std::string &value)
+bool parse_key_value(const std::string& line, std::string& key, std::string& value)
 {
     size_t pos = line.find('=');
     if (pos == std::string::npos) {
@@ -40,7 +41,7 @@ bool parse_key_value(const std::string &line, std::string &key, std::string &val
     return !key.empty();
 }
 
-bool parse_uint64(const std::string &text, uint64_t &out)
+bool parse_uint64(const std::string& text, uint64_t& out)
 {
     if (text.empty()) {
         return false;
@@ -49,7 +50,7 @@ bool parse_uint64(const std::string &text, uint64_t &out)
     if (text[0] == '-') {
         return false;
     }
-    char *end = nullptr;
+    char* end = nullptr;
     errno = 0;
     unsigned long long val = std::strtoull(text.c_str(), &end, 10);
     if (errno != 0 || end == text.c_str() || *end != '\0') {
@@ -59,7 +60,7 @@ bool parse_uint64(const std::string &text, uint64_t &out)
     return true;
 }
 
-bool parse_inode_id(const std::string &text, InodeId &out)
+bool parse_inode_id(const std::string& text, InodeId& out)
 {
     size_t pos = text.find(':');
     if (pos == std::string::npos) {
@@ -81,7 +82,7 @@ bool parse_inode_id(const std::string &text, InodeId &out)
     return true;
 }
 
-std::string join_list(const std::vector<std::string> &items)
+std::string join_list(const std::vector<std::string>& items)
 {
     std::ostringstream oss;
     for (size_t i = 0; i < items.size(); ++i) {
@@ -93,12 +94,12 @@ std::string join_list(const std::vector<std::string> &items)
     return oss.str();
 }
 
-std::string to_string(const char *buf, size_t sz)
+std::string to_string(const char* buf, size_t sz)
 {
     return std::string(buf, strnlen(buf, sz));
 }
 
-std::string json_escape(const std::string &in)
+std::string json_escape(const std::string& in)
 {
     std::string out;
     out.reserve(in.size() + 4);
@@ -118,7 +119,7 @@ std::string json_escape(const std::string &in)
     return out;
 }
 
-std::string prometheus_escape_label(const std::string &in)
+std::string prometheus_escape_label(const std::string& in)
 {
     std::string out;
     out.reserve(in.size() + 4);
@@ -141,7 +142,18 @@ std::string prometheus_escape_label(const std::string &in)
     return out;
 }
 
-Result<InodeId> path_to_inode(const std::string &path)
+uint32_t encode_dev(dev_t dev)
+{
+    constexpr uint32_t kMinorBits = 20;
+    constexpr uint32_t kMinorMask = (1U << kMinorBits) - 1U;
+    constexpr uint32_t kMajorMask = (1U << (32 - kMinorBits)) - 1U;
+
+    uint32_t maj = static_cast<uint32_t>(major(dev));
+    uint32_t min = static_cast<uint32_t>(minor(dev));
+    return ((maj & kMajorMask) << kMinorBits) | (min & kMinorMask);
+}
+
+Result<InodeId> path_to_inode(const std::string& path)
 {
     struct stat st{};
     if (stat(path.c_str(), &st) != 0) {
@@ -149,12 +161,12 @@ Result<InodeId> path_to_inode(const std::string &path)
     }
     InodeId id{};
     id.ino = st.st_ino;
-    id.dev = static_cast<uint32_t>(st.st_dev);
+    id.dev = encode_dev(st.st_dev);
     id.pad = 0;
     return id;
 }
 
-Result<uint64_t> path_to_cgid(const std::string &path)
+Result<uint64_t> path_to_cgid(const std::string& path)
 {
     struct stat st{};
     if (stat(path.c_str(), &st) != 0) {
@@ -163,7 +175,7 @@ Result<uint64_t> path_to_cgid(const std::string &path)
     return static_cast<uint64_t>(st.st_ino);
 }
 
-void fill_path_key(const std::string &path, PathKey &key)
+void fill_path_key(const std::string& path, PathKey& key)
 {
     std::memset(&key, 0, sizeof(key));
     size_t len = path.size();
@@ -173,7 +185,7 @@ void fill_path_key(const std::string &path, PathKey &key)
     std::memcpy(key.path, path.data(), len);
 }
 
-std::string inode_to_string(const InodeId &id)
+std::string inode_to_string(const InodeId& id)
 {
     std::ostringstream oss;
     oss << id.dev << ":" << id.ino;
@@ -248,7 +260,7 @@ CwdCache& CwdCache::instance()
     return instance;
 }
 
-std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::string &path)
+std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::string& path)
 {
     if (path.empty() || path.front() == '/') {
         return path;
@@ -260,7 +272,8 @@ std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::stri
         auto it = cache_.find(pid);
         if (it != cache_.end() && (!start_time || it->second.start_time == start_time)) {
             cwd = it->second.cwd;
-        } else {
+        }
+        else {
             cwd = read_proc_cwd(pid);
             if (cwd.empty()) {
                 return path;
@@ -273,18 +286,18 @@ std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::stri
     return combined.lexically_normal().string();
 }
 
-std::string resolve_relative_path(uint32_t pid, uint64_t start_time, const std::string &path)
+std::string resolve_relative_path(uint32_t pid, uint64_t start_time, const std::string& path)
 {
     return CwdCache::instance().resolve(pid, start_time, path);
 }
 
-bool path_exists(const char *path, std::error_code &ec)
+bool path_exists(const char* path, std::error_code& ec)
 {
     ec.clear();
     return std::filesystem::exists(path, ec);
 }
 
-Result<std::string> validate_path(const std::string &path)
+Result<std::string> validate_path(const std::string& path)
 {
     if (path.empty()) {
         return Error(ErrorCode::InvalidArgument, "Path is empty");
@@ -299,7 +312,7 @@ Result<std::string> validate_path(const std::string &path)
     return path;
 }
 
-Result<std::string> validate_existing_path(const std::string &path)
+Result<std::string> validate_existing_path(const std::string& path)
 {
     auto validated = validate_path(path);
     if (!validated) {
@@ -314,7 +327,7 @@ Result<std::string> validate_existing_path(const std::string &path)
     return resolved.string();
 }
 
-Result<std::string> validate_cgroup_path(const std::string &path)
+Result<std::string> validate_cgroup_path(const std::string& path)
 {
     auto validated = validate_existing_path(path);
     if (!validated) {
@@ -336,7 +349,7 @@ Result<std::string> validate_cgroup_path(const std::string &path)
     return resolved;
 }
 
-std::string read_file_first_line(const std::string &path)
+std::string read_file_first_line(const std::string& path)
 {
     std::ifstream in(path);
     std::string line;
@@ -349,7 +362,7 @@ std::string read_file_first_line(const std::string &path)
     return line;
 }
 
-std::string find_kernel_config_value_in_file(const std::string &path, const std::string &key)
+std::string find_kernel_config_value_in_file(const std::string& path, const std::string& key)
 {
     std::ifstream in(path);
     if (!in.is_open()) {
@@ -365,7 +378,7 @@ std::string find_kernel_config_value_in_file(const std::string &path, const std:
     return {};
 }
 
-std::string find_kernel_config_value_in_proc(const std::string &key)
+std::string find_kernel_config_value_in_proc(const std::string& key)
 {
     if (!std::filesystem::exists("/proc/config.gz")) {
         return {};
@@ -388,7 +401,7 @@ std::string find_kernel_config_value_in_proc(const std::string &key)
     return value;
 }
 
-std::string kernel_config_value(const std::string &key)
+std::string kernel_config_value(const std::string& key)
 {
     struct utsname uts{};
     if (uname(&uts) == 0) {
@@ -428,7 +441,7 @@ DenyEntries read_deny_db()
     return entries;
 }
 
-Result<void> write_deny_db(const DenyEntries &entries)
+Result<void> write_deny_db(const DenyEntries& entries)
 {
     auto db_result = ensure_db_dir();
     if (!db_result) {
@@ -438,7 +451,7 @@ Result<void> write_deny_db(const DenyEntries &entries)
     if (!out.is_open()) {
         return Error(ErrorCode::IoError, "Failed to open deny database for writing", kDenyDbPath);
     }
-    for (const auto &kv : entries) {
+    for (const auto& kv : entries) {
         out << kv.first.dev << " " << kv.first.ino;
         if (!kv.second.empty()) {
             out << " " << kv.second;
@@ -488,7 +501,7 @@ bool detect_break_glass()
     return false;
 }
 
-Result<std::pair<InodeId, std::string>> canonicalize_path(const std::string &path)
+Result<std::pair<InodeId, std::string>> canonicalize_path(const std::string& path)
 {
     if (path.empty()) {
         return Error(ErrorCode::InvalidArgument, "Path is empty");
@@ -509,13 +522,13 @@ Result<std::pair<InodeId, std::string>> canonicalize_path(const std::string &pat
 
     InodeId id{};
     id.ino = st.st_ino;
-    id.dev = static_cast<uint32_t>(st.st_dev);
+    id.dev = encode_dev(st.st_dev);
     id.pad = 0;
 
     return std::make_pair(id, resolved_str);
 }
 
-Result<InodeId> resolve_to_inode(const std::string &path, bool follow_symlinks)
+Result<InodeId> resolve_to_inode(const std::string& path, bool follow_symlinks)
 {
     if (path.empty()) {
         return Error(ErrorCode::InvalidArgument, "Path is empty");
@@ -525,7 +538,8 @@ Result<InodeId> resolve_to_inode(const std::string &path, bool follow_symlinks)
     int rc;
     if (follow_symlinks) {
         rc = stat(path.c_str(), &st);
-    } else {
+    }
+    else {
         rc = lstat(path.c_str(), &st);
     }
 
@@ -535,9 +549,9 @@ Result<InodeId> resolve_to_inode(const std::string &path, bool follow_symlinks)
 
     InodeId id{};
     id.ino = st.st_ino;
-    id.dev = static_cast<uint32_t>(st.st_dev);
+    id.dev = encode_dev(st.st_dev);
     id.pad = 0;
     return id;
 }
 
-} // namespace aegis
+}  // namespace aegis

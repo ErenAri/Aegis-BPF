@@ -9,8 +9,9 @@ namespace aegis {
 namespace {
 
 class PolicyBenchmark : public benchmark::Fixture {
-public:
-    void SetUp(const benchmark::State&) override {
+  public:
+    void SetUp(const benchmark::State&) override
+    {
         test_dir_ = std::filesystem::temp_directory_path() / "aegisbpf_bench";
         std::filesystem::create_directories(test_dir_);
 
@@ -27,7 +28,8 @@ public:
         }
     }
 
-    void TearDown(const benchmark::State&) override {
+    void TearDown(const benchmark::State&) override
+    {
         std::filesystem::remove_all(test_dir_);
     }
 
@@ -35,7 +37,8 @@ public:
     std::string policy_path_;
 };
 
-BENCHMARK_DEFINE_F(PolicyBenchmark, ParsePolicy)(benchmark::State& state) {
+BENCHMARK_DEFINE_F(PolicyBenchmark, ParsePolicy)(benchmark::State& state)
+{
     for (auto _ : state) {
         PolicyIssues issues;
         auto result = parse_policy_file(policy_path_, issues);
@@ -44,7 +47,8 @@ BENCHMARK_DEFINE_F(PolicyBenchmark, ParsePolicy)(benchmark::State& state) {
 }
 BENCHMARK_REGISTER_F(PolicyBenchmark, ParsePolicy);
 
-static void BM_Sha256Short(benchmark::State& state) {
+static void BM_Sha256Short(benchmark::State& state)
+{
     std::string input = "hello world";
     for (auto _ : state) {
         std::string hash = Sha256::hash_hex(input);
@@ -54,7 +58,8 @@ static void BM_Sha256Short(benchmark::State& state) {
 }
 BENCHMARK(BM_Sha256Short);
 
-static void BM_Sha256Long(benchmark::State& state) {
+static void BM_Sha256Long(benchmark::State& state)
+{
     std::string input(state.range(0), 'x');
     for (auto _ : state) {
         std::string hash = Sha256::hash_hex(input);
@@ -64,7 +69,8 @@ static void BM_Sha256Long(benchmark::State& state) {
 }
 BENCHMARK(BM_Sha256Long)->Range(64, 1 << 20);
 
-static void BM_Trim(benchmark::State& state) {
+static void BM_Trim(benchmark::State& state)
+{
     std::string input = "   hello world   ";
     for (auto _ : state) {
         std::string result = trim(input);
@@ -73,7 +79,8 @@ static void BM_Trim(benchmark::State& state) {
 }
 BENCHMARK(BM_Trim);
 
-static void BM_JsonEscape(benchmark::State& state) {
+static void BM_JsonEscape(benchmark::State& state)
+{
     std::string input = R"(path\to\"file")";
     for (auto _ : state) {
         std::string result = json_escape(input);
@@ -82,7 +89,8 @@ static void BM_JsonEscape(benchmark::State& state) {
 }
 BENCHMARK(BM_JsonEscape);
 
-static void BM_ParseInodeId(benchmark::State& state) {
+static void BM_ParseInodeId(benchmark::State& state)
+{
     std::string input = "259:12345678901234";
     for (auto _ : state) {
         InodeId id;
@@ -93,7 +101,7 @@ static void BM_ParseInodeId(benchmark::State& state) {
 }
 BENCHMARK(BM_ParseInodeId);
 
-} // namespace
-} // namespace aegis
+}  // namespace
+}  // namespace aegis
 
 BENCHMARK_MAIN();

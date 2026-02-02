@@ -54,21 +54,16 @@ constexpr uint32_t kRoundConstants[64] = {
     0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
     0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-};
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
 constexpr std::array<uint32_t, 8> kInitialState = {
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-};
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
 
-} // namespace
+}  // namespace
 
 Sha256::Sha256()
-    : state_(kInitialState)
-    , bitlen_(0)
-    , buffer_{}
-    , buflen_(0)
+    : state_(kInitialState), bitlen_(0), buffer_{}, buflen_(0)
 {
 }
 
@@ -118,7 +113,7 @@ void Sha256::transform(const uint8_t data[kBlockSize])
     state_[7] += h;
 }
 
-void Sha256::update(const uint8_t *data, size_t len)
+void Sha256::update(const uint8_t* data, size_t len)
 {
     for (size_t i = 0; i < len; ++i) {
         buffer_[buflen_++] = data[i];
@@ -130,14 +125,14 @@ void Sha256::update(const uint8_t *data, size_t len)
     }
 }
 
-void Sha256::update(const std::vector<uint8_t> &data)
+void Sha256::update(const std::vector<uint8_t>& data)
 {
     update(data.data(), data.size());
 }
 
-void Sha256::update(const std::string &data)
+void Sha256::update(const std::string& data)
 {
-    update(reinterpret_cast<const uint8_t *>(data.data()), data.size());
+    update(reinterpret_cast<const uint8_t*>(data.data()), data.size());
 }
 
 std::array<uint8_t, Sha256::kDigestSize> Sha256::finalize()
@@ -149,7 +144,8 @@ std::array<uint8_t, Sha256::kDigestSize> Sha256::finalize()
         while (i < 56) {
             buffer_[i++] = 0x00;
         }
-    } else {
+    }
+    else {
         buffer_[i++] = 0x80;
         while (i < kBlockSize) {
             buffer_[i++] = 0x00;
@@ -194,19 +190,19 @@ std::string Sha256::finalize_hex()
     return oss.str();
 }
 
-std::string Sha256::hash_hex(const uint8_t *data, size_t len)
+std::string Sha256::hash_hex(const uint8_t* data, size_t len)
 {
     Sha256 hasher;
     hasher.update(data, len);
     return hasher.finalize_hex();
 }
 
-std::string Sha256::hash_hex(const std::string &data)
+std::string Sha256::hash_hex(const std::string& data)
 {
-    return hash_hex(reinterpret_cast<const uint8_t *>(data.data()), data.size());
+    return hash_hex(reinterpret_cast<const uint8_t*>(data.data()), data.size());
 }
 
-bool sha256_file_hex(const std::string &path, std::string &out_hex)
+bool sha256_file_hex(const std::string& path, std::string& out_hex)
 {
     std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
@@ -219,7 +215,7 @@ bool sha256_file_hex(const std::string &path, std::string &out_hex)
         in.read(buf, sizeof(buf));
         std::streamsize got = in.gcount();
         if (got > 0) {
-            hasher.update(reinterpret_cast<const uint8_t *>(buf), static_cast<size_t>(got));
+            hasher.update(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(got));
         }
     }
     if (!in.eof() && in.fail()) {
@@ -229,7 +225,7 @@ bool sha256_file_hex(const std::string &path, std::string &out_hex)
     return true;
 }
 
-bool parse_sha256_token(const std::string &text, std::string &hex)
+bool parse_sha256_token(const std::string& text, std::string& hex)
 {
     std::istringstream iss(text);
     std::string token;
@@ -251,7 +247,7 @@ bool parse_sha256_token(const std::string &text, std::string &hex)
     return true;
 }
 
-bool verify_policy_hash(const std::string &path, const std::string &expected, std::string &computed)
+bool verify_policy_hash(const std::string& path, const std::string& expected, std::string& computed)
 {
     if (!sha256_file_hex(path, computed)) {
         return false;
@@ -259,7 +255,7 @@ bool verify_policy_hash(const std::string &path, const std::string &expected, st
     return computed == expected;
 }
 
-bool read_sha256_file(const std::string &path, std::string &hash)
+bool read_sha256_file(const std::string& path, std::string& hash)
 {
     std::ifstream in(path);
     if (!in.is_open()) {
@@ -272,4 +268,4 @@ bool read_sha256_file(const std::string &path, std::string &hash)
     return parse_sha256_token(line, hash);
 }
 
-} // namespace aegis
+}  // namespace aegis

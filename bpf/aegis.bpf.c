@@ -82,7 +82,7 @@ struct agent_config {
     __u8 _pad;
     __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
     __u32 deadman_ttl_seconds;
-    __u32 _pad2;
+    __u32 event_sample_rate;
 };
 
 struct agent_meta {
@@ -309,6 +309,22 @@ static __always_inline __u8 get_effective_audit_mode(void)
     return 0;  /* Enforce mode */
 }
 
+static __always_inline __u32 get_event_sample_rate(void)
+{
+    __u32 zero = 0;
+    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
+    if (!cfg)
+        return 1;  /* Default to no sampling if config missing */
+    return cfg->event_sample_rate ? cfg->event_sample_rate : 1;
+}
+
+static __always_inline int should_emit_event(__u32 sample_rate)
+{
+    if (sample_rate <= 1)
+        return 1;
+    return (bpf_get_prandom_u32() % sample_rate) == 0;
+}
+
 static __always_inline int is_cgroup_allowed(__u64 cgid)
 {
     return bpf_map_lookup_elem(&allow_cgroup_map, &cgid) != NULL;
@@ -377,22 +393,23 @@ int BPF_PROG(handle_file_open, struct file *file)
     key.ino = BPF_CORE_READ(inode, i_ino);
     key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
 
-    /* FIRST: Survival allowlist - always allow critical binaries */
+    /* Check if inode is in deny list */
+    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+        return 0;
+
+    /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
         return 0;
 
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    struct task_struct *task = bpf_get_current_task_btf();
-    __u8 audit = get_effective_audit_mode();
-
     /* Skip allowed cgroups */
     if (is_cgroup_allowed(cgid))
         return 0;
 
-    /* Check if inode is in deny list */
-    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
-        return 0;
+    __u8 audit = get_effective_audit_mode();
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u32 sample_rate = get_event_sample_rate();
 
     /* Update statistics */
     increment_block_stats();
@@ -404,6 +421,8 @@ int BPF_PROG(handle_file_open, struct file *file)
         bpf_send_signal(SIGKILL);
 
     /* Send block event */
+    if (!should_emit_event(sample_rate))
+        return audit ? 0 : -EPERM;
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
@@ -435,22 +454,23 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     key.ino = BPF_CORE_READ(inode, i_ino);
     key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
 
-    /* FIRST: Survival allowlist - always allow critical binaries */
+    /* Check if inode is in deny list */
+    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+        return 0;
+
+    /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
         return 0;
 
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    struct task_struct *task = bpf_get_current_task_btf();
-    __u8 audit = get_effective_audit_mode();
-
     /* Skip allowed cgroups */
     if (is_cgroup_allowed(cgid))
         return 0;
 
-    /* Check if inode is in deny list */
-    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
-        return 0;
+    __u8 audit = get_effective_audit_mode();
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u32 sample_rate = get_event_sample_rate();
 
     /* Update statistics */
     increment_block_stats();
@@ -462,6 +482,8 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         bpf_send_signal(SIGKILL);
 
     /* Send block event */
+    if (!should_emit_event(sample_rate))
+        return audit ? 0 : -EPERM;
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
@@ -509,6 +531,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
     struct task_struct *task = bpf_get_current_task_btf();
+    __u32 sample_rate = get_event_sample_rate();
 
     /* Skip allowed cgroups */
     if (is_cgroup_allowed(cgid))
@@ -520,6 +543,8 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     increment_path_stat(&key);
 
     /* Send block event (audit only - tracepoints can't block) */
+    if (!should_emit_event(sample_rate))
+        return 0;
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;

@@ -23,10 +23,11 @@
 
 // Forward declarations for functions we want to fuzz
 namespace aegis {
-    extern Result<Policy> parse_policy_content(const std::string &content, PolicyIssues &issues);
+extern Result<Policy> parse_policy_content(const std::string& content, PolicyIssues& issues);
 }
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
+{
     // Convert to string
     std::string content(reinterpret_cast<const char*>(data), size);
 

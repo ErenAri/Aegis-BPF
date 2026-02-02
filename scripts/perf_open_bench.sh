@@ -37,7 +37,11 @@ if [[ "$WITH_AGENT" -eq 1 ]]; then
         exit 1
     fi
     LOGFILE=$(mktemp)
-    "$BIN" run --audit >"$LOGFILE" 2>&1 &
+    hook_arg=""
+    if [[ -n "${LSM_HOOK:-}" ]]; then
+        hook_arg="--lsm-hook=${LSM_HOOK}"
+    fi
+    "$BIN" run --audit $hook_arg >"$LOGFILE" 2>&1 &
     AGENT_PID=$!
     sleep 1
     if ! kill -0 "$AGENT_PID" 2>/dev/null; then

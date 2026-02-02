@@ -24,11 +24,12 @@ namespace aegis {
 namespace test {
 
 class BypassTest : public ::testing::Test {
-protected:
-    static constexpr const char *kTestDir = "/tmp/aegisbpf_bypass_test";
-    static constexpr const char *kTestFile = "/tmp/aegisbpf_bypass_test/target.txt";
+  protected:
+    static constexpr const char* kTestDir = "/tmp/aegisbpf_bypass_test";
+    static constexpr const char* kTestFile = "/tmp/aegisbpf_bypass_test/target.txt";
 
-    void SetUp() override {
+    void SetUp() override
+    {
         // Skip tests if not root
         if (geteuid() != 0) {
             GTEST_SKIP() << "Bypass tests require root privileges";
@@ -41,11 +42,13 @@ protected:
         out.close();
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         std::filesystem::remove_all(kTestDir);
     }
 
-    bool file_is_blocked(const char *path) {
+    bool file_is_blocked(const char* path)
+    {
         int fd = open(path, O_RDONLY);
         if (fd >= 0) {
             close(fd);
@@ -56,7 +59,8 @@ protected:
         return errno == EPERM;
     }
 
-    bool can_read_file(const char *path) {
+    bool can_read_file(const char* path)
+    {
         int fd = open(path, O_RDONLY);
         if (fd < 0) {
             return false;
@@ -68,8 +72,9 @@ protected:
 
 // Test: Symlink bypass attempt
 // If we block /tmp/.../target.txt, accessing via symlink should also be blocked
-TEST_F(BypassTest, SymlinkBypass) {
-    const char *symlink_path = "/tmp/aegisbpf_bypass_test/symlink_to_target";
+TEST_F(BypassTest, SymlinkBypass)
+{
+    const char* symlink_path = "/tmp/aegisbpf_bypass_test/symlink_to_target";
 
     // Create symlink to target file
     ASSERT_EQ(0, symlink(kTestFile, symlink_path));
@@ -91,8 +96,9 @@ TEST_F(BypassTest, SymlinkBypass) {
 
 // Test: Hardlink bypass attempt
 // Hardlinks share the same inode, so blocking should work
-TEST_F(BypassTest, HardlinkBypass) {
-    const char *hardlink_path = "/tmp/aegisbpf_bypass_test/hardlink_to_target";
+TEST_F(BypassTest, HardlinkBypass)
+{
+    const char* hardlink_path = "/tmp/aegisbpf_bypass_test/hardlink_to_target";
 
     // Create hardlink to target file
     ASSERT_EQ(0, link(kTestFile, hardlink_path));
@@ -109,8 +115,9 @@ TEST_F(BypassTest, HardlinkBypass) {
 
 // Test: Rename bypass attempt
 // Renamed files keep the same inode
-TEST_F(BypassTest, RenameBypass) {
-    const char *renamed_path = "/tmp/aegisbpf_bypass_test/renamed_target.txt";
+TEST_F(BypassTest, RenameBypass)
+{
+    const char* renamed_path = "/tmp/aegisbpf_bypass_test/renamed_target.txt";
 
     // Get original inode
     struct stat st_before{};
@@ -131,7 +138,8 @@ TEST_F(BypassTest, RenameBypass) {
 
 // Test: /proc/self/fd bypass attempt
 // Opening a file, deleting it, then accessing via /proc/self/fd
-TEST_F(BypassTest, ProcFdBypass) {
+TEST_F(BypassTest, ProcFdBypass)
+{
     // Open the file
     int fd = open(kTestFile, O_RDONLY);
     ASSERT_GE(fd, 0);
@@ -152,7 +160,8 @@ TEST_F(BypassTest, ProcFdBypass) {
 }
 
 // Test: Verifying inode tracking across filesystem operations
-TEST_F(BypassTest, InodeStability) {
+TEST_F(BypassTest, InodeStability)
+{
     struct stat st{};
     ASSERT_EQ(0, stat(kTestFile, &st));
     ino_t original_inode = st.st_ino;
@@ -177,9 +186,10 @@ TEST_F(BypassTest, InodeStability) {
 }
 
 // Test: Directory traversal doesn't change file inode
-TEST_F(BypassTest, DirectoryTraversal) {
+TEST_F(BypassTest, DirectoryTraversal)
+{
     // Access via different path representations
-    const char *paths[] = {
+    const char* paths[] = {
         kTestFile,
         "/tmp/aegisbpf_bypass_test/../aegisbpf_bypass_test/target.txt",
         "/tmp/../tmp/aegisbpf_bypass_test/target.txt",
@@ -189,7 +199,7 @@ TEST_F(BypassTest, DirectoryTraversal) {
     struct stat st_base{};
     ASSERT_EQ(0, stat(paths[0], &st_base));
 
-    for (const char *path : paths) {
+    for (const char* path : paths) {
         struct stat st{};
         if (stat(path, &st) == 0) {
             EXPECT_EQ(st_base.st_ino, st.st_ino)
@@ -201,9 +211,10 @@ TEST_F(BypassTest, DirectoryTraversal) {
 }
 
 // Test: Case sensitivity (Linux is case-sensitive)
-TEST_F(BypassTest, CaseSensitivity) {
+TEST_F(BypassTest, CaseSensitivity)
+{
     // Create a file with different case
-    const char *uppercase_path = "/tmp/aegisbpf_bypass_test/TARGET.txt";
+    const char* uppercase_path = "/tmp/aegisbpf_bypass_test/TARGET.txt";
 
     std::ofstream out(uppercase_path);
     out << "different file" << std::endl;
@@ -219,8 +230,9 @@ TEST_F(BypassTest, CaseSensitivity) {
 }
 
 // Test: Blocking a symlink target vs the symlink itself
-TEST_F(BypassTest, SymlinkTargetVsSymlink) {
-    const char *symlink_path = "/tmp/aegisbpf_bypass_test/symlink2";
+TEST_F(BypassTest, SymlinkTargetVsSymlink)
+{
+    const char* symlink_path = "/tmp/aegisbpf_bypass_test/symlink2";
     ASSERT_EQ(0, symlink(kTestFile, symlink_path));
 
     // lstat gets the symlink inode, stat follows the symlink
@@ -239,15 +251,16 @@ TEST_F(BypassTest, SymlinkTargetVsSymlink) {
 }
 
 // Test: Survival allowlist verification
-TEST_F(BypassTest, SurvivalBinariesExist) {
+TEST_F(BypassTest, SurvivalBinariesExist)
+{
     // These are critical binaries that should exist and never be blocked
-    const char *survival_binaries[] = {
+    const char* survival_binaries[] = {
         "/sbin/init",
         "/bin/sh",
         "/usr/bin/sudo",
     };
 
-    for (const char *path : survival_binaries) {
+    for (const char* path : survival_binaries) {
         struct stat st{};
         if (stat(path, &st) == 0) {
             EXPECT_TRUE(can_read_file(path))
@@ -256,5 +269,5 @@ TEST_F(BypassTest, SurvivalBinariesExist) {
     }
 }
 
-} // namespace test
-} // namespace aegis
+}  // namespace test
+}  // namespace aegis

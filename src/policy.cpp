@@ -14,17 +14,17 @@
 
 namespace aegis {
 
-void report_policy_issues(const PolicyIssues &issues)
+void report_policy_issues(const PolicyIssues& issues)
 {
-    for (const auto &err : issues.errors) {
+    for (const auto& err : issues.errors) {
         logger().log(SLOG_ERROR("Policy error").field("detail", err));
     }
-    for (const auto &warn : issues.warnings) {
+    for (const auto& warn : issues.warnings) {
         logger().log(SLOG_WARN("Policy warning").field("detail", warn));
     }
 }
 
-Result<Policy> parse_policy_file(const std::string &path, PolicyIssues &issues)
+Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 {
     std::ifstream in(path);
     if (!in.is_open()) {
@@ -72,7 +72,8 @@ Result<Policy> parse_policy_file(const std::string &path, PolicyIssues &issues)
                     continue;
                 }
                 policy.version = static_cast<int>(version);
-            } else {
+            }
+            else {
                 issues.errors.push_back("line " + std::to_string(line_no) + ": unknown header key '" + key + "'");
             }
             continue;
@@ -141,7 +142,7 @@ Result<Policy> parse_policy_file(const std::string &path, PolicyIssues &issues)
     return policy;
 }
 
-Result<void> record_applied_policy(const std::string &path, const std::string &hash)
+Result<void> record_applied_policy(const std::string& path, const std::string& hash)
 {
     auto db_result = ensure_db_dir();
     if (!db_result) {
@@ -177,7 +178,8 @@ Result<void> record_applied_policy(const std::string &path, const std::string &h
             return Error::system(errno, "Failed to open policy hash file for writing");
         }
         hout << hash << "\n";
-    } else {
+    }
+    else {
         std::error_code rm_ec;
         std::filesystem::remove(kPolicyAppliedHashPath, rm_ec);
         if (rm_ec) {
@@ -187,7 +189,7 @@ Result<void> record_applied_policy(const std::string &path, const std::string &h
     return {};
 }
 
-Result<void> reset_policy_maps(BpfState &state)
+Result<void> reset_policy_maps(BpfState& state)
 {
     TRY(clear_map_entries(state.deny_inode));
     TRY(clear_map_entries(state.deny_path));
@@ -205,7 +207,7 @@ Result<void> reset_policy_maps(BpfState &state)
     return {};
 }
 
-Result<void> policy_lint(const std::string &path)
+Result<void> policy_lint(const std::string& path)
 {
     PolicyIssues issues;
     auto result = parse_policy_file(path, issues);
@@ -216,7 +218,7 @@ Result<void> policy_lint(const std::string &path)
     return {};
 }
 
-Result<void> apply_policy_internal(const std::string &path, const std::string &computed_hash, bool reset, bool record)
+Result<void> apply_policy_internal(const std::string& path, const std::string& computed_hash, bool reset, bool record)
 {
     PolicyIssues issues;
     auto policy_result = parse_policy_file(path, issues);
@@ -248,25 +250,25 @@ Result<void> apply_policy_internal(const std::string &path, const std::string &c
 
     DenyEntries entries = reset ? DenyEntries{} : read_deny_db();
 
-    for (const auto &deny_path : policy.deny_paths) {
+    for (const auto& deny_path : policy.deny_paths) {
         auto result = add_deny_path(state, deny_path, entries);
         if (!result) {
             return result.error();
         }
     }
-    for (const auto &id : policy.deny_inodes) {
+    for (const auto& id : policy.deny_inodes) {
         auto result = add_deny_inode(state, id, entries);
         if (!result) {
             return result.error();
         }
     }
-    for (const auto &cgid : policy.allow_cgroup_ids) {
+    for (const auto& cgid : policy.allow_cgroup_ids) {
         auto result = add_allow_cgroup(state, cgid);
         if (!result) {
             return result.error();
         }
     }
-    for (const auto &cgpath : policy.allow_cgroup_paths) {
+    for (const auto& cgpath : policy.allow_cgroup_paths) {
         auto result = add_allow_cgroup_path(state, cgpath);
         if (!result) {
             return result.error();
@@ -287,20 +289,20 @@ Result<void> apply_policy_internal(const std::string &path, const std::string &c
     return {};
 }
 
-Result<void> policy_apply(const std::string &path, bool reset, const std::string &cli_hash,
-                          const std::string &cli_hash_file, bool rollback_on_failure)
+Result<void> policy_apply(const std::string& path, bool reset, const std::string& cli_hash,
+                          const std::string& cli_hash_file, bool rollback_on_failure)
 {
     std::string expected_hash = cli_hash;
     std::string hash_file = cli_hash_file;
 
     if (expected_hash.empty()) {
-        const char *env = std::getenv("AEGIS_POLICY_SHA256");
+        const char* env = std::getenv("AEGIS_POLICY_SHA256");
         if (env && *env) {
             expected_hash = env;
         }
     }
     if (hash_file.empty()) {
-        const char *env = std::getenv("AEGIS_POLICY_SHA256_FILE");
+        const char* env = std::getenv("AEGIS_POLICY_SHA256_FILE");
         if (env && *env) {
             hash_file = env;
         }
@@ -327,7 +329,8 @@ Result<void> policy_apply(const std::string &path, bool reset, const std::string
         if (!verify_policy_hash(path, expected_hash, computed_hash)) {
             return Error(ErrorCode::PolicyHashMismatch, "Policy sha256 mismatch");
         }
-    } else if (!sha256_file_hex(path, computed_hash)) {
+    }
+    else if (!sha256_file_hex(path, computed_hash)) {
         logger().log(SLOG_WARN("Failed to compute policy sha256; continuing without hash"));
         computed_hash.clear();
     }
@@ -340,7 +343,7 @@ Result<void> policy_apply(const std::string &path, bool reset, const std::string
             auto rollback_result = apply_policy_internal(kPolicyAppliedPath, std::string(), true, false);
             if (!rollback_result) {
                 logger().log(SLOG_ERROR("Rollback failed; maps may be inconsistent")
-                    .field("error", rollback_result.error().to_string()));
+                                 .field("error", rollback_result.error().to_string()));
             }
         }
         return result.error();
@@ -348,7 +351,7 @@ Result<void> policy_apply(const std::string &path, bool reset, const std::string
     return result;
 }
 
-Result<void> write_policy_file(const std::string &path, std::vector<std::string> deny_paths,
+Result<void> write_policy_file(const std::string& path, std::vector<std::string> deny_paths,
                                std::vector<std::string> deny_inodes, std::vector<std::string> allow_cgroups)
 {
     std::sort(deny_paths.begin(), deny_paths.end());
@@ -365,26 +368,26 @@ Result<void> write_policy_file(const std::string &path, std::vector<std::string>
     out << "version=1\n";
     if (!deny_paths.empty()) {
         out << "\n[deny_path]\n";
-        for (const auto &p : deny_paths) {
+        for (const auto& p : deny_paths) {
             out << p << "\n";
         }
     }
     if (!deny_inodes.empty()) {
         out << "\n[deny_inode]\n";
-        for (const auto &p : deny_inodes) {
+        for (const auto& p : deny_inodes) {
             out << p << "\n";
         }
     }
     if (!allow_cgroups.empty()) {
         out << "\n[allow_cgroup]\n";
-        for (const auto &p : allow_cgroups) {
+        for (const auto& p : allow_cgroups) {
             out << p << "\n";
         }
     }
     return {};
 }
 
-Result<void> policy_export(const std::string &path)
+Result<void> policy_export(const std::string& path)
 {
     TRY(bump_memlock_rlimit());
 
@@ -394,10 +397,11 @@ Result<void> policy_export(const std::string &path)
     auto db = read_deny_db();
     std::vector<std::string> deny_paths;
     std::vector<std::string> deny_inodes;
-    for (const auto &kv : db) {
+    for (const auto& kv : db) {
         if (!kv.second.empty()) {
             deny_paths.push_back(kv.second);
-        } else {
+        }
+        else {
             deny_inodes.push_back(inode_to_string(kv.first));
         }
     }
@@ -412,7 +416,8 @@ Result<void> policy_export(const std::string &path)
         std::string cgpath = resolve_cgroup_path(id);
         if (!cgpath.empty()) {
             allow_entries.push_back(cgpath);
-        } else {
+        }
+        else {
             allow_entries.push_back("cgid:" + std::to_string(id));
         }
     }
@@ -444,4 +449,4 @@ Result<void> policy_rollback()
     return apply_policy_internal(kPolicyAppliedPrevPath, computed_hash, true, true);
 }
 
-} // namespace aegis
+}  // namespace aegis

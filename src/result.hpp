@@ -55,7 +55,7 @@ enum class ErrorCode {
  * Structured error with code, message, and optional context
  */
 class Error {
-public:
+  public:
     Error(ErrorCode code, std::string message)
         : code_(code), message_(std::move(message)) {}
 
@@ -66,7 +66,8 @@ public:
     [[nodiscard]] const std::string& message() const { return message_; }
     [[nodiscard]] const std::string& context() const { return context_; }
 
-    [[nodiscard]] std::string to_string() const {
+    [[nodiscard]] std::string to_string() const
+    {
         if (context_.empty()) {
             return message_;
         }
@@ -74,23 +75,27 @@ public:
     }
 
     // Convenience constructors for common errors
-    static Error system(int errno_val, const std::string& operation) {
+    static Error system(int errno_val, const std::string& operation)
+    {
         return Error(ErrorCode::IoError, operation, std::strerror(errno_val));
     }
 
-    static Error not_found(const std::string& what) {
+    static Error not_found(const std::string& what)
+    {
         return Error(ErrorCode::ResourceNotFound, what + " not found");
     }
 
-    static Error invalid_argument(const std::string& what) {
+    static Error invalid_argument(const std::string& what)
+    {
         return Error(ErrorCode::InvalidArgument, "Invalid argument", what);
     }
 
-    static Error bpf_error(int err, const std::string& operation) {
+    static Error bpf_error(int err, const std::string& operation)
+    {
         return Error(ErrorCode::BpfLoadFailed, operation, std::strerror(-err));
     }
 
-private:
+  private:
     ErrorCode code_;
     std::string message_;
     std::string context_;
@@ -112,9 +117,9 @@ private:
  *   }
  *   int value = *result;
  */
-template<typename T>
+template <typename T>
 class Result {
-public:
+  public:
     // Implicit construction from value (success)
     Result(T value) : data_(std::move(value)) {}
 
@@ -138,14 +143,16 @@ public:
     [[nodiscard]] const Error& error() const { return std::get<Error>(data_); }
 
     // Get value or default
-    [[nodiscard]] T value_or(T default_value) const {
+    [[nodiscard]] T value_or(T default_value) const
+    {
         if (ok()) return value();
         return default_value;
     }
 
     // Map success value to new type
-    template<typename F>
-    auto map(F&& f) -> Result<decltype(f(std::declval<T>()))> {
+    template <typename F>
+    auto map(F&& f) -> Result<decltype(f(std::declval<T>()))>
+    {
         using U = decltype(f(std::declval<T>()));
         if (ok()) {
             return Result<U>(f(value()));
@@ -153,16 +160,16 @@ public:
         return Result<U>(error());
     }
 
-private:
+  private:
     std::variant<T, Error> data_;
 };
 
 /**
  * Specialization for void - operations that succeed or fail with no value
  */
-template<>
+template <>
 class Result<void> {
-public:
+  public:
     // Success
     Result() : error_(std::nullopt) {}
 
@@ -175,21 +182,21 @@ public:
     [[nodiscard]] Error& error() { return *error_; }
     [[nodiscard]] const Error& error() const { return *error_; }
 
-private:
+  private:
     std::optional<Error> error_;
 };
 
 // Helper for early return on error
-#define TRY(expr) \
-    do { \
-        auto _result = (expr); \
+#define TRY(expr)                             \
+    do {                                      \
+        auto _result = (expr);                \
         if (!_result) return _result.error(); \
     } while (0)
 
-#define TRY_OR(expr, error_expr) \
-    do { \
-        auto _result = (expr); \
+#define TRY_OR(expr, error_expr)           \
+    do {                                   \
+        auto _result = (expr);             \
         if (!_result) return (error_expr); \
     } while (0)
 
-} // namespace aegis
+}  // namespace aegis

@@ -21,14 +21,15 @@ enum class LogLevel {
     Fatal = 4,
 };
 
-inline const char* log_level_string(LogLevel level) {
+inline const char* log_level_string(LogLevel level)
+{
     switch (level) {
-        case LogLevel::Debug: return "DEBUG";
-        case LogLevel::Info:  return "INFO";
-        case LogLevel::Warn:  return "WARN";
-        case LogLevel::Error: return "ERROR";
-        case LogLevel::Fatal: return "FATAL";
-        default: return "UNKNOWN";
+    case LogLevel::Debug: return "DEBUG";
+    case LogLevel::Info: return "INFO";
+    case LogLevel::Warn: return "WARN";
+    case LogLevel::Error: return "ERROR";
+    case LogLevel::Fatal: return "FATAL";
+    default: return "UNKNOWN";
     }
 }
 
@@ -36,38 +37,45 @@ inline const char* log_level_string(LogLevel level) {
  * Structured log entry with key-value fields
  */
 class LogEntry {
-public:
+  public:
     LogEntry(LogLevel level, std::string message)
-        : level_(level), message_(std::move(message)) {
+        : level_(level), message_(std::move(message))
+    {
         timestamp_ = std::chrono::system_clock::now();
     }
 
-    LogEntry& field(const std::string& key, const std::string& value) {
+    LogEntry& field(const std::string& key, const std::string& value)
+    {
         fields_.emplace_back(key, value);
         return *this;
     }
 
-    LogEntry& field(const std::string& key, int64_t value) {
+    LogEntry& field(const std::string& key, int64_t value)
+    {
         fields_.emplace_back(key, std::to_string(value));
         return *this;
     }
 
-    LogEntry& field(const std::string& key, uint64_t value) {
+    LogEntry& field(const std::string& key, uint64_t value)
+    {
         fields_.emplace_back(key, std::to_string(value));
         return *this;
     }
 
-    LogEntry& field(const std::string& key, double value) {
+    LogEntry& field(const std::string& key, double value)
+    {
         fields_.emplace_back(key, std::to_string(value));
         return *this;
     }
 
-    LogEntry& field(const std::string& key, bool value) {
+    LogEntry& field(const std::string& key, bool value)
+    {
         fields_.emplace_back(key, value ? "true" : "false");
         return *this;
     }
 
-    LogEntry& error_code(int err) {
+    LogEntry& error_code(int err)
+    {
         fields_.emplace_back("errno", std::to_string(err));
         fields_.emplace_back("error", std::strerror(err));
         return *this;
@@ -75,20 +83,24 @@ public:
 
     [[nodiscard]] LogLevel level() const { return level_; }
     [[nodiscard]] const std::string& message() const { return message_; }
-    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& fields() const {
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& fields() const
+    {
         return fields_;
     }
-    [[nodiscard]] std::chrono::system_clock::time_point timestamp() const {
+    [[nodiscard]] std::chrono::system_clock::time_point timestamp() const
+    {
         return timestamp_;
     }
 
-    [[nodiscard]] std::string format_text() const {
+    [[nodiscard]] std::string format_text() const
+    {
         std::ostringstream oss;
 
         // Timestamp
         auto time_t = std::chrono::system_clock::to_time_t(timestamp_);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            timestamp_.time_since_epoch()) % 1000;
+                      timestamp_.time_since_epoch()) %
+                  1000;
         oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
         oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
 
@@ -113,7 +125,8 @@ public:
         return oss.str();
     }
 
-    [[nodiscard]] std::string format_json() const {
+    [[nodiscard]] std::string format_json() const
+    {
         std::ostringstream oss;
         oss << "{";
 
@@ -138,8 +151,9 @@ public:
         return oss.str();
     }
 
-private:
-    static std::string escape_value(const std::string& s) {
+  private:
+    static std::string escape_value(const std::string& s)
+    {
         if (s.find(' ') != std::string::npos || s.find('"') != std::string::npos) {
             std::string escaped = "\"";
             for (char c : s) {
@@ -153,17 +167,18 @@ private:
         return s;
     }
 
-    static std::string json_escape(const std::string& s) {
+    static std::string json_escape(const std::string& s)
+    {
         std::string out;
         out.reserve(s.size());
         for (char c : s) {
             switch (c) {
-                case '"': out += "\\\""; break;
-                case '\\': out += "\\\\"; break;
-                case '\n': out += "\\n"; break;
-                case '\r': out += "\\r"; break;
-                case '\t': out += "\\t"; break;
-                default: out += c;
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out += c;
             }
         }
         return out;
@@ -179,8 +194,9 @@ private:
  * Logger singleton with configurable output and level filtering
  */
 class Logger {
-public:
-    static Logger& instance() {
+  public:
+    static Logger& instance()
+    {
         static Logger logger;
         return logger;
     }
@@ -189,18 +205,21 @@ public:
     void set_json_format(bool json) { json_format_ = json; }
     void set_output(std::ostream* out) { output_ = out; }
 
-    void log(const LogEntry& entry) {
+    void log(const LogEntry& entry)
+    {
         if (entry.level() < min_level_) return;
 
         std::lock_guard<std::mutex> lock(mutex_);
         if (json_format_) {
             *output_ << entry.format_json() << std::endl;
-        } else {
+        }
+        else {
             *output_ << entry.format_text() << std::endl;
         }
     }
 
-    void log(LogLevel level, const std::string& message) {
+    void log(LogLevel level, const std::string& message)
+    {
         log(LogEntry(level, message));
     }
 
@@ -211,7 +230,7 @@ public:
     LogEntry error(const std::string& message) { return LogEntry(LogLevel::Error, message); }
     LogEntry fatal(const std::string& message) { return LogEntry(LogLevel::Fatal, message); }
 
-private:
+  private:
     Logger() : min_level_(LogLevel::Info), json_format_(false), output_(&std::cerr) {}
 
     LogLevel min_level_;
@@ -223,41 +242,50 @@ private:
 // Global convenience functions
 inline Logger& logger() { return Logger::instance(); }
 
-inline void log_debug(const std::string& msg) {
+inline void log_debug(const std::string& msg)
+{
     logger().log(LogEntry(LogLevel::Debug, msg));
 }
 
-inline void log_info(const std::string& msg) {
+inline void log_info(const std::string& msg)
+{
     logger().log(LogEntry(LogLevel::Info, msg));
 }
 
-inline void log_warn(const std::string& msg) {
+inline void log_warn(const std::string& msg)
+{
     logger().log(LogEntry(LogLevel::Warn, msg));
 }
 
-inline void log_error(const std::string& msg) {
+inline void log_error(const std::string& msg)
+{
     logger().log(LogEntry(LogLevel::Error, msg));
 }
 
-inline void log_fatal(const std::string& msg) {
+inline void log_fatal(const std::string& msg)
+{
     logger().log(LogEntry(LogLevel::Fatal, msg));
 }
 
 // Macro for logging with automatic field chaining
 #define LOG_DEBUG(msg) aegis::logger().log(aegis::logger().debug(msg))
-#define LOG_INFO(msg)  aegis::logger().log(aegis::logger().info(msg))
-#define LOG_WARN(msg)  aegis::logger().log(aegis::logger().warn(msg))
+#define LOG_INFO(msg) aegis::logger().log(aegis::logger().info(msg))
+#define LOG_WARN(msg) aegis::logger().log(aegis::logger().warn(msg))
 #define LOG_ERROR(msg) aegis::logger().log(aegis::logger().error(msg))
 #define LOG_FATAL(msg) aegis::logger().log(aegis::logger().fatal(msg))
 
 // Structured logging macros
 #define SLOG_DEBUG(msg) aegis::logger().debug(msg)
-#define SLOG_INFO(msg)  aegis::logger().info(msg)
-#define SLOG_WARN(msg)  aegis::logger().warn(msg)
+#define SLOG_INFO(msg) aegis::logger().info(msg)
+#define SLOG_WARN(msg) aegis::logger().warn(msg)
 #define SLOG_ERROR(msg) aegis::logger().error(msg)
 #define SLOG_FATAL(msg) aegis::logger().fatal(msg)
 
 // Helper to log and return
-#define LOG_AND_RETURN(entry, ret) do { aegis::logger().log(entry); return (ret); } while(0)
+#define LOG_AND_RETURN(entry, ret)  \
+    do {                            \
+        aegis::logger().log(entry); \
+        return (ret);               \
+    } while (0)
 
-} // namespace aegis
+}  // namespace aegis

@@ -25,7 +25,7 @@ bool sink_wants_journald(EventLogSink sink)
     return sink == EventLogSink::Journald || sink == EventLogSink::StdoutAndJournald;
 }
 
-bool set_event_log_sink(const std::string &value)
+bool set_event_log_sink(const std::string& value)
 {
     if (value == "stdout") {
         g_event_sink = EventLogSink::Stdout;
@@ -64,8 +64,8 @@ static void journal_report_error(int rc)
     }
 }
 
-void journal_send_exec(const ExecEvent &ev, const std::string &payload, const std::string &cgpath,
-                       const std::string &comm, const std::string &exec_id)
+void journal_send_exec(const ExecEvent& ev, const std::string& payload, const std::string& cgpath,
+                       const std::string& comm, const std::string& exec_id)
 {
     int rc = sd_journal_send(
         "MESSAGE=%s", payload.c_str(),
@@ -79,13 +79,13 @@ void journal_send_exec(const ExecEvent &ev, const std::string &payload, const st
         "AEGIS_CGROUP_PATH=%s", cgpath.c_str(),
         "AEGIS_COMM=%s", comm.c_str(),
         "PRIORITY=%i", LOG_INFO,
-        static_cast<const char *>(nullptr));
+        static_cast<const char*>(nullptr));
     journal_report_error(rc);
 }
 
-void journal_send_block(const BlockEvent &ev, const std::string &payload, const std::string &cgpath,
-                        const std::string &path, const std::string &resolved_path, const std::string &action,
-                        const std::string &comm, const std::string &exec_id, const std::string &parent_exec_id)
+void journal_send_block(const BlockEvent& ev, const std::string& payload, const std::string& cgpath,
+                        const std::string& path, const std::string& resolved_path, const std::string& action,
+                        const std::string& comm, const std::string& exec_id, const std::string& parent_exec_id)
 {
     int priority = (action == "AUDIT") ? LOG_INFO : LOG_WARNING;
     int rc = sd_journal_send(
@@ -107,12 +107,12 @@ void journal_send_block(const BlockEvent &ev, const std::string &payload, const 
         "AEGIS_ACTION=%s", action.c_str(),
         "AEGIS_COMM=%s", comm.c_str(),
         "PRIORITY=%i", priority,
-        static_cast<const char *>(nullptr));
+        static_cast<const char*>(nullptr));
     journal_report_error(rc);
 }
 #endif
 
-void print_exec_event(const ExecEvent &ev)
+void print_exec_event(const ExecEvent& ev)
 {
     std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
@@ -140,7 +140,7 @@ void print_exec_event(const ExecEvent &ev)
 #endif
 }
 
-void print_block_event(const BlockEvent &ev)
+void print_block_event(const BlockEvent& ev)
 {
     std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
@@ -185,15 +185,16 @@ void print_block_event(const BlockEvent &ev)
 #endif
 }
 
-int handle_event(void *, void *data, size_t)
+int handle_event(void*, void* data, size_t)
 {
-    const auto *e = static_cast<const Event *>(data);
+    const auto* e = static_cast<const Event*>(data);
     if (e->type == EVENT_EXEC) {
         print_exec_event(e->exec);
-    } else if (e->type == EVENT_BLOCK) {
+    }
+    else if (e->type == EVENT_BLOCK) {
         print_block_event(e->block);
     }
     return 0;
 }
 
-} // namespace aegis
+}  // namespace aegis

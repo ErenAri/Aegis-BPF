@@ -34,13 +34,50 @@ namespace aegis {
 static volatile sig_atomic_t g_exiting = 0;
 static std::atomic<bool> g_heartbeat_running{false};
 
+enum class LsmHookMode {
+    FileOpen,
+    InodePermission,
+    Both
+};
+
+static const char* lsm_hook_name(LsmHookMode mode)
+{
+    switch (mode) {
+    case LsmHookMode::FileOpen:
+        return "file_open";
+    case LsmHookMode::InodePermission:
+        return "inode_permission";
+    case LsmHookMode::Both:
+        return "both";
+    default:
+        return "unknown";
+    }
+}
+
+static bool parse_lsm_hook(const std::string& value, LsmHookMode& out)
+{
+    if (value == "file" || value == "file_open") {
+        out = LsmHookMode::FileOpen;
+        return true;
+    }
+    if (value == "inode" || value == "inode_permission") {
+        out = LsmHookMode::InodePermission;
+        return true;
+    }
+    if (value == "both") {
+        out = LsmHookMode::Both;
+        return true;
+    }
+    return false;
+}
+
 static void handle_signal(int)
 {
     g_exiting = 1;
 }
 
 // Heartbeat thread for deadman switch - updates deadline every TTL/2
-static void heartbeat_thread(BpfState *state, uint32_t ttl_seconds)
+static void heartbeat_thread(BpfState* state, uint32_t ttl_seconds)
 {
     uint32_t sleep_interval = ttl_seconds / 2;
     if (sleep_interval < 1) {
@@ -57,7 +94,7 @@ static void heartbeat_thread(BpfState *state, uint32_t ttl_seconds)
         auto result = update_deadman_deadline(*state, new_deadline);
         if (!result) {
             logger().log(SLOG_WARN("Failed to update deadman deadline")
-                .field("error", result.error().to_string()));
+                             .field("error", result.error().to_string()));
         }
 
         // Sleep for TTL/2, but check exit flag more frequently
@@ -67,9 +104,9 @@ static void heartbeat_thread(BpfState *state, uint32_t ttl_seconds)
     }
 }
 
-static Result<void> setup_agent_cgroup(BpfState &state)
+static Result<void> setup_agent_cgroup(BpfState& state)
 {
-    static constexpr const char *kAgentCgroup = "/sys/fs/cgroup/aegis_agent";
+    static constexpr const char* kAgentCgroup = "/sys/fs/cgroup/aegis_agent";
 
     std::error_code ec;
     std::filesystem::create_directories(kAgentCgroup, ec);
@@ -101,7 +138,12 @@ static Result<void> setup_agent_cgroup(BpfState &state)
     return {};
 }
 
-static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
+static int run(bool audit_only,
+               bool enable_seccomp,
+               uint32_t deadman_ttl,
+               LsmHookMode lsm_hook,
+               uint32_t ringbuf_bytes,
+               uint32_t event_sample_rate)
 {
     // Check for break-glass mode FIRST
     bool break_glass_active = detect_break_glass();
@@ -114,7 +156,7 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     auto features_result = detect_kernel_features();
     if (!features_result) {
         logger().log(SLOG_ERROR("Failed to detect kernel features")
-            .field("error", features_result.error().to_string()));
+                         .field("error", features_result.error().to_string()));
         return 1;
     }
     KernelFeatures features = *features_result;
@@ -122,17 +164,17 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     // Determine enforcement capability
     EnforcementCapability cap = determine_capability(features);
     logger().log(SLOG_INFO("Kernel feature detection complete")
-        .field("kernel_version", features.kernel_version)
-        .field("capability", capability_name(cap))
-        .field("bpf_lsm", features.bpf_lsm)
-        .field("cgroup_v2", features.cgroup_v2)
-        .field("btf", features.btf)
-        .field("ringbuf", features.ringbuf));
+                     .field("kernel_version", features.kernel_version)
+                     .field("capability", capability_name(cap))
+                     .field("bpf_lsm", features.bpf_lsm)
+                     .field("cgroup_v2", features.cgroup_v2)
+                     .field("btf", features.btf)
+                     .field("ringbuf", features.ringbuf));
 
     // Handle capability-based decisions
     if (cap == EnforcementCapability::Disabled) {
         logger().log(SLOG_ERROR("Cannot run AegisBPF on this system")
-            .field("explanation", capability_explanation(features, cap)));
+                         .field("explanation", capability_explanation(features, cap)));
         return 1;
     }
 
@@ -141,19 +183,24 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     if (cap == EnforcementCapability::AuditOnly) {
         if (!audit_only) {
             logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
-                .field("explanation", capability_explanation(features, cap)));
+                             .field("explanation", capability_explanation(features, cap)));
             audit_only = true;
-        } else {
+        }
+        else {
             logger().log(SLOG_INFO("Running in audit-only mode")
-                .field("explanation", capability_explanation(features, cap)));
+                             .field("explanation", capability_explanation(features, cap)));
         }
     }
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-            .field("error", rlimit_result.error().to_string()));
+                         .field("error", rlimit_result.error().to_string()));
         return 1;
+    }
+
+    if (ringbuf_bytes > 0) {
+        set_ringbuf_bytes(ringbuf_bytes);
     }
 
     std::signal(SIGINT, handle_signal);
@@ -163,14 +210,14 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto version_result = ensure_layout_version(state);
     if (!version_result) {
         logger().log(SLOG_ERROR("Layout version check failed")
-            .field("error", version_result.error().to_string()));
+                         .field("error", version_result.error().to_string()));
         return 1;
     }
 
@@ -180,6 +227,7 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     config.break_glass_active = break_glass_active ? 1 : 0;
     config.deadman_enabled = (deadman_ttl > 0) ? 1 : 0;
     config.deadman_ttl_seconds = deadman_ttl;
+    config.event_sample_rate = event_sample_rate ? event_sample_rate : 1;
     if (config.deadman_enabled) {
         // Set initial deadline to now + TTL
         struct timespec ts{};
@@ -191,7 +239,7 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     auto config_result = set_agent_config_full(state, config);
     if (!config_result) {
         logger().log(SLOG_ERROR("Failed to set agent config")
-            .field("error", config_result.error().to_string()));
+                         .field("error", config_result.error().to_string()));
         return 1;
     }
 
@@ -199,21 +247,23 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     auto survival_result = populate_survival_allowlist(state);
     if (!survival_result) {
         logger().log(SLOG_WARN("Failed to populate survival allowlist")
-            .field("error", survival_result.error().to_string()));
+                         .field("error", survival_result.error().to_string()));
         // Not fatal - continue with startup
     }
 
     auto cgroup_result = setup_agent_cgroup(state);
     if (!cgroup_result) {
         logger().log(SLOG_ERROR("Failed to setup agent cgroup")
-            .field("error", cgroup_result.error().to_string()));
+                         .field("error", cgroup_result.error().to_string()));
         return 1;
     }
 
-    auto attach_result = attach_all(state, lsm_enabled);
+    bool use_inode_permission = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::InodePermission);
+    bool use_file_open = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::FileOpen);
+    auto attach_result = attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
     if (!attach_result) {
         logger().log(SLOG_ERROR("Failed to attach programs")
-            .field("error", attach_result.error().to_string()));
+                         .field("error", attach_result.error().to_string()));
         return 1;
     }
 
@@ -228,17 +278,20 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
         auto seccomp_result = apply_seccomp_filter();
         if (!seccomp_result) {
             logger().log(SLOG_ERROR("Failed to apply seccomp filter")
-                .field("error", seccomp_result.error().to_string()));
+                             .field("error", seccomp_result.error().to_string()));
             return 1;
         }
     }
 
     logger().log(SLOG_INFO("Agent started")
-        .field("audit_only", audit_only)
-        .field("lsm_enabled", lsm_enabled)
-        .field("seccomp", enable_seccomp)
-        .field("break_glass", break_glass_active)
-        .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
+                     .field("audit_only", audit_only)
+                     .field("lsm_enabled", lsm_enabled)
+                     .field("lsm_hook", lsm_hook_name(lsm_hook))
+                     .field("event_sample_rate", static_cast<int64_t>(config.event_sample_rate))
+                     .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
+                     .field("seccomp", enable_seccomp)
+                     .field("break_glass", break_glass_active)
+                     .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
 
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;
@@ -246,7 +299,7 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
         g_heartbeat_running.store(true);
         heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl);
         logger().log(SLOG_INFO("Deadman switch heartbeat started")
-            .field("ttl_seconds", static_cast<int64_t>(deadman_ttl)));
+                         .field("ttl_seconds", static_cast<int64_t>(deadman_ttl)));
     }
 
     int err = 0;
@@ -272,7 +325,7 @@ static int run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl = 0)
     return err < 0 ? 1 : 0;
 }
 
-static int block_file(const std::string &path)
+static int block_file(const std::string& path)
 {
     // Validate path before processing
     auto validated = validate_existing_path(path);
@@ -284,7 +337,7 @@ static int block_file(const std::string &path)
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-            .field("error", rlimit_result.error().to_string()));
+                         .field("error", rlimit_result.error().to_string()));
         return 1;
     }
 
@@ -292,7 +345,7 @@ static int block_file(const std::string &path)
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
@@ -300,31 +353,31 @@ static int block_file(const std::string &path)
     auto add_result = add_deny_path(state, *validated, entries);
     if (!add_result) {
         logger().log(SLOG_ERROR("Failed to add deny path")
-            .field("error", add_result.error().to_string()));
+                         .field("error", add_result.error().to_string()));
         return 1;
     }
 
     auto write_result = write_deny_db(entries);
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database")
-            .field("error", write_result.error().to_string()));
+                         .field("error", write_result.error().to_string()));
         return 1;
     }
 
     return 0;
 }
 
-static int block_add(const std::string &path)
+static int block_add(const std::string& path)
 {
     return block_file(path);
 }
 
-static int block_del(const std::string &path)
+static int block_del(const std::string& path)
 {
     auto inode_result = path_to_inode(path);
     if (!inode_result) {
         logger().log(SLOG_ERROR("Failed to get inode")
-            .field("error", inode_result.error().to_string()));
+                         .field("error", inode_result.error().to_string()));
         return 1;
     }
     InodeId id = *inode_result;
@@ -351,7 +404,8 @@ static int block_del(const std::string &path)
             bpf_map_delete_elem(path_fd, &raw_key);
         }
         close(path_fd);
-    } else {
+    }
+    else {
         logger().log(SLOG_WARN("deny_path_map not found"));
     }
 
@@ -360,7 +414,7 @@ static int block_del(const std::string &path)
     auto write_result = write_deny_db(entries);
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database")
-            .field("error", write_result.error().to_string()));
+                         .field("error", write_result.error().to_string()));
         return 1;
     }
     return 0;
@@ -372,7 +426,7 @@ static int block_list()
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
@@ -384,7 +438,8 @@ static int block_list()
         auto it = db.find(key);
         if (it != db.end() && !it->second.empty()) {
             std::cout << it->second << " (" << inode_to_string(key) << ")" << std::endl;
-        } else {
+        }
+        else {
             std::cout << inode_to_string(key) << std::endl;
         }
         rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), &key, &next_key);
@@ -412,7 +467,7 @@ static int block_clear()
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-            .field("error", rlimit_result.error().to_string()));
+                         .field("error", rlimit_result.error().to_string()));
         return 1;
     }
 
@@ -420,20 +475,20 @@ static int block_clear()
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to reload BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
     if (state.block_stats) {
         auto reset_result = reset_block_stats_map(state.block_stats);
         if (!reset_result) {
             logger().log(SLOG_WARN("Failed to reset block stats")
-                .field("error", reset_result.error().to_string()));
+                             .field("error", reset_result.error().to_string()));
         }
     }
     return 0;
 }
 
-static int allow_add(const std::string &path)
+static int allow_add(const std::string& path)
 {
     // Validate cgroup path
     auto validated = validate_cgroup_path(path);
@@ -445,7 +500,7 @@ static int allow_add(const std::string &path)
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-            .field("error", rlimit_result.error().to_string()));
+                         .field("error", rlimit_result.error().to_string()));
         return 1;
     }
 
@@ -453,26 +508,26 @@ static int allow_add(const std::string &path)
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto add_result = add_allow_cgroup_path(state, *validated);
     if (!add_result) {
         logger().log(SLOG_ERROR("Failed to add allow cgroup")
-            .field("error", add_result.error().to_string()));
+                         .field("error", add_result.error().to_string()));
         return 1;
     }
 
     return 0;
 }
 
-static int allow_del(const std::string &path)
+static int allow_del(const std::string& path)
 {
     auto cgid_result = path_to_cgid(path);
     if (!cgid_result) {
         logger().log(SLOG_ERROR("Failed to get cgroup ID")
-            .field("error", cgid_result.error().to_string()));
+                         .field("error", cgid_result.error().to_string()));
         return 1;
     }
     uint64_t cgid = *cgid_result;
@@ -493,14 +548,14 @@ static int allow_list()
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto ids_result = read_allow_cgroup_ids(state.allow_cgroup);
     if (!ids_result) {
         logger().log(SLOG_ERROR("Failed to read allow cgroup IDs")
-            .field("error", ids_result.error().to_string()));
+                         .field("error", ids_result.error().to_string()));
         return 1;
     }
 
@@ -517,14 +572,14 @@ static int survival_list()
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto entries_result = read_survival_allowlist(state);
     if (!entries_result) {
         logger().log(SLOG_ERROR("Failed to read survival allowlist")
-            .field("error", entries_result.error().to_string()));
+                         .field("error", entries_result.error().to_string()));
         return 1;
     }
 
@@ -535,7 +590,7 @@ static int survival_list()
     }
 
     std::cout << "Survival allowlist entries: " << entries.size() << std::endl;
-    for (const auto &id : entries) {
+    for (const auto& id : entries) {
         std::cout << "  " << inode_to_string(id) << std::endl;
     }
     return 0;
@@ -544,7 +599,7 @@ static int survival_list()
 static int survival_verify()
 {
     // List of critical binaries that should be in the survival allowlist
-    static const char *binaries[] = {
+    static const char* binaries[] = {
         "/sbin/init",
         "/lib/systemd/systemd",
         "/usr/lib/systemd/systemd",
@@ -559,8 +614,7 @@ static int survival_verify()
         "/bin/bash",
         "/usr/bin/bash",
         "/bin/sh",
-        nullptr
-    };
+        nullptr};
 
     std::cout << "Verifying critical binaries exist on system:" << std::endl;
     int found = 0;
@@ -569,9 +623,11 @@ static int survival_verify()
     for (int i = 0; binaries[i] != nullptr; ++i) {
         struct stat st{};
         if (stat(binaries[i], &st) == 0) {
-            std::cout << "  [OK] " << binaries[i] << " (" << st.st_dev << ":" << st.st_ino << ")" << std::endl;
+            std::cout << "  [OK] " << binaries[i] << " (" << encode_dev(st.st_dev) << ":" << st.st_ino << ")"
+                      << std::endl;
             ++found;
-        } else {
+        }
+        else {
             std::cout << "  [--] " << binaries[i] << " (not found)" << std::endl;
             ++missing;
         }
@@ -586,7 +642,7 @@ static int keys_list()
     auto keys_result = load_trusted_keys();
     if (!keys_result) {
         logger().log(SLOG_ERROR("Failed to load trusted keys")
-            .field("error", keys_result.error().to_string()));
+                         .field("error", keys_result.error().to_string()));
         return 1;
     }
 
@@ -597,13 +653,13 @@ static int keys_list()
     }
 
     std::cout << "Trusted keys (" << keys.size() << "):" << std::endl;
-    for (const auto &key : keys) {
+    for (const auto& key : keys) {
         std::cout << "  " << encode_hex(key) << std::endl;
     }
     return 0;
 }
 
-static int keys_add(const std::string &key_file)
+static int keys_add(const std::string& key_file)
 {
     std::ifstream in(key_file);
     if (!in.is_open()) {
@@ -620,7 +676,7 @@ static int keys_add(const std::string &key_file)
     auto key_result = decode_public_key(line);
     if (!key_result) {
         logger().log(SLOG_ERROR("Invalid public key format")
-            .field("error", key_result.error().to_string()));
+                         .field("error", key_result.error().to_string()));
         return 1;
     }
 
@@ -629,7 +685,7 @@ static int keys_add(const std::string &key_file)
     std::filesystem::create_directories("/etc/aegisbpf/keys", ec);
     if (ec) {
         logger().log(SLOG_ERROR("Failed to create keys directory")
-            .field("error", ec.message()));
+                         .field("error", ec.message()));
         return 1;
     }
 
@@ -648,8 +704,8 @@ static int keys_add(const std::string &key_file)
     return 0;
 }
 
-static int policy_sign(const std::string &policy_path, const std::string &key_path,
-                       const std::string &output_path)
+static int policy_sign(const std::string& policy_path, const std::string& key_path,
+                       const std::string& output_path)
 {
     // Read policy file
     std::ifstream policy_in(policy_path);
@@ -674,8 +730,8 @@ static int policy_sign(const std::string &policy_path, const std::string &key_pa
     if (key_hex.size() == 128) {
         // Hex encoded
         for (size_t i = 0; i < 64; ++i) {
-            char hi = key_hex[2*i];
-            char lo = key_hex[2*i + 1];
+            char hi = key_hex[2 * i];
+            char lo = key_hex[2 * i + 1];
             auto hex_val = [](char c) -> uint8_t {
                 if (c >= '0' && c <= '9') return c - '0';
                 if (c >= 'a' && c <= 'f') return 10 + c - 'a';
@@ -684,7 +740,8 @@ static int policy_sign(const std::string &policy_path, const std::string &key_pa
             };
             secret_key[i] = (hex_val(hi) << 4) | hex_val(lo);
         }
-    } else {
+    }
+    else {
         logger().log(SLOG_ERROR("Invalid private key format (expected 128 hex chars)"));
         return 1;
     }
@@ -696,7 +753,7 @@ static int policy_sign(const std::string &policy_path, const std::string &key_pa
     auto bundle_result = create_signed_bundle(policy_content, secret_key, version, 0);
     if (!bundle_result) {
         logger().log(SLOG_ERROR("Failed to create signed bundle")
-            .field("error", bundle_result.error().to_string()));
+                         .field("error", bundle_result.error().to_string()));
         return 1;
     }
 
@@ -713,7 +770,7 @@ static int policy_sign(const std::string &policy_path, const std::string &key_pa
     return 0;
 }
 
-static int policy_apply_signed(const std::string &bundle_path, bool require_signature)
+static int policy_apply_signed(const std::string& bundle_path, bool require_signature)
 {
     // Read bundle file
     std::ifstream in(bundle_path);
@@ -731,7 +788,7 @@ static int policy_apply_signed(const std::string &bundle_path, bool require_sign
         auto bundle_result = parse_signed_bundle(content);
         if (!bundle_result) {
             logger().log(SLOG_ERROR("Failed to parse signed bundle")
-                .field("error", bundle_result.error().to_string()));
+                             .field("error", bundle_result.error().to_string()));
             return 1;
         }
         auto bundle = *bundle_result;
@@ -740,7 +797,7 @@ static int policy_apply_signed(const std::string &bundle_path, bool require_sign
         auto keys_result = load_trusted_keys();
         if (!keys_result) {
             logger().log(SLOG_ERROR("Failed to load trusted keys")
-                .field("error", keys_result.error().to_string()));
+                             .field("error", keys_result.error().to_string()));
             return 1;
         }
         auto trusted_keys = *keys_result;
@@ -754,21 +811,21 @@ static int policy_apply_signed(const std::string &bundle_path, bool require_sign
         auto verify_result = verify_bundle(bundle, trusted_keys);
         if (!verify_result) {
             logger().log(SLOG_ERROR("Bundle verification failed")
-                .field("error", verify_result.error().to_string()));
+                             .field("error", verify_result.error().to_string()));
             return 1;
         }
 
         // Check anti-rollback
         if (!check_version_acceptable(bundle)) {
             logger().log(SLOG_ERROR("Policy version rollback rejected")
-                .field("bundle_version", static_cast<int64_t>(bundle.policy_version))
-                .field("current_version", static_cast<int64_t>(read_version_counter())));
+                             .field("bundle_version", static_cast<int64_t>(bundle.policy_version))
+                             .field("current_version", static_cast<int64_t>(read_version_counter())));
             return 1;
         }
 
         logger().log(SLOG_INFO("Signed bundle verified successfully")
-            .field("version", static_cast<int64_t>(bundle.policy_version))
-            .field("signer", encode_hex(bundle.signer_key).substr(0, 16) + "..."));
+                         .field("version", static_cast<int64_t>(bundle.policy_version))
+                         .field("signer", encode_hex(bundle.signer_key).substr(0, 16) + "..."));
 
         // Write policy content to temp file and apply
         std::string temp_path = "/tmp/aegisbpf_policy_" + std::to_string(getpid()) + ".conf";
@@ -788,7 +845,7 @@ static int policy_apply_signed(const std::string &bundle_path, bool require_sign
         auto write_result = write_version_counter(bundle.policy_version);
         if (!write_result) {
             logger().log(SLOG_WARN("Failed to update version counter")
-                .field("error", write_result.error().to_string()));
+                             .field("error", write_result.error().to_string()));
         }
 
         return 0;
@@ -855,8 +912,8 @@ static int health()
     }
 
     struct KernelConfigCheck {
-        const char *key;
-        const char *label;
+        const char* key;
+        const char* label;
     };
     const KernelConfigCheck config_checks[] = {
         {"CONFIG_BPF", "kernel_config_bpf"},
@@ -866,7 +923,7 @@ static int health()
         {"CONFIG_CGROUPS", "kernel_config_cgroups"},
         {"CONFIG_CGROUP_BPF", "kernel_config_cgroup_bpf"},
     };
-    for (const auto &check : config_checks) {
+    for (const auto& check : config_checks) {
         std::string value = kernel_config_value(check.key);
         if (value.empty()) {
             value = "unknown";
@@ -875,8 +932,8 @@ static int health()
     }
 
     struct PinInfo {
-        const char *name;
-        const char *path;
+        const char* name;
+        const char* path;
     };
     const PinInfo pins[] = {
         {"deny_inode", kDenyInodePin},
@@ -894,13 +951,15 @@ static int health()
         std::vector<std::string> present;
         std::vector<std::string> missing;
         std::vector<std::string> unreadable;
-        for (const auto &pin : pins) {
+        for (const auto& pin : pins) {
             bool exists = path_exists(pin.path, ec);
             if (ec) {
                 unreadable.emplace_back(pin.name);
-            } else if (exists) {
+            }
+            else if (exists) {
                 present.emplace_back(pin.name);
-            } else {
+            }
+            else {
                 missing.emplace_back(pin.name);
             }
         }
@@ -918,23 +977,27 @@ static int health()
             int fd = bpf_obj_get(kAgentMetaPin);
             if (fd < 0) {
                 std::cout << "layout_version: unreadable (" << std::strerror(errno) << ")\n";
-            } else {
+            }
+            else {
                 uint32_t key = 0;
                 AgentMeta meta{};
                 if (bpf_map_lookup_elem(fd, &key, &meta) == 0) {
                     if (meta.layout_version == kLayoutVersion) {
                         std::cout << "layout_version: ok (" << meta.layout_version << ")\n";
-                    } else {
+                    }
+                    else {
                         std::cout << "layout_version: mismatch (found " << meta.layout_version
                                   << ", expected " << kLayoutVersion << ")\n";
                     }
-                } else {
+                }
+                else {
                     std::cout << "layout_version: unavailable (" << std::strerror(errno) << ")\n";
                 }
                 close(fd);
             }
         }
-    } else {
+    }
+    else {
         std::cout << "pins_present: skipped (requires root)\n";
         std::cout << "layout_version: skipped (requires root)\n";
     }
@@ -942,20 +1005,20 @@ static int health()
     return ok ? 0 : 1;
 }
 
-static int print_metrics(const std::string &out_path)
+static int print_metrics(const std::string& out_path)
 {
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read block stats")
-            .field("error", stats_result.error().to_string()));
+                         .field("error", stats_result.error().to_string()));
         return 1;
     }
     BlockStats stats = *stats_result;
@@ -963,7 +1026,7 @@ static int print_metrics(const std::string &out_path)
     auto cgroup_result = read_cgroup_block_counts(state.deny_cgroup_stats);
     if (!cgroup_result) {
         logger().log(SLOG_ERROR("Failed to read cgroup block counts")
-            .field("error", cgroup_result.error().to_string()));
+                         .field("error", cgroup_result.error().to_string()));
         return 1;
     }
     auto cgroup_blocks = *cgroup_result;
@@ -971,7 +1034,7 @@ static int print_metrics(const std::string &out_path)
     auto inode_result = read_inode_block_counts(state.deny_inode_stats);
     if (!inode_result) {
         logger().log(SLOG_ERROR("Failed to read inode block counts")
-            .field("error", inode_result.error().to_string()));
+                         .field("error", inode_result.error().to_string()));
         return 1;
     }
     auto inode_blocks = *inode_result;
@@ -979,7 +1042,7 @@ static int print_metrics(const std::string &out_path)
     auto path_result = read_path_block_counts(state.deny_path_stats);
     if (!path_result) {
         logger().log(SLOG_ERROR("Failed to read path block counts")
-            .field("error", path_result.error().to_string()));
+                         .field("error", path_result.error().to_string()));
         return 1;
     }
     auto path_blocks = *path_result;
@@ -1008,7 +1071,7 @@ static int print_metrics(const std::string &out_path)
     if (!cgroup_blocks.empty()) {
         oss << "# HELP aegisbpf_blocks_by_cgroup_total Block events by cgroup.\n";
         oss << "# TYPE aegisbpf_blocks_by_cgroup_total counter\n";
-        for (const auto &kv : cgroup_blocks) {
+        for (const auto& kv : cgroup_blocks) {
             std::string cgpath = resolve_cgroup_path(kv.first);
             oss << "aegisbpf_blocks_by_cgroup_total{cgid=\"" << kv.first << "\",cgroup_path=\""
                 << prometheus_escape_label(cgpath) << "\"} " << kv.second << "\n";
@@ -1017,7 +1080,7 @@ static int print_metrics(const std::string &out_path)
     if (!inode_blocks.empty()) {
         oss << "# HELP aegisbpf_blocks_by_inode_total Block events by inode.\n";
         oss << "# TYPE aegisbpf_blocks_by_inode_total counter\n";
-        for (const auto &kv : inode_blocks) {
+        for (const auto& kv : inode_blocks) {
             oss << "aegisbpf_blocks_by_inode_total{dev=\"" << kv.first.dev << "\",ino=\""
                 << kv.first.ino << "\"} " << kv.second << "\n";
         }
@@ -1025,7 +1088,7 @@ static int print_metrics(const std::string &out_path)
     if (!path_blocks.empty()) {
         oss << "# HELP aegisbpf_blocks_by_path_total Block events by path.\n";
         oss << "# TYPE aegisbpf_blocks_by_path_total counter\n";
-        for (const auto &kv : path_blocks) {
+        for (const auto& kv : path_blocks) {
             if (kv.first.empty()) {
                 continue;
             }
@@ -1036,7 +1099,8 @@ static int print_metrics(const std::string &out_path)
 
     if (out_path.empty() || out_path == "-") {
         std::cout << oss.str();
-    } else {
+    }
+    else {
         std::ofstream out(out_path, std::ios::trunc);
         if (!out.is_open()) {
             logger().log(SLOG_ERROR("Failed to write metrics").field("path", out_path));
@@ -1054,14 +1118,14 @@ static int print_stats()
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
-            .field("error", load_result.error().to_string()));
+                         .field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read block stats")
-            .field("error", stats_result.error().to_string()));
+                         .field("error", stats_result.error().to_string()));
         return 1;
     }
     BlockStats stats = *stats_result;
@@ -1069,7 +1133,7 @@ static int print_stats()
     auto cgroup_result = read_cgroup_block_counts(state.deny_cgroup_stats);
     if (!cgroup_result) {
         logger().log(SLOG_ERROR("Failed to read cgroup block counts")
-            .field("error", cgroup_result.error().to_string()));
+                         .field("error", cgroup_result.error().to_string()));
         return 1;
     }
     auto cgroup_blocks = *cgroup_result;
@@ -1077,7 +1141,7 @@ static int print_stats()
     auto inode_result = read_inode_block_counts(state.deny_inode_stats);
     if (!inode_result) {
         logger().log(SLOG_ERROR("Failed to read inode block counts")
-            .field("error", inode_result.error().to_string()));
+                         .field("error", inode_result.error().to_string()));
         return 1;
     }
     auto inode_blocks = *inode_result;
@@ -1085,7 +1149,7 @@ static int print_stats()
     auto path_result = read_path_block_counts(state.deny_path_stats);
     if (!path_result) {
         logger().log(SLOG_ERROR("Failed to read path block counts")
-            .field("error", path_result.error().to_string()));
+                         .field("error", path_result.error().to_string()));
         return 1;
     }
     auto path_blocks = *path_result;
@@ -1102,11 +1166,12 @@ static int print_stats()
 
     if (!cgroup_blocks.empty()) {
         std::cout << "blocks_by_cgroup:\n";
-        for (const auto &kv : cgroup_blocks) {
+        for (const auto& kv : cgroup_blocks) {
             std::string cgpath = resolve_cgroup_path(kv.first);
             if (!cgpath.empty()) {
                 std::cout << "  " << cgpath << " (" << kv.first << "): " << kv.second << "\n";
-            } else {
+            }
+            else {
                 std::cout << "  " << kv.first << ": " << kv.second << "\n";
             }
         }
@@ -1114,18 +1179,19 @@ static int print_stats()
     if (!inode_blocks.empty()) {
         auto db = read_deny_db();
         std::cout << "blocks_by_inode:\n";
-        for (const auto &kv : inode_blocks) {
+        for (const auto& kv : inode_blocks) {
             auto it = db.find(kv.first);
             if (it != db.end() && !it->second.empty()) {
                 std::cout << "  " << it->second << " (" << inode_to_string(kv.first) << "): " << kv.second << "\n";
-            } else {
+            }
+            else {
                 std::cout << "  " << inode_to_string(kv.first) << ": " << kv.second << "\n";
             }
         }
     }
     if (!path_blocks.empty()) {
         std::cout << "blocks_by_path:\n";
-        for (const auto &kv : path_blocks) {
+        for (const auto& kv : path_blocks) {
             if (!kv.first.empty()) {
                 std::cout << "  " << kv.first << ": " << kv.second << "\n";
             }
@@ -1135,7 +1201,7 @@ static int print_stats()
     return 0;
 }
 
-static LogLevel parse_log_level(const std::string &level)
+static LogLevel parse_log_level(const std::string& level)
 {
     if (level == "debug") return LogLevel::Debug;
     if (level == "info") return LogLevel::Info;
@@ -1145,10 +1211,10 @@ static LogLevel parse_log_level(const std::string &level)
     return LogLevel::Info;
 }
 
-static int usage(const char *prog)
+static int usage(const char* prog)
 {
     std::cerr << "Usage: " << prog
-              << " run [--audit|--enforce] [--seccomp] [--deadman-ttl=<seconds>] [--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"
+              << " run [--audit|--enforce] [--seccomp] [--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] [--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"
               << " | block {add|del|list|clear} [path]"
               << " | allow {add|del} <cgroup_path> | allow list"
               << " | survival {list|verify}"
@@ -1162,9 +1228,9 @@ static int usage(const char *prog)
     return 1;
 }
 
-} // namespace aegis
+}  // namespace aegis
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
     using namespace aegis;
 
@@ -1176,7 +1242,8 @@ int main(int argc, char **argv)
         std::string arg = argv[i];
         if (arg.rfind("--log-level=", 0) == 0) {
             log_level = parse_log_level(arg.substr(12));
-        } else if (arg.rfind("--log-format=", 0) == 0) {
+        }
+        else if (arg.rfind("--log-format=", 0) == 0) {
             json_format = (arg.substr(13) == "json");
         }
     }
@@ -1185,7 +1252,7 @@ int main(int argc, char **argv)
     logger().set_json_format(json_format);
 
     if (argc == 1) {
-        return run(false, false);
+        return run(false, false, 0, LsmHookMode::FileOpen, 0, 1);
     }
 
     std::string cmd = argv[1];
@@ -1194,15 +1261,21 @@ int main(int argc, char **argv)
         bool audit_only = false;
         bool enable_seccomp = false;
         uint32_t deadman_ttl = 0;
+        uint32_t ringbuf_bytes = 0;
+        uint32_t event_sample_rate = 1;
+        LsmHookMode lsm_hook = LsmHookMode::FileOpen;
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "--audit" || arg == "--mode=audit") {
                 audit_only = true;
-            } else if (arg == "--enforce" || arg == "--mode=enforce") {
+            }
+            else if (arg == "--enforce" || arg == "--mode=enforce") {
                 audit_only = false;
-            } else if (arg == "--seccomp") {
+            }
+            else if (arg == "--seccomp") {
                 enable_seccomp = true;
-            } else if (arg.rfind("--deadman-ttl=", 0) == 0) {
+            }
+            else if (arg.rfind("--deadman-ttl=", 0) == 0) {
                 std::string value = arg.substr(std::strlen("--deadman-ttl="));
                 uint64_t ttl = 0;
                 if (!parse_uint64(value, ttl) || ttl > UINT32_MAX) {
@@ -1210,7 +1283,8 @@ int main(int argc, char **argv)
                     return 1;
                 }
                 deadman_ttl = static_cast<uint32_t>(ttl);
-            } else if (arg == "--deadman-ttl") {
+            }
+            else if (arg == "--deadman-ttl") {
                 if (i + 1 >= argc) {
                     return usage(argv[0]);
                 }
@@ -1221,12 +1295,14 @@ int main(int argc, char **argv)
                     return 1;
                 }
                 deadman_ttl = static_cast<uint32_t>(ttl);
-            } else if (arg.rfind("--log=", 0) == 0) {
+            }
+            else if (arg.rfind("--log=", 0) == 0) {
                 std::string value = arg.substr(std::strlen("--log="));
                 if (!set_event_log_sink(value)) {
                     return usage(argv[0]);
                 }
-            } else if (arg == "--log") {
+            }
+            else if (arg == "--log") {
                 if (i + 1 >= argc) {
                     return usage(argv[0]);
                 }
@@ -1234,13 +1310,74 @@ int main(int argc, char **argv)
                 if (!set_event_log_sink(value)) {
                     return usage(argv[0]);
                 }
-            } else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {
+            }
+            else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {
                 // Already processed
-            } else {
+            }
+            else if (arg.rfind("--ringbuf-bytes=", 0) == 0) {
+                std::string value = arg.substr(std::strlen("--ringbuf-bytes="));
+                uint64_t bytes = 0;
+                if (!parse_uint64(value, bytes) || bytes > UINT32_MAX) {
+                    logger().log(SLOG_ERROR("Invalid ringbuf size").field("value", value));
+                    return 1;
+                }
+                ringbuf_bytes = static_cast<uint32_t>(bytes);
+            }
+            else if (arg.rfind("--event-sample-rate=", 0) == 0) {
+                std::string value = arg.substr(std::strlen("--event-sample-rate="));
+                uint64_t rate = 0;
+                if (!parse_uint64(value, rate) || rate == 0 || rate > UINT32_MAX) {
+                    logger().log(SLOG_ERROR("Invalid event sample rate").field("value", value));
+                    return 1;
+                }
+                event_sample_rate = static_cast<uint32_t>(rate);
+            }
+            else if (arg.rfind("--lsm-hook=", 0) == 0) {
+                std::string value = arg.substr(std::strlen("--lsm-hook="));
+                if (!parse_lsm_hook(value, lsm_hook)) {
+                    logger().log(SLOG_ERROR("Invalid lsm hook value").field("value", value));
+                    return 1;
+                }
+            }
+            else if (arg == "--ringbuf-bytes") {
+                if (i + 1 >= argc) {
+                    return usage(argv[0]);
+                }
+                std::string value = argv[++i];
+                uint64_t bytes = 0;
+                if (!parse_uint64(value, bytes) || bytes > UINT32_MAX) {
+                    logger().log(SLOG_ERROR("Invalid ringbuf size").field("value", value));
+                    return 1;
+                }
+                ringbuf_bytes = static_cast<uint32_t>(bytes);
+            }
+            else if (arg == "--event-sample-rate") {
+                if (i + 1 >= argc) {
+                    return usage(argv[0]);
+                }
+                std::string value = argv[++i];
+                uint64_t rate = 0;
+                if (!parse_uint64(value, rate) || rate == 0 || rate > UINT32_MAX) {
+                    logger().log(SLOG_ERROR("Invalid event sample rate").field("value", value));
+                    return 1;
+                }
+                event_sample_rate = static_cast<uint32_t>(rate);
+            }
+            else if (arg == "--lsm-hook") {
+                if (i + 1 >= argc) {
+                    return usage(argv[0]);
+                }
+                std::string value = argv[++i];
+                if (!parse_lsm_hook(value, lsm_hook)) {
+                    logger().log(SLOG_ERROR("Invalid lsm hook value").field("value", value));
+                    return 1;
+                }
+            }
+            else {
                 return usage(argv[0]);
             }
         }
-        return run(audit_only, enable_seccomp, deadman_ttl);
+        return run(audit_only, enable_seccomp, deadman_ttl, lsm_hook, ringbuf_bytes, event_sample_rate);
     }
 
     if (cmd == "block") {
@@ -1334,21 +1471,26 @@ int main(int argc, char **argv)
                 std::string arg = argv[i];
                 if (arg == "--reset") {
                     reset = true;
-                } else if (arg == "--no-rollback") {
+                }
+                else if (arg == "--no-rollback") {
                     rollback_on_failure = false;
-                } else if (arg == "--require-signature") {
+                }
+                else if (arg == "--require-signature") {
                     require_signature = true;
-                } else if (arg == "--sha256") {
+                }
+                else if (arg == "--sha256") {
                     if (i + 1 >= argc) {
                         return usage(argv[0]);
                     }
                     sha256 = argv[++i];
-                } else if (arg == "--sha256-file") {
+                }
+                else if (arg == "--sha256-file") {
                     if (i + 1 >= argc) {
                         return usage(argv[0]);
                     }
                     sha256_file = argv[++i];
-                } else {
+                }
+                else {
                     return usage(argv[0]);
                 }
             }
@@ -1374,10 +1516,12 @@ int main(int argc, char **argv)
                 if (arg == "--key") {
                     if (i + 1 >= argc) return usage(argv[0]);
                     key_path = argv[++i];
-                } else if (arg == "--output") {
+                }
+                else if (arg == "--output") {
                     if (i + 1 >= argc) return usage(argv[0]);
                     output_path = argv[++i];
-                } else {
+                }
+                else {
                     return usage(argv[0]);
                 }
             }
@@ -1443,7 +1587,8 @@ int main(int argc, char **argv)
                     return usage(argv[0]);
                 }
                 out_path = argv[++i];
-            } else {
+            }
+            else {
                 return usage(argv[0]);
             }
         }

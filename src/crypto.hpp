@@ -43,7 +43,7 @@ Result<std::pair<PublicKey, SecretKey>> generate_keypair();
  * @param secret_key Ed25519 secret key
  * @return 64-byte signature or error
  */
-Result<Signature> sign_message(const std::string &message, const SecretKey &secret_key);
+Result<Signature> sign_message(const std::string& message, const SecretKey& secret_key);
 
 /**
  * Sign raw bytes using Ed25519.
@@ -53,7 +53,7 @@ Result<Signature> sign_message(const std::string &message, const SecretKey &secr
  * @param secret_key Ed25519 secret key
  * @return 64-byte signature or error
  */
-Result<Signature> sign_bytes(const uint8_t *data, size_t data_len, const SecretKey &secret_key);
+Result<Signature> sign_bytes(const uint8_t* data, size_t data_len, const SecretKey& secret_key);
 
 /**
  * Verify an Ed25519 signature.
@@ -63,7 +63,7 @@ Result<Signature> sign_bytes(const uint8_t *data, size_t data_len, const SecretK
  * @param public_key Ed25519 public key
  * @return true if valid, false if invalid
  */
-bool verify_signature(const std::string &message, const Signature &signature, const PublicKey &public_key);
+bool verify_signature(const std::string& message, const Signature& signature, const PublicKey& public_key);
 
 /**
  * Verify an Ed25519 signature on raw bytes.
@@ -74,7 +74,7 @@ bool verify_signature(const std::string &message, const Signature &signature, co
  * @param public_key Ed25519 public key
  * @return true if valid, false if invalid
  */
-bool verify_bytes(const uint8_t *data, size_t data_len, const Signature &signature, const PublicKey &public_key);
+bool verify_bytes(const uint8_t* data, size_t data_len, const Signature& signature, const PublicKey& public_key);
 
 /**
  * Encode a public key as hexadecimal.
@@ -82,7 +82,7 @@ bool verify_bytes(const uint8_t *data, size_t data_len, const Signature &signatu
  * @param key Public key to encode
  * @return 64-character hex string
  */
-std::string encode_hex(const PublicKey &key);
+std::string encode_hex(const PublicKey& key);
 
 /**
  * Encode a signature as hexadecimal.
@@ -90,7 +90,7 @@ std::string encode_hex(const PublicKey &key);
  * @param sig Signature to encode
  * @return 128-character hex string
  */
-std::string encode_hex(const Signature &sig);
+std::string encode_hex(const Signature& sig);
 
 /**
  * Decode a hexadecimal string to a public key.
@@ -98,7 +98,7 @@ std::string encode_hex(const Signature &sig);
  * @param hex 64-character hex string
  * @return Public key or error
  */
-Result<PublicKey> decode_public_key(const std::string &hex);
+Result<PublicKey> decode_public_key(const std::string& hex);
 
 /**
  * Decode a hexadecimal string to a signature.
@@ -106,7 +106,7 @@ Result<PublicKey> decode_public_key(const std::string &hex);
  * @param hex 128-character hex string
  * @return Signature or error
  */
-Result<Signature> decode_signature(const std::string &hex);
+Result<Signature> decode_signature(const std::string& hex);
 
 /**
  * Parse a signed policy bundle from file content.
@@ -128,7 +128,7 @@ Result<Signature> decode_signature(const std::string &hex);
  * @param content Raw file content
  * @return SignedPolicyBundle or error
  */
-Result<SignedPolicyBundle> parse_signed_bundle(const std::string &content);
+Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content);
 
 /**
  * Create a signed policy bundle.
@@ -139,10 +139,10 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string &content);
  * @param expires Expiration timestamp (0 = no expiration)
  * @return Serialized bundle content or error
  */
-Result<std::string> create_signed_bundle(const std::string &policy_content,
-                                          const SecretKey &secret_key,
-                                          uint64_t policy_version,
-                                          uint64_t expires = 0);
+Result<std::string> create_signed_bundle(const std::string& policy_content,
+                                         const SecretKey& secret_key,
+                                         uint64_t policy_version,
+                                         uint64_t expires = 0);
 
 /**
  * Verify a signed policy bundle.
@@ -156,8 +156,8 @@ Result<std::string> create_signed_bundle(const std::string &policy_content,
  * @param trusted_keys List of trusted public keys
  * @return Success or error with reason
  */
-Result<void> verify_bundle(const SignedPolicyBundle &bundle,
-                            const std::vector<PublicKey> &trusted_keys);
+Result<void> verify_bundle(const SignedPolicyBundle& bundle,
+                           const std::vector<PublicKey>& trusted_keys);
 
 /**
  * Load trusted public keys from directory.
@@ -189,6 +189,6 @@ Result<void> write_version_counter(uint64_t version);
  * @param bundle Bundle to check
  * @return true if version > current, false otherwise
  */
-bool check_version_acceptable(const SignedPolicyBundle &bundle);
+bool check_version_acceptable(const SignedPolicyBundle& bundle);
 
-} // namespace aegis
+}  // namespace aegis

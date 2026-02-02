@@ -128,6 +128,12 @@ sudo ./build/aegisbpf run --enforce
 
 # With JSON logging
 sudo ./build/aegisbpf run --log-format=json
+
+# Select LSM hook (default: file_open)
+sudo ./build/aegisbpf run --enforce --lsm-hook=both
+
+# Increase ring buffer and sample events to reduce drops under heavy load
+sudo ./build/aegisbpf run --audit --ringbuf-bytes=67108864 --event-sample-rate=10
 ```
 
 ## How It Works
@@ -167,6 +173,40 @@ sudo ./build/aegisbpf run --log-format=json
 ```
 
 ## Usage
+
+### Run Options
+
+```bash
+# Choose LSM hook (default: file_open)
+sudo aegisbpf run --enforce --lsm-hook=file
+sudo aegisbpf run --enforce --lsm-hook=inode
+sudo aegisbpf run --enforce --lsm-hook=both
+
+# Increase ring buffer size (bytes) to reduce ringbuf drops
+sudo aegisbpf run --audit --ringbuf-bytes=67108864
+
+# Sample block events (1 = all events, 10 = 1 out of 10)
+sudo aegisbpf run --audit --event-sample-rate=10
+```
+
+### Performance and Soak (Sample Results)
+
+Results vary by host and workload. The following example was measured on February 2, 2026:
+
+```text
+# perf_compare.sh (1,000,000 ops)
+baseline_us_per_op=1.94
+with_agent_us_per_op=1.98
+delta_pct=2.06
+
+# perf_compare.sh with both hooks (LSM_HOOK=both)
+baseline_us_per_op=1.93
+with_agent_us_per_op=1.97
+delta_pct=2.07
+
+# Soak (200,000 denied opens, audit mode)
+ringbuf_drops_delta=0
+```
 
 ### Block Commands
 

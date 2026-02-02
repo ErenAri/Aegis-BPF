@@ -33,6 +33,7 @@ fi
 
 TMPFILE=$(mktemp)
 LOGFILE=$(mktemp)
+INO=$(stat -c %i "$TMPFILE")
 
 echo "[*] Starting agent (enforce mode)..."
 "$BIN" run --enforce >"$LOGFILE" 2>&1 &
@@ -63,8 +64,8 @@ if ! grep -q "\"action\":\"KILL\"" "$LOGFILE"; then
     cat "$LOGFILE" >&2
     exit 1
 fi
-if ! grep -q "\"path\":\"$TMPFILE\"" "$LOGFILE"; then
-    echo "[!] Expected path $TMPFILE in block event; log follows:" >&2
+if ! grep -q "\"ino\":$INO" "$LOGFILE"; then
+    echo "[!] Expected inode $INO in block event; log follows:" >&2
     cat "$LOGFILE" >&2
     exit 1
 fi

@@ -24,8 +24,8 @@ namespace aegis {
 namespace {
 
 // BPF macros for seccomp filter construction
-#define BPF_STMT(code, k) { (unsigned short)(code), 0, 0, k }
-#define BPF_JUMP(code, k, jt, jf) { (unsigned short)(code), jt, jf, k }
+#define BPF_STMT(code, k) {(unsigned short)(code), 0, 0, k}
+#define BPF_JUMP(code, k, jt, jf) {(unsigned short)(code), jt, jf, k}
 
 // Syscall allowlist - these are the only syscalls aegisbpf needs
 // Organized by category for maintainability
@@ -173,7 +173,7 @@ static const unsigned int ALLOWED_SYSCALLS[] = {
 
 static const size_t NUM_ALLOWED = sizeof(ALLOWED_SYSCALLS) / sizeof(ALLOWED_SYSCALLS[0]);
 
-} // anonymous namespace
+}  // anonymous namespace
 
 bool seccomp_available()
 {
@@ -218,7 +218,7 @@ Result<void> apply_seccomp_filter()
         // Jump to ALLOW (skip remaining*2 + 1 instructions) if equal
         // Jump offset for true: skip all remaining comparisons (remaining * 2) + default deny (1) - 1 = remaining*2
         filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ALLOWED_SYSCALLS[i],
-                                   static_cast<uint8_t>(remaining * 2 + 1), 0));
+                                  static_cast<uint8_t>(remaining * 2 + 1), 0));
     }
 
     // Default: kill process for disallowed syscalls
@@ -230,8 +230,7 @@ Result<void> apply_seccomp_filter()
     // Set up the BPF program
     struct sock_fprog prog = {
         .len = static_cast<unsigned short>(filter.size()),
-        .filter = filter.data()
-    };
+        .filter = filter.data()};
 
     // Set NO_NEW_PRIVS first (required for unprivileged seccomp)
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
@@ -247,4 +246,4 @@ Result<void> apply_seccomp_filter()
     return {};
 }
 
-} // namespace aegis
+}  // namespace aegis

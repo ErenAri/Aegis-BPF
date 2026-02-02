@@ -12,4 +12,4 @@ Result<void> apply_seccomp_filter();
 /// Check if seccomp is available on this system
 bool seccomp_available();
 
-} // namespace aegis
+}  // namespace aegis

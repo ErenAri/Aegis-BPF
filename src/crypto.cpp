@@ -17,18 +17,20 @@ namespace aegis {
 
 namespace {
 
-constexpr const char *kKeysDir = "/etc/aegisbpf/keys";
-constexpr const char *kBundleHeader = "AEGIS-POLICY-BUNDLE-V1";
-constexpr const char *kBundleSeparator = "---";
+constexpr const char* kKeysDir = "/etc/aegisbpf/keys";
+constexpr const char* kBundleHeader = "AEGIS-POLICY-BUNDLE-V1";
+constexpr const char* kBundleSeparator = "---";
 
-uint8_t hex_digit_value(char c) {
+uint8_t hex_digit_value(char c)
+{
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
     if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
     return 0xff;
 }
 
-std::string bytes_to_hex(const uint8_t *data, size_t len) {
+std::string bytes_to_hex(const uint8_t* data, size_t len)
+{
     static const char hex_chars[] = "0123456789abcdef";
     std::string result;
     result.reserve(len * 2);
@@ -39,7 +41,8 @@ std::string bytes_to_hex(const uint8_t *data, size_t len) {
     return result;
 }
 
-bool hex_to_bytes(const std::string &hex, uint8_t *out, size_t out_len) {
+bool hex_to_bytes(const std::string& hex, uint8_t* out, size_t out_len)
+{
     if (hex.size() != out_len * 2) {
         return false;
     }
@@ -54,7 +57,8 @@ bool hex_to_bytes(const std::string &hex, uint8_t *out, size_t out_len) {
     return true;
 }
 
-std::string trim_string(const std::string &s) {
+std::string trim_string(const std::string& s)
+{
     size_t start = 0;
     while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) {
         ++start;
@@ -66,7 +70,8 @@ std::string trim_string(const std::string &s) {
     return s.substr(start, end - start);
 }
 
-bool parse_header_line(const std::string &line, std::string &key, std::string &value) {
+bool parse_header_line(const std::string& line, std::string& key, std::string& value)
+{
     size_t pos = line.find(':');
     if (pos == std::string::npos) {
         return false;
@@ -76,7 +81,7 @@ bool parse_header_line(const std::string &line, std::string &key, std::string &v
     return !key.empty();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 Result<std::pair<PublicKey, SecretKey>> generate_keypair()
 {
@@ -88,13 +93,13 @@ Result<std::pair<PublicKey, SecretKey>> generate_keypair()
     return std::make_pair(pk, sk);
 }
 
-Result<Signature> sign_message(const std::string &message, const SecretKey &secret_key)
+Result<Signature> sign_message(const std::string& message, const SecretKey& secret_key)
 {
-    return sign_bytes(reinterpret_cast<const uint8_t *>(message.data()),
+    return sign_bytes(reinterpret_cast<const uint8_t*>(message.data()),
                       message.size(), secret_key);
 }
 
-Result<Signature> sign_bytes(const uint8_t *data, size_t data_len, const SecretKey &secret_key)
+Result<Signature> sign_bytes(const uint8_t* data, size_t data_len, const SecretKey& secret_key)
 {
     Signature sig{};
     if (crypto_sign_detached(sig.data(), data, data_len, secret_key.data()) != 0) {
@@ -103,28 +108,28 @@ Result<Signature> sign_bytes(const uint8_t *data, size_t data_len, const SecretK
     return sig;
 }
 
-bool verify_signature(const std::string &message, const Signature &signature, const PublicKey &public_key)
+bool verify_signature(const std::string& message, const Signature& signature, const PublicKey& public_key)
 {
-    return verify_bytes(reinterpret_cast<const uint8_t *>(message.data()),
+    return verify_bytes(reinterpret_cast<const uint8_t*>(message.data()),
                         message.size(), signature, public_key);
 }
 
-bool verify_bytes(const uint8_t *data, size_t data_len, const Signature &signature, const PublicKey &public_key)
+bool verify_bytes(const uint8_t* data, size_t data_len, const Signature& signature, const PublicKey& public_key)
 {
     return crypto_sign_verify_detached(signature.data(), data, data_len, public_key.data()) == 0;
 }
 
-std::string encode_hex(const PublicKey &key)
+std::string encode_hex(const PublicKey& key)
 {
     return bytes_to_hex(key.data(), key.size());
 }
 
-std::string encode_hex(const Signature &sig)
+std::string encode_hex(const Signature& sig)
 {
     return bytes_to_hex(sig.data(), sig.size());
 }
 
-Result<PublicKey> decode_public_key(const std::string &hex)
+Result<PublicKey> decode_public_key(const std::string& hex)
 {
     std::string trimmed = trim_string(hex);
     PublicKey key{};
@@ -135,7 +140,7 @@ Result<PublicKey> decode_public_key(const std::string &hex)
     return key;
 }
 
-Result<Signature> decode_signature(const std::string &hex)
+Result<Signature> decode_signature(const std::string& hex)
 {
     std::string trimmed = trim_string(hex);
     Signature sig{};
@@ -146,7 +151,7 @@ Result<Signature> decode_signature(const std::string &hex)
     return sig;
 }
 
-Result<SignedPolicyBundle> parse_signed_bundle(const std::string &content)
+Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content)
 {
     SignedPolicyBundle bundle{};
 
@@ -190,25 +195,31 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string &content)
 
         if (key == "format_version") {
             bundle.format_version = static_cast<uint32_t>(std::stoul(value));
-        } else if (key == "policy_version") {
+        }
+        else if (key == "policy_version") {
             bundle.policy_version = std::stoull(value);
-        } else if (key == "timestamp") {
+        }
+        else if (key == "timestamp") {
             bundle.timestamp = std::stoull(value);
-        } else if (key == "expires") {
+        }
+        else if (key == "expires") {
             bundle.expires = std::stoull(value);
-        } else if (key == "signer_key") {
+        }
+        else if (key == "signer_key") {
             auto key_result = decode_public_key(value);
             if (!key_result) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid signer_key", key_result.error().message());
             }
             bundle.signer_key = *key_result;
-        } else if (key == "signature") {
+        }
+        else if (key == "signature") {
             auto sig_result = decode_signature(value);
             if (!sig_result) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid signature", sig_result.error().message());
             }
             bundle.signature = *sig_result;
-        } else if (key == "policy_sha256") {
+        }
+        else if (key == "policy_sha256") {
             bundle.policy_sha256 = value;
         }
     }
@@ -224,10 +235,10 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string &content)
     return bundle;
 }
 
-Result<std::string> create_signed_bundle(const std::string &policy_content,
-                                          const SecretKey &secret_key,
-                                          uint64_t policy_version,
-                                          uint64_t expires)
+Result<std::string> create_signed_bundle(const std::string& policy_content,
+                                         const SecretKey& secret_key,
+                                         uint64_t policy_version,
+                                         uint64_t expires)
 {
     // Compute SHA256 of policy content
     std::string policy_sha256 = Sha256::hash_hex(policy_content);
@@ -267,8 +278,8 @@ Result<std::string> create_signed_bundle(const std::string &policy_content,
     return oss.str();
 }
 
-Result<void> verify_bundle(const SignedPolicyBundle &bundle,
-                            const std::vector<PublicKey> &trusted_keys)
+Result<void> verify_bundle(const SignedPolicyBundle& bundle,
+                           const std::vector<PublicKey>& trusted_keys)
 {
     // Check format version
     if (bundle.format_version != 1) {
@@ -293,7 +304,7 @@ Result<void> verify_bundle(const SignedPolicyBundle &bundle,
 
     // Check if signer key is trusted
     bool key_trusted = false;
-    for (const auto &trusted : trusted_keys) {
+    for (const auto& trusted : trusted_keys) {
         if (trusted == bundle.signer_key) {
             key_trusted = true;
             break;
@@ -327,7 +338,7 @@ Result<std::vector<PublicKey>> load_trusted_keys()
         return keys;
     }
 
-    for (const auto &entry : std::filesystem::directory_iterator(kKeysDir, ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(kKeysDir, ec)) {
         if (entry.path().extension() != ".pub") {
             continue;
         }
@@ -382,10 +393,10 @@ Result<void> write_version_counter(uint64_t version)
     return {};
 }
 
-bool check_version_acceptable(const SignedPolicyBundle &bundle)
+bool check_version_acceptable(const SignedPolicyBundle& bundle)
 {
     uint64_t current = read_version_counter();
     return bundle.policy_version > current;
 }
 
-} // namespace aegis
+}  // namespace aegis

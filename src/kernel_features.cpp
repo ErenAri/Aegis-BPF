@@ -18,7 +18,7 @@ std::string get_kernel_version()
     return std::string(uts.release);
 }
 
-bool parse_kernel_version(const std::string &version_str, int &major, int &minor, int &patch)
+bool parse_kernel_version(const std::string& version_str, int& major, int& minor, int& patch)
 {
     major = minor = patch = 0;
     if (version_str.empty()) {
@@ -108,7 +108,7 @@ Result<KernelFeatures> detect_kernel_features()
     }
 
     if (!parse_kernel_version(features.kernel_version, features.kernel_major,
-                               features.kernel_minor, features.kernel_patch)) {
+                              features.kernel_minor, features.kernel_patch)) {
         return Error(ErrorCode::InvalidArgument, "Failed to parse kernel version",
                      features.kernel_version);
     }
@@ -124,7 +124,7 @@ Result<KernelFeatures> detect_kernel_features()
     return features;
 }
 
-EnforcementCapability determine_capability(const KernelFeatures &features)
+EnforcementCapability determine_capability(const KernelFeatures& features)
 {
     // Check critical requirements for any operation
     if (!features.bpf_syscall) {
@@ -165,7 +165,7 @@ const char* capability_name(EnforcementCapability cap)
     return "Unknown";
 }
 
-std::string capability_explanation(const KernelFeatures &features, EnforcementCapability cap)
+std::string capability_explanation(const KernelFeatures& features, EnforcementCapability cap)
 {
     std::ostringstream oss;
 
@@ -211,4 +211,4 @@ std::string capability_explanation(const KernelFeatures &features, EnforcementCa
     return oss.str();
 }
 
-} // namespace aegis
+}  // namespace aegis
