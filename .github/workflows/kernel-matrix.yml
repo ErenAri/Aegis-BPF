@@ -4,14 +4,28 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 5 * * 0"
+  pull_request:
+    paths:
+      - "bpf/**"
+      - "src/bpf_ops.cpp"
+      - "src/bpf_ops.hpp"
+      - "src/policy.cpp"
+      - "src/policy.hpp"
+      - "src/network_ops.cpp"
+      - "src/network_ops.hpp"
+      - "src/commands_block_allow.cpp"
+      - "scripts/e2e_file_enforcement_matrix.sh"
+      - ".github/workflows/kernel-matrix.yml"
+      - ".github/workflows/e2e.yml"
 
 jobs:
-  kernel-matrix:
+  kernel-matrix-pr:
+    if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
       matrix:
-        runner: [kernel-5.15, kernel-6.1, kernel-6.5, kernel-5.14]
-    runs-on: [self-hosted, ${{ matrix.runner }}]
+        runner: [kernel-5.15, kernel-6.1]
+    runs-on: [self-hosted, "${{ matrix.runner }}"]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,3 +47,38 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --timeout 120
+
+      - name: Run file enforcement matrix
+        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh
+
+  kernel-matrix-weekly:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [kernel-5.15, kernel-6.1, kernel-6.5, kernel-5.14]
+    runs-on: [self-hosted, "${{ matrix.runner }}"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (if apt-get is available)
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+          fi
+
+      - name: Verify environment
+        run: scripts/verify_env.sh --strict
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --timeout 120
+
+      - name: Run file enforcement matrix
+        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh

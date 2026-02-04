@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN="${BIN:-./build/aegisbpf}"
+PRESERVE_TMP_ON_FAIL="${PRESERVE_TMP_ON_FAIL:-0}"
+
+declare -i TOTAL_CHECKS=0
+declare -i PASSED_CHECKS=0
+declare -i FAILED_CHECKS=0
+
+AGENT_PID=""
+TMP_DIR=""
+LOG_FILE=""
+
+cleanup() {
+    local exit_code=$?
+    if [[ -n "${AGENT_PID}" ]]; then
+        kill "${AGENT_PID}" 2>/dev/null || true
+        wait "${AGENT_PID}" 2>/dev/null || true
+        AGENT_PID=""
+    fi
+    if [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]]; then
+        if [[ "${PRESERVE_TMP_ON_FAIL}" == "1" && ${exit_code} -ne 0 ]]; then
+            echo "Preserving failed run artifacts at ${TMP_DIR}" >&2
+        else
+            rm -rf "${TMP_DIR}"
+        fi
+    fi
+}
+trap cleanup EXIT
+
+pass() {
+    local label="$1"
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    echo "[PASS] ${label}"
+}
+
+fail() {
+    local label="$1"
+    local detail="$2"
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    echo "[FAIL] ${label}: ${detail}" >&2
+}
+
+run_expect_success() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        pass "${label}"
+    else
+        fail "${label}" "command failed unexpectedly"
+    fi
+}
+
+run_expect_blocked() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        fail "${label}" "command succeeded (expected block)"
+    else
+        pass "${label}"
+    fi
+}
+
+require_prereqs() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "Must run as root (BPF LSM enforcement tests)." >&2
+        exit 1
+    fi
+
+    if [[ ! -x "${BIN}" ]]; then
+        echo "Agent binary not found at ${BIN}. Build first." >&2
+        exit 1
+    fi
+
+    if [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; then
+        echo "cgroup v2 is required at /sys/fs/cgroup." >&2
+        exit 1
+    fi
+
+    if ! grep -qw bpf /sys/kernel/security/lsm 2>/dev/null; then
+        echo "BPF LSM is not enabled; this suite requires enforce-capable kernel." >&2
+        exit 1
+    fi
+}
+
+start_agent() {
+    local enforce_signal="$1"
+    LOG_FILE="${TMP_DIR}/agent-${enforce_signal}.log"
+    "${BIN}" run --enforce --enforce-signal="${enforce_signal}" >"${LOG_FILE}" 2>&1 &
+    AGENT_PID=$!
+    sleep 1
+    if ! kill -0 "${AGENT_PID}" 2>/dev/null; then
+        echo "Agent failed to start for signal=${enforce_signal}. Log:" >&2
+        cat "${LOG_FILE}" >&2 || true
+        exit 1
+    fi
+}
+
+stop_agent() {
+    if [[ -n "${AGENT_PID}" ]]; then
+        kill "${AGENT_PID}" 2>/dev/null || true
+        wait "${AGENT_PID}" 2>/dev/null || true
+        AGENT_PID=""
+    fi
+}
+
+expected_action_for_signal() {
+    case "$1" in
+    none)
+        echo "BLOCK"
+        ;;
+    term)
+        echo "TERM"
+        ;;
+    int)
+        echo "INT"
+        ;;
+    *)
+        echo "Unsupported enforce signal: $1" >&2
+        exit 1
+        ;;
+    esac
+}
+
+run_signal_suite() {
+    local signal="$1"
+    local expected_action="$2"
+    local scenario_dir="${TMP_DIR}/${signal}"
+    local target="${scenario_dir}/target.txt"
+    local symlink_path="${scenario_dir}/target.symlink"
+    local hardlink_path="${scenario_dir}/target.hardlink"
+
+    mkdir -p "${scenario_dir}"
+    printf 'signal=%s\n' "${signal}" >"${target}"
+    ln -sf "${target}" "${symlink_path}"
+    ln "${target}" "${hardlink_path}"
+
+    local inode
+    inode="$(stat -c %i "${target}")"
+
+    start_agent "${signal}"
+
+    if ! "${BIN}" block add "${target}" >/dev/null 2>&1; then
+        echo "Failed to add block rule for ${target}" >&2
+        exit 1
+    fi
+
+    # 10 blocked-open assertions per signal mode.
+    run_expect_blocked "${signal}: cat direct" cat "${target}"
+    run_expect_blocked "${signal}: head direct" head -c 1 "${target}"
+    run_expect_blocked "${signal}: tail direct" tail -c 1 "${target}"
+    run_expect_blocked "${signal}: dd direct" dd if="${target}" of=/dev/null bs=1 count=1 status=none
+    run_expect_blocked "${signal}: grep direct" grep -m1 . "${target}"
+    run_expect_blocked "${signal}: python direct" python3 -c "import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()" "${target}"
+    run_expect_blocked "${signal}: cat symlink" cat "${symlink_path}"
+    run_expect_blocked "${signal}: head symlink" head -c 1 "${symlink_path}"
+    run_expect_blocked "${signal}: cat hardlink" cat "${hardlink_path}"
+    run_expect_blocked "${signal}: dd hardlink" dd if="${hardlink_path}" of=/dev/null bs=1 count=1 status=none
+
+    sleep 1
+    run_expect_success "${signal}: expected action logged" grep -q "\"action\":\"${expected_action}\"" "${LOG_FILE}"
+    run_expect_success "${signal}: inode logged" grep -q "\"ino\":${inode}" "${LOG_FILE}"
+
+    "${BIN}" block del "${target}" >/dev/null 2>&1 || true
+    stop_agent
+}
+
+main() {
+    require_prereqs
+
+    TMP_DIR="$(mktemp -d /tmp/aegisbpf_e2e_matrix.XXXXXX)"
+    echo "Running kernel enforcement matrix using ${BIN}"
+    echo "Workspace: ${TMP_DIR}"
+
+    local signal
+    for signal in none term int; do
+        run_signal_suite "${signal}" "$(expected_action_for_signal "${signal}")"
+    done
+
+    echo
+    echo "E2E matrix summary: passed=${PASSED_CHECKS} failed=${FAILED_CHECKS} total=${TOTAL_CHECKS}"
+    if ((FAILED_CHECKS > 0)); then
+        exit 1
+    fi
+}
+
+main "$@"
