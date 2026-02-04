@@ -625,6 +625,23 @@ Result<void> write_version_counter(uint64_t version);
 bool check_version_acceptable(const SignedPolicyBundle& bundle);
 ```
 
+### Hash Utilities
+
+```cpp
+// Compute SHA256 hash of a file
+bool sha256_file_hex(const std::string& path, std::string& out_hex);
+
+// Verify policy file hash
+bool verify_policy_hash(const std::string& path, const std::string& expected,
+                        std::string& computed);
+
+// Constant-time comparison for hash strings (case-insensitive)
+// Prevents timing side-channel attacks when comparing hashes.
+bool constant_time_hex_compare(const std::string& a, const std::string& b);
+```
+
+**Security note**: All hash verification in AegisBPF uses `constant_time_hex_compare()` to prevent timing side-channel attacks that could leak information about valid hashes.
+
 ---
 
 ## BPF Maps Reference

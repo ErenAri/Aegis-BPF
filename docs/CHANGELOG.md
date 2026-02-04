@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Result<T> error handling throughout the codebase
+- Constant-time hash comparison (`constant_time_hex_compare()`) to prevent timing side-channel attacks
 - Structured logging with text and JSON output formats
 - `--log-level` and `--log-format` CLI options
 - `--seccomp` flag for runtime syscall filtering
@@ -55,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added seccomp-bpf syscall filter
 - Added AppArmor and SELinux policies
 - Added input validation for all user-provided paths
+- Added constant-time comparison for all hash verification (BPF integrity, policy SHA256, bundle verification)
+- Disabled `AEGIS_SKIP_BPF_VERIFY` bypass in Release builds (only available in Debug builds)
+- Added try-catch exception handling in signed bundle parser to prevent crashes on malformed input
+- Extended `json_escape()` to handle all control characters, preventing JSON injection in logs
 
 ## [0.1.0] - 2024-01-01
 

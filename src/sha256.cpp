@@ -253,7 +253,7 @@ bool verify_policy_hash(const std::string& path, const std::string& expected, st
     if (!sha256_file_hex(path, computed)) {
         return false;
     }
-    return computed == expected;
+    return constant_time_hex_compare(computed, expected);
 }
 
 bool read_sha256_file(const std::string& path, std::string& hash)
@@ -267,6 +267,25 @@ bool read_sha256_file(const std::string& path, std::string& hash)
         return false;
     }
     return parse_sha256_token(line, hash);
+}
+
+bool constant_time_hex_compare(const std::string& a, const std::string& b)
+{
+    // Constant-time comparison to prevent timing side-channel attacks.
+    // Both strings must be the same length for a valid comparison.
+    if (a.size() != b.size()) {
+        return false;
+    }
+
+    // Accumulate differences without early exit
+    volatile unsigned char result = 0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        // Normalize to lowercase for case-insensitive comparison
+        unsigned char ca = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(a[i])));
+        unsigned char cb = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(b[i])));
+        result |= ca ^ cb;
+    }
+    return result == 0;
 }
 
 }  // namespace aegis

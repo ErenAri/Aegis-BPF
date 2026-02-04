@@ -451,6 +451,11 @@ High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
 └─────────────────────────────────────────────────────────────────────────────┘
 
     ┌─────────────────────────────────────────────────────────────────────┐
+    │                         Layer 5: Cryptographic                      │
+    │     Constant-time comparisons, BPF integrity, policy signatures     │
+    └─────────────────────────────────────────────────────────────────────┘
+                                    │
+    ┌─────────────────────────────────────────────────────────────────────┐
     │                         Layer 4: Code Signing                       │
     │                    Sigstore/Cosign + SBOM                           │
     └─────────────────────────────────────────────────────────────────────┘
@@ -471,12 +476,17 @@ High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
     └─────────────────────────────────────────────────────────────────────┘
 ```
 
+**Cryptographic protections:**
+- All hash comparisons use constant-time algorithms to prevent timing attacks
+- BPF object integrity verified via SHA256 before loading
+- Policy signing with Ed25519 signatures (recommended for production)
+
 Enable all hardening layers:
 ```bash
 sudo aegisbpf run --enforce --seccomp
 ```
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and hardening details.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting, environment variables, and hardening details.
 
 ## Documentation
 

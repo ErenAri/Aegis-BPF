@@ -91,6 +91,34 @@ In production, prefer signed policy bundles plus:
 - periodic key rotation
 - revocation drills and incident evidence capture
 
+## Cryptographic Security
+
+### Timing Attack Prevention
+
+All cryptographic comparisons in AegisBPF use constant-time algorithms to prevent timing side-channel attacks:
+
+- **BPF object integrity verification** - SHA256 hash comparison uses `constant_time_hex_compare()`
+- **Policy hash verification** - SHA256 integrity checks use constant-time comparison
+- **Signed bundle verification** - Policy bundle SHA256 verification uses constant-time comparison
+
+This prevents attackers from inferring valid hash values by measuring comparison timing.
+
+### BPF Object Integrity
+
+AegisBPF verifies the integrity of the BPF object file before loading:
+
+1. Computes SHA256 hash of the BPF object
+2. Compares against expected hash from `/etc/aegisbpf/aegis.bpf.sha256` or installed location
+3. Rejects loading if hashes don't match
+
+**Important**: The `AEGIS_SKIP_BPF_VERIFY=1` environment variable bypass is **disabled in Release builds**. It is only available in Debug builds for development purposes.
+
+### Input Validation
+
+- **Bundle parsing**: All numeric fields in signed bundles are validated with exception handling to prevent crashes on malformed input
+- **JSON escaping**: All control characters are properly escaped in JSON log output to prevent log injection attacks
+- **Path validation**: Null bytes, path traversal, and symlink attacks are mitigated through canonicalization
+
 ## Security Best Practices
 
 ### Deployment
@@ -112,6 +140,24 @@ In production, prefer signed policy bundles plus:
 1. **Enable alerting**: Use the Prometheus alerts in `config/prometheus/alerts.yml`.
 2. **Monitor for anomalies**: High block rates may indicate attacks.
 3. **Review blocked events**: Investigate BLOCK events to identify threats or misconfigurations.
+
+## Environment Variables
+
+The following environment variables affect security behavior. In production, avoid setting override variables unless absolutely necessary.
+
+| Variable | Default | Security Impact |
+|----------|---------|-----------------|
+| `AEGIS_SKIP_BPF_VERIFY` | unset | **Debug builds only**: Bypasses BPF object integrity verification. Disabled in Release builds. |
+| `AEGIS_BPF_OBJ` | (auto-detected) | Overrides BPF object file path. Use with caution. |
+| `AEGIS_KEYS_DIR` | `/etc/aegisbpf/keys` | Directory for trusted policy signing keys. |
+| `AEGIS_POLICY_SHA256` | unset | Expected SHA256 hash for policy verification. |
+| `AEGIS_POLICY_SHA256_FILE` | unset | File containing expected SHA256 hash. |
+| `AEGIS_OTEL_SPANS` | unset | Enable OpenTelemetry-style trace spans in logs. |
+
+**Production recommendations**:
+- Do not set `AEGIS_SKIP_BPF_VERIFY` (ineffective in Release builds anyway)
+- Use default paths for BPF objects and keys
+- Always use `--sha256` or `--require-signature` for policy application
 
 ## Known Limitations
 

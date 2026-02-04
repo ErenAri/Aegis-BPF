@@ -104,7 +104,7 @@ std::string json_escape(const std::string& in)
 {
     std::string out;
     out.reserve(in.size() + 4);
-    for (char c : in) {
+    for (unsigned char c : in) {
         switch (c) {
         case '\\':
             out += "\\\\";
@@ -112,8 +112,31 @@ std::string json_escape(const std::string& in)
         case '"':
             out += "\\\"";
             break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        case '\b':
+            out += "\\b";
+            break;
+        case '\f':
+            out += "\\f";
+            break;
         default:
-            out += c;
+            // Escape control characters (0x00-0x1f) as \u00XX
+            if (c < 0x20) {
+                char buf[8];
+                snprintf(buf, sizeof(buf), "\\u%04x", c);
+                out += buf;
+            }
+            else {
+                out += static_cast<char>(c);
+            }
             break;
         }
     }

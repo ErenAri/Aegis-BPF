@@ -39,4 +39,8 @@ bool parse_sha256_token(const std::string& text, std::string& hex);
 bool verify_policy_hash(const std::string& path, const std::string& expected, std::string& computed);
 bool read_sha256_file(const std::string& path, std::string& hash);
 
+// Constant-time comparison to prevent timing side-channel attacks.
+// Returns true if the two hex strings are equal (case-insensitive).
+bool constant_time_hex_compare(const std::string& a, const std::string& b);
+
 }  // namespace aegis

@@ -47,6 +47,9 @@ Use private reporting as described in `SECURITY.md`.
 - Validate all externally controlled input.
 - Avoid introducing unnecessary privilege requirements.
 - Log security-relevant operations with context.
+- Use `constant_time_hex_compare()` for cryptographic comparisons (hashes, signatures).
+- Handle parsing exceptions to prevent crashes on malformed input.
+- Escape control characters in log output (use `json_escape()`).
 
 ### Correctness
 - Cover error paths in tests.

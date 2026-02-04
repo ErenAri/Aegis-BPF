@@ -215,16 +215,36 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content)
         }
 
         if (key == "format_version") {
-            bundle.format_version = static_cast<uint32_t>(std::stoul(value));
+            try {
+                bundle.format_version = static_cast<uint32_t>(std::stoul(value));
+            }
+            catch (const std::exception& e) {
+                return Error(ErrorCode::PolicyParseFailed, "Invalid format_version", value);
+            }
         }
         else if (key == "policy_version") {
-            bundle.policy_version = std::stoull(value);
+            try {
+                bundle.policy_version = std::stoull(value);
+            }
+            catch (const std::exception& e) {
+                return Error(ErrorCode::PolicyParseFailed, "Invalid policy_version", value);
+            }
         }
         else if (key == "timestamp") {
-            bundle.timestamp = std::stoull(value);
+            try {
+                bundle.timestamp = std::stoull(value);
+            }
+            catch (const std::exception& e) {
+                return Error(ErrorCode::PolicyParseFailed, "Invalid timestamp", value);
+            }
         }
         else if (key == "expires") {
-            bundle.expires = std::stoull(value);
+            try {
+                bundle.expires = std::stoull(value);
+            }
+            catch (const std::exception& e) {
+                return Error(ErrorCode::PolicyParseFailed, "Invalid expires", value);
+            }
         }
         else if (key == "signer_key") {
             auto key_result = decode_public_key(value);
@@ -316,9 +336,9 @@ Result<void> verify_bundle(const SignedPolicyBundle& bundle,
         }
     }
 
-    // Verify SHA256
+    // Verify SHA256 (constant-time comparison to prevent timing attacks)
     std::string computed_sha256 = Sha256::hash_hex(bundle.policy_content);
-    if (computed_sha256 != bundle.policy_sha256) {
+    if (!constant_time_hex_compare(computed_sha256, bundle.policy_sha256)) {
         return Error(ErrorCode::IntegrityCheckFailed, "Policy SHA256 mismatch",
                      "expected " + bundle.policy_sha256 + ", got " + computed_sha256);
     }

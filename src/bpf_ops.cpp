@@ -172,12 +172,15 @@ void set_ringbuf_bytes(uint32_t bytes)
 // Verify BPF object file integrity before loading
 static Result<void> verify_bpf_integrity(const std::string& obj_path)
 {
-    // Check if verification is disabled (for development)
+    // Check if verification is disabled (for development only)
+    // SECURITY: This bypass is disabled in Release builds to prevent tampering
+#ifndef NDEBUG
     const char* skip_verify = std::getenv("AEGIS_SKIP_BPF_VERIFY");
     if (skip_verify && std::string(skip_verify) == "1") {
-        logger().log(SLOG_WARN("BPF verification disabled via AEGIS_SKIP_BPF_VERIFY"));
+        logger().log(SLOG_WARN("BPF verification disabled via AEGIS_SKIP_BPF_VERIFY (DEBUG BUILD ONLY)"));
         return {};
     }
+#endif
 
     // Find the expected hash file
     std::string hash_path;
@@ -210,13 +213,8 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
         return Error(ErrorCode::IoError, "Failed to compute hash of BPF object", obj_path);
     }
 
-    // Compare (case-insensitive)
-    std::string expected_lower = expected_hash;
-    std::string actual_lower = actual_hash;
-    for (auto& c : expected_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    for (auto& c : actual_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-    if (expected_lower != actual_lower) {
+    // Constant-time comparison to prevent timing side-channel attacks
+    if (!constant_time_hex_compare(expected_hash, actual_hash)) {
         logger().log(SLOG_ERROR("BPF object integrity verification failed")
                          .field("path", obj_path)
                          .field("expected", expected_hash)
