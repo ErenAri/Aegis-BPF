@@ -51,6 +51,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Audit fallback smoke test: `scripts/smoke_audit_fallback.sh`
 - Environment verification: `scripts/verify_env.sh [--strict]`
 - Event schema validation: `scripts/validate_event_schema.py` + `tests/event_samples/`
+- Failure-mode regression contract: `tests/check_failure_modes_contract.py` (parser, signature, map-full, verifier, rollback paths)
 - SBOM generation: `sbom` job in `.github/workflows/ci.yml`
 - Release provenance attestations: `actions/attest-build-provenance` in `.github/workflows/release.yml`
 - Reproducibility gate: `scripts/check_reproducible_build.sh` + `.github/workflows/reproducibility.yml`
@@ -62,6 +63,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
+- Hosted benchmark trend workflow (advisory): `.github/workflows/benchmark.yml`
 - Kernel matrix workflow: `.github/workflows/kernel-matrix.yml`
 - Nightly fuzz workflow: `.github/workflows/nightly-fuzz.yml`
 - Parser-change fuzz gate: `parser-fuzz` job in `.github/workflows/ci.yml` + `scripts/run_parser_fuzz_changed.sh`
@@ -79,6 +81,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
+- Phase-2 correctness evidence pack: `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
 - CI kernel-e2e execution strategy: `docs/CI_EXECUTION_STRATEGY.md`
 - Final go/no-go checklist: `docs/GO_LIVE_CHECKLIST.md`
 - Branch-protection baseline: `docs/BRANCH_PROTECTION.md` + `scripts/check_branch_protection.sh`

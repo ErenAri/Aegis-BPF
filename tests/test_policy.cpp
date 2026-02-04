@@ -319,6 +319,9 @@ struct ApplyCall {
 
 std::vector<ApplyCall> g_apply_calls;
 bool g_fail_first_apply_call = true;
+bool g_fail_second_apply_call = false;
+Error g_first_apply_error(ErrorCode::PolicyApplyFailed, "Injected apply failure");
+Error g_second_apply_error(ErrorCode::PolicyApplyFailed, "Injected rollback failure");
 
 Result<void> fake_apply_policy_internal(const std::string& path,
                                         const std::string& computed_hash,
@@ -327,7 +330,10 @@ Result<void> fake_apply_policy_internal(const std::string& path,
 {
     g_apply_calls.push_back(ApplyCall{path, computed_hash, reset, record});
     if (g_fail_first_apply_call && g_apply_calls.size() == 1) {
-        return Error(ErrorCode::PolicyApplyFailed, "Injected apply failure");
+        return g_first_apply_error;
+    }
+    if (g_fail_second_apply_call && g_apply_calls.size() == 2) {
+        return g_second_apply_error;
     }
     return {};
 }
@@ -343,6 +349,9 @@ class PolicyRollbackTest : public ::testing::Test {
         std::filesystem::create_directories(test_dir_);
         g_apply_calls.clear();
         g_fail_first_apply_call = true;
+        g_fail_second_apply_call = false;
+        g_first_apply_error = Error(ErrorCode::PolicyApplyFailed, "Injected apply failure");
+        g_second_apply_error = Error(ErrorCode::PolicyApplyFailed, "Injected rollback failure");
         set_apply_policy_internal_for_test(fake_apply_policy_internal);
     }
 
@@ -413,6 +422,41 @@ TEST_F(PolicyRollbackTest, ApplyFailureSkipsRollbackWhenNoAppliedPolicyExists)
     EXPECT_EQ(result.error().code(), ErrorCode::PolicyApplyFailed);
     ASSERT_EQ(g_apply_calls.size(), 1u);
     EXPECT_EQ(g_apply_calls[0].path, requested_policy);
+}
+
+TEST_F(PolicyRollbackTest, MapFullFailureTriggersRollbackAttemptWhenEnabled)
+{
+    std::string requested_policy = WritePolicy("requested.conf", "version=1\n");
+    std::string applied_policy = WritePolicy("applied.conf", "version=1\n");
+    ScopedEnvVar applied_env("AEGIS_POLICY_APPLIED_PATH", applied_policy);
+
+    g_first_apply_error = Error(ErrorCode::BpfMapOperationFailed, "Injected map full");
+
+    auto result = policy_apply(requested_policy, false, "", "", true);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code(), ErrorCode::BpfMapOperationFailed);
+    ASSERT_EQ(g_apply_calls.size(), 2u);
+    EXPECT_EQ(g_apply_calls[0].path, requested_policy);
+    EXPECT_EQ(g_apply_calls[1].path, applied_policy);
+    EXPECT_TRUE(g_apply_calls[1].reset);
+    EXPECT_FALSE(g_apply_calls[1].record);
+}
+
+TEST_F(PolicyRollbackTest, RollbackFailureStillReturnsOriginalApplyError)
+{
+    std::string requested_policy = WritePolicy("requested.conf", "version=1\n");
+    std::string applied_policy = WritePolicy("applied.conf", "version=1\n");
+    ScopedEnvVar applied_env("AEGIS_POLICY_APPLIED_PATH", applied_policy);
+
+    g_fail_second_apply_call = true;
+    g_second_apply_error = Error(ErrorCode::BpfMapOperationFailed, "Injected rollback map failure");
+
+    auto result = policy_apply(requested_policy, false, "", "", true);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code(), ErrorCode::PolicyApplyFailed);
+    ASSERT_EQ(g_apply_calls.size(), 2u);
+    EXPECT_EQ(g_apply_calls[0].path, requested_policy);
+    EXPECT_EQ(g_apply_calls[1].path, applied_policy);
 }
 
 }  // namespace

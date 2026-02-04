@@ -129,6 +129,11 @@ Result<void> test_load_bpf_fail(bool, bool, BpfState&)
     return Error(ErrorCode::BpfLoadFailed, "forced load_bpf failure");
 }
 
+Result<void> test_load_bpf_verifier_fail(bool, bool, BpfState&)
+{
+    return Error(ErrorCode::BpfLoadFailed, "BPF verifier rejected test program");
+}
+
 Result<void> test_load_bpf_ok(bool, bool, BpfState&)
 {
     return {};
@@ -324,6 +329,27 @@ TEST(TracingTest, DaemonRunMarksLoadSpanErrorWhenLoadBpfFails)
     EXPECT_NE(log.find("\"span_name\":\"daemon.run\""), std::string::npos);
     EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
     EXPECT_NE(log.find("forced load_bpf failure"), std::string::npos);
+}
+
+TEST(TracingTest, DaemonRunSurfacesVerifierRejectError)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+    {
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_verifier_fail);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("\"span_name\":\"daemon.load_bpf\""), std::string::npos);
+    EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
+    EXPECT_NE(log.find("BPF verifier rejected test program"), std::string::npos);
 }
 
 TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)

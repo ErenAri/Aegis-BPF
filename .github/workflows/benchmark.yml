@@ -59,7 +59,7 @@ jobs:
           comment-on-alert: false
           summary-always: true
 
-      - name: Store benchmark result (main strict)
+      - name: Store benchmark result (main advisory)
         if: steps.benchmark-history.outputs.exists == 'true' && github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -68,9 +68,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.ref == 'refs/heads/main' }}
           alert-threshold: '200%'
-          fail-on-alert: true
+          fail-on-alert: false
           comment-on-alert: false
           summary-always: true
+
+      - name: Perf gate policy note
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Hosted benchmark-action results are advisory."
+          echo "Strict regression gating is enforced in .github/workflows/perf.yml on self-hosted perf runners."
 
       - name: Upload benchmark artifact (bootstrap)
         if: steps.benchmark-history.outputs.exists != 'true'

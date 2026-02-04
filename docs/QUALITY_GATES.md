@@ -18,7 +18,8 @@ This project enforces quality gates through required CI checks on `main`.
 - Security scans (`dependency-review`, `codeql`, `gitleaks`)
 - Benchmark regression policy:
   - PR: advisory signal only
-  - Main: fails when slowdown exceeds threshold (currently 2.0x / 100%)
+  - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)
+  - Strict fail-on-regression: `.github/workflows/perf.yml` on deterministic self-hosted perf runners
 
 ## Coverage ratchet policy
 
