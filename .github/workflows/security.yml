@@ -20,10 +20,27 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+      - name: Detect dependency graph availability
+        id: dep-graph
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const {data} = await github.rest.repos.get({owner, repo});
+            const status = data.security_and_analysis?.dependency_graph?.status ?? "unknown";
+            core.info(`dependency_graph status: ${status}`);
+            core.setOutput("enabled", status === "enabled" ? "true" : "false");
+
       - name: Dependency review (fail on high/critical CVEs)
+        if: steps.dep-graph.outputs.enabled == 'true'
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+
+      - name: Skip dependency review when dependency graph is disabled
+        if: steps.dep-graph.outputs.enabled != 'true'
+        run: |
+          echo "::warning::Dependency graph is disabled for this repository; skipping dependency-review check."
 
   codeql:
     runs-on: ubuntu-24.04

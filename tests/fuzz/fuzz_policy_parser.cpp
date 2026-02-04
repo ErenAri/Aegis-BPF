@@ -16,26 +16,43 @@
  */
 
 #include "policy.hpp"
-#include "crypto.hpp"
-#include "types.hpp"
 
+#include <cerrno>
+#include <cstdio>
 #include <cstdint>
-#include <cstring>
+#include <fcntl.h>
 #include <string>
-
-// Forward declarations for functions we want to fuzz
-namespace aegis {
-extern Result<Policy> parse_policy_content(const std::string& content, PolicyIssues& issues);
-}
+#include <unistd.h>
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
-    // Convert to string
-    std::string content(reinterpret_cast<const char*>(data), size);
+    char path[] = "/tmp/aegisbpf-policy-fuzz-XXXXXX";
+    const int fd = mkstemp(path);
+    if (fd < 0) {
+        return 0;
+    }
+
+    size_t remaining = size;
+    const uint8_t* cursor = data;
+    while (remaining > 0) {
+        const ssize_t written = write(fd, cursor, remaining);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            close(fd);
+            std::remove(path);
+            return 0;
+        }
+        cursor += static_cast<size_t>(written);
+        remaining -= static_cast<size_t>(written);
+    }
+    close(fd);
 
     // Test policy parser
     aegis::PolicyIssues issues;
-    auto result = aegis::parse_policy_content(content, issues);
+    auto result = aegis::parse_policy_file(path, issues);
+    std::remove(path);
 
     // We don't care about the result - we're just looking for crashes
     (void)result;

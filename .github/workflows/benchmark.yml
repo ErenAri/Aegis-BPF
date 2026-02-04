@@ -34,7 +34,17 @@ jobs:
             --benchmark_out=benchmark.json \
             --benchmark_out_format=json
 
+      - name: Check benchmark history branch
+        id: benchmark-history
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Store benchmark result
+        if: steps.benchmark-history.outputs.exists == 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: googlecpp
@@ -45,3 +55,15 @@ jobs:
           fail-on-alert: true
           comment-on-alert: true
           summary-always: true
+
+      - name: Upload benchmark artifact (bootstrap)
+        if: steps.benchmark-history.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-result
+          path: benchmark.json
+
+      - name: Warn about missing benchmark history branch
+        if: steps.benchmark-history.outputs.exists != 'true'
+        run: |
+          echo "::warning::gh-pages branch is missing. Benchmark history comparison is skipped until gh-pages is created."
