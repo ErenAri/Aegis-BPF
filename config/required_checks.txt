@@ -1,20 +1,20 @@
-Benchmark / benchmark (pull_request)
-CI / build (ubuntu-22.04) (pull_request)
-CI / build (ubuntu-24.04) (pull_request)
-CI / clang-tidy (pull_request)
-CI / coverage (pull_request)
-CI / lint (pull_request)
-CI / label-contract (pull_request)
-CI / required-checks-contract (pull_request)
-CI / sanitizers (asan) (pull_request)
-CI / sanitizers (tsan) (pull_request)
-CI / sanitizers (ubsan) (pull_request)
-CI / sbom (pull_request)
-CI / smoke-fuzz (pull_request)
-CI / test (pull_request)
-Release Readiness / readiness (ubuntu-22.04) (pull_request)
-Release Readiness / readiness (ubuntu-24.04) (pull_request)
-Security / codeql (pull_request)
-Security / dependency-review (pull_request)
-Security / gitleaks (pull_request)
-Security / semgrep (pull_request)
+benchmark
+build (ubuntu-22.04)
+build (ubuntu-24.04)
+clang-tidy
+coverage
+lint
+label-contract
+required-checks-contract
+sanitizers (asan)
+sanitizers (tsan)
+sanitizers (ubsan)
+sbom
+smoke-fuzz
+test
+readiness (ubuntu-22.04)
+readiness (ubuntu-24.04)
+dependency-review
+codeql
+gitleaks
+semgrep
