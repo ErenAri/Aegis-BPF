@@ -465,18 +465,37 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and hardening details
 
 ## Documentation
 
+### Core Documentation
+
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and internals |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | API reference for types, functions, and BPF maps |
+| [DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Development setup, coding standards, and contribution guide |
+| [POLICY.md](docs/POLICY.md) | Policy file format and semantics |
+| [NETWORK_LAYER_DESIGN.md](docs/NETWORK_LAYER_DESIGN.md) | Network blocking architecture |
+
+### Operations
+
+| Document | Description |
+|----------|-------------|
 | [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Production gates and evidence checklist |
 | [GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md) | Final go/no-go checklist for release candidates |
-| [BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Protected-branch baseline and required checks |
 | [CANARY_RUNBOOK.md](docs/CANARY_RUNBOOK.md) | Staging canary and soak validation workflow |
 | [RELEASE_DRILL.md](docs/RELEASE_DRILL.md) | Pre-release packaging and upgrade drill |
 | [KEY_MANAGEMENT.md](docs/KEY_MANAGEMENT.md) | Policy signing key rotation and revocation runbook |
-| [SUPPORT_POLICY.md](docs/SUPPORT_POLICY.md) | Supported versions, compatibility, and deprecation guarantees |
+| [INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md) | Incident handling procedures |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
 | [SIEM_INTEGRATION.md](docs/SIEM_INTEGRATION.md) | Splunk, ELK, QRadar integration |
+
+### Reference
+
+| Document | Description |
+|----------|-------------|
+| [SUPPORT_POLICY.md](docs/SUPPORT_POLICY.md) | Supported versions, compatibility, and deprecation guarantees |
+| [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Kernel and version compatibility matrix |
+| [PERF.md](docs/PERF.md) | Performance tuning and benchmarking |
+| [BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Protected-branch baseline and required checks |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Version history |
 | [aegisbpf.1.md](docs/man/aegisbpf.1.md) | Man page |
 
