@@ -22,6 +22,7 @@ AegisBPF emits events in JSON format to stdout or journald. See [event-schema.js
 | `ppid` | integer | Parent process ID |
 | `start_time` | integer | Process start time (kernel clock) |
 | `exec_id` | string | Stable execution identifier (`pid:start_time`) |
+| `trace_id` | string | Correlation identifier (equal to `exec_id`) |
 | `cgid` | integer | Cgroup ID |
 | `cgroup_path` | string | Cgroup path |
 | `comm` | string | Command name (max 16 chars) |
@@ -32,6 +33,7 @@ AegisBPF emits events in JSON format to stdout or journald. See [event-schema.js
 |-------|------|-------------|
 | `parent_start_time` | integer | Parent process start time |
 | `parent_exec_id` | string | Stable parent execution identifier |
+| `parent_trace_id` | string | Parent correlation identifier |
 | `ino` | integer | Inode number |
 | `dev` | integer | Device number |
 | `path` | string | Path of the file when available |
@@ -129,8 +131,10 @@ output.elasticsearch:
         "type": { "type": "keyword" },
         "start_time": { "type": "long" },
         "exec_id": { "type": "keyword" },
+        "trace_id": { "type": "keyword" },
         "parent_start_time": { "type": "long" },
         "parent_exec_id": { "type": "keyword" },
+        "parent_trace_id": { "type": "keyword" },
         "pid": { "type": "integer" },
         "ppid": { "type": "integer" },
         "comm": { "type": "keyword" },
@@ -193,7 +197,7 @@ if $programname == 'aegisbpf' then {
 
 Example:
 ```
-<134>1 2024-01-15T10:30:00.000Z server1 aegisbpf - - - {"type":"block","pid":12345,"ppid":1000,"start_time":123456789,"cgid":5678,"cgroup_path":"/sys/fs/cgroup/user.slice/user-1000.slice","comm":"bash","path":"/usr/bin/malware","action":"KILL","ino":123456,"dev":259}
+<134>1 2024-01-15T10:30:00.000Z server1 aegisbpf - - - {"type":"block","pid":12345,"ppid":1000,"start_time":123456789,"exec_id":"12345:123456789","trace_id":"12345:123456789","cgid":5678,"cgroup_path":"/sys/fs/cgroup/user.slice/user-1000.slice","comm":"bash","path":"/usr/bin/malware","action":"KILL","ino":123456,"dev":259}
 ```
 
 ## Prometheus/Grafana Integration
@@ -204,17 +208,41 @@ For metrics-based monitoring, use the built-in Prometheus endpoint:
 aegisbpf metrics --out /var/lib/prometheus/node-exporter/aegisbpf.prom
 ```
 
-Key metrics include:
+Key low-cardinality metrics include:
 - `aegisbpf_blocks_total`, `aegisbpf_ringbuf_drops_total`
-- `aegisbpf_blocks_by_cgroup_total`, `aegisbpf_blocks_by_path_total`
 - `aegisbpf_net_blocks_total`, `aegisbpf_net_ringbuf_drops_total`
 - `aegisbpf_net_rules_total`
+- `aegisbpf_deny_inode_entries`, `aegisbpf_deny_path_entries`, `aegisbpf_allow_cgroup_entries`
+
+For short-lived debugging sessions, export detailed high-cardinality metrics:
+
+```bash
+aegisbpf metrics --detailed --out /tmp/aegisbpf.debug.prom
+```
 
 See [prometheus/alerts.yml](../config/prometheus/alerts.yml) for alert rules and [grafana/dashboard.json](../config/grafana/dashboard.json) for the Grafana dashboard.
 
 Recommended SLO alerts:
 - `AegisBPFEventLossSLOViolation` (event-loss ratio > 0.1%)
 - `AegisBPFMetricsStale` (no updates for >30m with active policy)
+
+### OTel-Style Policy Spans
+
+For troubleshooting policy rollouts and runtime startup checks, enable span logs:
+
+```bash
+AEGIS_OTEL_SPANS=1 aegisbpf policy apply /etc/aegisbpf/policy.conf
+```
+
+This emits structured logs with:
+- `message`: `otel_span_start` / `otel_span_end`
+- `trace_id`, `span_id`, `parent_span_id`
+- `span_name`, `duration_ms`, `status`
+
+Common span names include:
+- Policy path: `cli.policy_apply`, `policy.apply`, `policy.apply_internal`, `policy.rollback_last_applied`
+- Runtime path: `daemon.run`, `daemon.load_bpf`, `daemon.attach_programs`, `daemon.event_loop`
+- Health path: `cli.health`, `health.detect_kernel_features`, `health.load_bpf`
 
 ## QRadar Integration
 

@@ -9,6 +9,7 @@
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -25,6 +26,12 @@
 namespace aegis {
 
 namespace {
+
+int fail_span(ScopedSpan& span, const std::string& message)
+{
+    span.fail(message);
+    return 1;
+}
 
 void append_metric_header(std::ostringstream& oss,
                           const std::string& name,
@@ -79,21 +86,24 @@ Result<void> verify_pinned_map_access(const char* pin_path)
 
 }  // namespace
 
-int cmd_stats()
+int cmd_stats(bool detailed)
 {
+    const std::string trace_id = make_span_id("trace-stats");
+    ScopedSpan span("cli.stats", trace_id);
+
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read block stats")
                          .field("error", stats_result.error().to_string()));
-        return 1;
+        return fail_span(span, stats_result.error().to_string());
     }
 
     const auto& stats = *stats_result;
@@ -101,17 +111,90 @@ int cmd_stats()
     std::cout << "  Total blocks: " << stats.blocks << std::endl;
     std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << std::endl;
 
+    if (!detailed) {
+        return 0;
+    }
+
+    std::cout << std::endl;
+    std::cout << "Detailed Block Statistics (for debugging only):" << std::endl;
+    std::cout << "WARNING: This output is NOT suitable for Prometheus metrics." << std::endl;
+    std::cout << "         Use `aegisbpf metrics` for low-cardinality production metrics."
+              << std::endl;
+
+    auto cgroup_stats_result = read_cgroup_block_counts(state.deny_cgroup_stats);
+    if (cgroup_stats_result) {
+        auto cgroup_stats = *cgroup_stats_result;
+        std::sort(cgroup_stats.begin(), cgroup_stats.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::cout << "  Top blocked cgroups:" << std::endl;
+        size_t limit = std::min<size_t>(10, cgroup_stats.size());
+        for (size_t i = 0; i < limit; ++i) {
+            const auto& [cgid, count] = cgroup_stats[i];
+            std::string cgroup_path = resolve_cgroup_path(cgid);
+            if (cgroup_path.empty()) {
+                cgroup_path = "cgid:" + std::to_string(cgid);
+            }
+            std::cout << "    " << cgroup_path << ": " << count << std::endl;
+        }
+    }
+
+    auto path_stats_result = read_path_block_counts(state.deny_path_stats);
+    if (path_stats_result) {
+        auto path_stats = *path_stats_result;
+        std::sort(path_stats.begin(), path_stats.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::cout << "  Top blocked paths:" << std::endl;
+        size_t limit = std::min<size_t>(10, path_stats.size());
+        for (size_t i = 0; i < limit; ++i) {
+            const auto& [path, count] = path_stats[i];
+            std::cout << "    " << path << ": " << count << std::endl;
+        }
+    }
+
+    if (state.net_ip_stats) {
+        auto net_ip_stats_result = read_net_ip_stats(state);
+        if (net_ip_stats_result) {
+            auto net_ip_stats = *net_ip_stats_result;
+            std::sort(net_ip_stats.begin(), net_ip_stats.end(),
+                      [](const auto& a, const auto& b) { return a.second > b.second; });
+            std::cout << "  Top blocked destination IPs:" << std::endl;
+            size_t limit = std::min<size_t>(10, net_ip_stats.size());
+            for (size_t i = 0; i < limit; ++i) {
+                const auto& [ip, count] = net_ip_stats[i];
+                std::cout << "    " << ip << ": " << count << std::endl;
+            }
+        }
+    }
+
+    if (state.net_port_stats) {
+        auto net_port_stats_result = read_net_port_stats(state);
+        if (net_port_stats_result) {
+            auto net_port_stats = *net_port_stats_result;
+            std::sort(net_port_stats.begin(), net_port_stats.end(),
+                      [](const auto& a, const auto& b) { return a.second > b.second; });
+            std::cout << "  Top blocked destination ports:" << std::endl;
+            size_t limit = std::min<size_t>(10, net_port_stats.size());
+            for (size_t i = 0; i < limit; ++i) {
+                const auto& [port, count] = net_port_stats[i];
+                std::cout << "    " << port << ": " << count << std::endl;
+            }
+        }
+    }
+
     return 0;
 }
 
-int cmd_metrics(const std::string& out_path)
+int cmd_metrics(const std::string& out_path, bool detailed)
 {
+    const std::string trace_id = make_span_id("trace-metrics");
+    ScopedSpan span("cli.metrics", trace_id);
+
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     std::ostringstream oss;
@@ -121,7 +204,7 @@ int cmd_metrics(const std::string& out_path)
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read block stats")
                          .field("error", stats_result.error().to_string()));
-        return 1;
+        return fail_span(span, stats_result.error().to_string());
     }
     const auto& stats = *stats_result;
     append_metric_header(oss, "aegisbpf_blocks_total", "counter",
@@ -131,74 +214,77 @@ int cmd_metrics(const std::string& out_path)
                          "Number of dropped events");
     append_metric_sample(oss, "aegisbpf_ringbuf_drops_total", stats.ringbuf_drops);
 
-    // Per-cgroup counters (for SOC top talkers and alerting)
-    auto cgroup_stats_result = read_cgroup_block_counts(state.deny_cgroup_stats);
-    if (!cgroup_stats_result) {
-        logger().log(SLOG_ERROR("Failed to read cgroup block stats")
-                         .field("error", cgroup_stats_result.error().to_string()));
-        return 1;
-    }
-    auto cgroup_stats = *cgroup_stats_result;
-    std::sort(cgroup_stats.begin(), cgroup_stats.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
-    append_metric_header(oss, "aegisbpf_blocks_by_cgroup_total", "counter",
-                         "Blocked operations by cgroup");
-    for (const auto& [cgid, count] : cgroup_stats) {
-        std::string cgroup_path = resolve_cgroup_path(cgid);
-        if (cgroup_path.empty()) {
-            cgroup_path = "cgid:" + std::to_string(cgid);
+    if (detailed) {
+        oss << "# NOTE high-cardinality metrics enabled (--detailed)\n";
+
+        auto cgroup_stats_result = read_cgroup_block_counts(state.deny_cgroup_stats);
+        if (!cgroup_stats_result) {
+            logger().log(SLOG_ERROR("Failed to read cgroup block stats")
+                             .field("error", cgroup_stats_result.error().to_string()));
+            return fail_span(span, cgroup_stats_result.error().to_string());
         }
-        append_metric_sample(
-            oss,
-            "aegisbpf_blocks_by_cgroup_total",
-            {
-                {"cgroup_id", std::to_string(cgid)},
-                {"cgroup_path", cgroup_path},
-            },
-            count);
-    }
+        auto cgroup_stats = *cgroup_stats_result;
+        std::sort(cgroup_stats.begin(), cgroup_stats.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        append_metric_header(oss, "aegisbpf_blocks_by_cgroup_total", "counter",
+                             "Blocked operations by cgroup");
+        for (const auto& [cgid, count] : cgroup_stats) {
+            std::string cgroup_path = resolve_cgroup_path(cgid);
+            if (cgroup_path.empty()) {
+                cgroup_path = "cgid:" + std::to_string(cgid);
+            }
+            append_metric_sample(
+                oss,
+                "aegisbpf_blocks_by_cgroup_total",
+                {
+                    {"cgroup_id", std::to_string(cgid)},
+                    {"cgroup_path", cgroup_path},
+                },
+                count);
+        }
 
-    auto inode_stats_result = read_inode_block_counts(state.deny_inode_stats);
-    if (!inode_stats_result) {
-        logger().log(SLOG_ERROR("Failed to read inode block stats")
-                         .field("error", inode_stats_result.error().to_string()));
-        return 1;
-    }
-    auto inode_stats = *inode_stats_result;
-    std::sort(inode_stats.begin(), inode_stats.end(),
-              [](const auto& a, const auto& b) {
-                  if (a.first.dev != b.first.dev) {
-                      return a.first.dev < b.first.dev;
-                  }
-                  return a.first.ino < b.first.ino;
-              });
-    append_metric_header(oss, "aegisbpf_blocks_by_inode_total", "counter",
-                         "Blocked operations by inode");
-    for (const auto& [inode, count] : inode_stats) {
-        append_metric_sample(
-            oss,
-            "aegisbpf_blocks_by_inode_total",
-            {{"inode", inode_to_string(inode)}},
-            count);
-    }
+        auto inode_stats_result = read_inode_block_counts(state.deny_inode_stats);
+        if (!inode_stats_result) {
+            logger().log(SLOG_ERROR("Failed to read inode block stats")
+                             .field("error", inode_stats_result.error().to_string()));
+            return fail_span(span, inode_stats_result.error().to_string());
+        }
+        auto inode_stats = *inode_stats_result;
+        std::sort(inode_stats.begin(), inode_stats.end(),
+                  [](const auto& a, const auto& b) {
+                      if (a.first.dev != b.first.dev) {
+                          return a.first.dev < b.first.dev;
+                      }
+                      return a.first.ino < b.first.ino;
+                  });
+        append_metric_header(oss, "aegisbpf_blocks_by_inode_total", "counter",
+                             "Blocked operations by inode");
+        for (const auto& [inode, count] : inode_stats) {
+            append_metric_sample(
+                oss,
+                "aegisbpf_blocks_by_inode_total",
+                {{"inode", inode_to_string(inode)}},
+                count);
+        }
 
-    auto path_stats_result = read_path_block_counts(state.deny_path_stats);
-    if (!path_stats_result) {
-        logger().log(SLOG_ERROR("Failed to read path block stats")
-                         .field("error", path_stats_result.error().to_string()));
-        return 1;
-    }
-    auto path_stats = *path_stats_result;
-    std::sort(path_stats.begin(), path_stats.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
-    append_metric_header(oss, "aegisbpf_blocks_by_path_total", "counter",
-                         "Blocked operations by path");
-    for (const auto& [path, count] : path_stats) {
-        append_metric_sample(
-            oss,
-            "aegisbpf_blocks_by_path_total",
-            {{"path", path}},
-            count);
+        auto path_stats_result = read_path_block_counts(state.deny_path_stats);
+        if (!path_stats_result) {
+            logger().log(SLOG_ERROR("Failed to read path block stats")
+                             .field("error", path_stats_result.error().to_string()));
+            return fail_span(span, path_stats_result.error().to_string());
+        }
+        auto path_stats = *path_stats_result;
+        std::sort(path_stats.begin(), path_stats.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        append_metric_header(oss, "aegisbpf_blocks_by_path_total", "counter",
+                             "Blocked operations by path");
+        for (const auto& [path, count] : path_stats) {
+            append_metric_sample(
+                oss,
+                "aegisbpf_blocks_by_path_total",
+                {{"path", path}},
+                count);
+        }
     }
 
     // Network counters are optional: emit when maps are available.
@@ -207,7 +293,7 @@ int cmd_metrics(const std::string& out_path)
         if (!net_stats_result) {
             logger().log(SLOG_ERROR("Failed to read network block stats")
                              .field("error", net_stats_result.error().to_string()));
-            return 1;
+            return fail_span(span, net_stats_result.error().to_string());
         }
 
         const auto& net_stats = *net_stats_result;
@@ -229,45 +315,47 @@ int cmd_metrics(const std::string& out_path)
         append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", net_stats.ringbuf_drops);
     }
 
-    if (state.net_ip_stats) {
-        auto net_ip_stats_result = read_net_ip_stats(state);
-        if (!net_ip_stats_result) {
-            logger().log(SLOG_ERROR("Failed to read network IP stats")
-                             .field("error", net_ip_stats_result.error().to_string()));
-            return 1;
+    if (detailed) {
+        if (state.net_ip_stats) {
+            auto net_ip_stats_result = read_net_ip_stats(state);
+            if (!net_ip_stats_result) {
+                logger().log(SLOG_ERROR("Failed to read network IP stats")
+                                 .field("error", net_ip_stats_result.error().to_string()));
+                return fail_span(span, net_ip_stats_result.error().to_string());
+            }
+            auto net_ip_stats = *net_ip_stats_result;
+            std::sort(net_ip_stats.begin(), net_ip_stats.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+            append_metric_header(oss, "aegisbpf_net_blocks_by_ip_total", "counter",
+                                 "Blocked network operations by destination IP");
+            for (const auto& [ip, count] : net_ip_stats) {
+                append_metric_sample(
+                    oss,
+                    "aegisbpf_net_blocks_by_ip_total",
+                    {{"ip", ip}},
+                    count);
+            }
         }
-        auto net_ip_stats = *net_ip_stats_result;
-        std::sort(net_ip_stats.begin(), net_ip_stats.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
-        append_metric_header(oss, "aegisbpf_net_blocks_by_ip_total", "counter",
-                             "Blocked network operations by destination IP");
-        for (const auto& [ip, count] : net_ip_stats) {
-            append_metric_sample(
-                oss,
-                "aegisbpf_net_blocks_by_ip_total",
-                {{"ip", ip}},
-                count);
-        }
-    }
 
-    if (state.net_port_stats) {
-        auto net_port_stats_result = read_net_port_stats(state);
-        if (!net_port_stats_result) {
-            logger().log(SLOG_ERROR("Failed to read network port stats")
-                             .field("error", net_port_stats_result.error().to_string()));
-            return 1;
-        }
-        auto net_port_stats = *net_port_stats_result;
-        std::sort(net_port_stats.begin(), net_port_stats.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
-        append_metric_header(oss, "aegisbpf_net_blocks_by_port_total", "counter",
-                             "Blocked network operations by port");
-        for (const auto& [port, count] : net_port_stats) {
-            append_metric_sample(
-                oss,
-                "aegisbpf_net_blocks_by_port_total",
-                {{"port", std::to_string(port)}},
-                count);
+        if (state.net_port_stats) {
+            auto net_port_stats_result = read_net_port_stats(state);
+            if (!net_port_stats_result) {
+                logger().log(SLOG_ERROR("Failed to read network port stats")
+                                 .field("error", net_port_stats_result.error().to_string()));
+                return fail_span(span, net_port_stats_result.error().to_string());
+            }
+            auto net_port_stats = *net_port_stats_result;
+            std::sort(net_port_stats.begin(), net_port_stats.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+            append_metric_header(oss, "aegisbpf_net_blocks_by_port_total", "counter",
+                                 "Blocked network operations by port");
+            for (const auto& [port, count] : net_port_stats) {
+                append_metric_sample(
+                    oss,
+                    "aegisbpf_net_blocks_by_port_total",
+                    {{"port", std::to_string(port)}},
+                    count);
+            }
         }
     }
 
@@ -303,7 +391,7 @@ int cmd_metrics(const std::string& out_path)
         std::ofstream out(out_path);
         if (!out.is_open()) {
             logger().log(SLOG_ERROR("Failed to open metrics output file").field("path", out_path));
-            return 1;
+            return fail_span(span, "Failed to open metrics output file");
         }
         out << metrics;
     }
@@ -313,8 +401,17 @@ int cmd_metrics(const std::string& out_path)
 
 int cmd_health(bool json_output)
 {
+    const std::string trace_id = make_span_id("trace-health");
+    ScopedSpan root_span("cli.health", trace_id);
+    auto fail = [&](const std::string& error) -> int {
+        root_span.fail(error);
+        return 1;
+    };
+
+    ScopedSpan feature_span("health.detect_kernel_features", trace_id, root_span.span_id());
     auto features_result = detect_kernel_features();
     if (!features_result) {
+        feature_span.fail(features_result.error().to_string());
         if (json_output) {
             std::cout << "{\"ok\":false,\"error\":\""
                       << json_escape(features_result.error().to_string())
@@ -324,7 +421,7 @@ int cmd_health(bool json_output)
             logger().log(SLOG_ERROR("Kernel feature detection failed")
                              .field("error", features_result.error().to_string()));
         }
-        return 1;
+        return fail(features_result.error().to_string());
     }
     const auto& features = *features_result;
     EnforcementCapability capability = determine_capability(features);
@@ -395,12 +492,14 @@ int cmd_health(bool json_output)
             logger().log(SLOG_ERROR("Kernel prerequisites are not met")
                              .field("explanation", capability_explanation(features, capability)));
         }
-        return 1;
+        return fail(error);
     }
 
     BpfState state;
+    ScopedSpan load_span("health.load_bpf", trace_id, root_span.span_id());
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
+        load_span.fail(load_result.error().to_string());
         if (json_output) {
             emit_json(false, "BPF load failed: " + load_result.error().to_string());
         }
@@ -408,7 +507,7 @@ int cmd_health(bool json_output)
             logger().log(SLOG_ERROR("BPF health check failed - cannot load BPF object")
                              .field("error", load_result.error().to_string()));
         }
-        return 1;
+        return fail(load_result.error().to_string());
     }
     bpf_load_ok = true;
 
@@ -420,13 +519,15 @@ int cmd_health(bool json_output)
         else {
             logger().log(SLOG_ERROR("BPF health check failed - missing required maps"));
         }
-        return 1;
+        return fail("BPF health check failed - missing required maps");
     }
     required_maps_ok = true;
 
     // Check layout version by ensuring it
+    ScopedSpan layout_span("health.ensure_layout_version", trace_id, root_span.span_id());
     auto version_result = ensure_layout_version(state);
     if (!version_result) {
+        layout_span.fail(version_result.error().to_string());
         if (json_output) {
             emit_json(false, "Layout version check failed: " + version_result.error().to_string());
         }
@@ -434,7 +535,7 @@ int cmd_health(bool json_output)
             logger().log(SLOG_ERROR("BPF health check failed - layout version check failed")
                              .field("error", version_result.error().to_string()));
         }
-        return 1;
+        return fail(version_result.error().to_string());
     }
     layout_ok = true;
 
@@ -461,7 +562,7 @@ int cmd_health(bool json_output)
                                  .field("path", pin_path)
                                  .field("error", pin_result.error().to_string()));
             }
-            return 1;
+            return fail("Pinned map check failed: " + std::string(pin_path));
         }
     }
     required_pins_ok = true;
@@ -494,7 +595,7 @@ int cmd_health(bool json_output)
                                  .field("path", pin_path)
                                  .field("error", pin_result.error().to_string()));
             }
-            return 1;
+            return fail("Network pinned map check failed: " + std::string(pin_path));
         }
     }
 

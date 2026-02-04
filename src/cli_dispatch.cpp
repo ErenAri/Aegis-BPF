@@ -89,17 +89,21 @@ int dispatch_health_command(int argc, char** argv, const char* prog)
 int dispatch_metrics_command(int argc, char** argv, const char* prog)
 {
     std::string out_path;
+    bool detailed = false;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--out") {
             if (i + 1 >= argc) return usage(prog);
             out_path = argv[++i];
         }
+        else if (arg == "--detailed") {
+            detailed = true;
+        }
         else {
             return usage(prog);
         }
     }
-    return cmd_metrics(out_path);
+    return cmd_metrics(out_path, detailed);
 }
 
 }  // namespace
@@ -124,8 +128,14 @@ int dispatch_cli(int argc, char** argv)
     if (cmd == "health") return dispatch_health_command(argc, argv, argv[0]);
     if (cmd == "metrics") return dispatch_metrics_command(argc, argv, argv[0]);
     if (cmd == "stats") {
-        if (argc > 2) return usage(argv[0]);
-        return cmd_stats();
+        bool detailed = false;
+        if (argc == 3 && std::string(argv[2]) == "--detailed") {
+            detailed = true;
+        }
+        else if (argc > 2) {
+            return usage(argv[0]);
+        }
+        return cmd_stats(detailed);
     }
 
     return usage(argv[0]);

@@ -46,6 +46,7 @@ PY
 
 python3 - "${REQUIRED_FILE}" "${tmp_actual}" <<'PY'
 import sys
+from pathlib import Path
 
 required_path, actual_path = sys.argv[1], sys.argv[2]
 
@@ -70,7 +71,7 @@ if missing:
     for m in missing:
         print(f"  - {m}")
 if extra:
-    print("Additional configured checks (not in required_checks.txt):")
+    print(f"Additional configured checks (not in {Path(required_path).name}):")
     for e in extra:
         print(f"  - {e}")
 

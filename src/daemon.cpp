@@ -6,11 +6,13 @@
  */
 
 #include "daemon.hpp"
+#include "daemon_test_hooks.hpp"
 #include "bpf_ops.hpp"
 #include "events.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "seccomp.hpp"
+#include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -29,6 +31,17 @@ namespace aegis {
 namespace {
 volatile sig_atomic_t g_exiting = 0;
 std::atomic<bool> g_heartbeat_running{false};
+Result<void> setup_agent_cgroup(BpfState& state);
+ValidateConfigDirectoryPermissionsFn g_validate_config_directory_permissions =
+    validate_config_directory_permissions;
+DetectKernelFeaturesFn g_detect_kernel_features = detect_kernel_features;
+BumpMemlockRlimitFn g_bump_memlock_rlimit = bump_memlock_rlimit;
+LoadBpfFn g_load_bpf = load_bpf;
+EnsureLayoutVersionFn g_ensure_layout_version = ensure_layout_version;
+SetAgentConfigFullFn g_set_agent_config_full = set_agent_config_full;
+PopulateSurvivalAllowlistFn g_populate_survival_allowlist = populate_survival_allowlist;
+SetupAgentCgroupFn g_setup_agent_cgroup = setup_agent_cgroup;
+AttachAllFn g_attach_all = attach_all;
 
 void handle_signal(int)
 {
@@ -106,8 +119,6 @@ const char* enforce_signal_name(uint8_t signal)
         return "sigint";
     case kEnforceSignalKill:
         return "sigkill";
-    case kEnforceSignalTerm:
-        return "sigterm";
     default:
         return "sigterm";
     }
@@ -146,6 +157,96 @@ bool parse_lsm_hook(const std::string& value, LsmHookMode& out)
     return false;
 }
 
+void set_validate_config_directory_permissions_for_test(ValidateConfigDirectoryPermissionsFn fn)
+{
+    g_validate_config_directory_permissions = fn ? fn : validate_config_directory_permissions;
+}
+
+void reset_validate_config_directory_permissions_for_test()
+{
+    g_validate_config_directory_permissions = validate_config_directory_permissions;
+}
+
+void set_detect_kernel_features_for_test(DetectKernelFeaturesFn fn)
+{
+    g_detect_kernel_features = fn ? fn : detect_kernel_features;
+}
+
+void reset_detect_kernel_features_for_test()
+{
+    g_detect_kernel_features = detect_kernel_features;
+}
+
+void set_bump_memlock_rlimit_for_test(BumpMemlockRlimitFn fn)
+{
+    g_bump_memlock_rlimit = fn ? fn : bump_memlock_rlimit;
+}
+
+void reset_bump_memlock_rlimit_for_test()
+{
+    g_bump_memlock_rlimit = bump_memlock_rlimit;
+}
+
+void set_load_bpf_for_test(LoadBpfFn fn)
+{
+    g_load_bpf = fn ? fn : load_bpf;
+}
+
+void reset_load_bpf_for_test()
+{
+    g_load_bpf = load_bpf;
+}
+
+void set_ensure_layout_version_for_test(EnsureLayoutVersionFn fn)
+{
+    g_ensure_layout_version = fn ? fn : ensure_layout_version;
+}
+
+void reset_ensure_layout_version_for_test()
+{
+    g_ensure_layout_version = ensure_layout_version;
+}
+
+void set_set_agent_config_full_for_test(SetAgentConfigFullFn fn)
+{
+    g_set_agent_config_full = fn ? fn : set_agent_config_full;
+}
+
+void reset_set_agent_config_full_for_test()
+{
+    g_set_agent_config_full = set_agent_config_full;
+}
+
+void set_populate_survival_allowlist_for_test(PopulateSurvivalAllowlistFn fn)
+{
+    g_populate_survival_allowlist = fn ? fn : populate_survival_allowlist;
+}
+
+void reset_populate_survival_allowlist_for_test()
+{
+    g_populate_survival_allowlist = populate_survival_allowlist;
+}
+
+void set_setup_agent_cgroup_for_test(SetupAgentCgroupFn fn)
+{
+    g_setup_agent_cgroup = fn ? fn : setup_agent_cgroup;
+}
+
+void reset_setup_agent_cgroup_for_test()
+{
+    g_setup_agent_cgroup = setup_agent_cgroup;
+}
+
+void set_attach_all_for_test(AttachAllFn fn)
+{
+    g_attach_all = fn ? fn : attach_all;
+}
+
+void reset_attach_all_for_test()
+{
+    g_attach_all = attach_all;
+}
+
 int daemon_run(bool audit_only,
                bool enable_seccomp,
                uint32_t deadman_ttl,
@@ -156,6 +257,13 @@ int daemon_run(bool audit_only,
                uint32_t sigkill_escalation_threshold,
                uint32_t sigkill_escalation_window_seconds)
 {
+    const std::string trace_id = make_span_id("trace-daemon");
+    ScopedSpan root_span("daemon.run", trace_id);
+    auto fail = [&](const std::string& message) -> int {
+        root_span.fail(message);
+        return 1;
+    };
+
     // Check for break-glass mode FIRST
     bool break_glass_active = detect_break_glass();
     if (break_glass_active) {
@@ -185,21 +293,30 @@ int daemon_run(bool audit_only,
     }
 
     // Validate config directory permissions (security check)
-    auto config_perm_result = validate_config_directory_permissions("/etc/aegisbpf");
-    if (!config_perm_result) {
-        logger().log(SLOG_ERROR("Config directory permission check failed")
-                         .field("error", config_perm_result.error().to_string()));
-        return 1;
+    {
+        ScopedSpan config_span("daemon.validate_config_dir", trace_id, root_span.span_id());
+        auto config_perm_result = g_validate_config_directory_permissions("/etc/aegisbpf");
+        if (!config_perm_result) {
+            config_span.fail(config_perm_result.error().to_string());
+            logger().log(SLOG_ERROR("Config directory permission check failed")
+                             .field("error", config_perm_result.error().to_string()));
+            return fail(config_perm_result.error().to_string());
+        }
     }
 
     // Detect kernel features for graceful degradation
-    auto features_result = detect_kernel_features();
-    if (!features_result) {
-        logger().log(SLOG_ERROR("Failed to detect kernel features")
-                         .field("error", features_result.error().to_string()));
-        return 1;
+    KernelFeatures features{};
+    {
+        ScopedSpan feature_span("daemon.detect_kernel_features", trace_id, root_span.span_id());
+        auto features_result = g_detect_kernel_features();
+        if (!features_result) {
+            feature_span.fail(features_result.error().to_string());
+            logger().log(SLOG_ERROR("Failed to detect kernel features")
+                             .field("error", features_result.error().to_string()));
+            return fail(features_result.error().to_string());
+        }
+        features = *features_result;
     }
-    KernelFeatures features = *features_result;
 
     // Determine enforcement capability
     EnforcementCapability cap = determine_capability(features);
@@ -215,7 +332,7 @@ int daemon_run(bool audit_only,
     if (cap == EnforcementCapability::Disabled) {
         logger().log(SLOG_ERROR("Cannot run AegisBPF on this system")
                          .field("explanation", capability_explanation(features, cap)));
-        return 1;
+        return fail("Cannot run AegisBPF on this system");
     }
 
     bool lsm_enabled = features.bpf_lsm;
@@ -232,11 +349,11 @@ int daemon_run(bool audit_only,
         }
     }
 
-    auto rlimit_result = bump_memlock_rlimit();
+    auto rlimit_result = g_bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail(rlimit_result.error().to_string());
     }
 
     if (ringbuf_bytes > 0) {
@@ -247,18 +364,22 @@ int daemon_run(bool audit_only,
     std::signal(SIGTERM, handle_signal);
 
     BpfState state;
-    auto load_result = load_bpf(true, false, state);
+    ScopedSpan load_span("daemon.load_bpf", trace_id, root_span.span_id());
+    auto load_result = g_load_bpf(true, false, state);
     if (!load_result) {
+        load_span.fail(load_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail(load_result.error().to_string());
     }
 
-    auto version_result = ensure_layout_version(state);
+    ScopedSpan layout_span("daemon.ensure_layout_version", trace_id, root_span.span_id());
+    auto version_result = g_ensure_layout_version(state);
     if (!version_result) {
+        layout_span.fail(version_result.error().to_string());
         logger().log(SLOG_ERROR("Layout version check failed")
                          .field("error", version_result.error().to_string()));
-        return 1;
+        return fail(version_result.error().to_string());
     }
 
     // Set up full agent config with deadman switch and break-glass
@@ -279,49 +400,57 @@ int daemon_run(bool audit_only,
         config.deadman_deadline_ns = now_ns + (static_cast<uint64_t>(deadman_ttl) * 1000000000ULL);
     }
 
-    auto config_result = set_agent_config_full(state, config);
+    ScopedSpan cfg_span("daemon.set_agent_config", trace_id, root_span.span_id());
+    auto config_result = g_set_agent_config_full(state, config);
     if (!config_result) {
+        cfg_span.fail(config_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to set agent config")
                          .field("error", config_result.error().to_string()));
-        return 1;
+        return fail(config_result.error().to_string());
     }
 
     // Populate survival allowlist with critical binaries
-    auto survival_result = populate_survival_allowlist(state);
+    auto survival_result = g_populate_survival_allowlist(state);
     if (!survival_result) {
         logger().log(SLOG_WARN("Failed to populate survival allowlist")
                          .field("error", survival_result.error().to_string()));
     }
 
-    auto cgroup_result = setup_agent_cgroup(state);
+    ScopedSpan cgroup_span("daemon.setup_agent_cgroup", trace_id, root_span.span_id());
+    auto cgroup_result = g_setup_agent_cgroup(state);
     if (!cgroup_result) {
+        cgroup_span.fail(cgroup_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to setup agent cgroup")
                          .field("error", cgroup_result.error().to_string()));
-        return 1;
+        return fail(cgroup_result.error().to_string());
     }
 
     bool use_inode_permission = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::InodePermission);
     bool use_file_open = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::FileOpen);
-    auto attach_result = attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
+    ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
+    auto attach_result = g_attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
     if (!attach_result) {
+        attach_span.fail(attach_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to attach programs")
                          .field("error", attach_result.error().to_string()));
-        return 1;
+        return fail(attach_result.error().to_string());
     }
 
     RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event, nullptr, nullptr));
     if (!rb) {
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
-        return 1;
+        return fail("Failed to create ring buffer");
     }
 
     // Apply seccomp filter after all initialization is complete
     if (enable_seccomp) {
+        ScopedSpan seccomp_span("daemon.apply_seccomp", trace_id, root_span.span_id());
         auto seccomp_result = apply_seccomp_filter();
         if (!seccomp_result) {
+            seccomp_span.fail(seccomp_result.error().to_string());
             logger().log(SLOG_ERROR("Failed to apply seccomp filter")
                              .field("error", seccomp_result.error().to_string()));
-            return 1;
+            return fail(seccomp_result.error().to_string());
         }
     }
 
@@ -352,6 +481,7 @@ int daemon_run(bool audit_only,
     }
 
     int err = 0;
+    ScopedSpan event_loop_span("daemon.event_loop", trace_id, root_span.span_id());
     while (!g_exiting) {
         err = ring_buffer__poll(rb.get(), 250);
         if (err == -EINTR) {
@@ -359,6 +489,7 @@ int daemon_run(bool audit_only,
             break;
         }
         if (err < 0) {
+            event_loop_span.fail("Ring buffer poll failed");
             logger().log(SLOG_ERROR("Ring buffer poll failed").error_code(-err));
             break;
         }
@@ -371,7 +502,10 @@ int daemon_run(bool audit_only,
     }
 
     logger().log(SLOG_INFO("Agent stopped"));
-    return err < 0 ? 1 : 0;
+    if (err < 0) {
+        return fail("Ring buffer poll failed");
+    }
+    return 0;
 }
 
 }  // namespace aegis

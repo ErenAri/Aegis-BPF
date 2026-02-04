@@ -1,0 +1,52 @@
+[
+  {
+    "name": "bug",
+    "color": "d73a4a",
+    "description": "Something is not working"
+  },
+  {
+    "name": "enhancement",
+    "color": "a2eeef",
+    "description": "New feature or request"
+  },
+  {
+    "name": "triage",
+    "color": "ededed",
+    "description": "Needs initial triage"
+  },
+  {
+    "name": "security",
+    "color": "b60205",
+    "description": "Security-related issue or change"
+  },
+  {
+    "name": "dependencies",
+    "color": "1d76db",
+    "description": "Dependency update or review"
+  },
+  {
+    "name": "critical",
+    "color": "5319e7",
+    "description": "Critical severity or urgent fix"
+  },
+  {
+    "name": "release-approved",
+    "color": "0e8a16",
+    "description": "Approved for release branch inclusion"
+  },
+  {
+    "name": "feature",
+    "color": "0052cc",
+    "description": "Feature work (not release-branch eligible by default)"
+  },
+  {
+    "name": "performance",
+    "color": "fbca04",
+    "description": "Performance-related improvement or regression"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "Documentation updates"
+  }
+]

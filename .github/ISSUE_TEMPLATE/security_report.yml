@@ -1,0 +1,52 @@
+name: Security report (public metadata only)
+description: Use this only if private advisory reporting is unavailable.
+title: "[Security] "
+labels: ["security", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not include exploit details, proof-of-concept code, or sensitive data in this form.**
+
+        Preferred path: use GitHub private advisories:
+        `Security` tab -> `Advisories` -> `Report a vulnerability`.
+
+        If private advisory flow is unavailable, submit only minimal metadata here and request private follow-up.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: High-level summary
+      description: What component is affected and what is the likely impact?
+      placeholder: "Example: policy signature verification bypass risk in ... (impact: unauthorized policy application)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Estimated severity
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_versions
+    attributes:
+      label: Affected versions
+      description: Include release versions, commit range, or environment constraints.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I did not include sensitive exploit details in this public issue.
+          required: true

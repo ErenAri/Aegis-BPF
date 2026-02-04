@@ -1,0 +1,147 @@
+name: Coverage Ratchet
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  ratchet:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema
+
+      - name: Configure with coverage
+        run: cmake -S . -B build-cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON -DSKIP_BPF_BUILD=ON
+
+      - name: Build
+        run: cmake --build build-cov
+
+      - name: Run tests
+        run: ctest --test-dir build-cov --output-on-failure --timeout 120
+
+      - name: Generate coverage xml
+        run: |
+          gcovr --root . --object-directory build-cov --exclude tests --exclude build/_deps \
+            --merge-mode-functions=merge-use-line-min \
+            --xml coverage-ratchet.xml
+
+      - name: Analyze ratchet recommendation
+        run: |
+          scripts/coverage_ratchet_advisor.py \
+            --coverage-xml coverage-ratchet.xml \
+            --thresholds config/coverage_thresholds.json \
+            --output ratchet-report.json
+
+      - name: Update ratchet tracker / propose threshold bump
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('ratchet-report.json', 'utf8'));
+
+            const trackingTitle = 'Coverage Ratchet Tracking';
+            const proposalTitle = 'Coverage threshold ratchet proposal';
+            const markerPrefix = '<!-- coverage-ratchet-state:';
+            const markerSuffix = ' -->';
+
+            function parseState(body) {
+              const line = body.split('\n').find((l) => l.startsWith(markerPrefix) && l.endsWith(markerSuffix));
+              if (!line) return { streak: 0 };
+              try {
+                const raw = line.slice(markerPrefix.length, line.length - markerSuffix.length);
+                const parsed = JSON.parse(raw);
+                return { streak: Number(parsed.streak) || 0 };
+              } catch {
+                return { streak: 0 };
+              }
+            }
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            let tracking = openIssues.find((i) => i.title === trackingTitle);
+            const existingState = tracking ? parseState(tracking.body || '') : { streak: 0 };
+
+            let streak = report.ratchet.meets_margin ? existingState.streak + 1 : 0;
+            let proposalOpened = false;
+
+            if (streak >= report.ratchet.streak_required && report.ratchet.has_increase) {
+              const proposal = openIssues.find((i) => i.title === proposalTitle);
+              const body = [
+                'Coverage has exceeded ratchet margin for sustained runs.',
+                '',
+                `Current coverage: line ${report.current.line_percent}% / branch ${report.current.branch_percent}%`,
+                `Current thresholds: line ${report.thresholds.line_min}% / branch ${report.thresholds.branch_min}%`,
+                `Proposed thresholds: line ${report.ratchet.proposed_line_min}% / branch ${report.ratchet.proposed_branch_min}%`,
+                '',
+                'If approved, update `config/coverage_thresholds.json` and keep CI green.',
+              ].join('\n');
+              if (proposal) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: proposal.number,
+                  body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: proposalTitle,
+                  body,
+                });
+              }
+              proposalOpened = true;
+              streak = 0;
+            }
+
+            const trackingBody = [
+              'Automated tracker for coverage ratchet eligibility.',
+              '',
+              `Latest coverage: line ${report.current.line_percent}% / branch ${report.current.branch_percent}%`,
+              `Current thresholds: line ${report.thresholds.line_min}% / branch ${report.thresholds.branch_min}%`,
+              `Meets ratchet margin: ${report.ratchet.meets_margin ? 'yes' : 'no'}`,
+              `Current streak: ${streak}/${report.ratchet.streak_required}`,
+              proposalOpened ? 'Proposal issue opened/updated this run.' : 'No proposal opened this run.',
+              '',
+              `${markerPrefix}${JSON.stringify({ streak })}${markerSuffix}`
+            ].join('\n');
+
+            if (tracking) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: tracking.number,
+                body: trackingBody,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: trackingTitle,
+                body: trackingBody,
+              });
+            }
+
+      - name: Upload ratchet artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-ratchet
+          path: |
+            coverage-ratchet.xml
+            ratchet-report.json

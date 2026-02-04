@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a defect in behavior, reliability, or security controls.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is failing and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide deterministic steps and commands.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Kernel version, distro, architecture, and deployment mode.
+      placeholder: |
+        kernel:
+        distro:
+        arch:
+        mode: audit|enforce
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs and output
+      description: Include sanitized logs, stack traces, and exact error text.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I can reproduce this on the latest `main` or latest release.
+          required: true

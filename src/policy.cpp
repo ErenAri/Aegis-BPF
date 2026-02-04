@@ -4,6 +4,7 @@
 #include "logging.hpp"
 #include "network_ops.hpp"
 #include "sha256.hpp"
+#include "tracing.hpp"
 #include "utils.hpp"
 
 #include <algorithm>
@@ -17,6 +18,30 @@
 namespace aegis {
 
 namespace {
+
+thread_local std::string g_policy_trace_id;
+
+class PolicyTraceScope {
+  public:
+    explicit PolicyTraceScope(std::string trace_id)
+        : previous_(std::move(g_policy_trace_id))
+    {
+        g_policy_trace_id = std::move(trace_id);
+    }
+
+    ~PolicyTraceScope() { g_policy_trace_id = previous_; }
+
+  private:
+    std::string previous_;
+};
+
+std::string active_policy_trace_id()
+{
+    if (!g_policy_trace_id.empty()) {
+        return g_policy_trace_id;
+    }
+    return make_span_id("trace-policy");
+}
 
 std::string env_or_default_path(const char* env_name, const char* fallback)
 {
@@ -387,63 +412,103 @@ Result<void> policy_lint(const std::string& path)
 
 Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::string& computed_hash, bool reset, bool record)
 {
-    PolicyIssues issues;
-    auto policy_result = parse_policy_file(path, issues);
-    report_policy_issues(issues);
-    if (!policy_result) {
-        return policy_result.error();
-    }
-    Policy policy = *policy_result;
+    ScopedSpan root_span("policy.apply_internal", active_policy_trace_id());
+    auto fail = [&](const Error& err) -> Result<void> {
+        root_span.fail(err.to_string());
+        return err;
+    };
 
-    TRY(bump_memlock_rlimit());
+    Policy policy{};
+    {
+        ScopedSpan span("policy.parse", root_span.trace_id(), root_span.span_id());
+        PolicyIssues issues;
+        auto policy_result = parse_policy_file(path, issues);
+        report_policy_issues(issues);
+        if (!policy_result) {
+            span.fail(policy_result.error().to_string());
+            return fail(policy_result.error());
+        }
+        policy = *policy_result;
+    }
+
+    {
+        ScopedSpan span("policy.bump_memlock", root_span.trace_id(), root_span.span_id());
+        auto rlimit_result = bump_memlock_rlimit();
+        if (!rlimit_result) {
+            span.fail(rlimit_result.error().to_string());
+            return fail(rlimit_result.error());
+        }
+    }
 
     BpfState state;
-    auto load_result = load_bpf(true, false, state);
-    if (!load_result) {
-        return load_result.error();
+    {
+        ScopedSpan span("policy.load_bpf", root_span.trace_id(), root_span.span_id());
+        auto load_result = load_bpf(true, false, state);
+        if (!load_result) {
+            span.fail(load_result.error().to_string());
+            return fail(load_result.error());
+        }
     }
 
-    auto version_result = ensure_layout_version(state);
-    if (!version_result) {
-        return version_result.error();
+    {
+        ScopedSpan span("policy.ensure_layout_version", root_span.trace_id(), root_span.span_id());
+        auto version_result = ensure_layout_version(state);
+        if (!version_result) {
+            span.fail(version_result.error().to_string());
+            return fail(version_result.error());
+        }
     }
 
     if (reset) {
+        ScopedSpan span("policy.reset_maps", root_span.trace_id(), root_span.span_id());
         auto reset_result = reset_policy_maps(state);
         if (!reset_result) {
-            return reset_result.error();
+            span.fail(reset_result.error().to_string());
+            return fail(reset_result.error());
         }
     }
 
-    DenyEntries entries = reset ? DenyEntries{} : read_deny_db();
+    DenyEntries entries;
+    {
+        ScopedSpan span("policy.prepare_entries", root_span.trace_id(), root_span.span_id());
+        entries = reset ? DenyEntries{} : read_deny_db();
+    }
 
-    for (const auto& deny_path : policy.deny_paths) {
-        auto result = add_deny_path(state, deny_path, entries);
-        if (!result) {
-            return result.error();
+    {
+        ScopedSpan span("policy.apply_file_rules", root_span.trace_id(), root_span.span_id());
+        for (const auto& deny_path : policy.deny_paths) {
+            auto result = add_deny_path(state, deny_path, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
         }
-    }
-    for (const auto& id : policy.deny_inodes) {
-        auto result = add_deny_inode(state, id, entries);
-        if (!result) {
-            return result.error();
+        for (const auto& id : policy.deny_inodes) {
+            auto result = add_deny_inode(state, id, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
         }
-    }
-    for (const auto& cgid : policy.allow_cgroup_ids) {
-        auto result = add_allow_cgroup(state, cgid);
-        if (!result) {
-            return result.error();
+        for (const auto& cgid : policy.allow_cgroup_ids) {
+            auto result = add_allow_cgroup(state, cgid);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
         }
-    }
-    for (const auto& cgpath : policy.allow_cgroup_paths) {
-        auto result = add_allow_cgroup_path(state, cgpath);
-        if (!result) {
-            return result.error();
+        for (const auto& cgpath : policy.allow_cgroup_paths) {
+            auto result = add_allow_cgroup_path(state, cgpath);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
         }
     }
 
     // Apply network rules if enabled
     if (policy.network.enabled) {
+        ScopedSpan span("policy.apply_network_rules", root_span.trace_id(), root_span.span_id());
         for (const auto& ip : policy.network.deny_ips) {
             auto result = add_deny_ip(state, ip);
             if (!result) {
@@ -474,15 +539,21 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                          .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size())));
     }
 
-    auto write_result = write_deny_db(entries);
-    if (!write_result) {
-        return write_result.error();
+    {
+        ScopedSpan span("policy.write_deny_db", root_span.trace_id(), root_span.span_id());
+        auto write_result = write_deny_db(entries);
+        if (!write_result) {
+            span.fail(write_result.error().to_string());
+            return fail(write_result.error());
+        }
     }
 
     if (record) {
+        ScopedSpan span("policy.record_applied_policy", root_span.trace_id(), root_span.span_id());
         auto record_result = record_applied_policy(path, computed_hash);
         if (!record_result) {
-            return record_result.error();
+            span.fail(record_result.error().to_string());
+            return fail(record_result.error());
         }
     }
     return {};
@@ -506,8 +577,20 @@ void reset_apply_policy_internal_for_test()
 }
 
 Result<void> policy_apply(const std::string& path, bool reset, const std::string& cli_hash,
-                          const std::string& cli_hash_file, bool rollback_on_failure)
+                          const std::string& cli_hash_file, bool rollback_on_failure,
+                          const std::string& trace_id_override)
 {
+    std::string trace_id = trace_id_override;
+    if (trace_id.empty()) {
+        trace_id = make_span_id("trace-policy-apply");
+    }
+    PolicyTraceScope trace_scope(trace_id);
+    ScopedSpan root_span("policy.apply", trace_id);
+    auto fail = [&](const Error& err) -> Result<void> {
+        root_span.fail(err.to_string());
+        return err;
+    };
+
     const std::string applied_path = policy_applied_path();
 
     std::string expected_hash = cli_hash;
@@ -527,54 +610,83 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
     }
 
     if (!expected_hash.empty() && !hash_file.empty()) {
-        return Error(ErrorCode::InvalidArgument, "Provide either --sha256 or --sha256-file (not both)");
+        return fail(Error(ErrorCode::InvalidArgument, "Provide either --sha256 or --sha256-file (not both)"));
     }
 
-    auto policy_perms = validate_file_permissions(path, false);
-    if (!policy_perms) {
-        return policy_perms.error();
-    }
-
-    if (!hash_file.empty()) {
-        auto hash_perms = validate_file_permissions(hash_file, false);
-        if (!hash_perms) {
-            return hash_perms.error();
+    {
+        ScopedSpan span("policy.validate_inputs", trace_id, root_span.span_id());
+        auto policy_perms = validate_file_permissions(path, false);
+        if (!policy_perms) {
+            span.fail(policy_perms.error().to_string());
+            return fail(policy_perms.error());
         }
-        if (!read_sha256_file(hash_file, expected_hash)) {
-            return Error(ErrorCode::IoError, "Failed to read sha256 file", hash_file);
-        }
-    }
 
-    if (!expected_hash.empty()) {
-        if (!parse_sha256_token(expected_hash, expected_hash)) {
-            return Error(ErrorCode::InvalidArgument, "Invalid sha256 value format");
+        if (!hash_file.empty()) {
+            auto hash_perms = validate_file_permissions(hash_file, false);
+            if (!hash_perms) {
+                span.fail(hash_perms.error().to_string());
+                return fail(hash_perms.error());
+            }
+            if (!read_sha256_file(hash_file, expected_hash)) {
+                Error err(ErrorCode::IoError, "Failed to read sha256 file", hash_file);
+                span.fail(err.to_string());
+                return fail(err);
+            }
+        }
+
+        if (!expected_hash.empty()) {
+            if (!parse_sha256_token(expected_hash, expected_hash)) {
+                Error err(ErrorCode::InvalidArgument, "Invalid sha256 value format");
+                span.fail(err.to_string());
+                return fail(err);
+            }
         }
     }
 
     std::string computed_hash;
-    if (!expected_hash.empty()) {
-        if (!verify_policy_hash(path, expected_hash, computed_hash)) {
-            return Error(ErrorCode::PolicyHashMismatch, "Policy sha256 mismatch");
+    {
+        ScopedSpan span("policy.integrity_check", trace_id, root_span.span_id());
+        if (!expected_hash.empty()) {
+            if (!verify_policy_hash(path, expected_hash, computed_hash)) {
+                Error err(ErrorCode::PolicyHashMismatch, "Policy sha256 mismatch");
+                span.fail(err.to_string());
+                return fail(err);
+            }
+        }
+        else if (!sha256_file_hex(path, computed_hash)) {
+            logger().log(SLOG_WARN("Failed to compute policy sha256; continuing without hash"));
+            computed_hash.clear();
         }
     }
-    else if (!sha256_file_hex(path, computed_hash)) {
-        logger().log(SLOG_WARN("Failed to compute policy sha256; continuing without hash"));
-        computed_hash.clear();
+
+    Result<void> result;
+    {
+        ScopedSpan span("policy.apply_internal_call", trace_id, root_span.span_id());
+        result = apply_policy_internal(path, computed_hash, reset, true);
+        if (!result) {
+            span.fail(result.error().to_string());
+        }
     }
 
-    auto result = apply_policy_internal(path, computed_hash, reset, true);
     if (!result && rollback_on_failure) {
         std::error_code ec;
         if (std::filesystem::exists(applied_path, ec)) {
             logger().log(SLOG_WARN("Apply failed; rolling back to last applied policy"));
+            ScopedSpan span("policy.rollback_last_applied", trace_id, root_span.span_id());
             auto rollback_result = apply_policy_internal(applied_path, std::string(), true, false);
             if (!rollback_result) {
+                span.fail(rollback_result.error().to_string());
                 logger().log(SLOG_ERROR("Rollback failed; maps may be inconsistent")
                                  .field("error", rollback_result.error().to_string()));
             }
         }
-        return result.error();
+        return fail(result.error());
     }
+
+    if (!result) {
+        return fail(result.error());
+    }
+
     return result;
 }
 

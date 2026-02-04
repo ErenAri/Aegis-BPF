@@ -19,8 +19,8 @@ int usage(const char* prog)
               << " | policy sign <policy.conf> --key <private.key> --output <policy.signed>"
               << " | policy {show|rollback}"
               << " | keys {list|add <pubkey.pub>}"
-              << " | stats"
-              << " | metrics [--out <path>]"
+              << " | stats [--detailed]"
+              << " | metrics [--out <path>] [--detailed]"
               << " | health [--json]" << std::endl;
     return 1;
 }

@@ -4,6 +4,7 @@
     "ppid": 1000,
     "start_time": 123456789,
     "exec_id": "12345:123456789",
+    "trace_id": "12345:123456789",
     "cgid": 5678,
     "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
     "comm": "bash"

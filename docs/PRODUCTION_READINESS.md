@@ -36,7 +36,8 @@ deliver each requirement.
 - Policy lifecycle: lint/apply/export/show/rollback with v1 format
 - Policy integrity: sha256 verification via `policy apply --sha256` or env vars
 - Packaging: systemd unit in `packaging/systemd/` + CPack TGZ/DEB/RPM
-- Metrics export: `./build/aegisbpf metrics [--out <path>]`
+- Metrics export: `./build/aegisbpf metrics [--out <path>] [--detailed]`
+  (`--detailed` is for short-lived debugging only; default output is cardinality-safe)
 - Structured logging: JSON stdout with optional journald (`--log=journald`)
 - Service hardening: systemd sandboxing and capability bounds in unit file
 - Perf harness: `scripts/perf_open_bench.sh` + `scripts/perf_compare.sh` (see `docs/PERF.md`)
@@ -51,7 +52,7 @@ deliver each requirement.
 - Reproducibility gate: `scripts/check_reproducible_build.sh` + `.github/workflows/reproducibility.yml`
 - Release-readiness quality gate: `scripts/release_readiness.sh` + `.github/workflows/release-readiness.yml`
 - Security automation: `.github/workflows/security.yml` (CodeQL, dependency review, gitleaks)
-- Dependency update automation: `.github/dependabot.yml` (GitHub Actions + Docker)
+- Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
@@ -66,6 +67,7 @@ deliver each requirement.
 - Incident evidence collection script: `scripts/collect_incident_bundle.sh`
 - Incident drill workflow: `.github/workflows/incident-drill.yml`
 - Incident response runbook: `docs/INCIDENT_RESPONSE.md`
+- Operational runbook pack: `docs/runbooks/` (alerts/incidents/maintenance/recovery)
 - Support and deprecation policy: `docs/SUPPORT_POLICY.md`
 - Final go/no-go checklist: `docs/GO_LIVE_CHECKLIST.md`
 - Branch-protection baseline: `docs/BRANCH_PROTECTION.md` + `scripts/check_branch_protection.sh`

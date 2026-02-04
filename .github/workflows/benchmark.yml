@@ -1,0 +1,47 @@
+name: Benchmark
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    name: benchmark
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
+
+      - name: Build benchmarks
+        run: cmake --build build-bench --target aegisbpf_bench
+
+      - name: Run benchmarks
+        run: |
+          ./build-bench/aegisbpf_bench \
+            --benchmark_format=json \
+            --benchmark_out=benchmark.json \
+            --benchmark_out_format=json
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: googlecpp
+          output-file-path: benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: '110%'
+          fail-on-alert: true
+          comment-on-alert: true
+          summary-always: true

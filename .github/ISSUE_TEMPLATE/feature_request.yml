@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a focused improvement to AegisBPF.
+title: "[Feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem are you solving, and for whom?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe behavior, CLI/API changes, and expected outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What options did you consider and why not choose them?
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and compatibility
+      description: Breaking changes, migration impact, and rollback strategy.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Readiness checklist
+      options:
+        - label: I checked that this is not already tracked in open issues.
+          required: true
+        - label: I can help with implementation and/or testing.
+          required: false

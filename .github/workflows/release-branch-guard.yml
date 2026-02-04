@@ -1,0 +1,71 @@
+name: Release Branch Guard
+
+on:
+  pull_request:
+    branches:
+      - "release/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce release branch policy
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed('This workflow must run on pull_request events.');
+              return;
+            }
+
+            const labels = new Set((pr.labels || []).map((l) => l.name));
+            const gateLabels = ['security', 'critical', 'release-approved'];
+
+            const hasGateLabel = gateLabels.some((name) => labels.has(name));
+            if (!hasGateLabel) {
+              core.setFailed(
+                `Release PRs must include one of labels: ${gateLabels.join(', ')}`
+              );
+              return;
+            }
+
+            if (labels.has('feature')) {
+              core.setFailed("Release PRs cannot carry 'feature' label.");
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const touched = files.map((f) => f.filename);
+            const highRiskPaths = touched.filter((path) =>
+              path.startsWith('bpf/') ||
+              path === 'src/types.hpp' ||
+              path.startsWith('.github/workflows/release')
+            );
+
+            if (highRiskPaths.length > 0 && !labels.has('release-approved')) {
+              core.setFailed(
+                `High-risk paths require 'release-approved': ${highRiskPaths.join(', ')}`
+              );
+              return;
+            }
+
+            if (touched.length > 40 && !labels.has('release-approved')) {
+              core.setFailed(
+                `Large release PR (${touched.length} files) requires 'release-approved'.`
+              );
+              return;
+            }
+
+            core.info(`Release guard passed for PR #${pr.number}.`);

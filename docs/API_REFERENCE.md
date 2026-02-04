@@ -468,7 +468,8 @@ Apply a policy file with optional integrity verification.
 Result<void> policy_apply(const std::string& path, bool reset,
                           const std::string& cli_hash,
                           const std::string& cli_hash_file,
-                          bool rollback_on_failure);
+                          bool rollback_on_failure,
+                          const std::string& trace_id_override = "");
 ```
 
 **Parameters:**
@@ -477,6 +478,7 @@ Result<void> policy_apply(const std::string& path, bool reset,
 - `cli_hash`: Expected SHA256 (hex string)
 - `cli_hash_file`: Path to file containing expected SHA256
 - `rollback_on_failure`: If true, rollback to previous policy on error
+- `trace_id_override`: Optional correlation ID for policy lifecycle span logs
 
 ### policy_rollback
 

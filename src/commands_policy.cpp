@@ -8,6 +8,7 @@
 #include "crypto.hpp"
 #include "logging.hpp"
 #include "policy.hpp"
+#include "tracing.hpp"
 #include "utils.hpp"
 
 #include <cstdio>
@@ -20,18 +21,26 @@ namespace aegis {
 
 int cmd_policy_lint(const std::string& path)
 {
+    const std::string trace_id = make_span_id("trace-policy-lint");
+    ScopedSpan span("cli.policy_lint", trace_id);
     auto result = policy_lint(path);
+    if (!result) {
+        span.fail(result.error().to_string());
+    }
     return result ? 0 : 1;
 }
 
 int cmd_policy_validate(const std::string& path, bool verbose)
 {
+    const std::string trace_id = make_span_id("trace-policy-validate");
+    ScopedSpan span("cli.policy_validate", trace_id);
     PolicyIssues issues;
     auto result = parse_policy_file(path, issues);
     report_policy_issues(issues);
     if (!result) {
         logger().log(SLOG_ERROR("Policy validation failed")
                          .field("error", result.error().to_string()));
+        span.fail(result.error().to_string());
         return 1;
     }
     const Policy& policy = *result;
@@ -104,24 +113,36 @@ int cmd_policy_validate(const std::string& path, bool verbose)
 int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256,
                      const std::string& sha256_file, bool rollback_on_failure)
 {
-    auto result = policy_apply(path, reset, sha256, sha256_file, rollback_on_failure);
+    const std::string trace_id = make_span_id("trace-policy-cli");
+    ScopedSpan span("cli.policy_apply", trace_id);
+    auto result = policy_apply(path, reset, sha256, sha256_file, rollback_on_failure, trace_id);
+    if (!result) {
+        span.fail(result.error().to_string());
+    }
     return result ? 0 : 1;
 }
 
 int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signature)
 {
+    const std::string trace_id = make_span_id("trace-policy-signed");
+    ScopedSpan root_span("cli.policy_apply_signed", trace_id);
+    auto fail = [&](const std::string& message) -> int {
+        root_span.fail(message);
+        return 1;
+    };
+
     auto perms_result = validate_file_permissions(bundle_path, false);
     if (!perms_result) {
         logger().log(SLOG_ERROR("Policy file permission check failed")
                          .field("path", bundle_path)
                          .field("error", perms_result.error().to_string()));
-        return 1;
+        return fail(perms_result.error().to_string());
     }
 
     std::ifstream in(bundle_path);
     if (!in.is_open()) {
         logger().log(SLOG_ERROR("Failed to open bundle file").field("path", bundle_path));
-        return 1;
+        return fail("Failed to open bundle file");
     }
 
     std::stringstream ss;
@@ -133,7 +154,7 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
         if (!bundle_result) {
             logger().log(SLOG_ERROR("Failed to parse signed bundle")
                              .field("error", bundle_result.error().to_string()));
-            return 1;
+            return fail(bundle_result.error().to_string());
         }
         SignedPolicyBundle bundle = *bundle_result;
 
@@ -141,26 +162,26 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
         if (!keys_result) {
             logger().log(SLOG_ERROR("Failed to load trusted keys")
                              .field("error", keys_result.error().to_string()));
-            return 1;
+            return fail(keys_result.error().to_string());
         }
         const auto& trusted_keys = *keys_result;
         if (trusted_keys.empty()) {
             logger().log(SLOG_ERROR("No trusted keys configured - cannot verify signed policy"));
-            return 1;
+            return fail("No trusted keys configured - cannot verify signed policy");
         }
 
         auto verify_result = verify_bundle(bundle, trusted_keys);
         if (!verify_result) {
             logger().log(SLOG_ERROR("Bundle verification failed")
                              .field("error", verify_result.error().to_string()));
-            return 1;
+            return fail(verify_result.error().to_string());
         }
 
         if (!check_version_acceptable(bundle)) {
             logger().log(SLOG_ERROR("Policy version rollback rejected")
                              .field("bundle_version", static_cast<int64_t>(bundle.policy_version))
                              .field("current_version", static_cast<int64_t>(read_version_counter())));
-            return 1;
+            return fail("Policy version rollback rejected");
         }
 
         std::string temp_path = "/tmp/aegisbpf_policy_" + std::to_string(getpid()) + ".conf";
@@ -168,15 +189,15 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
             std::ofstream temp_out(temp_path);
             if (!temp_out.is_open()) {
                 logger().log(SLOG_ERROR("Failed to create temp policy file").field("path", temp_path));
-                return 1;
+                return fail("Failed to create temp policy file");
             }
             temp_out << bundle.policy_content;
         }
 
-        auto apply_result = policy_apply(temp_path, false, bundle.policy_sha256, "", true);
+        auto apply_result = policy_apply(temp_path, false, bundle.policy_sha256, "", true, trace_id);
         std::remove(temp_path.c_str());
         if (!apply_result) {
-            return 1;
+            return fail(apply_result.error().to_string());
         }
 
         auto write_result = write_version_counter(bundle.policy_version);
@@ -190,34 +211,44 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
 
     if (require_signature) {
         logger().log(SLOG_ERROR("Unsigned policy rejected (--require-signature specified)"));
-        return 1;
+        return fail("Unsigned policy rejected (--require-signature specified)");
     }
 
-    auto apply_result = policy_apply(bundle_path, false, "", "", true);
-    return apply_result ? 0 : 1;
+    auto apply_result = policy_apply(bundle_path, false, "", "", true, trace_id);
+    if (!apply_result) {
+        return fail(apply_result.error().to_string());
+    }
+    return 0;
 }
 
 int cmd_policy_sign(const std::string& policy_path, const std::string& key_path, const std::string& output_path)
 {
+    const std::string trace_id = make_span_id("trace-policy-sign");
+    ScopedSpan span("cli.policy_sign", trace_id);
+    auto fail = [&](const std::string& message) -> int {
+        span.fail(message);
+        return 1;
+    };
+
     auto policy_perms = validate_file_permissions(policy_path, false);
     if (!policy_perms) {
         logger().log(SLOG_ERROR("Policy file permission check failed")
                          .field("path", policy_path)
                          .field("error", policy_perms.error().to_string()));
-        return 1;
+        return fail(policy_perms.error().to_string());
     }
     auto key_perms = validate_file_permissions(key_path, false);
     if (!key_perms) {
         logger().log(SLOG_ERROR("Signing key permission check failed")
                          .field("path", key_path)
                          .field("error", key_perms.error().to_string()));
-        return 1;
+        return fail(key_perms.error().to_string());
     }
 
     std::ifstream policy_in(policy_path);
     if (!policy_in.is_open()) {
         logger().log(SLOG_ERROR("Failed to open policy file").field("path", policy_path));
-        return 1;
+        return fail("Failed to open policy file");
     }
     std::stringstream policy_ss;
     policy_ss << policy_in.rdbuf();
@@ -226,14 +257,14 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
     std::ifstream key_in(key_path);
     if (!key_in.is_open()) {
         logger().log(SLOG_ERROR("Failed to open private key file").field("path", key_path));
-        return 1;
+        return fail("Failed to open private key file");
     }
     std::string key_hex;
     std::getline(key_in, key_hex);
 
     if (key_hex.size() != 128) {
         logger().log(SLOG_ERROR("Invalid private key format (expected 128 hex chars)"));
-        return 1;
+        return fail("Invalid private key format");
     }
 
     auto hex_value = [](char c) -> int {
@@ -249,7 +280,7 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
         int lo = hex_value(key_hex[2 * i + 1]);
         if (hi < 0 || lo < 0) {
             logger().log(SLOG_ERROR("Invalid private key format (non-hex character)"));
-            return 1;
+            return fail("Invalid private key format");
         }
         secret_key[i] = static_cast<uint8_t>((hi << 4) | lo);
     }
@@ -259,13 +290,13 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
     if (!bundle_result) {
         logger().log(SLOG_ERROR("Failed to create signed bundle")
                          .field("error", bundle_result.error().to_string()));
-        return 1;
+        return fail(bundle_result.error().to_string());
     }
 
     std::ofstream out(output_path);
     if (!out.is_open()) {
         logger().log(SLOG_ERROR("Failed to create output file").field("path", output_path));
-        return 1;
+        return fail("Failed to create output file");
     }
 
     out << *bundle_result;
@@ -277,19 +308,34 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
 
 int cmd_policy_export(const std::string& path)
 {
+    const std::string trace_id = make_span_id("trace-policy-export");
+    ScopedSpan span("cli.policy_export", trace_id);
     auto result = policy_export(path);
+    if (!result) {
+        span.fail(result.error().to_string());
+    }
     return result ? 0 : 1;
 }
 
 int cmd_policy_show()
 {
+    const std::string trace_id = make_span_id("trace-policy-show");
+    ScopedSpan span("cli.policy_show", trace_id);
     auto result = policy_show();
+    if (!result) {
+        span.fail(result.error().to_string());
+    }
     return result ? 0 : 1;
 }
 
 int cmd_policy_rollback()
 {
+    const std::string trace_id = make_span_id("trace-policy-rollback");
+    ScopedSpan span("cli.policy_rollback", trace_id);
     auto result = policy_rollback();
+    if (!result) {
+        span.fail(result.error().to_string());
+    }
     return result ? 0 : 1;
 }
 

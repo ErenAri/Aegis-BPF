@@ -1,11 +1,13 @@
 // cppcheck-suppress-file missingIncludeSystem
 /*
  * TweetNaCl - A self-contained public-domain crypto library
- * https://tweetnacl.cr.yp.to/
+ * Upstream reference: TweetNaCl 20140917
+ * Source: https://tweetnacl.cr.yp.to/
  *
  * Slightly modified for AegisBPF:
  * - Added detached signature functions
  * - Uses /dev/urandom for randomness
+ * - UBSan-safe carry math in modL
  *
  * Public domain.
  */

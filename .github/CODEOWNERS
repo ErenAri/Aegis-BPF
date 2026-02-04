@@ -1,0 +1,17 @@
+# Default ownership for all repository files.
+* @ErenAri
+
+# Security-sensitive areas
+SECURITY.md @ErenAri
+packaging/ @ErenAri
+bpf/ @ErenAri
+src/crypto.cpp @ErenAri
+src/tweetnacl.c @ErenAri
+src/tweetnacl.h @ErenAri
+
+# CI/CD and release controls
+.github/workflows/ @ErenAri
+config/required_checks.txt @ErenAri
+
+# Documentation and runbooks
+docs/ @ErenAri

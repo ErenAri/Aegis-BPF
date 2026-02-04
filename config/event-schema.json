@@ -38,6 +38,10 @@
           "type": "string",
           "description": "Stable execution identifier (pid:start_time)"
         },
+        "trace_id": {
+          "type": "string",
+          "description": "Correlation identifier for cross-signal tracing (matches exec_id)"
+        },
         "cgid": {
           "type": "integer",
           "minimum": 0,
@@ -96,6 +100,10 @@
           "type": "string",
           "description": "Stable execution identifier (pid:start_time)"
         },
+        "trace_id": {
+          "type": "string",
+          "description": "Correlation identifier for cross-signal tracing (matches exec_id)"
+        },
         "parent_start_time": {
           "type": "integer",
           "minimum": 0,
@@ -104,6 +112,10 @@
         "parent_exec_id": {
           "type": "string",
           "description": "Stable parent execution identifier (ppid:parent_start_time)"
+        },
+        "parent_trace_id": {
+          "type": "string",
+          "description": "Parent correlation identifier (matches parent_exec_id)"
         },
         "cgid": {
           "type": "integer",
@@ -153,6 +165,7 @@
       "ppid": 1000,
       "start_time": 123456789,
       "exec_id": "12345:123456789",
+      "trace_id": "12345:123456789",
       "cgid": 5678,
       "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
       "comm": "bash"
@@ -163,8 +176,10 @@
       "ppid": 12345,
       "start_time": 223456789,
       "exec_id": "12346:223456789",
+      "trace_id": "12346:223456789",
       "parent_start_time": 123456789,
       "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
       "cgid": 5678,
       "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
       "ino": 123456,

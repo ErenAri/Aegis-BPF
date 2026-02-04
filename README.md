@@ -301,11 +301,20 @@ sudo aegisbpf policy rollback
 # View statistics
 sudo aegisbpf stats
 
+# View detailed high-cardinality debug breakdowns
+sudo aegisbpf stats --detailed
+
 # Export Prometheus metrics
 sudo aegisbpf metrics --out /var/lib/prometheus/aegisbpf.prom
 
+# Export high-cardinality metrics for short-lived debugging
+sudo aegisbpf metrics --detailed --out /tmp/aegisbpf.debug.prom
+
 # Health check
 sudo aegisbpf health
+
+# Enable OTel-style policy spans in logs (for troubleshooting)
+AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
 ```
 
 ## Event Format
@@ -314,17 +323,22 @@ Events are emitted as newline-delimited JSON:
 
 ```json
 {
-  "event": "BLOCK",
-  "ts": 1234567890123456789,
+  "type": "block",
   "pid": 12345,
   "ppid": 1000,
-  "uid": 1000,
-  "gid": 1000,
+  "start_time": 123456789,
+  "exec_id": "12345:123456789",
+  "trace_id": "12345:123456789",
+  "parent_start_time": 123400000,
+  "parent_exec_id": "1000:123400000",
+  "parent_trace_id": "1000:123400000",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice",
   "comm": "bash",
   "path": "/usr/bin/malware",
-  "reason": "deny_path",
-  "cgid": 5678,
-  "cgroup_path": "/sys/fs/cgroup/user.slice"
+  "ino": 123456,
+  "dev": 259,
+  "action": "TERM"
 }
 ```
 
@@ -420,13 +434,14 @@ AegisBPF exports Prometheus-compatible metrics:
 | `aegisbpf_deny_inode_entries` | gauge | Number of inode deny rules |
 | `aegisbpf_deny_path_entries` | gauge | Number of path deny rules |
 | `aegisbpf_allow_cgroup_entries` | gauge | Number of allowed cgroups |
-| `aegisbpf_blocks_by_cgroup_total` | counter | Blocks per cgroup |
-| `aegisbpf_blocks_by_path_total` | counter | Blocks per file path |
 | `aegisbpf_net_blocks_total` | counter | Blocked network operations by type (`connect`/`bind`) |
 | `aegisbpf_net_ringbuf_drops_total` | counter | Dropped network events |
-| `aegisbpf_net_blocks_by_ip_total` | counter | Blocked network operations per destination IP |
-| `aegisbpf_net_blocks_by_port_total` | counter | Blocked network operations per destination port |
 | `aegisbpf_net_rules_total` | gauge | Active network deny rules by type (`ip`/`cidr`/`port`) |
+
+High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
+`aegisbpf_blocks_by_cgroup_total`, `aegisbpf_blocks_by_inode_total`,
+`aegisbpf_blocks_by_path_total`, `aegisbpf_net_blocks_by_ip_total`,
+`aegisbpf_net_blocks_by_port_total`.
 
 ## Security Hardening
 
@@ -485,6 +500,8 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and hardening details
 | [RELEASE_DRILL.md](docs/RELEASE_DRILL.md) | Pre-release packaging and upgrade drill |
 | [KEY_MANAGEMENT.md](docs/KEY_MANAGEMENT.md) | Policy signing key rotation and revocation runbook |
 | [INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md) | Incident handling procedures |
+| [runbooks/](docs/runbooks/) | Alert/incident/maintenance operational runbooks |
+| [VENDORED_DEPENDENCIES.md](docs/VENDORED_DEPENDENCIES.md) | Vendored dependency inventory and review cadence |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
 | [SIEM_INTEGRATION.md](docs/SIEM_INTEGRATION.md) | Splunk, ELK, QRadar integration |
 
@@ -496,7 +513,12 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and hardening details
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Kernel and version compatibility matrix |
 | [PERF.md](docs/PERF.md) | Performance tuning and benchmarking |
 | [BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Protected-branch baseline and required checks |
+| [QUALITY_GATES.md](docs/QUALITY_GATES.md) | CI gate policy and coverage ratchet expectations |
+| [repo_labels.json](config/repo_labels.json) | Repository label source of truth for triage/release policy |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Version history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow and local quality checks |
+| [GOVERNANCE.md](GOVERNANCE.md) | Project decision model and maintainer roles |
+| [SUPPORT.md](SUPPORT.md) | Support channels and version support scope |
 | [aegisbpf.1.md](docs/man/aegisbpf.1.md) | Man page |
 
 ## Requirements
@@ -539,10 +561,10 @@ ITERATIONS=200000 FILE=/etc/hosts scripts/perf_open_bench.sh
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Run tests: `scripts/dev_check.sh`
-4. Submit a pull request
+1. Read `CONTRIBUTING.md` for workflow and quality expectations
+2. Create a focused branch and implement one logical change
+3. Run `scripts/dev_check.sh` plus static/security checks in `CONTRIBUTING.md`
+4. Open a PR using the template and include validation output
 
 ## License
 

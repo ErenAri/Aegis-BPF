@@ -18,6 +18,7 @@ groups:
         annotations:
           summary: "AegisBPF agent is down"
           description: "AegisBPF agent on {{ $labels.instance }} has been unreachable for more than 2 minutes."
+          runbook: "docs/runbooks/INCIDENT_agent_crash.md"
 
       # High block rate - potential attack or misconfiguration
       - alert: AegisBPFHighBlockRate
@@ -28,6 +29,7 @@ groups:
         annotations:
           summary: "High execution block rate detected"
           description: "AegisBPF on {{ $labels.instance }} is blocking more than 100 executions per minute. Current rate: {{ $value | printf \"%.2f\" }}/min."
+          runbook: "docs/runbooks/ALERT_high_block_rate.md"
 
       # Very high block rate - likely attack
       - alert: AegisBPFVeryHighBlockRate
@@ -38,6 +40,7 @@ groups:
         annotations:
           summary: "Very high execution block rate - possible attack"
           description: "AegisBPF on {{ $labels.instance }} is blocking more than 1000 executions per minute. Current rate: {{ $value | printf \"%.2f\" }}/min. Investigate immediately."
+          runbook: "docs/runbooks/ALERT_high_block_rate.md"
 
       # Ring buffer drops - events being lost
       - alert: AegisBPFRingbufDrops
@@ -48,6 +51,7 @@ groups:
         annotations:
           summary: "AegisBPF ring buffer is dropping events"
           description: "AegisBPF on {{ $labels.instance }} is losing events due to ring buffer overflow. Drop rate: {{ $value | printf \"%.2f\" }}/s. Consider increasing buffer size or reducing event volume."
+          runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
       # SLO violation: event loss ratio > 0.1%
       - alert: AegisBPFEventLossSLOViolation
@@ -58,6 +62,7 @@ groups:
         annotations:
           summary: "AegisBPF event loss SLO violated"
           description: "AegisBPF on {{ $labels.instance }} exceeds the 0.1% event loss SLO for 15m."
+          runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
       # High ring buffer drop rate
       - alert: AegisBPFHighRingbufDrops
@@ -68,6 +73,7 @@ groups:
         annotations:
           summary: "AegisBPF high ring buffer drop rate"
           description: "AegisBPF on {{ $labels.instance }} is losing more than 100 events/second. Security monitoring may be compromised."
+          runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
       # Empty policy - no deny rules configured
       - alert: AegisBPFPolicyEmpty
@@ -78,6 +84,7 @@ groups:
         annotations:
           summary: "AegisBPF policy is empty"
           description: "AegisBPF on {{ $labels.instance }} has no deny rules configured. The agent is running but not blocking anything."
+          runbook: "docs/runbooks/MAINTENANCE_policy_update.md"
 
       # Policy too large - approaching map limits
       - alert: AegisBPFPolicyNearLimit
@@ -88,26 +95,7 @@ groups:
         annotations:
           summary: "AegisBPF policy approaching size limit"
           description: "AegisBPF on {{ $labels.instance }} has {{ $value }} entries, approaching the 10,000 entry limit. Consider consolidating rules."
-
-      # Specific cgroup with high block rate
-      - alert: AegisBPFCgroupHighBlockRate
-        expr: rate(aegisbpf_blocks_by_cgroup_total[5m]) > 50
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High block rate for cgroup {{ $labels.cgroup_path }}"
-          description: "Cgroup {{ $labels.cgroup_path }} on {{ $labels.instance }} is triggering more than 50 blocks per minute. This may indicate a compromised or misbehaving application."
-
-      # Specific path with repeated blocks
-      - alert: AegisBPFPathRepeatedBlocks
-        expr: increase(aegisbpf_blocks_by_path_total[1h]) > 100
-        for: 0m
-        labels:
-          severity: info
-        annotations:
-          summary: "Path {{ $labels.path }} blocked repeatedly"
-          description: "Path {{ $labels.path }} has been blocked {{ $value | printf \"%.0f\" }} times in the last hour on {{ $labels.instance }}."
+          runbook: "docs/runbooks/MAINTENANCE_policy_update.md"
 
       # Network block spikes (connect/bind)
       - alert: AegisBPFNetworkBlockRate
@@ -118,6 +106,7 @@ groups:
         annotations:
           summary: "High network block rate ({{ $labels.type }})"
           description: "AegisBPF on {{ $labels.instance }} is blocking >25 network operations/sec for type={{ $labels.type }}."
+          runbook: "docs/runbooks/ALERT_high_block_rate.md"
 
       # Network event drops
       - alert: AegisBPFNetworkRingbufDrops
@@ -128,6 +117,7 @@ groups:
         annotations:
           summary: "AegisBPF network ring buffer is dropping events"
           description: "AegisBPF on {{ $labels.instance }} is dropping network events. Drop rate: {{ $value | printf \"%.2f\" }}/s."
+          runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
       # SLO violation: network event loss ratio > 0.1%
       - alert: AegisBPFNetworkEventLossSLOViolation
@@ -138,6 +128,7 @@ groups:
         annotations:
           summary: "AegisBPF network event loss SLO violated"
           description: "AegisBPF on {{ $labels.instance }} exceeds the 0.1% network event loss SLO for 15m."
+          runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
       # Agent metrics stale - scrape working but counters not updating
       - alert: AegisBPFMetricsStale
@@ -148,3 +139,4 @@ groups:
         annotations:
           summary: "AegisBPF metrics appear stale"
           description: "AegisBPF on {{ $labels.instance }} has a policy configured but no block events in 30 minutes. Verify the agent is functioning correctly."
+          runbook: "docs/runbooks/INCIDENT_agent_crash.md"

@@ -6,6 +6,20 @@
 | ------- | ------------------ |
 | 0.1.x   | :white_check_mark: |
 
+## Reporting a Vulnerability
+
+Preferred path (private):
+
+1. Open GitHub `Security` tab -> `Advisories`
+2. Click `Report a vulnerability`
+3. Include impact, affected versions, and reproduction details
+
+If private advisory reporting is unavailable, open a minimal public metadata
+issue using the `Security report (public metadata only)` issue template and do
+not include exploit details.
+
+Initial triage target: acknowledgement within 48 hours.
+
 
 ## Security Hardening
 

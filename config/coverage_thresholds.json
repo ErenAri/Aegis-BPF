@@ -1,0 +1,8 @@
+{
+  "line_min": 20,
+  "branch_min": 8,
+  "ratchet_margin": 3,
+  "ratchet_step_line": 2,
+  "ratchet_step_branch": 1,
+  "streak_required": 3
+}
