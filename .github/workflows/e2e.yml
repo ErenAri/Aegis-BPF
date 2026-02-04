@@ -46,7 +46,29 @@ jobs:
         run: sudo ./build/aegisbpf_bypass_test
 
       - name: E2E file enforcement matrix (30+ checks)
-        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh
+        run: |
+          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
+            ./scripts/e2e_file_enforcement_matrix.sh
+          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary.json
+          sudo chown "$USER:$USER" ./e2e-matrix-summary.json
+
+      - name: Collect environment metadata
+        if: always()
+        run: |
+          uname -a > kernel-info.txt
+          stat -f -c '%T' /tmp > fs-type.txt || true
+          cat /etc/os-release > os-release.txt || true
+
+      - name: Upload e2e matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-matrix-artifacts
+          path: |
+            e2e-matrix-summary.json
+            kernel-info.txt
+            fs-type.txt
+            os-release.txt
 
       - name: Short soak reliability
         run: sudo AEGIS_BIN=./build/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 scripts/soak_reliability.sh

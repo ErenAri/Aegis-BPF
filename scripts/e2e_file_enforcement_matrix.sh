@@ -3,6 +3,7 @@ set -euo pipefail
 
 BIN="${BIN:-./build/aegisbpf}"
 PRESERVE_TMP_ON_FAIL="${PRESERVE_TMP_ON_FAIL:-0}"
+SUMMARY_OUT="${SUMMARY_OUT:-}"
 
 declare -i TOTAL_CHECKS=0
 declare -i PASSED_CHECKS=0
@@ -132,6 +133,7 @@ run_signal_suite() {
     local target="${scenario_dir}/target.txt"
     local symlink_path="${scenario_dir}/target.symlink"
     local hardlink_path="${scenario_dir}/target.hardlink"
+    local renamed_path="${scenario_dir}/target.renamed"
 
     mkdir -p "${scenario_dir}"
     printf 'signal=%s\n' "${signal}" >"${target}"
@@ -160,6 +162,19 @@ run_signal_suite() {
     run_expect_blocked "${signal}: cat hardlink" cat "${hardlink_path}"
     run_expect_blocked "${signal}: dd hardlink" dd if="${hardlink_path}" of=/dev/null bs=1 count=1 status=none
 
+    # Rename should not bypass inode-based enforcement.
+    mv "${target}" "${renamed_path}"
+    run_expect_blocked "${signal}: cat renamed" cat "${renamed_path}"
+    run_expect_blocked "${signal}: head renamed" head -c 1 "${renamed_path}"
+    local renamed_inode
+    renamed_inode="$(stat -c %i "${renamed_path}")"
+    if [[ "${renamed_inode}" == "${inode}" ]]; then
+        pass "${signal}: inode stable across rename"
+    else
+        fail "${signal}: inode stable across rename" "expected ${inode}, got ${renamed_inode}"
+    fi
+    mv "${renamed_path}" "${target}"
+
     sleep 1
     run_expect_success "${signal}: expected action logged" grep -q "\"action\":\"${expected_action}\"" "${LOG_FILE}"
     run_expect_success "${signal}: inode logged" grep -q "\"ino\":${inode}" "${LOG_FILE}"
@@ -179,6 +194,32 @@ main() {
     for signal in none term int; do
         run_signal_suite "${signal}" "$(expected_action_for_signal "${signal}")"
     done
+
+    if [[ -n "${SUMMARY_OUT}" ]]; then
+        local os_id="unknown"
+        local os_version="unknown"
+        local kernel_rel="unknown"
+        local fs_type="unknown"
+        if [[ -r /etc/os-release ]]; then
+            # shellcheck disable=SC1091
+            . /etc/os-release
+            os_id="${ID:-unknown}"
+            os_version="${VERSION_ID:-unknown}"
+        fi
+        kernel_rel="$(uname -r 2>/dev/null || echo unknown)"
+        fs_type="$(stat -f -c %T "${TMP_DIR}" 2>/dev/null || echo unknown)"
+        cat >"${SUMMARY_OUT}" <<EOF
+{
+  "total_checks": ${TOTAL_CHECKS},
+  "passed_checks": ${PASSED_CHECKS},
+  "failed_checks": ${FAILED_CHECKS},
+  "kernel_release": "${kernel_rel}",
+  "os_id": "${os_id}",
+  "os_version": "${os_version}",
+  "workspace_fs": "${fs_type}"
+}
+EOF
+    fi
 
     echo
     echo "E2E matrix summary: passed=${PASSED_CHECKS} failed=${FAILED_CHECKS} total=${TOTAL_CHECKS}"

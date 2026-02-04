@@ -404,6 +404,9 @@ if(BUILD_TESTING)
         NAME phase2_evidence_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase2_evidence_contract.py
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE2_CORRECTNESS_EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/e2e.yml
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/kernel-matrix.yml
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/e2e_file_enforcement_matrix.sh
     )
 
     add_test(

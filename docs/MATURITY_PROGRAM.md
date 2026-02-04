@@ -55,10 +55,13 @@ Definition of done:
 
 Definition of done:
 - At least 30 kernel e2e enforcement tests run in CI.
+- Basis-set scenarios (direct/symlink/hardlink/rename) are mandatory and
+  versioned in Phase-2 evidence.
 - CI executes on at least 2 kernel targets for enforcement-path changes.
 - Parser/property fuzzing runs nightly and on-demand for changed parsers.
 - Failure-mode regression suite covers map-full, verifier reject, load failure,
   parse/signature failure, and rollback failure.
+- Kernel/distro/filesystem execution metadata is retained as CI artifacts.
 
 ## Phase 3: Operational safety
 

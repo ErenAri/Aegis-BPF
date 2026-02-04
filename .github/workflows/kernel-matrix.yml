@@ -56,7 +56,29 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
       - name: Run file enforcement matrix
-        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh
+        run: |
+          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
+            ./scripts/e2e_file_enforcement_matrix.sh
+          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
+          sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
+
+      - name: Collect kernel-matrix metadata
+        if: always()
+        run: |
+          uname -a > kernel-info-${{ matrix.kernel }}.txt
+          stat -f -c '%T' /tmp > fs-type-${{ matrix.kernel }}.txt || true
+          cat /etc/os-release > os-release-${{ matrix.kernel }}.txt || true
+
+      - name: Upload kernel-matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-matrix-artifacts-${{ matrix.distro_family }}-${{ matrix.kernel }}
+          path: |
+            e2e-matrix-summary-${{ matrix.kernel }}.json
+            kernel-info-${{ matrix.kernel }}.txt
+            fs-type-${{ matrix.kernel }}.txt
+            os-release-${{ matrix.kernel }}.txt
 
   kernel-matrix-weekly:
     if: github.event_name != 'pull_request'
@@ -101,4 +123,26 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
       - name: Run file enforcement matrix
-        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh
+        run: |
+          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
+            ./scripts/e2e_file_enforcement_matrix.sh
+          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
+          sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
+
+      - name: Collect kernel-matrix metadata
+        if: always()
+        run: |
+          uname -a > kernel-info-${{ matrix.kernel }}.txt
+          stat -f -c '%T' /tmp > fs-type-${{ matrix.kernel }}.txt || true
+          cat /etc/os-release > os-release-${{ matrix.kernel }}.txt || true
+
+      - name: Upload kernel-matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-matrix-artifacts-${{ matrix.distro_family }}-${{ matrix.kernel }}
+          path: |
+            e2e-matrix-summary-${{ matrix.kernel }}.json
+            kernel-info-${{ matrix.kernel }}.txt
+            fs-type-${{ matrix.kernel }}.txt
+            os-release-${{ matrix.kernel }}.txt
