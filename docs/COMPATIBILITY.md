@@ -77,6 +77,9 @@ AegisBPF cannot run if:
 
 \* Requires adding `lsm=bpf` or `lsm=landlock,lockdown,yama,bpf` to kernel boot parameters.
 
+Compatibility CI evidence and kernel/distro matrix source of truth are tracked
+in `docs/PHASE4_PORTABILITY_EVIDENCE.md`.
+
 ## Distribution and Runtime Quirks
 
 - **Ubuntu 22.04 (5.15)**: stable baseline for LSM hooks; ensure BTF package is present on custom kernels.

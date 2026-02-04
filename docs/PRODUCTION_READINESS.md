@@ -83,6 +83,10 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
 - Phase-2 correctness evidence pack: `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
 - Phase-3 operational safety evidence pack: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`
+- Phase-4 portability evidence pack: `docs/PHASE4_PORTABILITY_EVIDENCE.md`
+- Phase-5 performance evidence pack: `docs/PHASE5_PERFORMANCE_EVIDENCE.md`
+- Phase-6 meta-security evidence pack: `docs/PHASE6_META_SECURITY_EVIDENCE.md`
+- Phase-7 reviewability evidence pack: `docs/PHASE7_REVIEWABILITY_EVIDENCE.md`
 - CI kernel-e2e execution strategy: `docs/CI_EXECUTION_STRATEGY.md`
 - Final go/no-go checklist: `docs/GO_LIVE_CHECKLIST.md`
 - Branch-protection baseline: `docs/BRANCH_PROTECTION.md` + `scripts/check_branch_protection.sh`

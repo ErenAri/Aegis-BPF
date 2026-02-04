@@ -6,9 +6,23 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <cstdlib>
 #include <sys/utsname.h>
 
 namespace aegis {
+
+namespace {
+
+std::string env_path_or_default(const char* env_name, const char* fallback)
+{
+    const char* value = std::getenv(env_name);
+    if (value != nullptr && *value != '\0') {
+        return std::string(value);
+    }
+    return std::string(fallback);
+}
+
+}  // namespace
 
 std::string get_kernel_version()
 {
@@ -49,7 +63,7 @@ bool kernel_version_at_least(int req_major, int req_minor, int req_patch)
 
 bool check_bpf_lsm_enabled()
 {
-    std::ifstream lsm("/sys/kernel/security/lsm");
+    std::ifstream lsm(env_path_or_default("AEGIS_LSM_PATH", "/sys/kernel/security/lsm"));
     std::string line;
     if (!lsm.is_open() || !std::getline(lsm, line)) {
         return false;
@@ -60,27 +74,32 @@ bool check_bpf_lsm_enabled()
 bool check_cgroup_v2()
 {
     std::error_code ec;
-    return std::filesystem::exists("/sys/fs/cgroup/cgroup.controllers", ec);
+    return std::filesystem::exists(
+        env_path_or_default("AEGIS_CGROUP_CONTROLLERS_PATH", "/sys/fs/cgroup/cgroup.controllers"),
+        ec);
 }
 
 bool check_btf_available()
 {
     std::error_code ec;
-    return std::filesystem::exists("/sys/kernel/btf/vmlinux", ec);
+    return std::filesystem::exists(
+        env_path_or_default("AEGIS_BTF_VMLINUX_PATH", "/sys/kernel/btf/vmlinux"), ec);
 }
 
 bool check_bpffs_mounted()
 {
     std::error_code ec;
-    return std::filesystem::exists("/sys/fs/bpf", ec);
+    return std::filesystem::exists(env_path_or_default("AEGIS_BPFFS_PATH", "/sys/fs/bpf"), ec);
 }
 
 static bool check_tracepoints_available()
 {
     std::error_code ec;
     // Check for tracepoint infrastructure
-    return std::filesystem::exists("/sys/kernel/debug/tracing", ec) ||
-           std::filesystem::exists("/sys/kernel/tracing", ec);
+    return std::filesystem::exists(
+               env_path_or_default("AEGIS_TRACEFS_DEBUG_PATH", "/sys/kernel/debug/tracing"), ec) ||
+           std::filesystem::exists(
+               env_path_or_default("AEGIS_TRACEFS_PATH", "/sys/kernel/tracing"), ec);
 }
 
 static bool check_ringbuf_support()
@@ -94,7 +113,10 @@ static bool check_bpf_syscall()
     // BPF syscall check - if we can read /proc/sys/kernel/unprivileged_bpf_disabled
     // or /sys/fs/bpf exists, BPF syscall is available
     std::error_code ec;
-    return std::filesystem::exists("/proc/sys/kernel/unprivileged_bpf_disabled", ec) ||
+    return std::filesystem::exists(
+               env_path_or_default("AEGIS_UNPRIV_BPF_DISABLED_PATH",
+                                   "/proc/sys/kernel/unprivileged_bpf_disabled"),
+               ec) ||
            check_bpffs_mounted();
 }
 

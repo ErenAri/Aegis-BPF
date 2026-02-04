@@ -35,10 +35,26 @@ jobs:
           sudo BIN=./build/aegisbpf \
             FILE=/etc/hosts \
             OPEN_ITERATIONS=200000 \
+            CONNECT_ITERATIONS=50000 \
             READ_ITERATIONS=50000 \
             STAT_SAMPLE=400 \
             STAT_ITERATIONS=50 \
             MAX_OPEN_PCT=10 \
+            MAX_CONNECT_PCT=15 \
             MAX_READ_PCT=15 \
             MAX_STAT_PCT=15 \
             scripts/perf_workload_suite.sh
+
+      - name: Capture percentile profiles (open/connect)
+        run: |
+          mkdir -p artifacts/perf
+          sudo FORMAT=json OUT=artifacts/perf/open_baseline.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/open_with_agent.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo FORMAT=json OUT=artifacts/perf/connect_baseline.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/connect_with_agent.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+
+      - name: Upload perf profiles
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-profiles
+          path: artifacts/perf/

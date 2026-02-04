@@ -291,6 +291,7 @@ if(BUILD_TESTING)
     set(TEST_SOURCES
         tests/test_main.cpp
         tests/test_commands.cpp
+        tests/test_kernel_features.cpp
         tests/test_utils.cpp
         tests/test_result.cpp
         tests/test_sha256.cpp
@@ -401,6 +402,46 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tracing.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_policy.cpp
+    )
+
+    add_test(
+        NAME phase4_portability_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase4_portability_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/kernel-matrix.yml
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/COMPATIBILITY.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE4_PORTABILITY_EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_kernel_features.cpp
+    )
+
+    add_test(
+        NAME phase5_performance_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase5_performance_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PERF.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE5_PERFORMANCE_EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/perf.yml
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/perf_open_bench.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/perf_connect_bench.sh
+    )
+
+    add_test(
+        NAME phase6_meta_security_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase6_meta_security_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE6_META_SECURITY_EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/release.yml
+            ${CMAKE_CURRENT_SOURCE_DIR}/SECURITY.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/KEY_MANAGEMENT.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_commands.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/packaging/systemd/aegisbpf.service
+    )
+
+    add_test(
+        NAME phase7_reviewability_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase7_reviewability_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE7_REVIEWABILITY_EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/PULL_REQUEST_TEMPLATE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
     )
 
     add_test(

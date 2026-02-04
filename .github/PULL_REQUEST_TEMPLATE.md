@@ -15,6 +15,13 @@
 - [ ] `scripts/run_clang_tidy_changed.sh` (or CI equivalent)
 - [ ] `scripts/run_semgrep_changed.sh` (or CI equivalent)
 
+## Evidence links (required for release-impacting changes)
+
+<!-- Paste direct links (actions/runs, artifacts, docs sections) -->
+- CI run URL:
+- Security/perf run URL (if applicable):
+- Contract/evidence doc URL (if applicable):
+
 ## Risk and rollback
 
 <!-- Operational risk, migration impact, and rollback plan -->

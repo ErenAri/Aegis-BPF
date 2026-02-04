@@ -21,10 +21,17 @@ on:
 jobs:
   kernel-matrix-pr:
     if: github.event_name == 'pull_request'
+    name: kernel-matrix-pr (${{ matrix.distro_family }} / ${{ matrix.kernel }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [kernel-5.15, kernel-6.1]
+        include:
+          - runner: kernel-5.15
+            distro_family: ubuntu
+            kernel: "5.15"
+          - runner: kernel-6.1
+            distro_family: debian
+            kernel: "6.1"
     runs-on: [self-hosted, "${{ matrix.runner }}"]
     steps:
       - uses: actions/checkout@v4
@@ -53,10 +60,23 @@ jobs:
 
   kernel-matrix-weekly:
     if: github.event_name != 'pull_request'
+    name: kernel-matrix-weekly (${{ matrix.distro_family }} / ${{ matrix.kernel }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [kernel-5.15, kernel-6.1, kernel-6.5, kernel-5.14]
+        include:
+          - runner: kernel-5.15
+            distro_family: ubuntu
+            kernel: "5.15"
+          - runner: kernel-6.1
+            distro_family: debian
+            kernel: "6.1"
+          - runner: kernel-6.5
+            distro_family: ubuntu
+            kernel: "6.5"
+          - runner: kernel-5.14
+            distro_family: rhel
+            kernel: "5.14"
     runs-on: [self-hosted, "${{ matrix.runner }}"]
     steps:
       - uses: actions/checkout@v4

@@ -14,13 +14,14 @@ EnvironmentFile=-/etc/default/aegisbpf
 # Validate environment variables before starting
 ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_MODE:-}" ]; then case "${AEGIS_MODE}" in --audit|--enforce|--mode=audit|--mode=enforce) ;; *) echo "Invalid AEGIS_MODE: ${AEGIS_MODE}"; exit 1;; esac; fi'
 ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_ENFORCE_SIGNAL:-}" ]; then case "${AEGIS_ENFORCE_SIGNAL}" in --enforce-signal=none|--enforce-signal=term|--enforce-signal=kill|--enforce-signal=int) ;; *) echo "Invalid AEGIS_ENFORCE_SIGNAL: ${AEGIS_ENFORCE_SIGNAL}"; exit 1;; esac; fi'
+ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_ALLOW_SIGKILL:-}" ]; then case "${AEGIS_ALLOW_SIGKILL}" in --allow-sigkill) ;; *) echo "Invalid AEGIS_ALLOW_SIGKILL: ${AEGIS_ALLOW_SIGKILL}"; exit 1;; esac; fi'
 ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_REQUIRE_SIGNATURE:-}" ]; then case "${AEGIS_REQUIRE_SIGNATURE}" in 0|1) ;; *) echo "Invalid AEGIS_REQUIRE_SIGNATURE: ${AEGIS_REQUIRE_SIGNATURE}"; exit 1;; esac; fi'
 ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_POLICY_SHA256:-}" ] && [ -n "${AEGIS_POLICY_SHA256_FILE:-}" ]; then echo "Set only one of AEGIS_POLICY_SHA256 or AEGIS_POLICY_SHA256_FILE"; exit 1; fi'
 
 # Apply policy if configured (fail closed if policy is set but invalid/apply fails)
 ExecStartPre=/bin/sh -c 'if [ -n "${AEGIS_POLICY:-}" ]; then [ -f "${AEGIS_POLICY}" ] || { echo "AEGIS_POLICY does not exist: ${AEGIS_POLICY}"; exit 1; }; set -- --reset; if [ "${AEGIS_REQUIRE_SIGNATURE:-1}" = "1" ]; then set -- "$@" --require-signature; fi; if [ -n "${AEGIS_POLICY_SHA256:-}" ]; then set -- "$@" --sha256 "${AEGIS_POLICY_SHA256}"; fi; if [ -n "${AEGIS_POLICY_SHA256_FILE:-}" ]; then set -- "$@" --sha256-file "${AEGIS_POLICY_SHA256_FILE}"; fi; /usr/bin/aegisbpf policy apply "${AEGIS_POLICY}" "$@"; fi'
 
-ExecStart=/usr/bin/aegisbpf run ${AEGIS_MODE} ${AEGIS_ENFORCE_SIGNAL} ${AEGIS_LOG}
+ExecStart=/usr/bin/aegisbpf run ${AEGIS_MODE} ${AEGIS_ENFORCE_SIGNAL} ${AEGIS_ALLOW_SIGKILL} ${AEGIS_LOG}
 ExecStartPost=/bin/sh -c '[ "${AEGIS_SMOKE_TEST:-0}" = "1" ] && /usr/bin/aegisbpf health || true'
 Restart=on-failure
 RestartSec=5

@@ -2,11 +2,11 @@
 set -euo pipefail
 
 BIN="${BIN:-./build/aegisbpf}"
-FILE="${FILE:-/etc/hosts}"
-ITERATIONS="${ITERATIONS:-200000}"
+ITERATIONS="${ITERATIONS:-50000}"
 WITH_AGENT="${WITH_AGENT:-0}"
 FORMAT="${FORMAT:-text}"
 OUT="${OUT:-}"
+HOST="${HOST:-127.0.0.1}"
 
 cleanup() {
     if [[ -n "${AGENT_PID:-}" ]]; then
@@ -16,12 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -r "$FILE" ]]; then
-    echo "File not readable: $FILE" >&2
-    exit 1
-fi
-
-if [[ "$WITH_AGENT" -eq 1 ]]; then
+if [[ "${WITH_AGENT}" -eq 1 ]]; then
     if [[ $EUID -ne 0 ]]; then
         echo "WITH_AGENT=1 requires root (BPF + cgroup access)." >&2
         exit 1
@@ -37,11 +32,7 @@ if [[ "$WITH_AGENT" -eq 1 ]]; then
         exit 1
     fi
     LOGFILE=$(mktemp)
-    hook_arg=""
-    if [[ -n "${LSM_HOOK:-}" ]]; then
-        hook_arg="--lsm-hook=${LSM_HOOK}"
-    fi
-    "$BIN" run --audit $hook_arg >"$LOGFILE" 2>&1 &
+    "$BIN" run --audit >"$LOGFILE" 2>&1 &
     AGENT_PID=$!
     sleep 1
     if ! kill -0 "$AGENT_PID" 2>/dev/null; then
@@ -52,27 +43,56 @@ if [[ "$WITH_AGENT" -eq 1 ]]; then
 fi
 
 python3 - <<PY
-import os
 import json
 import math
+import os
+import socket
+import threading
 import time
 
-path = "$FILE"
-iterations = int("$ITERATIONS")
-with_agent = int("$WITH_AGENT") == 1
+host = os.environ.get("HOST", "127.0.0.1")
+iterations = int(os.environ.get("ITERATIONS", "50000"))
+with_agent = int(os.environ.get("WITH_AGENT", "0")) == 1
 fmt = os.environ.get("FORMAT", "text").lower()
 out_path = os.environ.get("OUT", "")
 
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind((host, 0))
+server.listen(256)
+port = server.getsockname()[1]
+server.settimeout(0.1)
+
+stop = False
+
+def accept_loop() -> None:
+    global stop
+    while not stop:
+        try:
+            conn, _ = server.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        conn.close()
+
+thread = threading.Thread(target=accept_loop, daemon=True)
+thread.start()
+
 samples_ns = []
-start = time.perf_counter()
+start_total = time.perf_counter()
 for _ in range(iterations):
-    op_start = time.perf_counter_ns()
-    fd = os.open(path, os.O_RDONLY)
-    os.read(fd, 1)
-    os.close(fd)
-    op_end = time.perf_counter_ns()
-    samples_ns.append(op_end - op_start)
-end = time.perf_counter()
+    start = time.perf_counter_ns()
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect((host, port))
+    client.close()
+    end = time.perf_counter_ns()
+    samples_ns.append(end - start)
+end_total = time.perf_counter()
+
+stop = True
+server.close()
+thread.join(timeout=1)
 
 samples_ns.sort()
 
@@ -87,8 +107,8 @@ def percentile(sorted_samples, p):
     frac = idx - lo
     return (sorted_samples[lo] + (sorted_samples[hi] - sorted_samples[lo]) * frac) / 1000.0
 
-elapsed = end - start
-us_per_op = (elapsed / iterations) * 1e6
+elapsed = end_total - start_total
+us_per_op = (elapsed / iterations) * 1e6 if iterations else 0.0
 payload = {
     "iterations": iterations,
     "seconds": round(elapsed, 6),
@@ -96,23 +116,25 @@ payload = {
     "p50_us": round(percentile(samples_ns, 0.50), 2),
     "p95_us": round(percentile(samples_ns, 0.95), 2),
     "p99_us": round(percentile(samples_ns, 0.99), 2),
-    "file": path,
+    "host": host,
+    "port": port,
     "with_agent": with_agent,
 }
+
 if fmt == "json":
     text = json.dumps(payload, separators=(",", ":"))
 else:
     text = (
-        f"iterations={iterations}\n"
-        f"seconds={elapsed:.6f}\n"
-        f"us_per_op={us_per_op:.2f}\n"
-        f"p50_us={payload['p50_us']:.2f}\n"
-        f"p95_us={payload['p95_us']:.2f}\n"
+        f"iterations={iterations}\\n"
+        f"seconds={elapsed:.6f}\\n"
+        f"us_per_op={us_per_op:.2f}\\n"
+        f"p50_us={payload['p50_us']:.2f}\\n"
+        f"p95_us={payload['p95_us']:.2f}\\n"
         f"p99_us={payload['p99_us']:.2f}"
     )
 
 if out_path:
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(text + "\n")
+        f.write(text + "\\n")
 print(text)
 PY

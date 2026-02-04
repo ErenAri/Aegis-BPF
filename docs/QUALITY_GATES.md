@@ -14,7 +14,9 @@ This project enforces quality gates through required CI checks on `main`.
 - Coverage report with minimum thresholds
 - Required-checks contract validation (`required_checks*.txt` -> workflow contexts)
 - Label contract validation (`repo_labels.json` -> workflows/templates references)
-- Phase evidence contracts (`phase2_evidence_contract`, `phase3_safety_contract`)
+- Phase evidence contracts (`phase2_evidence_contract`, `phase3_safety_contract`,
+  `phase4_portability_contract`, `phase5_performance_contract`,
+  `phase6_meta_security_contract`, `phase7_reviewability_contract`)
 - SBOM generation
 - Security scans (`dependency-review`, `codeql`, `gitleaks`)
 - Benchmark regression policy:

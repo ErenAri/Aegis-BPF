@@ -6,6 +6,9 @@ release.
 Use one row per release candidate (RC). Every item must be marked pass with
 attached evidence.
 
+Evidence entries must include direct URLs (workflow run, artifact, dashboard,
+or incident ticket) rather than free-form notes.
+
 ## RC metadata
 
 - Release candidate:

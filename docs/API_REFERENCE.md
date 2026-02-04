@@ -769,6 +769,10 @@ struct NetBlockEvent {
 | `AEGIS_POLICY_SHA256` | Expected policy hash | - |
 | `AEGIS_POLICY_SHA256_FILE` | File containing policy hash | - |
 | `AEGIS_VERSION_COUNTER_PATH` | Anti-rollback counter path | `/var/lib/aegisbpf/version_counter` |
+| `AEGIS_LSM_PATH` | Override `/sys/kernel/security/lsm` probe path (testing) | `/sys/kernel/security/lsm` |
+| `AEGIS_CGROUP_CONTROLLERS_PATH` | Override cgroup-v2 probe path (testing) | `/sys/fs/cgroup/cgroup.controllers` |
+| `AEGIS_BTF_VMLINUX_PATH` | Override BTF probe path (testing) | `/sys/kernel/btf/vmlinux` |
+| `AEGIS_BPFFS_PATH` | Override bpffs probe path (testing) | `/sys/fs/bpf` |
 
 ### Signal Constants
 

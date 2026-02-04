@@ -6,9 +6,11 @@ BIN="${BIN:-${ROOT_DIR}/build/aegisbpf}"
 FILE="${FILE:-/etc/hosts}"
 OPEN_ITERATIONS="${OPEN_ITERATIONS:-200000}"
 READ_ITERATIONS="${READ_ITERATIONS:-50000}"
+CONNECT_ITERATIONS="${CONNECT_ITERATIONS:-50000}"
 STAT_SAMPLE="${STAT_SAMPLE:-400}"
 STAT_ITERATIONS="${STAT_ITERATIONS:-50}"
 MAX_OPEN_PCT="${MAX_OPEN_PCT:-10}"
+MAX_CONNECT_PCT="${MAX_CONNECT_PCT:-15}"
 MAX_READ_PCT="${MAX_READ_PCT:-15}"
 MAX_STAT_PCT="${MAX_STAT_PCT:-15}"
 FORMAT="${FORMAT:-text}" # text|json
@@ -121,10 +123,12 @@ PY
 }
 
 open_baseline=$(ITERATIONS="${OPEN_ITERATIONS}" FILE="${FILE}" FORMAT=text "${ROOT_DIR}/scripts/perf_open_bench.sh" | awk -F= '/^us_per_op=/{print $2}')
+connect_baseline=$(ITERATIONS="${CONNECT_ITERATIONS}" FORMAT=text "${ROOT_DIR}/scripts/perf_connect_bench.sh" | awk -F= '/^us_per_op=/{print $2}')
 read_baseline=$(run_read_bench "${FILE}" "${READ_ITERATIONS}")
 stat_baseline=$(run_stat_bench "${STAT_FILE_LIST}" "${STAT_ITERATIONS}")
 
 open_with_agent=$(WITH_AGENT=1 BIN="${BIN}" ITERATIONS="${OPEN_ITERATIONS}" FILE="${FILE}" FORMAT=text "${ROOT_DIR}/scripts/perf_open_bench.sh" | awk -F= '/^us_per_op=/{print $2}')
+connect_with_agent=$(WITH_AGENT=1 BIN="${BIN}" ITERATIONS="${CONNECT_ITERATIONS}" FORMAT=text "${ROOT_DIR}/scripts/perf_connect_bench.sh" | awk -F= '/^us_per_op=/{print $2}')
 start_agent
 read_with_agent=$(run_read_bench "${FILE}" "${READ_ITERATIONS}")
 stat_with_agent=$(run_stat_bench "${STAT_FILE_LIST}" "${STAT_ITERATIONS}")
@@ -135,6 +139,7 @@ import json
 
 rows = [
     ("open_close", float("${open_baseline}"), float("${open_with_agent}"), float("${MAX_OPEN_PCT}")),
+    ("connect_loopback", float("${connect_baseline}"), float("${connect_with_agent}"), float("${MAX_CONNECT_PCT}")),
     ("full_read", float("${read_baseline}"), float("${read_with_agent}"), float("${MAX_READ_PCT}")),
     ("stat_walk", float("${stat_baseline}"), float("${stat_with_agent}"), float("${MAX_STAT_PCT}")),
 ]

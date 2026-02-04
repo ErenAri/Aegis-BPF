@@ -291,6 +291,74 @@ TEST(CmdKeysAddTest, RejectsWorldWritableKeyFile)
     EXPECT_EQ(cmd_keys_add(key_path.string()), 1);
 }
 
+TEST(KeyLifecycleTest, RotateAndRevokeTrustedSigningKeys)
+{
+    auto old_keypair = generate_keypair();
+    auto new_keypair = generate_keypair();
+    ASSERT_TRUE(old_keypair);
+    ASSERT_TRUE(new_keypair);
+    const auto& [old_public, old_secret] = *old_keypair;
+    const auto& [new_public, new_secret] = *new_keypair;
+
+    TempDir temp_dir;
+    auto keys_dir = temp_dir.path() / "keys";
+    auto old_pub_path = keys_dir / "old.pub";
+    auto new_pub_src = temp_dir.path() / "new.pub";
+    ASSERT_TRUE(std::filesystem::create_directories(keys_dir));
+
+    {
+        std::ofstream out(old_pub_path);
+        ASSERT_TRUE(out.is_open());
+        out << encode_hex(old_public) << "\n";
+    }
+    ASSERT_EQ(::chmod(old_pub_path.c_str(), 0644), 0);
+
+    {
+        std::ofstream out(new_pub_src);
+        ASSERT_TRUE(out.is_open());
+        out << encode_hex(new_public) << "\n";
+    }
+    ASSERT_EQ(::chmod(new_pub_src.c_str(), 0644), 0);
+
+    ScopedEnvVar keys_env("AEGIS_KEYS_DIR", keys_dir.string());
+
+    auto old_bundle = create_signed_bundle("version=1\n", old_secret, 2, 0);
+    ASSERT_TRUE(old_bundle);
+    auto old_parsed = parse_signed_bundle(*old_bundle);
+    ASSERT_TRUE(old_parsed);
+
+    auto trusted_before = load_trusted_keys();
+    ASSERT_TRUE(trusted_before);
+    ASSERT_EQ(trusted_before->size(), 1u);
+    EXPECT_TRUE(verify_bundle(*old_parsed, *trusted_before));
+
+    EXPECT_EQ(cmd_keys_add(new_pub_src.string()), 0);
+
+    auto trusted_after_rotate = load_trusted_keys();
+    ASSERT_TRUE(trusted_after_rotate);
+    ASSERT_GE(trusted_after_rotate->size(), 2u);
+
+    auto new_bundle = create_signed_bundle("version=1\n", new_secret, 3, 0);
+    ASSERT_TRUE(new_bundle);
+    auto new_parsed = parse_signed_bundle(*new_bundle);
+    ASSERT_TRUE(new_parsed);
+    EXPECT_TRUE(verify_bundle(*new_parsed, *trusted_after_rotate));
+
+    std::error_code ec;
+    std::filesystem::remove(old_pub_path, ec);
+    ASSERT_FALSE(ec);
+
+    auto trusted_after_revoke = load_trusted_keys();
+    ASSERT_TRUE(trusted_after_revoke);
+    ASSERT_EQ(trusted_after_revoke->size(), 1u);
+
+    auto old_bundle_after_revoke = create_signed_bundle("version=1\n", old_secret, 4, 0);
+    ASSERT_TRUE(old_bundle_after_revoke);
+    auto old_parsed_after_revoke = parse_signed_bundle(*old_bundle_after_revoke);
+    ASSERT_TRUE(old_parsed_after_revoke);
+    EXPECT_FALSE(verify_bundle(*old_parsed_after_revoke, *trusted_after_revoke));
+}
+
 TEST(CmdTracingTest, PolicySignEmitsRootSpanOnSuccess)
 {
     auto keypair_result = generate_keypair();

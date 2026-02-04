@@ -77,6 +77,8 @@ Definition of done:
 - Runtime feature detection tests cover LSM/BTF/cgroup-v2/bpffs availability.
 - Compatibility table is backed by CI evidence links, not manual assertions.
 
+Evidence bundle: `docs/PHASE4_PORTABILITY_EVIDENCE.md`.
+
 ## Phase 5: Performance credibility
 
 Definition of done:
@@ -85,12 +87,16 @@ Definition of done:
 - Published max sustained event rate and drop threshold behavior.
 - Benchmark noise controls defined (repetitions/min-time/tolerance bands).
 
+Evidence bundle: `docs/PHASE5_PERFORMANCE_EVIDENCE.md`.
+
 ## Phase 6: Agent meta-security
 
 Definition of done:
 - Signing lifecycle tests cover key add/rotate/revoke + anti-rollback.
 - Release pipeline emits SBOM + signed artifacts + provenance attestations.
 - Capability requirements are minimized, documented, and validated.
+
+Evidence bundle: `docs/PHASE6_META_SECURITY_EVIDENCE.md`.
 
 ## Phase 7: Evidence pack and reviewability
 
@@ -99,6 +105,8 @@ Definition of done:
   runbooks, and compatibility evidence.
 - Any unverified claim is downgraded to planned or removed.
 - Release review checklist requires evidence links before approval.
+
+Evidence bundle: `docs/PHASE7_REVIEWABILITY_EVIDENCE.md`.
 
 ## CI execution strategy
 
