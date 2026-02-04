@@ -68,6 +68,8 @@ Definition of done:
   updates).
 - Agent crash behavior and recovery are tested and documented.
 
+Evidence bundle: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`.
+
 ## Phase 4: Portability proof
 
 Definition of done:

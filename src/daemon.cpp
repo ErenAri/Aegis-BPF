@@ -251,6 +251,7 @@ int daemon_run(bool audit_only,
                bool enable_seccomp,
                uint32_t deadman_ttl,
                uint8_t enforce_signal,
+               bool allow_sigkill,
                LsmHookMode lsm_hook,
                uint32_t ringbuf_bytes,
                uint32_t event_sample_rate,
@@ -278,6 +279,23 @@ int daemon_run(bool audit_only,
         logger().log(SLOG_WARN("Invalid enforce signal configured; using SIGTERM")
                          .field("signal", static_cast<int64_t>(enforce_signal)));
         enforce_signal = kEnforceSignalTerm;
+    }
+    if (enforce_signal == kEnforceSignalKill) {
+        if (!kSigkillEnforcementCompiledIn) {
+            logger().log(SLOG_ERROR("SIGKILL enforcement is disabled in this build")
+                             .field("cmake_option", "ENABLE_SIGKILL_ENFORCEMENT=ON")
+                             .field("runtime_gate", "--allow-sigkill"));
+            return fail("SIGKILL enforcement is disabled in this build");
+        }
+        if (!allow_sigkill) {
+            logger().log(SLOG_ERROR("SIGKILL enforcement requires explicit runtime gate")
+                             .field("required_flag", "--allow-sigkill"));
+            return fail("SIGKILL enforcement requires --allow-sigkill");
+        }
+    }
+    if (allow_sigkill && enforce_signal != kEnforceSignalKill) {
+        logger().log(SLOG_WARN("Ignoring --allow-sigkill because enforce signal is not kill")
+                         .field("enforce_signal", enforce_signal_name(enforce_signal)));
     }
     if (sigkill_escalation_threshold == 0) {
         logger().log(SLOG_WARN("Invalid SIGKILL escalation threshold; using default")

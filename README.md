@@ -141,6 +141,12 @@ cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
+Optional (dangerous) SIGKILL enforcement path:
+```bash
+cmake -S . -B build -G Ninja -DENABLE_SIGKILL_ENFORCEMENT=ON
+cmake --build build
+```
+
 ### Run
 
 ```bash
@@ -153,11 +159,11 @@ sudo ./build/aegisbpf run --enforce
 # Enforce mode with explicit signal policy (default is SIGTERM)
 sudo ./build/aegisbpf run --enforce --enforce-signal=term
 
-# SIGKILL mode escalates: TERM first, KILL only after repeated denies
-sudo ./build/aegisbpf run --enforce --enforce-signal=kill
+# SIGKILL mode requires explicit runtime acknowledgement
+sudo ./build/aegisbpf run --enforce --enforce-signal=kill --allow-sigkill
 
 # Tune SIGKILL escalation policy (used only with --enforce-signal=kill)
-sudo ./build/aegisbpf run --enforce --enforce-signal=kill \
+sudo ./build/aegisbpf run --enforce --enforce-signal=kill --allow-sigkill \
   --kill-escalation-threshold=8 \
   --kill-escalation-window-seconds=60
 
@@ -196,12 +202,16 @@ sudo ./build/aegisbpf run --audit --ringbuf-bytes=67108864 --event-sample-rate=1
          │                            │            │
          │                            │            ▼
          │                            │   audit mode -> emit event, allow
-         │                            │   enforce    -> optional signal + -EPERM
+         │                            │   enforce    -> signal policy + -EPERM
          │                            │                            │
          │  Success / EPERM           │                            │
          │ ◄──────────────────────────│                            │
          │                            │                            │
 ```
+
+Notes:
+- `--enforce-signal=kill` is guarded and requires both build-time
+  `-DENABLE_SIGKILL_ENFORCEMENT=ON` and runtime `--allow-sigkill`.
 
 ## Usage
 
@@ -216,11 +226,11 @@ sudo aegisbpf run --enforce --lsm-hook=both
 # Choose enforce signal action (default: term)
 sudo aegisbpf run --enforce --enforce-signal=term
 sudo aegisbpf run --enforce --enforce-signal=none
-# 'kill' escalates to SIGKILL only after repeated denies in a short window
-sudo aegisbpf run --enforce --enforce-signal=kill
+# 'kill' mode requires --allow-sigkill and build-time enablement
+sudo aegisbpf run --enforce --enforce-signal=kill --allow-sigkill
 
 # Tune escalation policy for kill mode
-sudo aegisbpf run --enforce --enforce-signal=kill \
+sudo aegisbpf run --enforce --enforce-signal=kill --allow-sigkill \
   --kill-escalation-threshold=8 \
   --kill-escalation-window-seconds=60
 

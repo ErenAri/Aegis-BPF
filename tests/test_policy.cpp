@@ -2,6 +2,7 @@
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -457,6 +458,29 @@ TEST_F(PolicyRollbackTest, RollbackFailureStillReturnsOriginalApplyError)
     ASSERT_EQ(g_apply_calls.size(), 2u);
     EXPECT_EQ(g_apply_calls[0].path, requested_policy);
     EXPECT_EQ(g_apply_calls[1].path, applied_policy);
+}
+
+TEST_F(PolicyRollbackTest, RollbackControlPathCompletesWithinFiveSecondsUnderLoad)
+{
+    std::string requested_policy = WritePolicy("requested.conf", "version=1\n");
+    std::string applied_policy = WritePolicy("applied.conf", "version=1\n");
+    ScopedEnvVar applied_env("AEGIS_POLICY_APPLIED_PATH", applied_policy);
+
+    constexpr int kAttempts = 60;
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < kAttempts; ++i) {
+        g_apply_calls.clear();
+        g_fail_first_apply_call = true;
+        g_fail_second_apply_call = false;
+
+        auto result = policy_apply(requested_policy, false, "", "", true);
+        ASSERT_FALSE(result);
+        ASSERT_EQ(g_apply_calls.size(), 2u);
+    }
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    EXPECT_LT(elapsed.count(), 5000) << "rollback control path exceeded 5s target: "
+                                     << elapsed.count() << "ms";
 }
 
 }  // namespace

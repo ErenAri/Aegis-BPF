@@ -8,7 +8,7 @@ namespace aegis {
 int usage(const char* prog)
 {
     std::cerr << "Usage: " << prog
-              << " run [--audit|--enforce] [--enforce-signal=none|term|kill|int] [--kill-escalation-threshold=<n>] [--kill-escalation-window-seconds=<seconds>] [--seccomp] [--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] [--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"
+              << " run [--audit|--enforce] [--enforce-signal=none|term|kill|int] [--allow-sigkill] [--kill-escalation-threshold=<n>] [--kill-escalation-window-seconds=<seconds>] [--seccomp] [--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] [--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"
               << " | block {add|del|list|clear} [path]"
               << " | allow {add|del} <cgroup_path> | allow list"
               << " | network deny {add|del} --ip <ipv4|ipv6> | --cidr <cidr> | --port <port> [--protocol tcp|udp|any] [--direction egress|bind|both]"

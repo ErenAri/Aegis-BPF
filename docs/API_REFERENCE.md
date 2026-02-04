@@ -775,9 +775,15 @@ struct NetBlockEvent {
 ```cpp
 inline constexpr uint8_t kEnforceSignalNone = 0;   // No signal
 inline constexpr uint8_t kEnforceSignalInt = 2;    // SIGINT
-inline constexpr uint8_t kEnforceSignalKill = 9;   // SIGKILL (escalated)
+inline constexpr uint8_t kEnforceSignalKill = 9;   // SIGKILL (guarded)
 inline constexpr uint8_t kEnforceSignalTerm = 15;  // SIGTERM (default)
+inline constexpr bool kSigkillEnforcementCompiledIn =
+    (AEGIS_ENABLE_SIGKILL_ENFORCEMENT != 0);
 ```
+
+`kEnforceSignalKill` is only honored when both:
+- build-time option `-DENABLE_SIGKILL_ENFORCEMENT=ON` is used, and
+- runtime flag `--allow-sigkill` is provided with `run --enforce-signal=kill`.
 
 ### Default Values
 

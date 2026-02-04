@@ -9,6 +9,10 @@
 
 namespace aegis {
 
+#ifndef AEGIS_ENABLE_SIGKILL_ENFORCEMENT
+#define AEGIS_ENABLE_SIGKILL_ENFORCEMENT 0
+#endif
+
 inline constexpr const char* kPinRoot = "/sys/fs/bpf/aegisbpf";
 inline constexpr const char* kDenyInodePin = "/sys/fs/bpf/aegisbpf/deny_inode";
 inline constexpr const char* kDenyPathPin = "/sys/fs/bpf/aegisbpf/deny_path";
@@ -51,6 +55,7 @@ inline constexpr uint8_t kEnforceSignalKill = 9;
 inline constexpr uint8_t kEnforceSignalTerm = 15;
 inline constexpr uint32_t kSigkillEscalationThresholdDefault = 5;
 inline constexpr uint32_t kSigkillEscalationWindowSecondsDefault = 30;
+inline constexpr bool kSigkillEnforcementCompiledIn = (AEGIS_ENABLE_SIGKILL_ENFORCEMENT != 0);
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,

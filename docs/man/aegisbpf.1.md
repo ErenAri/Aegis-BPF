@@ -33,6 +33,7 @@ The agent can run in two modes:
 Start the security agent.
 
 **aegisbpf run** [**--audit**|**--enforce**] [**--enforce-signal**=*SIG*]
+[**--allow-sigkill**]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -44,9 +45,17 @@ Start the security agent.
 
 **--enforce-signal**=*SIG*
 :   Signal behavior for enforce mode. Valid values: `term` (default), `kill`, `int`, `none`.
-    `none` keeps blocking (`EPERM`) without sending a signal. `kill` uses an
-    escalation policy: the agent sends `SIGTERM` first and only escalates to
-    `SIGKILL` after repeated deny events in a short window.
+    `none` keeps blocking (`EPERM`) without sending a signal. `kill` is
+    disabled by default and requires both:
+    - build-time flag: `-DENABLE_SIGKILL_ENFORCEMENT=ON`
+    - runtime gate: `--allow-sigkill`
+    When enabled, `kill` uses an escalation policy: the agent sends `SIGTERM`
+    first and only escalates to `SIGKILL` after repeated deny events in a
+    short window.
+
+**--allow-sigkill**
+:   Runtime acknowledgement for using `--enforce-signal=kill`. Has no effect
+    for other enforce signals.
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`

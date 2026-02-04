@@ -261,6 +261,28 @@ TEST(TracingTest, NestedSpanLogsParentSpanId)
     EXPECT_NE(log.find("\"parent_span_id\":\"" + root_id + "\""), std::string::npos);
 }
 
+TEST(TracingTest, DaemonRunGuardsSigkillBehindBuildAndRuntimeFlags)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+    {
+        int rc = daemon_run(false, false, 0, kEnforceSignalKill, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+#if AEGIS_ENABLE_SIGKILL_ENFORCEMENT
+    EXPECT_NE(log.find("--allow-sigkill"), std::string::npos);
+#else
+    EXPECT_NE(log.find("SIGKILL enforcement is disabled in this build"), std::string::npos);
+#endif
+}
+
 TEST(TracingTest, DaemonRunMarksRootSpanErrorWhenConfigValidationFails)
 {
     TracingEnvGuard env("1");
@@ -269,7 +291,7 @@ TEST(TracingTest, DaemonRunMarksRootSpanErrorWhenConfigValidationFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_fail, test_detect_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -292,7 +314,7 @@ TEST(TracingTest, DaemonRunMarksRootSpanErrorWhenFeatureDetectionFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -316,7 +338,7 @@ TEST(TracingTest, DaemonRunMarksLoadSpanErrorWhenLoadBpfFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -339,7 +361,7 @@ TEST(TracingTest, DaemonRunSurfacesVerifierRejectError)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_verifier_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -362,7 +384,7 @@ TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }

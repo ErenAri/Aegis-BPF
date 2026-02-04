@@ -65,6 +65,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
 {
     bool audit_only = false;
     bool enable_seccomp = false;
+    bool allow_sigkill = false;
     uint32_t deadman_ttl = 0;
     uint8_t enforce_signal = kEnforceSignalTerm;
     uint32_t ringbuf_bytes = 0;
@@ -83,6 +84,9 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         }
         else if (arg == "--seccomp") {
             enable_seccomp = true;
+        }
+        else if (arg == "--allow-sigkill") {
+            allow_sigkill = true;
         }
         else if (arg.rfind("--deadman-ttl=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--deadman-ttl="));
@@ -175,7 +179,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         }
     }
 
-    return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, lsm_hook,
+    return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook,
                       ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
                       sigkill_escalation_window_seconds);
 }
