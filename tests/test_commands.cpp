@@ -235,6 +235,49 @@ TEST(CmdPolicyApplySignedTest, RejectsRollbackBundleVersion)
     EXPECT_EQ(cmd_policy_apply_signed(bundle_path.string(), true), 1);
 }
 
+TEST(CmdPolicyApplySignedTest, RejectsCorruptedBundleSignature)
+{
+    auto keypair_result = generate_keypair();
+    ASSERT_TRUE(keypair_result);
+    const auto& [public_key, secret_key] = *keypair_result;
+
+    TempDir temp_dir;
+    auto keys_dir = temp_dir.path() / "keys";
+    auto version_counter_path = temp_dir.path() / "version_counter";
+    auto bundle_path = temp_dir.path() / "policy.signed";
+
+    ASSERT_TRUE(std::filesystem::create_directories(keys_dir));
+    {
+        std::ofstream key_out(keys_dir / "trusted.pub");
+        ASSERT_TRUE(key_out.is_open());
+        key_out << encode_hex(public_key) << "\n";
+    }
+    ASSERT_EQ(::chmod((keys_dir / "trusted.pub").c_str(), 0644), 0);
+
+    auto bundle_result = create_signed_bundle("version=1\n", secret_key, 2, 0);
+    ASSERT_TRUE(bundle_result);
+
+    std::string corrupted_bundle = *bundle_result;
+    std::size_t sig_pos = corrupted_bundle.find("signature: ");
+    ASSERT_NE(sig_pos, std::string::npos);
+    sig_pos += std::string("signature: ").size();
+    ASSERT_LT(sig_pos, corrupted_bundle.size());
+    corrupted_bundle[sig_pos] = (corrupted_bundle[sig_pos] == 'a') ? 'b' : 'a';
+
+    {
+        std::ofstream bundle_out(bundle_path);
+        ASSERT_TRUE(bundle_out.is_open());
+        bundle_out << corrupted_bundle;
+    }
+    ASSERT_EQ(::chmod(bundle_path.c_str(), 0644), 0);
+
+    ScopedEnvVar keys_env("AEGIS_KEYS_DIR", keys_dir.string());
+    ScopedEnvVar counter_env("AEGIS_VERSION_COUNTER_PATH", version_counter_path.string());
+    ASSERT_TRUE(write_version_counter(1));
+
+    EXPECT_EQ(cmd_policy_apply_signed(bundle_path.string(), true), 1);
+}
+
 TEST(CmdKeysAddTest, RejectsWorldWritableKeyFile)
 {
     TempDir temp_dir;

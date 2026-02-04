@@ -51,6 +51,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Audit fallback smoke test: `scripts/smoke_audit_fallback.sh`
 - Environment verification: `scripts/verify_env.sh [--strict]`
 - Event schema validation: `scripts/validate_event_schema.py` + `tests/event_samples/`
+- Failure-mode regression contract: `tests/check_failure_modes_contract.py` (parser, signature, map-full, verifier, rollback paths)
 - SBOM generation: `sbom` job in `.github/workflows/ci.yml`
 - Release provenance attestations: `actions/attest-build-provenance` in `.github/workflows/release.yml`
 - Reproducibility gate: `scripts/check_reproducible_build.sh` + `.github/workflows/reproducibility.yml`
