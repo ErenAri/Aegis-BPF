@@ -58,11 +58,13 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Security automation: `.github/workflows/security.yml` (CodeQL, dependency review, gitleaks)
 - Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
+- Kernel file-enforcement matrix (>30 checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml`)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
 - Kernel matrix workflow: `.github/workflows/kernel-matrix.yml`
 - Nightly fuzz workflow: `.github/workflows/nightly-fuzz.yml`
+- Parser-change fuzz gate: `parser-fuzz` job in `.github/workflows/ci.yml` + `scripts/run_parser_fuzz_changed.sh`
 - Release drill workflow: `.github/workflows/release-drill.yml` + `scripts/release_drill.sh`
 - Upgrade/migration runbook: `docs/UPGRADE.md`
 - Key rotation/revocation runbook: `docs/KEY_MANAGEMENT.md`

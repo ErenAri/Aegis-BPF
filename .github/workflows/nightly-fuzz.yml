@@ -2,6 +2,11 @@ name: Nightly Fuzz
 
 on:
   workflow_dispatch:
+    inputs:
+      max_total_time:
+        description: "Per-target fuzz duration in seconds"
+        default: "600"
+        required: false
   schedule:
     - cron: "0 2 * * *"
 
@@ -23,9 +28,22 @@ jobs:
         run: cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_FUZZING=ON -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
 
       - name: Build
-        run: cmake --build build-fuzz
+        run: cmake --build build-fuzz --target fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event
 
-      - name: Run fuzzers (short)
+      - name: Run fuzzers (nightly deep)
+        env:
+          MAX_TOTAL_TIME: ${{ inputs.max_total_time || '600' }}
         run: |
-          ./build-fuzz/fuzz_policy -max_total_time=60
-          ./build-fuzz/fuzz_bundle -max_total_time=60
+          for target in fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event; do
+            echo "Fuzzing ${target} for ${MAX_TOTAL_TIME}s"
+            ./build-fuzz/${target} -max_total_time="${MAX_TOTAL_TIME}" -print_final_stats=1
+          done
+
+      - name: Upload fuzz crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-fuzz-crashes
+          path: |
+            crash-*
+            build-fuzz/crash-*

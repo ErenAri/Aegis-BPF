@@ -45,5 +45,8 @@ jobs:
       - name: E2E bypass tests
         run: sudo ./build/aegisbpf_bypass_test
 
+      - name: E2E file enforcement matrix (30+ checks)
+        run: sudo PRESERVE_TMP_ON_FAIL=1 ./scripts/e2e_file_enforcement_matrix.sh
+
       - name: Short soak reliability
         run: sudo AEGIS_BIN=./build/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 scripts/soak_reliability.sh

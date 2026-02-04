@@ -310,6 +310,36 @@ jobs:
             crash-*
             build-fuzz/crash-*
 
+  parser-fuzz:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build
+
+      - name: Configure with fuzzing
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_FUZZING=ON -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
+
+      - name: Build parser fuzz targets
+        run: cmake --build build-fuzz --target fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event
+
+      - name: Run parser fuzz gate on changed files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          DIFF_RANGE: ${{ github.event_name == 'push' && format('{0}...{1}', github.event.before, github.sha) || '' }}
+          BUILD_DIR: build-fuzz
+          FUZZ_SECONDS: "120"
+        run: scripts/run_parser_fuzz_changed.sh
+
   sbom:
     runs-on: ubuntu-24.04
     steps:
