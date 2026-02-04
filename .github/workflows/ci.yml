@@ -7,6 +7,7 @@ on:
 
 jobs:
   build:
+    name: build (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +49,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
   sanitizers:
+    name: sanitizers (${{ matrix.sanitizer }})
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +71,9 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_TESTING=ON \
+            -DBUILD_BENCHMARKS=OFF \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
             -DENABLE_ASAN=${{ matrix.sanitizer == 'asan' && 'ON' || 'OFF' }} \
             -DENABLE_UBSAN=${{ matrix.sanitizer == 'ubsan' && 'ON' || 'OFF' }} \
             -DENABLE_TSAN=${{ matrix.sanitizer == 'tsan' && 'ON' || 'OFF' }}
@@ -78,11 +83,7 @@ jobs:
 
       - name: Run tests with sanitizer
         run: |
-          if [ "${{ matrix.sanitizer }}" = "tsan" ]; then
-            setarch "$(uname -m)" -R ctest --test-dir build --output-on-failure --timeout 300
-          else
-            ctest --test-dir build --output-on-failure --timeout 300
-          fi
+          ctest --test-dir build --output-on-failure --timeout 300
         env:
           ASAN_OPTIONS: abort_on_error=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
@@ -107,9 +108,24 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --timeout 120
 
+      - name: Load coverage thresholds
+        run: |
+          python3 - <<'PY'
+          import os
+          import json
+          cfg = json.load(open("config/coverage_thresholds.json", "r", encoding="utf-8"))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"COVERAGE_MIN_LINE={int(cfg['line_min'])}\n")
+              env.write(f"COVERAGE_MIN_BRANCH={int(cfg['branch_min'])}\n")
+          PY
+
       - name: Generate coverage report
         run: |
-          gcovr --root . --exclude tests --exclude build/_deps \
+          gcovr --root . --object-directory build --exclude tests --exclude build/_deps \
+            --merge-mode-functions=merge-use-line-min \
+            --print-summary \
+            --fail-under-line ${COVERAGE_MIN_LINE} \
+            --fail-under-branch ${COVERAGE_MIN_BRANCH} \
             --xml coverage.xml \
             --html coverage.html \
             --html-details
@@ -199,6 +215,7 @@ jobs:
             --suppress=missingIncludeSystem \
             --suppress=unmatchedSuppression \
             --suppress=syntaxError:tests/test_commands.cpp \
+            --suppress=syntaxError:tests/test_tracing.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
             --suppress=knownConditionTrueFalse \
@@ -206,6 +223,92 @@ jobs:
             --suppress=checkersReport \
             -I src \
             src/ tests/
+
+  required-checks-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-yaml
+
+      - name: Validate required check definitions
+        run: |
+          python3 scripts/validate_required_checks.py \
+            --required config/required_checks.txt \
+            --required config/required_checks_release.txt
+
+  label-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-yaml
+
+      - name: Validate label contract
+        run: python3 scripts/validate_label_contract.py
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build-clang-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
+
+      - name: Run clang-tidy on changed files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          DIFF_RANGE: ${{ github.event_name == 'push' && format('{0}...{1}', github.event.before, github.sha) || '' }}
+          BUILD_DIR: build-clang-tidy
+        run: scripts/run_clang_tidy_changed.sh
+
+  smoke-fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build
+
+      - name: Configure with fuzzing
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_FUZZING=ON -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
+
+      - name: Build fuzz targets
+        run: cmake --build build-fuzz --target fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event
+
+      - name: Smoke fuzz (60s per target)
+        run: |
+          for target in fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event; do
+            echo "Fuzzing ${target}..."
+            ./build-fuzz/${target} -max_total_time=60 -print_final_stats=1
+          done
+
+      - name: Upload fuzz crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            crash-*
+            build-fuzz/crash-*
 
   sbom:
     runs-on: ubuntu-24.04

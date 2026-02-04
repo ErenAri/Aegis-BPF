@@ -72,7 +72,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -138,7 +140,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -196,7 +200,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -254,7 +260,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -312,7 +320,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -396,7 +406,10 @@
       "id": 7,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -488,7 +501,10 @@
       "id": 8,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": [
+            "mean",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -584,7 +600,9 @@
         "footer": {
           "countRows": false,
           "fields": "",
-          "reducer": ["sum"],
+          "reducer": [
+            "sum"
+          ],
           "show": false
         },
         "showHeader": true,
@@ -602,14 +620,14 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "topk(10, aegisbpf_blocks_by_cgroup_total{instance=~\"$instance\"})",
+          "expr": "aegisbpf_net_blocks_total{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Top 10 Blocked Cgroups",
+      "title": "Network Blocks by Direction",
       "transformations": [
         {
           "id": "organize",
@@ -617,15 +635,13 @@
             "excludeByName": {
               "Time": true,
               "__name__": true,
-              "cgid": false,
               "instance": true,
               "job": true
             },
             "indexByName": {},
             "renameByName": {
               "Value": "Blocks",
-              "cgroup_path": "Cgroup Path",
-              "cgid": "Cgroup ID"
+              "type": "Direction"
             }
           }
         }
@@ -690,7 +706,9 @@
         "footer": {
           "countRows": false,
           "fields": "",
-          "reducer": ["sum"],
+          "reducer": [
+            "sum"
+          ],
           "show": false
         },
         "showHeader": true,
@@ -708,14 +726,14 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "topk(10, aegisbpf_blocks_by_path_total{instance=~\"$instance\"})",
+          "expr": "aegisbpf_net_rules_total{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Top 10 Blocked Paths",
+      "title": "Network Rules by Type",
       "transformations": [
         {
           "id": "organize",
@@ -728,8 +746,8 @@
             },
             "indexByName": {},
             "renameByName": {
-              "Value": "Blocks",
-              "path": "Path"
+              "Value": "Rules",
+              "type": "Rule Type"
             }
           }
         }
@@ -816,19 +834,23 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "topk(5, rate(aegisbpf_blocks_by_cgroup_total{instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{ cgroup_path }}",
+          "expr": "rate(aegisbpf_blocks_total{instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
-      "title": "Block Rate by Cgroup (Top 5)",
+      "title": "Total Block Rate",
       "type": "timeseries"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["aegisbpf", "security", "ebpf"],
+  "tags": [
+    "aegisbpf",
+    "security",
+    "ebpf"
+  ],
   "templating": {
     "list": [
       {

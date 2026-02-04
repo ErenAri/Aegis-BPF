@@ -77,6 +77,7 @@ void journal_send_exec(const ExecEvent& ev, const std::string& payload, const st
         "AEGIS_PPID=%u", ev.ppid,
         "AEGIS_START_TIME=%llu", static_cast<unsigned long long>(ev.start_time),
         "AEGIS_EXEC_ID=%s", exec_id.c_str(),
+        "AEGIS_TRACE_ID=%s", exec_id.c_str(),
         "AEGIS_CGID=%llu", static_cast<unsigned long long>(ev.cgid),
         "AEGIS_CGROUP_PATH=%s", cgpath.c_str(),
         "AEGIS_COMM=%s", comm.c_str(),
@@ -98,8 +99,10 @@ void journal_send_block(const BlockEvent& ev, const std::string& payload, const 
         "AEGIS_PPID=%u", ev.ppid,
         "AEGIS_START_TIME=%llu", static_cast<unsigned long long>(ev.start_time),
         "AEGIS_EXEC_ID=%s", exec_id.c_str(),
+        "AEGIS_TRACE_ID=%s", exec_id.c_str(),
         "AEGIS_PARENT_START_TIME=%llu", static_cast<unsigned long long>(ev.parent_start_time),
         "AEGIS_PARENT_EXEC_ID=%s", parent_exec_id.c_str(),
+        "AEGIS_PARENT_TRACE_ID=%s", parent_exec_id.c_str(),
         "AEGIS_CGID=%llu", static_cast<unsigned long long>(ev.cgid),
         "AEGIS_CGROUP_PATH=%s", cgpath.c_str(),
         "AEGIS_INO=%llu", static_cast<unsigned long long>(ev.ino),
@@ -133,8 +136,10 @@ void journal_send_net_block(const NetBlockEvent& ev, const std::string& payload,
         "AEGIS_PPID=%u", ev.ppid,
         "AEGIS_START_TIME=%llu", static_cast<unsigned long long>(ev.start_time),
         "AEGIS_EXEC_ID=%s", exec_id.c_str(),
+        "AEGIS_TRACE_ID=%s", exec_id.c_str(),
         "AEGIS_PARENT_START_TIME=%llu", static_cast<unsigned long long>(ev.parent_start_time),
         "AEGIS_PARENT_EXEC_ID=%s", parent_exec_id.c_str(),
+        "AEGIS_PARENT_TRACE_ID=%s", parent_exec_id.c_str(),
         "AEGIS_CGID=%llu", static_cast<unsigned long long>(ev.cgid),
         "AEGIS_CGROUP_PATH=%s", cgpath.c_str(),
         "AEGIS_FAMILY=%s", family.c_str(),
@@ -164,6 +169,7 @@ void print_exec_event(const ExecEvent& ev)
         << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
         oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
     }
     oss << ",\"cgid\":" << ev.cgid
         << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\""
@@ -196,10 +202,12 @@ void print_block_event(const BlockEvent& ev)
         << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
         oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
     }
     oss << ",\"parent_start_time\":" << ev.parent_start_time;
     if (!parent_exec_id.empty()) {
         oss << ",\"parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+        oss << ",\"parent_trace_id\":\"" << json_escape(parent_exec_id) << "\"";
     }
     oss << ",\"cgid\":" << ev.cgid
         << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"";
@@ -276,10 +284,12 @@ void print_net_block_event(const NetBlockEvent& ev)
         << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
         oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
     }
     oss << ",\"parent_start_time\":" << ev.parent_start_time;
     if (!parent_exec_id.empty()) {
         oss << ",\"parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+        oss << ",\"parent_trace_id\":\"" << json_escape(parent_exec_id) << "\"";
     }
     oss << ",\"cgid\":" << ev.cgid
         << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"";

@@ -1,0 +1,63 @@
+name: Check Vendored Dependencies
+
+on:
+  schedule:
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-vendored:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run vendored dependency audit
+        id: audit
+        continue-on-error: true
+        run: scripts/check_vendored_dependencies.sh | tee vendored-check.log
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendored-dependency-audit
+          path: vendored-check.log
+
+      - name: Open issue on failure
+        if: steps.audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Vendored dependency review required';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security,dependencies',
+              per_page: 100,
+            });
+            const existing = issues.find((i) => i.title === title);
+            if (existing) {
+              core.info(`Existing open issue found: #${existing.number}`);
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              labels: ['security', 'dependencies'],
+              body: [
+                'Automated vendored dependency audit failed.',
+                '',
+                'Please review the `vendored-dependency-audit` artifact',
+                'from the failed workflow run and update vendored metadata.',
+              ].join('\n'),
+            });
+
+      - name: Fail workflow when audit fails
+        if: steps.audit.outcome == 'failure'
+        run: exit 1

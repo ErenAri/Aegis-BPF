@@ -8,6 +8,7 @@ on:
 
 jobs:
   readiness:
+    name: readiness (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:

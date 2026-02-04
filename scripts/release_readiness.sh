@@ -9,6 +9,7 @@ echo "[1/7] Configure release-readiness build"
 cmake -S "${ROOT_DIR}" -B "${ROOT_DIR}/${BUILD_DIR}" -G "${CMAKE_GENERATOR}" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DBUILD_TESTING=ON \
+  -DBUILD_BENCHMARKS=OFF \
   -DSKIP_BPF_BUILD=ON
 
 echo "[2/7] Build"

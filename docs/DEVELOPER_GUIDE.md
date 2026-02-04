@@ -235,6 +235,43 @@ types.hpp         # Base types (no dependencies)
   - Private members: `member_name_`
 - **Formatting:** Use clang-format with project `.clang-format`
 
+### Static Analysis
+
+Run static analysis locally before opening a PR:
+
+```bash
+# clang-format
+find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
+
+# cppcheck
+cppcheck --std=c++20 --enable=all --error-exitcode=1 --inline-suppr \
+  --suppress=missingIncludeSystem \
+  --suppress=unmatchedSuppression \
+  --suppress=syntaxError:tests/test_commands.cpp \
+  --suppress=syntaxError:tests/test_tracing.cpp \
+  --suppress=checkersReport \
+  -I src \
+  src/ tests/
+
+# clang-tidy (changed C++ files only)
+cmake -S . -B build-clang-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
+BASE_REF=main BUILD_DIR=build-clang-tidy scripts/run_clang_tidy_changed.sh
+
+# semgrep (changed files only)
+BASE_REF=main scripts/run_semgrep_changed.sh
+
+# vendored dependency metadata/audit (TweetNaCl)
+scripts/check_vendored_dependencies.sh
+
+# required status-check definitions map to workflow job contexts
+python3 scripts/validate_required_checks.py \
+  --required config/required_checks.txt \
+  --required config/required_checks_release.txt
+
+# labels referenced by workflows/templates are defined in repo_labels.json
+python3 scripts/validate_label_contract.py
+```
+
 ### Error Handling
 
 Always use `Result<T>` for functions that can fail:
@@ -279,6 +316,24 @@ logger().log(SLOG_ERROR("BPF load failed")
 // Bad: Unstructured message
 logger().log(SLOG_INFO("Policy " + path + " applied with " + std::to_string(count) + " rules"));
 ```
+
+For policy lifecycle troubleshooting, you can enable OpenTelemetry-style span
+logs (start/end with duration and status):
+
+```bash
+AEGIS_OTEL_SPANS=1 ./build/aegisbpf policy apply config/policy.example
+```
+
+Span hierarchy is carried through thread-local trace/span context so nested
+operations can be correlated in logs:
+
+- CLI spans: `cli.policy_*`, `cli.network_*`, `cli.block_*`, `cli.metrics`, `cli.health`
+- Daemon spans: `daemon.run`, `daemon.load_bpf`, `daemon.attach_programs`, `daemon.event_loop`
+- BPF spans: `bpf.load`, `bpf.pin_maps`, `bpf.attach_all`
+
+Each span emits:
+- `otel_span_start` with `trace_id`, `span_id`, optional `parent_span_id`
+- `otel_span_end` with `duration_ms` and `status` (`ok` or `error`)
 
 ### Memory Safety
 
@@ -685,3 +740,4 @@ git push origin v0.2.0
 - [API_REFERENCE.md](API_REFERENCE.md) - API documentation
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
+- [VENDORED_DEPENDENCIES.md](VENDORED_DEPENDENCIES.md) - Vendored dependency tracking

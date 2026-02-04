@@ -1,0 +1,54 @@
+name: Bootstrap Repo Controls
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply changes (false = dry-run)"
+        required: true
+        default: false
+        type: boolean
+      main_branch:
+        description: "Main branch name"
+        required: true
+        default: "main"
+        type: string
+      release_prefix:
+        description: "Release branch prefix"
+        required: true
+        default: "release/"
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select token
+        run: |
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            if [ -z "${{ secrets.BRANCH_PROTECTION_TOKEN }}" ]; then
+              echo "BRANCH_PROTECTION_TOKEN is required for apply mode." >&2
+              exit 1
+            fi
+            echo "GH_TOKEN=${{ secrets.BRANCH_PROTECTION_TOKEN }}" >> "$GITHUB_ENV"
+          else
+            echo "GH_TOKEN=${{ github.token }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run bootstrap (dry-run or apply)
+        env:
+          REPO: ${{ github.repository }}
+          MAIN_BRANCH: ${{ inputs.main_branch }}
+          RELEASE_PREFIX: ${{ inputs.release_prefix }}
+        run: |
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            scripts/bootstrap_repo_controls.py --repo "${REPO}" --main-branch "${MAIN_BRANCH}" --release-prefix "${RELEASE_PREFIX}" --apply
+          else
+            scripts/bootstrap_repo_controls.py --repo "${REPO}" --main-branch "${MAIN_BRANCH}" --release-prefix "${RELEASE_PREFIX}"
+          fi

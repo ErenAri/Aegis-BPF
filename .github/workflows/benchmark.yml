@@ -1,0 +1,69 @@
+name: Benchmark
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    name: benchmark
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build
+
+      - name: Configure
+        run: cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
+
+      - name: Build benchmarks
+        run: cmake --build build-bench --target aegisbpf_bench
+
+      - name: Run benchmarks
+        run: |
+          ./build-bench/aegisbpf_bench \
+            --benchmark_format=json \
+            --benchmark_out=benchmark.json \
+            --benchmark_out_format=json
+
+      - name: Check benchmark history branch
+        id: benchmark-history
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Store benchmark result
+        if: steps.benchmark-history.outputs.exists == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: googlecpp
+          output-file-path: benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: '110%'
+          fail-on-alert: true
+          comment-on-alert: true
+          summary-always: true
+
+      - name: Upload benchmark artifact (bootstrap)
+        if: steps.benchmark-history.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-result
+          path: benchmark.json
+
+      - name: Warn about missing benchmark history branch
+        if: steps.benchmark-history.outputs.exists != 'true'
+        run: |
+          echo "::warning::gh-pages branch is missing. Benchmark history comparison is skipped until gh-pages is created."

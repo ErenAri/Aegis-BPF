@@ -21,7 +21,8 @@ void report_policy_issues(const PolicyIssues& issues);
 // Policy commands
 Result<void> policy_lint(const std::string& path);
 Result<void> policy_apply(const std::string& path, bool reset, const std::string& cli_hash,
-                          const std::string& cli_hash_file, bool rollback_on_failure);
+                          const std::string& cli_hash_file, bool rollback_on_failure,
+                          const std::string& trace_id_override = "");
 Result<void> policy_export(const std::string& path);
 Result<void> policy_show();
 Result<void> policy_rollback();

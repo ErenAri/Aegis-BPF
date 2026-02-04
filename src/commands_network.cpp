@@ -8,6 +8,7 @@
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -17,6 +18,12 @@
 namespace aegis {
 
 namespace {
+
+int fail_span(ScopedSpan& span, const std::string& message)
+{
+    span.fail(message);
+    return 1;
+}
 
 bool parse_protocol(const std::string& protocol_str, uint8_t& protocol)
 {
@@ -54,11 +61,14 @@ bool parse_direction(const std::string& direction_str, uint8_t& direction)
 
 int cmd_network_deny_add_ip(const std::string& ip)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-add-ip");
+    ScopedSpan span("cli.network_deny_add_ip", trace_id);
+
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -66,7 +76,7 @@ int cmd_network_deny_add_ip(const std::string& ip)
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto add_result = add_deny_ip(state, ip);
@@ -74,7 +84,7 @@ int cmd_network_deny_add_ip(const std::string& ip)
         logger().log(SLOG_ERROR("Failed to add deny IP")
                          .field("ip", ip)
                          .field("error", add_result.error().to_string()));
-        return 1;
+        return fail_span(span, add_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Added deny IP").field("ip", ip));
@@ -83,11 +93,14 @@ int cmd_network_deny_add_ip(const std::string& ip)
 
 int cmd_network_deny_add_cidr(const std::string& cidr)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-add-cidr");
+    ScopedSpan span("cli.network_deny_add_cidr", trace_id);
+
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -95,7 +108,7 @@ int cmd_network_deny_add_cidr(const std::string& cidr)
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto add_result = add_deny_cidr(state, cidr);
@@ -103,7 +116,7 @@ int cmd_network_deny_add_cidr(const std::string& cidr)
         logger().log(SLOG_ERROR("Failed to add deny CIDR")
                          .field("cidr", cidr)
                          .field("error", add_result.error().to_string()));
-        return 1;
+        return fail_span(span, add_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Added deny CIDR").field("cidr", cidr));
@@ -112,17 +125,20 @@ int cmd_network_deny_add_cidr(const std::string& cidr)
 
 int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, const std::string& direction_str)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-add-port");
+    ScopedSpan span("cli.network_deny_add_port", trace_id);
+
     uint8_t protocol = 0;
-    if (!parse_protocol(protocol_str, protocol)) return 1;
+    if (!parse_protocol(protocol_str, protocol)) return fail_span(span, "Invalid protocol");
 
     uint8_t direction = 2;
-    if (!parse_direction(direction_str, direction)) return 1;
+    if (!parse_direction(direction_str, direction)) return fail_span(span, "Invalid direction");
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -130,7 +146,7 @@ int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, co
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto add_result = add_deny_port(state, port, protocol, direction);
@@ -138,7 +154,7 @@ int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, co
         logger().log(SLOG_ERROR("Failed to add deny port")
                          .field("port", static_cast<int64_t>(port))
                          .field("error", add_result.error().to_string()));
-        return 1;
+        return fail_span(span, add_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Added deny port")
@@ -150,11 +166,14 @@ int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, co
 
 int cmd_network_deny_del_ip(const std::string& ip)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-del-ip");
+    ScopedSpan span("cli.network_deny_del_ip", trace_id);
+
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -162,7 +181,7 @@ int cmd_network_deny_del_ip(const std::string& ip)
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto del_result = del_deny_ip(state, ip);
@@ -170,7 +189,7 @@ int cmd_network_deny_del_ip(const std::string& ip)
         logger().log(SLOG_ERROR("Failed to remove deny IP")
                          .field("ip", ip)
                          .field("error", del_result.error().to_string()));
-        return 1;
+        return fail_span(span, del_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Removed deny IP").field("ip", ip));
@@ -179,11 +198,14 @@ int cmd_network_deny_del_ip(const std::string& ip)
 
 int cmd_network_deny_del_cidr(const std::string& cidr)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-del-cidr");
+    ScopedSpan span("cli.network_deny_del_cidr", trace_id);
+
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -191,7 +213,7 @@ int cmd_network_deny_del_cidr(const std::string& cidr)
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto del_result = del_deny_cidr(state, cidr);
@@ -199,7 +221,7 @@ int cmd_network_deny_del_cidr(const std::string& cidr)
         logger().log(SLOG_ERROR("Failed to remove deny CIDR")
                          .field("cidr", cidr)
                          .field("error", del_result.error().to_string()));
-        return 1;
+        return fail_span(span, del_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Removed deny CIDR").field("cidr", cidr));
@@ -208,17 +230,20 @@ int cmd_network_deny_del_cidr(const std::string& cidr)
 
 int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, const std::string& direction_str)
 {
+    const std::string trace_id = make_span_id("trace-net-deny-del-port");
+    ScopedSpan span("cli.network_deny_del_port", trace_id);
+
     uint8_t protocol = 0;
-    if (!parse_protocol(protocol_str, protocol)) return 1;
+    if (!parse_protocol(protocol_str, protocol)) return fail_span(span, "Invalid protocol");
 
     uint8_t direction = 2;
-    if (!parse_direction(direction_str, direction)) return 1;
+    if (!parse_direction(direction_str, direction)) return fail_span(span, "Invalid direction");
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
                          .field("error", rlimit_result.error().to_string()));
-        return 1;
+        return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
@@ -226,7 +251,7 @@ int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, co
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto del_result = del_deny_port(state, port, protocol, direction);
@@ -234,7 +259,7 @@ int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, co
         logger().log(SLOG_ERROR("Failed to remove deny port")
                          .field("port", static_cast<int64_t>(port))
                          .field("error", del_result.error().to_string()));
-        return 1;
+        return fail_span(span, del_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Removed deny port").field("port", static_cast<int64_t>(port)));
@@ -243,12 +268,15 @@ int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, co
 
 int cmd_network_deny_list()
 {
+    const std::string trace_id = make_span_id("trace-net-deny-list");
+    ScopedSpan span("cli.network_deny_list", trace_id);
+
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     std::cout << "Denied IPs:" << std::endl;
@@ -303,12 +331,15 @@ int cmd_network_deny_list()
 
 int cmd_network_deny_clear()
 {
+    const std::string trace_id = make_span_id("trace-net-deny-clear");
+    ScopedSpan span("cli.network_deny_clear", trace_id);
+
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     if (state.deny_ipv4) {
@@ -333,19 +364,22 @@ int cmd_network_deny_clear()
 
 int cmd_network_stats()
 {
+    const std::string trace_id = make_span_id("trace-net-stats");
+    ScopedSpan span("cli.network_stats", trace_id);
+
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
         logger().log(SLOG_ERROR("Failed to load BPF object")
                          .field("error", load_result.error().to_string()));
-        return 1;
+        return fail_span(span, load_result.error().to_string());
     }
 
     auto stats_result = read_net_block_stats(state);
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read network stats")
                          .field("error", stats_result.error().to_string()));
-        return 1;
+        return fail_span(span, stats_result.error().to_string());
     }
 
     const auto& stats = *stats_result;

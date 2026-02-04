@@ -6,6 +6,8 @@
 
 namespace aegis {
 
+class BpfState;
+
 // LSM hook mode enumeration
 enum class LsmHookMode {
     FileOpen,

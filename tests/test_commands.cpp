@@ -4,6 +4,7 @@
 
 #include "commands.hpp"
 #include "crypto.hpp"
+#include "logging.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -67,6 +68,26 @@ class ScopedEnvVar {
     const char* key_;
     bool had_previous_ = false;
     std::string previous_;
+};
+
+class ScopedJsonLogCapture {
+  public:
+    ScopedJsonLogCapture()
+    {
+        logger().set_output(&output_);
+        logger().set_json_format(true);
+    }
+
+    ~ScopedJsonLogCapture()
+    {
+        logger().set_output(&std::cerr);
+        logger().set_json_format(false);
+    }
+
+    [[nodiscard]] std::string str() const { return output_.str(); }
+
+  private:
+    std::ostringstream output_;
 };
 
 std::string secret_key_hex(const SecretKey& key)
@@ -225,6 +246,99 @@ TEST(CmdKeysAddTest, RejectsWorldWritableKeyFile)
     }
     ASSERT_EQ(::chmod(key_path.c_str(), 0666), 0);
     EXPECT_EQ(cmd_keys_add(key_path.string()), 1);
+}
+
+TEST(CmdTracingTest, PolicySignEmitsRootSpanOnSuccess)
+{
+    auto keypair_result = generate_keypair();
+    ASSERT_TRUE(keypair_result);
+    const SecretKey secret_key = keypair_result->second;
+
+    TempDir temp_dir;
+    auto policy_path = temp_dir.path() / "policy.conf";
+    auto key_path = temp_dir.path() / "private.key";
+    auto output_path = temp_dir.path() / "policy.signed";
+
+    {
+        std::ofstream policy_out(policy_path);
+        ASSERT_TRUE(policy_out.is_open());
+        policy_out << "version=1\n";
+    }
+    ASSERT_EQ(::chmod(policy_path.c_str(), 0644), 0);
+
+    {
+        std::ofstream key_out(key_path);
+        ASSERT_TRUE(key_out.is_open());
+        key_out << secret_key_hex(secret_key) << "\n";
+    }
+    ASSERT_EQ(::chmod(key_path.c_str(), 0644), 0);
+
+    ScopedEnvVar spans_env("AEGIS_OTEL_SPANS", "1");
+    ScopedJsonLogCapture logs;
+
+    EXPECT_EQ(cmd_policy_sign(policy_path.string(), key_path.string(), output_path.string()), 0);
+
+    const std::string log = logs.str();
+    EXPECT_NE(log.find("\"message\":\"otel_span_start\""), std::string::npos);
+    EXPECT_NE(log.find("\"message\":\"otel_span_end\""), std::string::npos);
+    EXPECT_NE(log.find("\"span_name\":\"cli.policy_sign\""), std::string::npos);
+    EXPECT_NE(log.find("\"status\":\"ok\""), std::string::npos);
+}
+
+TEST(CmdTracingTest, PolicySignMarksSpanErrorOnFailure)
+{
+    TempDir temp_dir;
+    auto policy_path = temp_dir.path() / "policy.conf";
+    auto key_path = temp_dir.path() / "private.key";
+    auto output_path = temp_dir.path() / "policy.signed";
+
+    {
+        std::ofstream policy_out(policy_path);
+        ASSERT_TRUE(policy_out.is_open());
+        policy_out << "version=1\n";
+    }
+    ASSERT_EQ(::chmod(policy_path.c_str(), 0644), 0);
+
+    {
+        std::ofstream key_out(key_path);
+        ASSERT_TRUE(key_out.is_open());
+        key_out << std::string(128, 'g') << "\n";
+    }
+    ASSERT_EQ(::chmod(key_path.c_str(), 0644), 0);
+
+    ScopedEnvVar spans_env("AEGIS_OTEL_SPANS", "1");
+    ScopedJsonLogCapture logs;
+
+    EXPECT_EQ(cmd_policy_sign(policy_path.string(), key_path.string(), output_path.string()), 1);
+
+    const std::string log = logs.str();
+    EXPECT_NE(log.find("\"span_name\":\"cli.policy_sign\""), std::string::npos);
+    EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
+}
+
+TEST(CmdTracingTest, NetworkDenyDelPortMarksSpanErrorOnInvalidProtocol)
+{
+    ScopedEnvVar spans_env("AEGIS_OTEL_SPANS", "1");
+    ScopedJsonLogCapture logs;
+
+    EXPECT_EQ(cmd_network_deny_del_port(443, "invalid", "both"), 1);
+
+    const std::string log = logs.str();
+    EXPECT_NE(log.find("\"span_name\":\"cli.network_deny_del_port\""), std::string::npos);
+    EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
+}
+
+TEST(CmdTracingTest, StatsCommandEmitsNestedLoadBpfSpan)
+{
+    ScopedEnvVar spans_env("AEGIS_OTEL_SPANS", "1");
+    ScopedJsonLogCapture logs;
+
+    (void)cmd_stats(false);
+
+    const std::string log = logs.str();
+    EXPECT_NE(log.find("\"span_name\":\"cli.stats\""), std::string::npos);
+    EXPECT_NE(log.find("\"span_name\":\"bpf.load\""), std::string::npos);
+    EXPECT_NE(log.find("\"parent_span_id\":\"span-"), std::string::npos);
 }
 
 }  // namespace

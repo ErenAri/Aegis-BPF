@@ -19,6 +19,7 @@ option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(ENABLE_COVERAGE "Enable code coverage" OFF)
 option(BUILD_TESTING "Build tests" ON)
+option(BUILD_BENCHMARKS "Build benchmark targets when tests are enabled" ON)
 option(ENABLE_FUZZING "Enable fuzzing targets" OFF)
 option(SKIP_BPF_BUILD "Skip BPF object compilation (for cross-compilation)" OFF)
 
@@ -177,6 +178,7 @@ set(AEGIS_HEADERS
     src/commands_policy.hpp
     src/commands.hpp
     src/daemon.hpp
+    src/daemon_test_hooks.hpp
     src/bpf_ops.hpp
     src/crypto.hpp
     src/events.hpp
@@ -187,6 +189,7 @@ set(AEGIS_HEADERS
     src/result.hpp
     src/seccomp.hpp
     src/sha256.hpp
+    src/tracing.hpp
     src/tweetnacl.h
     src/types.hpp
     src/utils.hpp
@@ -280,6 +283,7 @@ if(BUILD_TESTING)
         tests/test_sha256.cpp
         tests/test_policy.cpp
         tests/test_network.cpp
+        tests/test_tracing.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})
@@ -291,7 +295,7 @@ if(BUILD_TESTING)
     target_include_directories(aegisbpf_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
     include(GoogleTest)
-    gtest_discover_tests(aegisbpf_test)
+    gtest_discover_tests(aegisbpf_test DISCOVERY_MODE PRE_TEST)
 
     # E2E bypass tests (require root)
     add_executable(aegisbpf_bypass_test tests/e2e/test_bypasses.cpp)
@@ -303,20 +307,22 @@ if(BUILD_TESTING)
     target_include_directories(aegisbpf_bypass_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
     # Benchmark tests (optional, for performance regression)
-    FetchContent_Declare(
-        googlebenchmark
-        URL https://github.com/google/benchmark/archive/refs/tags/v1.8.3.tar.gz
-        URL_HASH SHA256=6bc180a57d23d4d9515519f92b0c83d61b05b5bab188961f36ac7b06b0d9e9ce
-    )
-    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googlebenchmark)
+    if(BUILD_BENCHMARKS)
+        FetchContent_Declare(
+            googlebenchmark
+            URL https://github.com/google/benchmark/archive/refs/tags/v1.8.3.tar.gz
+            URL_HASH SHA256=6bc180a57d23d4d9515519f92b0c83d61b05b5bab188961f36ac7b06b0d9e9ce
+        )
+        set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googlebenchmark)
 
-    add_executable(aegisbpf_bench tests/bench_policy.cpp)
-    target_link_libraries(aegisbpf_bench PRIVATE
-        aegisbpf_lib
-        benchmark::benchmark
-    )
-    target_include_directories(aegisbpf_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        add_executable(aegisbpf_bench tests/bench_policy.cpp)
+        target_link_libraries(aegisbpf_bench PRIVATE
+            aegisbpf_lib
+            benchmark::benchmark
+        )
+        target_include_directories(aegisbpf_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    endif()
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(
@@ -360,6 +366,12 @@ if(BUILD_TESTING)
         NAME support_policy_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_support_policy.py
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/SUPPORT_POLICY.md
+    )
+
+    add_test(
+        NAME runbooks_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_runbooks_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/runbooks
     )
 
     # CLI parser regressions (should fail before any privileged/BPF operations)

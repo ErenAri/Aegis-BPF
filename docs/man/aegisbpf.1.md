@@ -118,35 +118,44 @@ Manage policy files.
 
 Display agent statistics.
 
-**aegisbpf stats**
+**aegisbpf stats** [**--detailed**]
 
 Shows:
 - Total block count
 - Ring buffer drop count
 
+**--detailed**
+:   Include high-cardinality debugging breakdowns (paths, cgroups, IPs, ports).
+
 ### metrics
 
 Output Prometheus-format metrics.
 
-**aegisbpf metrics** [**--out** *PATH*]
+**aegisbpf metrics** [**--out** *PATH*] [**--detailed**]
 
 **--out** *PATH*
 :   Write metrics to file instead of stdout. Use "-" for stdout (default).
 
+**--detailed**
+:   Include high-cardinality metrics intended for short-lived debugging sessions.
+    Default output is cardinality-safe for Prometheus scraping.
+
 Exported metrics:
 - `aegisbpf_blocks_total`
 - `aegisbpf_ringbuf_drops_total`
-- `aegisbpf_blocks_by_cgroup_total{cgroup_id,cgroup_path}`
-- `aegisbpf_blocks_by_inode_total{inode}`
-- `aegisbpf_blocks_by_path_total{path}`
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`
 - `aegisbpf_net_blocks_total{type}`
 - `aegisbpf_net_ringbuf_drops_total`
+- `aegisbpf_net_rules_total{type}`
+
+High-cardinality metrics (only with **--detailed**):
+- `aegisbpf_blocks_by_cgroup_total{cgroup_id,cgroup_path}`
+- `aegisbpf_blocks_by_inode_total{inode}`
+- `aegisbpf_blocks_by_path_total{path}`
 - `aegisbpf_net_blocks_by_ip_total{ip}`
 - `aegisbpf_net_blocks_by_port_total{port}`
-- `aegisbpf_net_rules_total{type}`
 
 ### health
 
@@ -211,6 +220,10 @@ cgid:123456
 
 **AEGIS_POLICY_SHA256_FILE**
 :   Path to SHA256 checksum file for `policy apply` when hash flags are not passed.
+
+**AEGIS_OTEL_SPANS**
+:   Enable OpenTelemetry-style span logs for policy lifecycle operations
+    (`1`, `true`, `yes`, `on`).
 
 ## FILES
 

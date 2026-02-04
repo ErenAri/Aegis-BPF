@@ -2,6 +2,7 @@
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "sha256.hpp"
+#include "tracing.hpp"
 #include "utils.hpp"
 
 #include <atomic>
@@ -233,56 +234,100 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
 
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 {
-    std::string obj_path = resolve_bpf_obj_path();
+    const std::string inherited_trace_id = current_trace_id();
+    const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
+    ScopedSpan root_span("bpf.load", trace_id, current_span_id());
 
-    // Verify BPF object integrity before loading
-    TRY(verify_bpf_integrity(obj_path));
+    auto fail = [&root_span](const Error& error) -> Result<void> {
+        root_span.fail(error.to_string());
+        return error;
+    };
 
-    state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
-    if (!state.obj) {
-        return Error::bpf_error(-errno, "Failed to open BPF object file");
+    std::string obj_path;
+    {
+        ScopedSpan span("bpf.resolve_obj_path", trace_id, root_span.span_id());
+        obj_path = resolve_bpf_obj_path();
     }
 
-    state.events = bpf_object__find_map_by_name(state.obj, "events");
-    state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
-    state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
-    state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
-    state.block_stats = bpf_object__find_map_by_name(state.obj, "block_stats");
-    state.deny_cgroup_stats = bpf_object__find_map_by_name(state.obj, "deny_cgroup_stats");
-    state.deny_inode_stats = bpf_object__find_map_by_name(state.obj, "deny_inode_stats");
-    state.deny_path_stats = bpf_object__find_map_by_name(state.obj, "deny_path_stats");
-    state.agent_meta = bpf_object__find_map_by_name(state.obj, "agent_meta_map");
-    state.config_map = bpf_object__find_map_by_name(state.obj, "agent_config_map");
-    state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
-
-    // Network maps (optional)
-    state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
-    state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
-    state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
-    state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
-    state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
-    state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
-    state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
-    state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
-
-    if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup ||
-        !state.block_stats || !state.deny_cgroup_stats || !state.deny_inode_stats ||
-        !state.deny_path_stats || !state.agent_meta || !state.config_map ||
-        !state.survival_allowlist) {
-        cleanup_bpf(state);
-        return Error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
+    {
+        ScopedSpan span("bpf.verify_integrity", trace_id, root_span.span_id());
+        auto verify_result = verify_bpf_integrity(obj_path);
+        if (!verify_result) {
+            span.fail(verify_result.error().to_string());
+            return fail(verify_result.error());
+        }
     }
 
-    uint32_t ringbuf_bytes = g_ringbuf_bytes.load(std::memory_order_relaxed);
-    if (ringbuf_bytes > 0) {
-        int err = bpf_map__set_max_entries(state.events, ringbuf_bytes);
-        if (err) {
+    {
+        ScopedSpan span("bpf.open_object", trace_id, root_span.span_id());
+        state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
+        const int open_err = libbpf_get_error(state.obj);
+        if (open_err) {
+            state.obj = nullptr;
+            Error error = Error::bpf_error(open_err, "Failed to open BPF object file: " + obj_path);
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        if (!state.obj) {
+            Error error(ErrorCode::BpfLoadFailed, "Failed to open BPF object file", obj_path);
+            span.fail(error.to_string());
+            return fail(error);
+        }
+    }
+
+    {
+        ScopedSpan span("bpf.find_maps", trace_id, root_span.span_id());
+
+        state.events = bpf_object__find_map_by_name(state.obj, "events");
+        state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
+        state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
+        state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
+        state.block_stats = bpf_object__find_map_by_name(state.obj, "block_stats");
+        state.deny_cgroup_stats = bpf_object__find_map_by_name(state.obj, "deny_cgroup_stats");
+        state.deny_inode_stats = bpf_object__find_map_by_name(state.obj, "deny_inode_stats");
+        state.deny_path_stats = bpf_object__find_map_by_name(state.obj, "deny_path_stats");
+        state.agent_meta = bpf_object__find_map_by_name(state.obj, "agent_meta_map");
+        state.config_map = bpf_object__find_map_by_name(state.obj, "agent_config_map");
+        state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
+
+        // Network maps (optional)
+        state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
+        state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
+        state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
+        state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
+        state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
+        state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
+        state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
+        state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
+
+        if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup ||
+            !state.block_stats || !state.deny_cgroup_stats || !state.deny_inode_stats ||
+            !state.deny_path_stats || !state.agent_meta || !state.config_map ||
+            !state.survival_allowlist) {
             cleanup_bpf(state);
-            return Error::bpf_error(err, "Failed to set ring buffer size");
+            Error error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
+            span.fail(error.to_string());
+            return fail(error);
+        }
+    }
+
+    {
+        ScopedSpan span("bpf.configure_ringbuf", trace_id, root_span.span_id());
+        uint32_t ringbuf_bytes = g_ringbuf_bytes.load(std::memory_order_relaxed);
+        if (ringbuf_bytes > 0) {
+            int err = bpf_map__set_max_entries(state.events, ringbuf_bytes);
+            if (err) {
+                cleanup_bpf(state);
+                Error error = Error::bpf_error(err, "Failed to set ring buffer size");
+                span.fail(error.to_string());
+                return fail(error);
+            }
         }
     }
 
     if (reuse_pins) {
+        ScopedSpan span("bpf.reuse_pinned_maps", trace_id, root_span.span_id());
+
         auto try_reuse = [&state](bpf_map* map, const char* path, bool& reused) -> Result<void> {
             auto result = reuse_pinned_map(map, path, reused);
             if (!result) {
@@ -314,51 +359,67 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             return {};
         };
 
-        TRY(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused));
-        TRY(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused));
-        TRY(try_reuse(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused));
-        TRY(try_reuse(state.block_stats, kBlockStatsPin, state.block_stats_reused));
-        TRY(try_reuse(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused));
-        TRY(try_reuse(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused));
-        TRY(try_reuse(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused));
-        TRY(try_reuse(state.agent_meta, kAgentMetaPin, state.agent_meta_reused));
-        TRY(try_reuse(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused));
+        auto check = [&span, &fail](const Result<void>& result) -> Result<void> {
+            if (result) {
+                return {};
+            }
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        };
+
+        TRY(check(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
+        TRY(check(try_reuse(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
+        TRY(check(try_reuse(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
+        TRY(check(try_reuse(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));
+        TRY(check(try_reuse(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
+        TRY(check(try_reuse(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
+        TRY(check(try_reuse(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
+        TRY(check(try_reuse(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional - don't fail if not found)
-        TRY(try_reuse_optional(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused));
-        TRY(try_reuse_optional(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused));
-        TRY(try_reuse_optional(state.deny_port, kDenyPortPin, state.deny_port_reused));
-        TRY(try_reuse_optional(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused));
-        TRY(try_reuse_optional(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused));
-        TRY(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused));
-        TRY(try_reuse_optional(state.net_ip_stats, kNetIpStatsPin, state.net_ip_stats_reused));
-        TRY(try_reuse_optional(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused));
+        TRY(check(try_reuse_optional(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused)));
+        TRY(check(try_reuse_optional(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused)));
+        TRY(check(try_reuse_optional(state.deny_port, kDenyPortPin, state.deny_port_reused)));
+        TRY(check(try_reuse_optional(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
+        TRY(check(try_reuse_optional(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused)));
+        TRY(check(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused)));
+        TRY(check(try_reuse_optional(state.net_ip_stats, kNetIpStatsPin, state.net_ip_stats_reused)));
+        TRY(check(try_reuse_optional(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused)));
     }
 
-    if (!kernel_bpf_lsm_enabled()) {
-        bpf_program* lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
-        if (lsm_prog) {
-            bpf_program__set_autoload(lsm_prog, false);
-        }
-        lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
-        if (lsm_prog) {
-            bpf_program__set_autoload(lsm_prog, false);
-        }
-        // Disable network LSM hooks when LSM is not available
-        lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_connect");
-        if (lsm_prog) {
-            bpf_program__set_autoload(lsm_prog, false);
-        }
-        lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
-        if (lsm_prog) {
-            bpf_program__set_autoload(lsm_prog, false);
+    {
+        ScopedSpan span("bpf.configure_autoload", trace_id, root_span.span_id());
+        if (!kernel_bpf_lsm_enabled()) {
+            bpf_program* lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            // Disable network LSM hooks when LSM is not available
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_connect");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
         }
     }
 
-    int err = bpf_object__load(state.obj);
-    if (err) {
-        cleanup_bpf(state);
-        return Error::bpf_error(err, "Failed to load BPF object");
+    {
+        ScopedSpan span("bpf.load_object", trace_id, root_span.span_id());
+        int err = bpf_object__load(state.obj);
+        if (err) {
+            cleanup_bpf(state);
+            Error error = Error::bpf_error(err, "Failed to load BPF object");
+            span.fail(error.to_string());
+            return fail(error);
+        }
     }
 
     bool need_pins = !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused ||
@@ -375,10 +436,13 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                      (state.net_port_stats && !state.net_port_stats_reused);
 
     if (need_pins) {
+        ScopedSpan span("bpf.pin_maps", trace_id, root_span.span_id());
+
         auto pin_result = ensure_pin_dir();
         if (!pin_result) {
             cleanup_bpf(state);
-            return pin_result.error();
+            span.fail(pin_result.error().to_string());
+            return fail(pin_result.error());
         }
 
         auto try_pin = [&state](bpf_map* map, const char* path, bool reused) -> Result<void> {
@@ -392,55 +456,67 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             return {};
         };
 
-        TRY(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused));
-        TRY(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused));
-        TRY(try_pin(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused));
-        TRY(try_pin(state.block_stats, kBlockStatsPin, state.block_stats_reused));
-        TRY(try_pin(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused));
-        TRY(try_pin(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused));
-        TRY(try_pin(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused));
-        TRY(try_pin(state.agent_meta, kAgentMetaPin, state.agent_meta_reused));
-        TRY(try_pin(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused));
+        auto check = [&span, &fail](const Result<void>& result) -> Result<void> {
+            if (result) {
+                return {};
+            }
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        };
+
+        TRY(check(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
+        TRY(check(try_pin(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
+        TRY(check(try_pin(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
+        TRY(check(try_pin(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));
+        TRY(check(try_pin(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
+        TRY(check(try_pin(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
+        TRY(check(try_pin(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
+        TRY(check(try_pin(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional)
         if (state.deny_ipv4) {
-            TRY(try_pin(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused));
+            TRY(check(try_pin(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused)));
         }
         if (state.deny_ipv6) {
-            TRY(try_pin(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused));
+            TRY(check(try_pin(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused)));
         }
         if (state.deny_port) {
-            TRY(try_pin(state.deny_port, kDenyPortPin, state.deny_port_reused));
+            TRY(check(try_pin(state.deny_port, kDenyPortPin, state.deny_port_reused)));
         }
         if (state.deny_cidr_v4) {
-            TRY(try_pin(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused));
+            TRY(check(try_pin(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
         }
         if (state.deny_cidr_v6) {
-            TRY(try_pin(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused));
+            TRY(check(try_pin(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused)));
         }
         if (state.net_block_stats) {
-            TRY(try_pin(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused));
+            TRY(check(try_pin(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused)));
         }
         if (state.net_ip_stats) {
-            TRY(try_pin(state.net_ip_stats, kNetIpStatsPin, state.net_ip_stats_reused));
+            TRY(check(try_pin(state.net_ip_stats, kNetIpStatsPin, state.net_ip_stats_reused)));
         }
         if (state.net_port_stats) {
-            TRY(try_pin(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused));
+            TRY(check(try_pin(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused)));
         }
     }
 
     if (attach_links) {
+        ScopedSpan span("bpf.attach_core_programs", trace_id, root_span.span_id());
         const char* progs[] = {"handle_execve", "handle_file_open", "handle_fork", "handle_exit"};
         for (const char* prog_name : progs) {
             bpf_program* prog = bpf_object__find_program_by_name(state.obj, prog_name);
             if (!prog) {
                 cleanup_bpf(state);
-                return Error(ErrorCode::BpfLoadFailed, std::string("BPF program not found: ") + prog_name);
+                Error error(ErrorCode::BpfLoadFailed, std::string("BPF program not found: ") + prog_name);
+                span.fail(error.to_string());
+                return fail(error);
             }
             auto result = attach_prog(prog, state);
             if (!result) {
                 cleanup_bpf(state);
-                return result.error();
+                span.fail(result.error().to_string());
+                return fail(result.error());
             }
         }
     }
@@ -450,67 +526,125 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
 Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open)
 {
-    bpf_program* prog = bpf_object__find_program_by_name(state.obj, "handle_execve");
-    if (!prog) {
-        return Error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_execve");
+    const std::string inherited_trace_id = current_trace_id();
+    const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
+    ScopedSpan root_span("bpf.attach_all", trace_id, current_span_id());
+
+    auto fail = [&root_span](const Error& error) -> Result<void> {
+        root_span.fail(error.to_string());
+        return error;
+    };
+
+    bpf_program* prog = nullptr;
+
+    {
+        ScopedSpan span("bpf.attach.execve", trace_id, root_span.span_id());
+        prog = bpf_object__find_program_by_name(state.obj, "handle_execve");
+        if (!prog) {
+            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_execve");
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        auto result = attach_prog(prog, state);
+        if (!result) {
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        }
     }
-    TRY(attach_prog(prog, state));
 
     if (lsm_enabled) {
+        ScopedSpan span("bpf.attach.file_hooks_lsm", trace_id, root_span.span_id());
         bool attached = false;
         if (use_inode_permission) {
             prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
             if (prog) {
-                TRY(attach_prog(prog, state));
+                auto result = attach_prog(prog, state);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
                 attached = true;
             }
         }
         if (use_file_open) {
             prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
             if (prog) {
-                TRY(attach_prog(prog, state));
+                auto result = attach_prog(prog, state);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
                 attached = true;
             }
         }
         if (!attached) {
-            return Error(ErrorCode::BpfAttachFailed, "LSM file open programs not found");
+            Error error(ErrorCode::BpfAttachFailed, "LSM file open programs not found");
+            span.fail(error.to_string());
+            return fail(error);
         }
     }
     else {
+        ScopedSpan span("bpf.attach.file_hooks_tracepoint", trace_id, root_span.span_id());
         prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
         if (!prog) {
-            return Error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
+            Error error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
+            span.fail(error.to_string());
+            return fail(error);
         }
-        TRY(attach_prog(prog, state));
+        auto result = attach_prog(prog, state);
+        if (!result) {
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        }
     }
 
-    prog = bpf_object__find_program_by_name(state.obj, "handle_fork");
-    if (!prog) {
-        return Error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_fork");
+    {
+        ScopedSpan span("bpf.attach.fork", trace_id, root_span.span_id());
+        prog = bpf_object__find_program_by_name(state.obj, "handle_fork");
+        if (!prog) {
+            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_fork");
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        auto result = attach_prog(prog, state);
+        if (!result) {
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        }
     }
-    TRY(attach_prog(prog, state));
 
-    prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
-    if (!prog) {
-        return Error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_exit");
+    {
+        ScopedSpan span("bpf.attach.exit", trace_id, root_span.span_id());
+        prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
+        if (!prog) {
+            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_exit");
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        auto result = attach_prog(prog, state);
+        if (!result) {
+            span.fail(result.error().to_string());
+            return fail(result.error());
+        }
     }
-    TRY(attach_prog(prog, state));
 
-    // Attach network LSM hooks if available
+    // Attach network LSM hooks if available.
     if (lsm_enabled) {
+        ScopedSpan span("bpf.attach.network_hooks", trace_id, root_span.span_id());
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_connect");
         if (prog) {
             auto result = attach_prog(prog, state);
             if (!result) {
-                // Network hooks are optional - log warning but continue
-                // (May fail on older kernels without socket_connect LSM hook)
+                logger().log(SLOG_WARN("Optional socket_connect hook attach failed")
+                                 .field("error", result.error().to_string()));
             }
         }
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
         if (prog) {
             auto result = attach_prog(prog, state);
             if (!result) {
-                // Network hooks are optional - log warning but continue
+                logger().log(SLOG_WARN("Optional socket_bind hook attach failed")
+                                 .field("error", result.error().to_string()));
             }
         }
     }

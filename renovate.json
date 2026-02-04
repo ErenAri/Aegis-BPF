@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "dependencyDashboard": true,
+  "enabledManagers": ["cmake", "dockerfile", "regex"],
+  "ignorePaths": ["build/**", "build-*/**", "helm/**"],
+  "packageRules": [
+    {
+      "matchPackageNames": ["google/googletest", "google/benchmark"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchPackagePatterns": ["libbpf"],
+      "labels": ["dependencies", "security"],
+      "reviewers": ["team:maintainers"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^CMakeLists\\.txt$"],
+      "matchStrings": [
+        "URL https://github\\.com/(?<depName>[^/]+/[^/]+)/archive/refs/tags/(?<currentValue>v?\\d+\\.\\d+\\.\\d+)\\.tar\\.gz"
+      ],
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
+}
