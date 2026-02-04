@@ -405,7 +405,7 @@ static void modL(u8* r, i64 x[64])
         for (int j = i - 32; j < i - 12; ++j) {
             x[j] += carry - 16 * x[i] * L[j - (i - 32)];
             carry = (x[j] + 128) >> 8;
-            x[j] -= carry << 8;
+            x[j] -= carry * 256;
         }
         x[i - 12] += carry;
         x[i] = 0;
