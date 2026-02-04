@@ -261,8 +261,15 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
     {
         ScopedSpan span("bpf.open_object", trace_id, root_span.span_id());
         state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
+        const int open_err = libbpf_get_error(state.obj);
+        if (open_err) {
+            state.obj = nullptr;
+            Error error = Error::bpf_error(open_err, "Failed to open BPF object file: " + obj_path);
+            span.fail(error.to_string());
+            return fail(error);
+        }
         if (!state.obj) {
-            Error error = Error::bpf_error(-errno, "Failed to open BPF object file");
+            Error error(ErrorCode::BpfLoadFailed, "Failed to open BPF object file", obj_path);
             span.fail(error.to_string());
             return fail(error);
         }
