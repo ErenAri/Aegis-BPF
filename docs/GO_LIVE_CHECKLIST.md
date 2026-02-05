@@ -80,6 +80,10 @@ or incident ticket) rather than free-form notes.
   - Evidence:
 - [ ] Key rotation drill passed (`scripts/key_rotation_drill.sh`)
   - Evidence:
+- [ ] Independent security review findings triaged (`docs/EXTERNAL_REVIEW_PREP.md`)
+  - Evidence:
+- [ ] Pilot evidence reports collected (`docs/PILOT_EVIDENCE_TEMPLATE.md`)
+  - Evidence:
 - [ ] Alert routing verified (paging path tested end-to-end)
   - Evidence:
 - [ ] Dashboards and SLO alerts verified against staging signals

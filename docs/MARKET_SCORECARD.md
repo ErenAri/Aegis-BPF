@@ -20,7 +20,7 @@ Status values:
 | Survivability | Unexplained event drops | `<0.1%` sustained | Soak + metrics evidence |
 | Performance | Syscall overhead (p95) | `<=5%` (stretch `<=3%`) | Perf workflow artifacts |
 | Trust | Signed release completeness | `100%` artifacts signed + SBOM + provenance | Release workflow artifacts |
-| Adoption | Pilot environments | `>=2` active pilots | Pilot evidence pack |
+| Adoption | Pilot environments | `>=2` active pilots | Pilot evidence pack (`docs/PILOT_EVIDENCE_TEMPLATE.md`) |
 
 ## Release claim mapping (required)
 

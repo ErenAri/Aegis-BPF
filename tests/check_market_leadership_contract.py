@@ -16,11 +16,12 @@ def require_text(path: Path, needles: list[str]) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 9:
         print(
             "usage: check_market_leadership_contract.py "
             "<market_leadership_plan.md> <market_scorecard.md> "
-            "<maturity_program.md> <go_live_checklist.md> <pr_template.md> <readme.md>",
+            "<maturity_program.md> <go_live_checklist.md> <pr_template.md> <readme.md> "
+            "<external_review_prep.md> <pilot_evidence_template.md>",
             file=sys.stderr,
         )
         return 2
@@ -31,6 +32,8 @@ def main() -> int:
     go_live_doc = Path(sys.argv[4])
     pr_template = Path(sys.argv[5])
     readme = Path(sys.argv[6])
+    external_review_prep = Path(sys.argv[7])
+    pilot_evidence_template = Path(sys.argv[8])
 
     errors: list[str] = []
     errors += require_text(
@@ -48,6 +51,8 @@ def main() -> int:
             "Syscall overhead `p95 <= 5%`",
             "`0` silent partial attaches",
             "`>=2` pilot environments",
+            "docs/EXTERNAL_REVIEW_PREP.md",
+            "docs/PILOT_EVIDENCE_TEMPLATE.md",
         ],
     )
     errors += require_text(
@@ -61,6 +66,7 @@ def main() -> int:
             "Syscall overhead (p95)",
             "`<=5%` (stretch `<=3%`)",
             "Pilot environments",
+            "docs/PILOT_EVIDENCE_TEMPLATE.md",
         ],
     )
     errors += require_text(
@@ -77,6 +83,8 @@ def main() -> int:
         [
             "Market leadership scorecard completed",
             "docs/MARKET_SCORECARD.md",
+            "docs/EXTERNAL_REVIEW_PREP.md",
+            "docs/PILOT_EVIDENCE_TEMPLATE.md",
         ],
     )
     errors += require_text(
@@ -96,6 +104,25 @@ def main() -> int:
             "docs/MARKET_LEADERSHIP_PLAN.md",
             "docs/MARKET_SCORECARD.md",
             "Claim Taxonomy",
+        ],
+    )
+    errors += require_text(
+        external_review_prep,
+        [
+            "# External Security Review Prep",
+            "Required evidence pack",
+            "Exit criteria",
+            "`0` unresolved critical findings",
+        ],
+    )
+    errors += require_text(
+        pilot_evidence_template,
+        [
+            "# Pilot Evidence Template",
+            "Rollback success rate",
+            "Unexplained event drop ratio",
+            "Silent partial attach incidents",
+            "Explainability quality",
         ],
     )
 

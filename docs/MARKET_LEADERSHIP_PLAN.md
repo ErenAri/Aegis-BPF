@@ -89,6 +89,8 @@ External validation is not deferred to the end of the program:
 - Pilot deployments start in Super-Phase B.
 - Pilot and reviewer feedback can reprioritize backlog before Super-Phase C
   closes.
+- External review prep checklist: `docs/EXTERNAL_REVIEW_PREP.md`.
+- Weekly pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`.
 
 ## Claim discipline policy
 
@@ -114,4 +116,5 @@ Unmapped claims are release blockers.
 1. Lock KPI thresholds in contract tests and release templates.
 2. Expand edge-case e2e matrix to satisfy Super-Phase A floor.
 3. Harden degraded-mode and rollback tests for Super-Phase B gates.
-4. Run pilot onboarding and external review prep pack for Super-Phase C.
+4. Run pilot onboarding with `docs/PILOT_EVIDENCE_TEMPLATE.md` and prepare
+   independent review using `docs/EXTERNAL_REVIEW_PREP.md`.
