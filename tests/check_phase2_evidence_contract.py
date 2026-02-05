@@ -16,10 +16,11 @@ def require_text(path: Path, needles: list[str]) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 6:
         print(
             "usage: check_phase2_evidence_contract.py "
-            "<phase2-evidence.md> <e2e.yml> <kernel-matrix.yml> <e2e-matrix.sh>",
+            "<phase2-evidence.md> <e2e.yml> <kernel-matrix.yml> <e2e-matrix.sh> "
+            "<validate-e2e-summary.py>",
             file=sys.stderr,
         )
         return 2
@@ -28,6 +29,7 @@ def main() -> int:
     e2e_workflow = Path(sys.argv[2])
     kernel_workflow = Path(sys.argv[3])
     e2e_script = Path(sys.argv[4])
+    summary_validator = Path(sys.argv[5])
 
     errors: list[str] = []
     errors += require_text(
@@ -43,6 +45,8 @@ def main() -> int:
             "mount namespaces",
             "user namespaces",
             "scripts/e2e_file_enforcement_matrix.sh",
+            "scripts/validate_e2e_matrix_summary.py",
+            ">=60",
             "kernel-matrix-pr",
             "scripts/run_parser_fuzz_changed.sh",
             "smoke-fuzz",
@@ -55,6 +59,8 @@ def main() -> int:
         e2e_workflow,
         [
             "SUMMARY_OUT=/tmp/e2e-matrix-summary.json",
+            "validate_e2e_matrix_summary.py",
+            "--min-total-checks 60",
             "Upload e2e matrix artifacts",
             "e2e-matrix-summary.json",
         ],
@@ -63,6 +69,8 @@ def main() -> int:
         kernel_workflow,
         [
             "SUMMARY_OUT=/tmp/e2e-matrix-summary.json",
+            "validate_e2e_matrix_summary.py",
+            "--min-total-checks 60",
             "Upload kernel-matrix artifacts",
             "kernel-matrix-artifacts-",
         ],
@@ -76,6 +84,18 @@ def main() -> int:
             "inode stable across bind mount alias",
             "cat traversal",
             "cat renamed",
+            "cat cross-dir hardlink",
+            "cat benign symlink before swap",
+            "cat symlink after swap",
+        ],
+    )
+    errors += require_text(
+        summary_validator,
+        [
+            "min-total-checks",
+            "max-failed-checks",
+            "total_checks",
+            "failed_checks",
         ],
     )
 

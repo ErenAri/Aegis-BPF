@@ -1,8 +1,0 @@
-version=1
-
-[deny_path]
-/etc/shadow
-/var/log/auth.log
-
-[allow_cgroup]
-/sys/fs/cgroup/user.slice/user-1000.slice

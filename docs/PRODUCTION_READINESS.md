@@ -59,7 +59,8 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Security automation: `.github/workflows/security.yml` (CodeQL, dependency review, gitleaks)
 - Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
-- Kernel file-enforcement matrix (57 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
+- Kernel file-enforcement matrix (66 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
+- Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 60 --max-failed-checks 0`)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
@@ -84,6 +85,13 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
+- Market-leadership execution plan: `docs/MARKET_LEADERSHIP_PLAN.md`
+- Market-leadership release scorecard: `docs/MARKET_SCORECARD.md`
+- External review prep checklist: `docs/EXTERNAL_REVIEW_PREP.md`
+- Pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`
+- External review closure tracker: `docs/EXTERNAL_REVIEW_STATUS.md`
+- Pilot weekly evidence reports: `docs/pilots/`
+- Design artifact synchronization status (root PDF vs docs): `docs/DESIGN_ARTIFACT_STATUS.md`
 - Phase-1 product-contract evidence pack: `docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`
 - Phase-2 correctness evidence pack: `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
 - Phase-3 operational safety evidence pack: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`

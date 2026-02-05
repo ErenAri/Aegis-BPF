@@ -40,7 +40,11 @@ def main() -> int:
         "docs/runbooks/RECOVERY_break_glass.md",
         "ALLOW_SIGKILL_CANARY",
         "DaemonRunForcesAuditOnlyWhenBreakGlassActive",
+        "Attach contract validation failed",
         "RollbackControlPathCompletesWithinFiveSecondsUnderLoad",
+        "1,000 rollback attempts",
+        "MAX_EVENT_DROP_RATIO_PCT",
+        "MIN_TOTAL_DECISIONS",
         ".github/workflows/incident-drill.yml",
     ]
     missing_doc = [item for item in required_doc_snippets if item not in doc_text]
@@ -59,10 +63,22 @@ def main() -> int:
         workflow_missing.append(f"{canary_workflow_path}: missing 'ENFORCE_SIGNAL=term'")
     if "ENFORCE_SIGNAL=term" not in go_live_workflow_text:
         workflow_missing.append(f"{go_live_workflow_path}: missing 'ENFORCE_SIGNAL=term'")
+    if "MAX_EVENT_DROP_RATIO_PCT=0.1" not in canary_workflow_text:
+        workflow_missing.append(
+            f"{canary_workflow_path}: missing 'MAX_EVENT_DROP_RATIO_PCT=0.1'"
+        )
+    if "MAX_EVENT_DROP_RATIO_PCT=0.1" not in go_live_workflow_text:
+        workflow_missing.append(
+            f"{go_live_workflow_path}: missing 'MAX_EVENT_DROP_RATIO_PCT=0.1'"
+        )
     if "ALLOW_SIGKILL_CANARY" not in canary_gate_text:
         workflow_missing.append(f"{canary_gate_path}: missing 'ALLOW_SIGKILL_CANARY'")
     if "Refusing ENFORCE_SIGNAL=kill" not in canary_gate_text:
         workflow_missing.append(f"{canary_gate_path}: missing kill-signal guard message")
+    if "MAX_EVENT_DROP_RATIO_PCT" not in canary_gate_text:
+        workflow_missing.append(f"{canary_gate_path}: missing 'MAX_EVENT_DROP_RATIO_PCT'")
+    if "MIN_TOTAL_DECISIONS" not in canary_gate_text:
+        workflow_missing.append(f"{canary_gate_path}: missing 'MIN_TOTAL_DECISIONS'")
 
     if workflow_missing:
         for item in workflow_missing:
@@ -70,12 +86,16 @@ def main() -> int:
         return 1
 
     discovered: set[str] = set()
+    test_sources: list[str] = []
     for arg in sys.argv[5:]:
-        discovered |= load_tests(Path(arg))
+        path = Path(arg)
+        discovered |= load_tests(path)
+        test_sources.append(path.read_text(encoding="utf-8"))
 
     required_tests = {
         "TracingTest.DaemonRunGuardsSigkillBehindBuildAndRuntimeFlags",
         "TracingTest.DaemonRunForcesAuditOnlyWhenBreakGlassActive",
+        "TracingTest.DaemonRunRejectsSilentPartialAttachContract",
         "PolicyRollbackTest.RollbackControlPathCompletesWithinFiveSecondsUnderLoad",
     }
     missing_tests = sorted(required_tests - discovered)
@@ -83,6 +103,23 @@ def main() -> int:
         print("phase-3 safety contract missing required tests:", file=sys.stderr)
         for item in missing_tests:
             print(f"  - {item}", file=sys.stderr)
+        return 1
+
+    combined_tests = "\n".join(test_sources)
+    attempts_match = re.search(
+        r"RollbackControlPathCompletesWithinFiveSecondsUnderLoad\).*?constexpr int kAttempts = (\d+);",
+        combined_tests,
+        flags=re.S,
+    )
+    if attempts_match is None:
+        print("phase-3 safety contract missing rollback stress iteration constant", file=sys.stderr)
+        return 1
+    attempts = int(attempts_match.group(1))
+    if attempts < 1000:
+        print(
+            f"phase-3 safety contract requires >=1000 rollback iterations, found {attempts}",
+            file=sys.stderr,
+        )
         return 1
 
     return 0

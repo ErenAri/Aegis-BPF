@@ -39,7 +39,7 @@ or incident ticket) rather than free-form notes.
   - Evidence:
 - [ ] Enforce canary passed (`PHASE=enforce`, `ENFORCE_SIGNAL=term`)
   - Evidence:
-- [ ] Soak reliability thresholds met (ringbuf drops and RSS growth)
+- [ ] Soak reliability thresholds met (ringbuf drops, drop ratio `<0.1%`, RSS growth)
   - Evidence:
 - [ ] False-positive review completed with security/SRE sign-off
   - Evidence:
@@ -71,12 +71,18 @@ or incident ticket) rather than free-form notes.
   - Evidence:
 - [ ] `Go-Live Gate` workflow artifact bundle generated
   - Evidence:
+- [ ] Market leadership scorecard completed (`docs/MARKET_SCORECARD.md`)
+  - Evidence:
 
 ## 5) Operational readiness
 
 - [ ] Incident drill passed (`.github/workflows/incident-drill.yml`)
   - Evidence:
 - [ ] Key rotation drill passed (`scripts/key_rotation_drill.sh`)
+  - Evidence:
+- [ ] Independent security review findings closed/triaged (`docs/EXTERNAL_REVIEW_STATUS.md`)
+  - Evidence:
+- [ ] Pilot evidence reports collected (`docs/pilots/`)
   - Evidence:
 - [ ] Alert routing verified (paging path tested end-to-end)
   - Evidence:

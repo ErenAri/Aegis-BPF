@@ -8,7 +8,7 @@ This page captures evidence for **Phase 5: Performance credibility** from
 | Phase-5 gate | Evidence |
 |---|---|
 | Reproducible harness documents CPU/kernel/filesystem/workload profile | `docs/PERF.md` workload profile + noise controls |
-| Published p50/p95/p99 overhead for open/connect paths | `scripts/perf_open_bench.sh` and `scripts/perf_connect_bench.sh` output `p50_us`, `p95_us`, `p99_us` |
+| Published p50/p95/p99 overhead for open/connect paths | `scripts/perf_open_bench.sh` and `scripts/perf_connect_bench.sh` output `p50_us`, `p95_us`, `p99_us`; KPI gate enforces `p95_with_agent / p95_baseline <= 1.05` |
 | Published max sustained event rate and drop threshold behavior | `scripts/soak_reliability.sh`, `.github/workflows/soak.yml`, and target in `docs/MATURITY_PROGRAM.md` (`<0.1%` drops) |
 | Benchmark noise controls defined | deterministic self-hosted perf gate in `.github/workflows/perf.yml`; advisory hosted trend in `.github/workflows/benchmark.yml` |
 | Perf artifact schema is machine-validated | `scripts/validate_perf_artifacts.py` run in `.github/workflows/perf.yml` |

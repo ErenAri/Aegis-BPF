@@ -20,6 +20,8 @@ sudo AEGIS_BIN=./build/aegisbpf \
   PHASE=audit \
   DURATION_SECONDS=300 \
   MAX_RINGBUF_DROPS=100 \
+  MAX_EVENT_DROP_RATIO_PCT=0.1 \
+  MIN_TOTAL_DECISIONS=100 \
   MAX_RSS_GROWTH_KB=65536 \
   scripts/canary_gate.sh
 ```
@@ -40,6 +42,8 @@ sudo AEGIS_BIN=./build/aegisbpf \
   ENFORCE_SIGNAL=term \
   DURATION_SECONDS=300 \
   MAX_RINGBUF_DROPS=100 \
+  MAX_EVENT_DROP_RATIO_PCT=0.1 \
+  MIN_TOTAL_DECISIONS=100 \
   MAX_RSS_GROWTH_KB=65536 \
   scripts/canary_gate.sh
 ```
@@ -69,7 +73,7 @@ During canary, execute one rollback drill:
 Canary is considered pass only when:
 
 - Audit and enforce canary phases pass.
-- Ring buffer drops and RSS growth stay below thresholds.
+- Ring buffer drops, drop ratio, and RSS growth stay below thresholds.
 - No critical false positives remain unresolved.
 - Rollback drill is validated.
 

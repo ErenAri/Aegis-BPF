@@ -527,6 +527,9 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     const std::string inherited_trace_id = current_trace_id();
     const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
     ScopedSpan root_span("bpf.attach_all", trace_id, current_span_id());
+    state.attach_contract_valid = false;
+    state.file_hooks_expected = 0;
+    state.file_hooks_attached = 0;
 
     auto fail = [&root_span](const Error& error) -> Result<void> {
         root_span.fail(error.to_string());
@@ -552,37 +555,49 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
 
     if (lsm_enabled) {
         ScopedSpan span("bpf.attach.file_hooks_lsm", trace_id, root_span.span_id());
-        bool attached = false;
+        state.file_hooks_expected = static_cast<uint8_t>((use_inode_permission ? 1 : 0) + (use_file_open ? 1 : 0));
+        if (state.file_hooks_expected == 0) {
+            Error error(ErrorCode::BpfAttachFailed, "No LSM file hooks requested");
+            span.fail(error.to_string());
+            return fail(error);
+        }
         if (use_inode_permission) {
             prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
-            if (prog) {
-                auto result = attach_prog(prog, state);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-                attached = true;
+            if (!prog) {
+                Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_inode_permission");
+                span.fail(error.to_string());
+                return fail(error);
             }
+            auto result = attach_prog(prog, state);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+            ++state.file_hooks_attached;
         }
         if (use_file_open) {
             prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
-            if (prog) {
-                auto result = attach_prog(prog, state);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-                attached = true;
+            if (!prog) {
+                Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_file_open");
+                span.fail(error.to_string());
+                return fail(error);
             }
+            auto result = attach_prog(prog, state);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+            ++state.file_hooks_attached;
         }
-        if (!attached) {
-            Error error(ErrorCode::BpfAttachFailed, "LSM file open programs not found");
+        if (state.file_hooks_attached != state.file_hooks_expected) {
+            Error error(ErrorCode::BpfAttachFailed, "LSM file hook attach contract violated");
             span.fail(error.to_string());
             return fail(error);
         }
     }
     else {
         ScopedSpan span("bpf.attach.file_hooks_tracepoint", trace_id, root_span.span_id());
+        state.file_hooks_expected = 1;
         prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
         if (!prog) {
             Error error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
@@ -594,6 +609,7 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             span.fail(result.error().to_string());
             return fail(result.error());
         }
+        state.file_hooks_attached = 1;
     }
 
     {
@@ -646,6 +662,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             }
         }
     }
+
+    state.attach_contract_valid = true;
 
     return {};
 }

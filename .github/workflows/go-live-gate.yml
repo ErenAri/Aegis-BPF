@@ -64,10 +64,10 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 180
 
       - name: Canary gate (audit)
-        run: sudo AEGIS_BIN=./build/aegisbpf PHASE=audit DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 scripts/canary_gate.sh
+        run: sudo AEGIS_BIN=./build/aegisbpf PHASE=audit DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/canary_gate.sh
 
       - name: Canary gate (enforce)
-        run: sudo AEGIS_BIN=./build/aegisbpf PHASE=enforce ENFORCE_SIGNAL=term DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 scripts/canary_gate.sh
+        run: sudo AEGIS_BIN=./build/aegisbpf PHASE=enforce ENFORCE_SIGNAL=term DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/canary_gate.sh
 
       - name: Incident evidence bundle
         run: |
@@ -128,6 +128,33 @@ jobs:
             FORMAT=json \
             OUT=artifacts/go-live/perf/perf_workload.json \
             scripts/perf_workload_suite.sh | tee artifacts/go-live/perf/perf_workload.log
+
+      - name: Capture percentile profiles (open/connect)
+        run: |
+          mkdir -p artifacts/go-live/perf
+          sudo FORMAT=json OUT=artifacts/go-live/perf/open_baseline.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/go-live/perf/open_with_agent.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo FORMAT=json OUT=artifacts/go-live/perf/connect_baseline.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/go-live/perf/connect_with_agent.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+
+      - name: Capture perf metadata
+        run: |
+          uname -a > artifacts/go-live/perf/kernel-info.txt
+          cat /etc/os-release > artifacts/go-live/perf/os-release.txt || true
+          lscpu > artifacts/go-live/perf/cpu-info.txt || true
+          stat -f -c '%T' /tmp > artifacts/go-live/perf/fs-type.txt || true
+
+      - name: Validate perf artifact schema and KPI ratios
+        run: |
+          python3 scripts/validate_perf_artifacts.py \
+            --open-baseline artifacts/go-live/perf/open_baseline.json \
+            --open-with-agent artifacts/go-live/perf/open_with_agent.json \
+            --connect-baseline artifacts/go-live/perf/connect_baseline.json \
+            --connect-with-agent artifacts/go-live/perf/connect_with_agent.json \
+            --workload artifacts/go-live/perf/perf_workload.json \
+            --report artifacts/go-live/perf/perf-evidence-report.md \
+            --max-open-p95-ratio 1.05 \
+            --max-connect-p95-ratio 1.05
 
       - name: Upload perf artifacts
         if: always()

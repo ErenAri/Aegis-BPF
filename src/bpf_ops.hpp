@@ -73,6 +73,9 @@ class BpfState {
             net_block_stats_reused = other.net_block_stats_reused;
             net_ip_stats_reused = other.net_ip_stats_reused;
             net_port_stats_reused = other.net_port_stats_reused;
+            attach_contract_valid = other.attach_contract_valid;
+            file_hooks_expected = other.file_hooks_expected;
+            file_hooks_attached = other.file_hooks_attached;
 
             // Reset other to prevent double-free
             other.obj = nullptr;
@@ -85,6 +88,9 @@ class BpfState {
             other.net_block_stats = nullptr;
             other.net_ip_stats = nullptr;
             other.net_port_stats = nullptr;
+            other.attach_contract_valid = false;
+            other.file_hooks_expected = 0;
+            other.file_hooks_attached = 0;
             other.links.clear();
         }
         return *this;
@@ -144,6 +150,11 @@ class BpfState {
     bool net_block_stats_reused = false;
     bool net_ip_stats_reused = false;
     bool net_port_stats_reused = false;
+
+    // Attach contract summary for post-attach safety validation.
+    bool attach_contract_valid = false;
+    uint8_t file_hooks_expected = 0;
+    uint8_t file_hooks_attached = 0;
 };
 
 // BPF loading and lifecycle

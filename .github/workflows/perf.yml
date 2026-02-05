@@ -71,7 +71,9 @@ jobs:
             --connect-baseline artifacts/perf/connect_baseline.json \
             --connect-with-agent artifacts/perf/connect_with_agent.json \
             --workload artifacts/perf/perf_workload.json \
-            --report artifacts/perf/perf-evidence-report.md
+            --report artifacts/perf/perf-evidence-report.md \
+            --max-open-p95-ratio 1.05 \
+            --max-connect-p95-ratio 1.05
 
       - name: Upload perf profiles
         uses: actions/upload-artifact@v4

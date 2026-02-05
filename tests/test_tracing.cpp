@@ -1,6 +1,7 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <gtest/gtest.h>
 
+#include "bpf_ops.hpp"
 #include "daemon.hpp"
 #include "daemon_test_hooks.hpp"
 #include "logging.hpp"
@@ -180,6 +181,14 @@ Result<void> test_setup_agent_cgroup_ok(BpfState&)
 Result<void> test_attach_all_fail(BpfState&, bool, bool, bool)
 {
     return Error(ErrorCode::BpfAttachFailed, "forced attach_all failure");
+}
+
+Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled, bool, bool)
+{
+    state.attach_contract_valid = true;
+    state.file_hooks_expected = lsm_enabled ? 2 : 1;
+    state.file_hooks_attached = 1;
+    return {};
 }
 
 }  // namespace
@@ -434,6 +443,31 @@ TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)
     EXPECT_NE(log.find("\"span_name\":\"daemon.run\""), std::string::npos);
     EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
     EXPECT_NE(log.find("forced attach_all failure"), std::string::npos);
+}
+
+TEST(TracingTest, DaemonRunRejectsSilentPartialAttachContract)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+    {
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
+                              test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
+                              test_setup_agent_cgroup_ok, test_attach_all_partial_contract);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::Both, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("\"span_name\":\"daemon.attach_programs\""), std::string::npos);
+    EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
+    EXPECT_NE(log.find("Attach contract validation failed"), std::string::npos);
+    EXPECT_NE(log.find("hooks_expected"), std::string::npos);
+    EXPECT_NE(log.find("hooks_attached"), std::string::npos);
 }
 
 }  // namespace aegis

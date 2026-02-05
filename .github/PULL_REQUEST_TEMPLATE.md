@@ -22,6 +22,15 @@
 - Security/perf run URL (if applicable):
 - Contract/evidence doc URL (if applicable):
 
+## Market-leadership claim mapping (required for enforcement changes)
+
+<!-- Keep claim discipline strict: ENFORCED/AUDITED/PLANNED + evidence -->
+- Claim label (ENFORCED/AUDITED/PLANNED):
+- Spec section:
+- Test suite/contract:
+- CI artifact URL:
+- Runbook/operator guidance:
+
 ## Risk and rollback
 
 <!-- Operational risk, migration impact, and rollback plan -->

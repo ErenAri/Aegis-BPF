@@ -61,6 +61,10 @@ jobs:
             ./scripts/e2e_file_enforcement_matrix.sh
           sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
           sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
+          python3 scripts/validate_e2e_matrix_summary.py \
+            ./e2e-matrix-summary-${{ matrix.kernel }}.json \
+            --min-total-checks 60 \
+            --max-failed-checks 0
 
       - name: Collect kernel-matrix metadata
         if: always()
@@ -177,6 +181,10 @@ jobs:
             ./scripts/e2e_file_enforcement_matrix.sh
           sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
           sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
+          python3 scripts/validate_e2e_matrix_summary.py \
+            ./e2e-matrix-summary-${{ matrix.kernel }}.json \
+            --min-total-checks 60 \
+            --max-failed-checks 0
 
       - name: Collect kernel-matrix metadata
         if: always()

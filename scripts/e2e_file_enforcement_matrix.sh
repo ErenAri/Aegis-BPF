@@ -142,14 +142,21 @@ run_signal_suite() {
     local target="${scenario_dir}/target.txt"
     local symlink_path="${scenario_dir}/target.symlink"
     local hardlink_path="${scenario_dir}/target.hardlink"
+    local cross_hardlink_path="${scenario_dir}/hardlinks/target.cross.hardlink"
+    local swap_symlink_path="${scenario_dir}/target.swap.symlink"
+    local benign_target="${scenario_dir}/benign.txt"
     local renamed_path="${scenario_dir}/target.renamed"
     local bind_alias_path="${scenario_dir}/target.bind"
 
     mkdir -p "${scenario_dir}"
     mkdir -p "${scenario_dir}/subdir"
+    mkdir -p "${scenario_dir}/hardlinks"
     printf 'signal=%s\n' "${signal}" >"${target}"
+    printf 'benign=%s\n' "${signal}" >"${benign_target}"
     ln -sf "${target}" "${symlink_path}"
     ln "${target}" "${hardlink_path}"
+    ln "${target}" "${cross_hardlink_path}"
+    ln -sf "${benign_target}" "${swap_symlink_path}"
     touch "${bind_alias_path}"
 
     local inode
@@ -173,6 +180,10 @@ run_signal_suite() {
     run_expect_blocked "${signal}: head symlink" head -c 1 "${symlink_path}"
     run_expect_blocked "${signal}: cat hardlink" cat "${hardlink_path}"
     run_expect_blocked "${signal}: dd hardlink" dd if="${hardlink_path}" of=/dev/null bs=1 count=1 status=none
+    run_expect_blocked "${signal}: cat cross-dir hardlink" cat "${cross_hardlink_path}"
+    run_expect_success "${signal}: cat benign symlink before swap" cat "${swap_symlink_path}"
+    ln -sf "${target}" "${swap_symlink_path}"
+    run_expect_blocked "${signal}: cat symlink after swap" cat "${swap_symlink_path}"
     run_expect_blocked "${signal}: cat traversal" cat "${scenario_dir}/subdir/../target.txt"
 
     # Rename should not bypass inode-based enforcement.

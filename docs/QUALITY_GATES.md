@@ -11,6 +11,8 @@ This project enforces quality gates through required CI checks on `main`.
 - Clang-Tidy (changed C++ files)
 - Semgrep (changed C/C++ files; full scan on schedule)
 - Smoke fuzzing (60s per fuzz target on PR/main)
+- Kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
+  minimum 60 checks, zero failed checks)
 - Coverage report with minimum thresholds
 - Required-checks contract validation (`required_checks*.txt` -> workflow contexts)
 - Label contract validation (`repo_labels.json` -> workflows/templates references)
@@ -18,6 +20,8 @@ This project enforces quality gates through required CI checks on `main`.
   `phase3_safety_contract`, `phase4_portability_contract`,
   `phase5_performance_contract`,
   `phase6_meta_security_contract`, `phase7_reviewability_contract`)
+- Market-plan contract (`market_leadership_contract`)
+- Super-Phase C adoption contract (`superphase_c_adoption_contract`)
 - Capability contract validation (`capability_contract`)
 - SBOM generation
 - Security scans (`dependency-review`, `codeql`, `gitleaks`)
@@ -26,6 +30,8 @@ This project enforces quality gates through required CI checks on `main`.
   - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)
   - Strict fail-on-regression: `.github/workflows/perf.yml` on deterministic self-hosted perf runners
   - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` in strict perf workflow
+  - Strict KPI ratio gates: open/connect `p95_with_agent / p95_baseline <= 1.05`
+  - Soak reliability gate enforces event-drop ratio `<0.1%` with minimum decision-event volume
 
 ## Coverage ratchet policy
 

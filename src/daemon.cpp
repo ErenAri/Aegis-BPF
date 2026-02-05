@@ -125,6 +125,32 @@ const char* enforce_signal_name(uint8_t signal)
     }
 }
 
+Result<void> validate_attach_contract(const BpfState& state,
+                                      bool lsm_enabled,
+                                      bool use_inode_permission,
+                                      bool use_file_open)
+{
+    if (!state.attach_contract_valid) {
+        return Error(ErrorCode::BpfAttachFailed, "Attach contract metadata missing");
+    }
+    const uint8_t expected = lsm_enabled
+                                 ? static_cast<uint8_t>((use_inode_permission ? 1 : 0) + (use_file_open ? 1 : 0))
+                                 : static_cast<uint8_t>(1);
+    if (state.file_hooks_expected != expected) {
+        return Error(ErrorCode::BpfAttachFailed,
+                     "Attach contract expected-hook mismatch",
+                     "expected=" + std::to_string(expected) +
+                         ", reported=" + std::to_string(state.file_hooks_expected));
+    }
+    if (state.file_hooks_attached != expected) {
+        return Error(ErrorCode::BpfAttachFailed,
+                     "Attach contract attached-hook mismatch",
+                     "expected=" + std::to_string(expected) +
+                         ", attached=" + std::to_string(state.file_hooks_attached));
+    }
+    return {};
+}
+
 }  // namespace
 
 const char* lsm_hook_name(LsmHookMode mode)
@@ -463,6 +489,16 @@ int daemon_run(bool audit_only,
         logger().log(SLOG_ERROR("Failed to attach programs")
                          .field("error", attach_result.error().to_string()));
         return fail(attach_result.error().to_string());
+    }
+    auto attach_contract_result =
+        validate_attach_contract(state, lsm_enabled, use_inode_permission, use_file_open);
+    if (!attach_contract_result) {
+        attach_span.fail(attach_contract_result.error().to_string());
+        logger().log(SLOG_ERROR("Attach contract validation failed")
+                         .field("error", attach_contract_result.error().to_string())
+                         .field("hooks_expected", static_cast<int64_t>(state.file_hooks_expected))
+                         .field("hooks_attached", static_cast<int64_t>(state.file_hooks_attached)));
+        return fail(attach_contract_result.error().to_string());
     }
 
     RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event, nullptr, nullptr));

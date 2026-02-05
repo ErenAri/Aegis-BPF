@@ -19,6 +19,8 @@ This document defines the reproducible performance harness used for Phase 5.
 - Hosted `benchmark.yml` is advisory only; strict gating runs in
   `.github/workflows/perf.yml` on deterministic runners
 - Use stable thresholds in `scripts/perf_workload_suite.sh`
+- Strict KPI gate: `p95_with_agent / p95_baseline <= 1.05` for both open and
+  connect profiles (validated by `scripts/validate_perf_artifacts.py`)
 
 ## Benchmarks
 
@@ -107,6 +109,9 @@ Validation guarantees:
 - workload suite includes all required rows
   (`open_close`, `connect_loopback`, `full_read`, `stat_walk`)
 - with-agent profiles are labeled consistently
+- KPI ratios stay within gates:
+  - `open_p95_ratio <= 1.05`
+  - `connect_p95_ratio <= 1.05`
 
 ## Perf artifact contract
 

@@ -18,3 +18,5 @@ coverage*.html
 coverage.xml
 coverage.css
 coverage.js
+__pycache__/
+*.pyc

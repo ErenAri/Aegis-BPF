@@ -1,9 +1,0 @@
-# AegisBPF systemd environment file.
-# Copy to /etc/default/aegisbpf and adjust as needed.
-
-AEGIS_MODE=--enforce
-AEGIS_POLICY=/etc/aegisbpf/policy.example
-AEGIS_LOG=--log=stdout
-AEGIS_SMOKE_TEST=0
-# AEGIS_POLICY_SHA256=
-# AEGIS_POLICY_SHA256_FILE=

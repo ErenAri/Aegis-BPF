@@ -70,14 +70,47 @@ def main() -> int:
             "perf_workload.json",
             "kernel-info.txt",
             "cpu-info.txt",
+            "--max-open-p95-ratio 1.05",
+            "--max-connect-p95-ratio 1.05",
         ],
     )
     errors += require_text(open_bench, ["p50_us", "p95_us", "p99_us"])
     errors += require_text(connect_bench, ["p50_us", "p95_us", "p99_us"])
 
     validator_script = Path(__file__).resolve().parents[1] / "scripts" / "validate_perf_artifacts.py"
+    soak_script = Path(__file__).resolve().parents[1] / "scripts" / "soak_reliability.sh"
+    soak_workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "soak.yml"
     if not validator_script.is_file():
         errors.append(f"missing file: {validator_script}")
+    else:
+        errors += require_text(
+            validator_script,
+            [
+                "--max-open-p95-ratio",
+                "--max-connect-p95-ratio",
+                "open p95 ratio",
+                "connect p95 ratio",
+                "gate_status",
+            ],
+        )
+    errors += require_text(
+        soak_script,
+        [
+            "MAX_EVENT_DROP_RATIO_PCT",
+            "MIN_TOTAL_DECISIONS",
+            "max observed drop ratio",
+            "SOAK_SUMMARY_OUT",
+        ],
+    )
+    errors += require_text(
+        soak_workflow,
+        [
+            "MAX_EVENT_DROP_RATIO_PCT=0.1",
+            "MIN_TOTAL_DECISIONS=1000",
+            "SOAK_SUMMARY_OUT=artifacts/soak/soak-summary.json",
+            "Upload soak artifacts",
+        ],
+    )
 
     if errors:
         for item in errors:

@@ -44,7 +44,7 @@ jobs:
         run: sudo BIN=./build-e2e/aegisbpf ENFORCE_SIGNAL=term scripts/smoke_enforce.sh
 
       - name: Short soak reliability
-        run: sudo AEGIS_BIN=./build-e2e/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 scripts/soak_reliability.sh
+        run: sudo AEGIS_BIN=./build-e2e/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/soak_reliability.sh
 
   build-release:
     needs: [e2e-gate]

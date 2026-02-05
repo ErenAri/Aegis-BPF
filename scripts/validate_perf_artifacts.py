@@ -103,9 +103,9 @@ def validate_workload_suite(path: Path, payload: dict[str, Any]) -> None:
         raise ValueError(f"{path}: missing benchmark rows: {', '.join(missing_names)}")
 
 
-def ratio(a: float, b: float) -> float:
+def ratio(a: float, b: float, label: str) -> float:
     if b <= 0:
-        return 0.0
+        raise ValueError(f"{label}: baseline must be > 0")
     return a / b
 
 
@@ -115,9 +115,19 @@ def render_report(
     connect_baseline: dict[str, Any],
     connect_with_agent: dict[str, Any],
     workload: dict[str, Any],
+    max_open_p95_ratio: float,
+    max_connect_p95_ratio: float,
+    open_p95_ratio: float,
+    connect_p95_ratio: float,
+    workload_failed_rows: list[str],
+    gate_errors: list[str],
 ) -> str:
-    open_ratio = ratio(float(open_with_agent["us_per_op"]), float(open_baseline["us_per_op"]))
-    connect_ratio = ratio(float(connect_with_agent["us_per_op"]), float(connect_baseline["us_per_op"]))
+    open_ratio = ratio(float(open_with_agent["us_per_op"]), float(open_baseline["us_per_op"]), "open us_per_op")
+    connect_ratio = ratio(
+        float(connect_with_agent["us_per_op"]),
+        float(connect_baseline["us_per_op"]),
+        "connect us_per_op",
+    )
 
     lines = [
         "# Perf Evidence Report",
@@ -140,6 +150,16 @@ def render_report(
         lines.append(
             f"- `{item['name']}`: delta_pct=`{item['delta_pct']}` max_allowed_pct=`{item['max_allowed_pct']}` pass=`{item['pass']}`"
         )
+    lines += [
+        "",
+        "## KPI gates",
+        f"- open_p95_ratio: `{open_p95_ratio:.6f}` (target <= `{max_open_p95_ratio:.6f}`)",
+        f"- connect_p95_ratio: `{connect_p95_ratio:.6f}` (target <= `{max_connect_p95_ratio:.6f}`)",
+        f"- workload_failed_rows: `{', '.join(workload_failed_rows) if workload_failed_rows else 'none'}`",
+        f"- gate_status: `{'pass' if not gate_errors else 'fail'}`",
+    ]
+    if gate_errors:
+        lines += ["", "## Gate failures"] + [f"- {error}" for error in gate_errors]
     return "\n".join(lines) + "\n"
 
 
@@ -151,6 +171,8 @@ def main() -> int:
     parser.add_argument("--connect-with-agent", type=Path, required=True)
     parser.add_argument("--workload", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--max-open-p95-ratio", type=float, default=1.05)
+    parser.add_argument("--max-connect-p95-ratio", type=float, default=1.05)
     args = parser.parse_args()
 
     try:
@@ -169,19 +191,57 @@ def main() -> int:
         print(str(exc))
         return 1
 
+    gate_errors: list[str] = []
+    try:
+        open_p95_ratio = ratio(
+            float(open_with_agent["p95_us"]),
+            float(open_baseline["p95_us"]),
+            "open p95_us",
+        )
+        connect_p95_ratio = ratio(
+            float(connect_with_agent["p95_us"]),
+            float(connect_baseline["p95_us"]),
+            "connect p95_us",
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    workload_failed_rows = [str(item["name"]) for item in workload["benchmarks"] if not bool(item["pass"])]
+    if workload_failed_rows:
+        gate_errors.append(f"workload rows failed thresholds: {', '.join(workload_failed_rows)}")
+
+    if open_p95_ratio > args.max_open_p95_ratio:
+        gate_errors.append(
+            f"open p95 ratio {open_p95_ratio:.6f} exceeds target {args.max_open_p95_ratio:.6f}"
+        )
+    if connect_p95_ratio > args.max_connect_p95_ratio:
+        gate_errors.append(
+            f"connect p95 ratio {connect_p95_ratio:.6f} exceeds target {args.max_connect_p95_ratio:.6f}"
+        )
+
     report = render_report(
         open_baseline=open_baseline,
         open_with_agent=open_with_agent,
         connect_baseline=connect_baseline,
         connect_with_agent=connect_with_agent,
         workload=workload,
+        max_open_p95_ratio=args.max_open_p95_ratio,
+        max_connect_p95_ratio=args.max_connect_p95_ratio,
+        open_p95_ratio=open_p95_ratio,
+        connect_p95_ratio=connect_p95_ratio,
+        workload_failed_rows=workload_failed_rows,
+        gate_errors=gate_errors,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(report, encoding="utf-8")
     print(report, end="")
+    if gate_errors:
+        for error in gate_errors:
+            print(error)
+        return 1
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

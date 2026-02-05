@@ -407,6 +407,7 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/e2e.yml
             ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/kernel-matrix.yml
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/e2e_file_enforcement_matrix.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/validate_e2e_matrix_summary.py
     )
 
     add_test(
@@ -468,6 +469,31 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
             ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+    )
+
+    add_test(
+        NAME market_leadership_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_market_leadership_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MARKET_LEADERSHIP_PLAN.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MARKET_SCORECARD.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/.github/PULL_REQUEST_TEMPLATE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_PREP.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PILOT_EVIDENCE_TEMPLATE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_STATUS.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/pilots/README.md
+    )
+
+    add_test(
+        NAME superphase_c_adoption_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_superphase_c_adoption_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_STATUS.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/pilots
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MARKET_SCORECARD.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MARKET_LEADERSHIP_PLAN.md
     )
 
     add_test(

@@ -54,7 +54,7 @@ Definition of done:
 ## Phase 2: Correctness proof
 
 Definition of done:
-- At least 30 kernel e2e enforcement tests run in CI.
+- At least 60 kernel e2e enforcement tests run in CI.
 - Basis-set scenarios (direct/symlink/hardlink/rename) are mandatory and
   versioned in Phase-2 evidence.
 - CI executes on at least 2 kernel targets for enforcement-path changes.
@@ -71,8 +71,8 @@ Definition of done:
   rate-limited.
 - Canary workflows enforce staged `ENFORCE_SIGNAL=term`; kill-mode canary is
   explicitly blocked unless a dedicated override is supplied.
-- Rollback path is load-tested and measured (<5s target for standard policy
-  updates).
+- Rollback path is load-tested over >=1000 stress iterations and measured
+  (<5s target for standard policy updates).
 - Agent crash behavior and recovery are tested and documented.
 
 Evidence bundle: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`.
@@ -121,3 +121,23 @@ Evidence bundle: `docs/PHASE7_REVIEWABILITY_EVIDENCE.md`.
 
 This program depends on deterministic privileged test infrastructure.
 Implementation details live in `docs/CI_EXECUTION_STRATEGY.md`.
+
+## Super-phase execution overlay
+
+For market-leadership execution, the phase gates above are grouped into three
+delivery tracks:
+
+- **Super-Phase A (Defensibility Core):** contract semantics + kernel
+  correctness + verifier robustness
+- **Super-Phase B (Production Survivability):** safe operations + degraded-mode
+  behavior + performance/reliability
+- **Super-Phase C (Trust and Adoption):** supply-chain trust + explainability +
+  deployment hardening + external validation
+
+Detailed execution plan:
+
+- `docs/MARKET_LEADERSHIP_PLAN.md`
+
+Release-go/no-go scorecard:
+
+- `docs/MARKET_SCORECARD.md`
