@@ -42,6 +42,7 @@ def main() -> int:
             "docs/MARKET_SCORECARD.md",
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",
+            "docs/DESIGN_ARTIFACT_STATUS.md",
             "docs/runbooks/",
             "Any unverified claim must be downgraded to `PLANNED` or removed",
         ],

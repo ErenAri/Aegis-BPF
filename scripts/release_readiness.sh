@@ -66,6 +66,7 @@ required_files=(
   "${ROOT_DIR}/docs/RELEASE_DRILL.md"
   "${ROOT_DIR}/docs/EXTERNAL_REVIEW_STATUS.md"
   "${ROOT_DIR}/docs/pilots/README.md"
+  "${ROOT_DIR}/docs/DESIGN_ARTIFACT_STATUS.md"
   "${ROOT_DIR}/config/required_checks.txt"
   "${ROOT_DIR}/scripts/check_branch_protection.sh"
   "${ROOT_DIR}/scripts/canary_gate.sh"

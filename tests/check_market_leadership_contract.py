@@ -112,6 +112,7 @@ def main() -> int:
             "Claim Taxonomy",
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",
+            "docs/DESIGN_ARTIFACT_STATUS.md",
         ],
     )
     errors += require_text(

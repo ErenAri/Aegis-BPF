@@ -91,6 +91,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`
 - External review closure tracker: `docs/EXTERNAL_REVIEW_STATUS.md`
 - Pilot weekly evidence reports: `docs/pilots/`
+- Design artifact synchronization status (root PDF vs docs): `docs/DESIGN_ARTIFACT_STATUS.md`
 - Phase-1 product-contract evidence pack: `docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`
 - Phase-2 correctness evidence pack: `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
 - Phase-3 operational safety evidence pack: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`

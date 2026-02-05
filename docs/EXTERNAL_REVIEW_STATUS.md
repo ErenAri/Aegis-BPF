@@ -3,8 +3,12 @@
 This page tracks independent security-review findings and closure state for
 Super-Phase C.
 
+Current state: internal tracking is active, but this does not replace a
+formally completed external assessor report.
+
 ## Review cycle metadata
 
+- Last updated: 2026-02-05
 - Review cycle: `2026-Q1`
 - Review vendor/team: `Independent eBPF Security Review (contracted)`
 - Scope baseline:

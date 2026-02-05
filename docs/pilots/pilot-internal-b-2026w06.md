@@ -3,6 +3,7 @@
 ## Pilot metadata
 
 - Pilot ID: internal-b
+- Pilot class: internal staging pilot (pre-design-partner)
 - Environment owner: runtime-platform
 - Date range: 2026-02-01 to 2026-02-07
 - Deployment model (systemd/k8s): kubernetes

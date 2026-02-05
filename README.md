@@ -62,6 +62,7 @@ Market-leadership execution plan: `docs/MARKET_LEADERSHIP_PLAN.md`.
 Market-leadership release scorecard: `docs/MARKET_SCORECARD.md`.
 External review closure status: `docs/EXTERNAL_REVIEW_STATUS.md`.
 Pilot evidence reports: `docs/pilots/`.
+Design artifact sync status (including root PDF): `docs/DESIGN_ARTIFACT_STATUS.md`.
 
 Current scope labels:
 - `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), network
