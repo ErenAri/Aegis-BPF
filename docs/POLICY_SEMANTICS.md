@@ -1,5 +1,8 @@
 # Policy Semantics
 
+Version: 1.0 (2026-02-05)
+Status: Canonical semantics reference for the v1 contract.
+
 This document defines how policy rules are interpreted at runtime, including
 edge cases that matter for production correctness.
 

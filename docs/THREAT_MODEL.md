@@ -1,7 +1,13 @@
 # AegisBPF Threat Model
 
+Version: 1.0 (2026-02-05)
+Status: Canonical threat model for the v1 contract.
+
 This document defines what AegisBPF is designed to defend, what is explicitly
 out of scope, and where bypass risk remains.
+
+For a dispositioned list of known bypass surfaces, see
+`docs/BYPASS_CATALOG.md`.
 
 ## Security objective
 
