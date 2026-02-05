@@ -71,8 +71,8 @@ Definition of done:
   rate-limited.
 - Canary workflows enforce staged `ENFORCE_SIGNAL=term`; kill-mode canary is
   explicitly blocked unless a dedicated override is supplied.
-- Rollback path is load-tested and measured (<5s target for standard policy
-  updates).
+- Rollback path is load-tested over >=1000 stress iterations and measured
+  (<5s target for standard policy updates).
 - Agent crash behavior and recovery are tested and documented.
 
 Evidence bundle: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`.

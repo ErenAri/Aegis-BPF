@@ -42,6 +42,7 @@ def main() -> int:
         "DaemonRunForcesAuditOnlyWhenBreakGlassActive",
         "Attach contract validation failed",
         "RollbackControlPathCompletesWithinFiveSecondsUnderLoad",
+        "1,000 rollback attempts",
         ".github/workflows/incident-drill.yml",
     ]
     missing_doc = [item for item in required_doc_snippets if item not in doc_text]
@@ -71,8 +72,11 @@ def main() -> int:
         return 1
 
     discovered: set[str] = set()
+    test_sources: list[str] = []
     for arg in sys.argv[5:]:
-        discovered |= load_tests(Path(arg))
+        path = Path(arg)
+        discovered |= load_tests(path)
+        test_sources.append(path.read_text(encoding="utf-8"))
 
     required_tests = {
         "TracingTest.DaemonRunGuardsSigkillBehindBuildAndRuntimeFlags",
@@ -85,6 +89,23 @@ def main() -> int:
         print("phase-3 safety contract missing required tests:", file=sys.stderr)
         for item in missing_tests:
             print(f"  - {item}", file=sys.stderr)
+        return 1
+
+    combined_tests = "\n".join(test_sources)
+    attempts_match = re.search(
+        r"RollbackControlPathCompletesWithinFiveSecondsUnderLoad\).*?constexpr int kAttempts = (\d+);",
+        combined_tests,
+        flags=re.S,
+    )
+    if attempts_match is None:
+        print("phase-3 safety contract missing rollback stress iteration constant", file=sys.stderr)
+        return 1
+    attempts = int(attempts_match.group(1))
+    if attempts < 1000:
+        print(
+            f"phase-3 safety contract requires >=1000 rollback iterations, found {attempts}",
+            file=sys.stderr,
+        )
         return 1
 
     return 0

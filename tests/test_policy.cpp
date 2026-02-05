@@ -466,7 +466,7 @@ TEST_F(PolicyRollbackTest, RollbackControlPathCompletesWithinFiveSecondsUnderLoa
     std::string applied_policy = WritePolicy("applied.conf", "version=1\n");
     ScopedEnvVar applied_env("AEGIS_POLICY_APPLIED_PATH", applied_policy);
 
-    constexpr int kAttempts = 60;
+    constexpr int kAttempts = 1000;
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < kAttempts; ++i) {
         g_apply_calls.clear();
