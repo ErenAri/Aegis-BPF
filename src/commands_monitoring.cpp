@@ -9,13 +9,16 @@
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "policy.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -82,6 +85,140 @@ Result<void> verify_pinned_map_access(const char* pin_path)
     }
     close(fd);
     return {};
+}
+
+struct ExplainEvent {
+    std::string type;
+    std::string path;
+    std::string resolved_path;
+    std::string cgroup_path;
+    std::string action;
+    uint64_t ino = 0;
+    uint64_t dev = 0;
+    uint64_t cgid = 0;
+    bool has_ino = false;
+    bool has_dev = false;
+    bool has_cgid = false;
+};
+
+std::string read_stream(std::istream& in)
+{
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    return oss.str();
+}
+
+bool find_json_value_start(const std::string& json, const std::string& key, size_t& pos)
+{
+    const std::string needle = "\"" + key + "\"";
+    size_t key_pos = json.find(needle);
+    if (key_pos == std::string::npos) {
+        return false;
+    }
+    size_t colon = json.find(':', key_pos + needle.size());
+    if (colon == std::string::npos) {
+        return false;
+    }
+    pos = colon + 1;
+    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
+        ++pos;
+    }
+    return pos < json.size();
+}
+
+bool extract_json_string(const std::string& json, const std::string& key, std::string& out)
+{
+    size_t pos = 0;
+    if (!find_json_value_start(json, key, pos)) {
+        return false;
+    }
+    if (json[pos] != '"') {
+        return false;
+    }
+    ++pos;
+    std::string result;
+    bool escape = false;
+    for (; pos < json.size(); ++pos) {
+        char c = json[pos];
+        if (escape) {
+            switch (c) {
+            case '"':
+                result.push_back('"');
+                break;
+            case '\\':
+                result.push_back('\\');
+                break;
+            case 'n':
+                result.push_back('\n');
+                break;
+            case 'r':
+                result.push_back('\r');
+                break;
+            case 't':
+                result.push_back('\t');
+                break;
+            default:
+                result.push_back(c);
+                break;
+            }
+            escape = false;
+            continue;
+        }
+        if (c == '\\') {
+            escape = true;
+            continue;
+        }
+        if (c == '"') {
+            out = result;
+            return true;
+        }
+        result.push_back(c);
+    }
+    return false;
+}
+
+bool extract_json_uint64(const std::string& json, const std::string& key, uint64_t& out)
+{
+    size_t pos = 0;
+    if (!find_json_value_start(json, key, pos)) {
+        return false;
+    }
+    std::string token;
+    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
+        token.push_back(json[pos]);
+        ++pos;
+    }
+    if (token.empty()) {
+        return false;
+    }
+    return parse_uint64(token, out);
+}
+
+bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string& error)
+{
+    if (!extract_json_string(json, "type", out.type)) {
+        error = "Event JSON missing required 'type' field";
+        return false;
+    }
+    extract_json_string(json, "path", out.path);
+    extract_json_string(json, "resolved_path", out.resolved_path);
+    extract_json_string(json, "cgroup_path", out.cgroup_path);
+    extract_json_string(json, "action", out.action);
+
+    uint64_t value = 0;
+    if (extract_json_uint64(json, "ino", value)) {
+        out.ino = value;
+        out.has_ino = true;
+    }
+    if (extract_json_uint64(json, "dev", value)) {
+        out.dev = value;
+        out.has_dev = true;
+    }
+    if (extract_json_uint64(json, "cgid", value)) {
+        out.cgid = value;
+        out.has_cgid = true;
+    }
+    return true;
 }
 
 }  // namespace
@@ -751,6 +888,232 @@ int cmd_doctor(bool json_output)
 
     emit_doctor_text(report, advice);
     return report.ok ? 0 : 1;
+}
+
+int cmd_explain(const std::string& event_path, const std::string& policy_path, bool json_output)
+{
+    std::string payload;
+    if (event_path == "-") {
+        payload = read_stream(std::cin);
+    }
+    else {
+        std::ifstream in(event_path);
+        if (!in.is_open()) {
+            logger().log(SLOG_ERROR("Failed to open event file")
+                             .field("path", event_path)
+                             .error_code(errno));
+            return 1;
+        }
+        payload = read_stream(in);
+    }
+
+    ExplainEvent event{};
+    std::string parse_error;
+    if (!parse_explain_event(payload, event, parse_error)) {
+        logger().log(SLOG_ERROR("Failed to parse event JSON")
+                         .field("error", parse_error));
+        return 1;
+    }
+
+    if (event.type != "block") {
+        logger().log(SLOG_ERROR("Explain currently supports block events only")
+                         .field("type", event.type));
+        return 1;
+    }
+
+    std::string policy_source = policy_path;
+    if (policy_source.empty() && std::filesystem::exists(kPolicyAppliedPath)) {
+        policy_source = kPolicyAppliedPath;
+    }
+
+    Policy policy{};
+    bool policy_loaded = false;
+    if (!policy_source.empty()) {
+        PolicyIssues issues{};
+        auto policy_result = parse_policy_file(policy_source, issues);
+        report_policy_issues(issues);
+        if (!policy_result) {
+            logger().log(SLOG_ERROR("Failed to parse policy for explain")
+                             .field("path", policy_source)
+                             .field("error", policy_result.error().to_string()));
+            return 1;
+        }
+        if (issues.has_errors()) {
+            logger().log(SLOG_ERROR("Policy contains errors; cannot explain decision")
+                             .field("path", policy_source));
+            return 1;
+        }
+        policy = *policy_result;
+        policy_loaded = true;
+    }
+
+    bool allow_match = false;
+    bool deny_inode_match = false;
+    bool deny_path_match = false;
+
+    if (policy_loaded) {
+        if (event.has_cgid) {
+            for (uint64_t id : policy.allow_cgroup_ids) {
+                if (id == event.cgid) {
+                    allow_match = true;
+                    break;
+                }
+            }
+        }
+        if (!allow_match && !event.cgroup_path.empty()) {
+            for (const auto& path : policy.allow_cgroup_paths) {
+                if (path == event.cgroup_path) {
+                    allow_match = true;
+                    break;
+                }
+            }
+        }
+
+        if (event.has_ino && event.has_dev && event.dev <= UINT32_MAX) {
+            InodeId id{event.ino, static_cast<uint32_t>(event.dev), 0};
+            for (const auto& deny : policy.deny_inodes) {
+                if (deny == id) {
+                    deny_inode_match = true;
+                    break;
+                }
+            }
+        }
+
+        if (!event.path.empty()) {
+            for (const auto& deny : policy.deny_paths) {
+                if (deny == event.path) {
+                    deny_path_match = true;
+                    break;
+                }
+            }
+        }
+        if (!deny_path_match && !event.resolved_path.empty()) {
+            for (const auto& deny : policy.deny_paths) {
+                if (deny == event.resolved_path) {
+                    deny_path_match = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    std::string inferred_rule;
+    if (!policy_loaded) {
+        inferred_rule = "unknown";
+    }
+    else if (allow_match) {
+        inferred_rule = "allow_cgroup";
+    }
+    else if (deny_inode_match) {
+        inferred_rule = "deny_inode";
+    }
+    else if (deny_path_match) {
+        inferred_rule = "deny_path";
+    }
+    else {
+        inferred_rule = "no_policy_match";
+    }
+
+    std::vector<std::string> notes;
+    notes.emplace_back("Best-effort: evaluation uses provided policy and event fields.");
+    notes.emplace_back("Inode-first enforcement: inode deny decisions override path matches.");
+    if (!policy_loaded) {
+        notes.emplace_back("No policy loaded; provide --policy or ensure an applied policy is present.");
+    }
+    if (!event.has_ino || !event.has_dev) {
+        notes.emplace_back("Event missing inode/dev; inode match not evaluated.");
+    }
+    if (allow_match && !event.action.empty() && event.action != "AUDIT") {
+        notes.emplace_back("Allowlist matched but event was blocked; policy may have changed.");
+    }
+
+    if (json_output) {
+        std::ostringstream out;
+        out << "{"
+            << "\"type\":\"" << json_escape(event.type) << "\"";
+        if (!event.action.empty()) {
+            out << ",\"action\":\"" << json_escape(event.action) << "\"";
+        }
+        if (!event.path.empty()) {
+            out << ",\"path\":\"" << json_escape(event.path) << "\"";
+        }
+        if (!event.resolved_path.empty()) {
+            out << ",\"resolved_path\":\"" << json_escape(event.resolved_path) << "\"";
+        }
+        if (event.has_ino) {
+            out << ",\"ino\":" << event.ino;
+        }
+        if (event.has_dev) {
+            out << ",\"dev\":" << event.dev;
+        }
+        if (!event.cgroup_path.empty()) {
+            out << ",\"cgroup_path\":\"" << json_escape(event.cgroup_path) << "\"";
+        }
+        if (event.has_cgid) {
+            out << ",\"cgid\":" << event.cgid;
+        }
+        out << ",\"policy\":{\"path\":\"" << json_escape(policy_source) << "\",\"loaded\":"
+            << (policy_loaded ? "true" : "false") << "}";
+        out << ",\"matches\":{"
+            << "\"allow_cgroup\":" << (policy_loaded ? (allow_match ? "true" : "false") : "false")
+            << ",\"deny_inode\":" << (policy_loaded ? (deny_inode_match ? "true" : "false") : "false")
+            << ",\"deny_path\":" << (policy_loaded ? (deny_path_match ? "true" : "false") : "false")
+            << "}";
+        out << ",\"inferred_rule\":\"" << json_escape(inferred_rule) << "\"";
+        out << ",\"notes\":[";
+        for (size_t i = 0; i < notes.size(); ++i) {
+            if (i > 0) {
+                out << ",";
+            }
+            out << "\"" << json_escape(notes[i]) << "\"";
+        }
+        out << "]}";
+        std::cout << out.str() << std::endl;
+        return 0;
+    }
+
+    std::cout << "Explain (best-effort)" << std::endl;
+    std::cout << "  type: " << event.type << std::endl;
+    if (!event.action.empty()) {
+        std::cout << "  action: " << event.action << std::endl;
+    }
+    if (!event.path.empty()) {
+        std::cout << "  path: " << event.path << std::endl;
+    }
+    if (!event.resolved_path.empty()) {
+        std::cout << "  resolved_path: " << event.resolved_path << std::endl;
+    }
+    if (event.has_ino) {
+        std::cout << "  ino: " << event.ino << std::endl;
+    }
+    if (event.has_dev) {
+        std::cout << "  dev: " << event.dev << std::endl;
+    }
+    if (!event.cgroup_path.empty()) {
+        std::cout << "  cgroup_path: " << event.cgroup_path << std::endl;
+    }
+    if (event.has_cgid) {
+        std::cout << "  cgid: " << event.cgid << std::endl;
+    }
+    std::cout << "  policy: " << (policy_loaded ? policy_source : "not loaded") << std::endl;
+    if (policy_loaded) {
+        std::cout << "  allow_cgroup_match: " << (allow_match ? "yes" : "no") << std::endl;
+        std::cout << "  deny_inode_match: " << (deny_inode_match ? "yes" : "no") << std::endl;
+        std::cout << "  deny_path_match: " << (deny_path_match ? "yes" : "no") << std::endl;
+    }
+    else {
+        std::cout << "  allow_cgroup_match: unknown" << std::endl;
+        std::cout << "  deny_inode_match: unknown" << std::endl;
+        std::cout << "  deny_path_match: unknown" << std::endl;
+    }
+    std::cout << "  inferred_rule: " << inferred_rule << std::endl;
+    if (!notes.empty()) {
+        std::cout << "  notes:" << std::endl;
+        for (const auto& note : notes) {
+            std::cout << "    - " << note << std::endl;
+        }
+    }
+    return 0;
 }
 
 }  // namespace aegis

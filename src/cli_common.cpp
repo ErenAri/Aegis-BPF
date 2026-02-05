@@ -22,7 +22,8 @@ int usage(const char* prog)
               << " | stats [--detailed]"
               << " | metrics [--out <path>] [--detailed]"
               << " | health [--json]"
-              << " | doctor [--json]" << std::endl;
+              << " | doctor [--json]"
+              << " | explain <event.json> [--policy <path>] [--json]" << std::endl;
     return 1;
 }
 

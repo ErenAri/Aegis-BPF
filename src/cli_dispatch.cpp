@@ -101,6 +101,40 @@ int dispatch_doctor_command(int argc, char** argv, const char* prog)
     return cmd_doctor(json_output);
 }
 
+int dispatch_explain_command(int argc, char** argv, const char* prog)
+{
+    std::string event_path;
+    std::string policy_path;
+    bool json_output = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--event") {
+            if (i + 1 >= argc) return usage(prog);
+            event_path = argv[++i];
+        }
+        else if (arg == "--policy") {
+            if (i + 1 >= argc) return usage(prog);
+            policy_path = argv[++i];
+        }
+        else if (arg == "--json") {
+            json_output = true;
+        }
+        else if (event_path.empty() && arg.rfind("--", 0) != 0) {
+            event_path = arg;
+        }
+        else {
+            return usage(prog);
+        }
+    }
+
+    if (event_path.empty()) {
+        return usage(prog);
+    }
+
+    return cmd_explain(event_path, policy_path, json_output);
+}
+
 int dispatch_metrics_command(int argc, char** argv, const char* prog)
 {
     std::string out_path;
@@ -142,6 +176,7 @@ int dispatch_cli(int argc, char** argv)
     if (cmd == "survival") return dispatch_survival_command(argc, argv, argv[0]);
     if (cmd == "health") return dispatch_health_command(argc, argv, argv[0]);
     if (cmd == "doctor") return dispatch_doctor_command(argc, argv, argv[0]);
+    if (cmd == "explain") return dispatch_explain_command(argc, argv, argv[0]);
     if (cmd == "metrics") return dispatch_metrics_command(argc, argv, argv[0]);
     if (cmd == "stats") {
         bool detailed = false;

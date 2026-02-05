@@ -42,6 +42,7 @@
 - **Prometheus metrics** - Export block counts and statistics
 - **Structured logging** - JSON or text output to stdout/journald
 - **Diagnostics** - `aegisbpf doctor` for enforcement readiness and kernel feature checks
+- **Explainability** - `aegisbpf explain` for best-effort decision traces from event JSON
 - **Policy files and signed bundles** - Declarative configuration with SHA256 verification and signature enforcement
 - **Kubernetes ready** - Helm chart for DaemonSet deployment
 
@@ -354,6 +355,15 @@ sudo aegisbpf metrics --detailed --out /tmp/aegisbpf.debug.prom
 
 # Health check
 sudo aegisbpf health
+
+# Explain a block decision from an event JSON (best-effort)
+sudo aegisbpf explain /var/log/aegisbpf/event.json --policy /etc/aegisbpf/policy.conf
+
+# Use applied policy snapshot when present
+sudo aegisbpf explain /var/log/aegisbpf/event.json
+
+# Read event JSON from stdin
+cat /var/log/aegisbpf/event.json | sudo aegisbpf explain - --json
 
 # Enable OTel-style policy spans in logs (for troubleshooting)
 AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
