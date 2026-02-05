@@ -1,6 +1,0 @@
-# AegisBPF systemd environment file.
-# Copy to /etc/default/aegisbpf and adjust as needed.
-
-AEGIS_MODE=--enforce
-AEGIS_POLICY=/etc/aegisbpf/policy.conf
-AEGIS_LOG=--log=stdout
