@@ -42,8 +42,8 @@ def main() -> int:
     if len(sys.argv) != 6:
         print(
             "usage: check_superphase_c_adoption_contract.py "
-            "<external_review_status.md> <pilot_dir> <market_scorecard.md> "
-            "<go_live_checklist.md> <market_leadership_plan.md>",
+            "<external_review_status.md> <pilot_dir> <release_readiness_scorecard.md> "
+            "<go_live_checklist.md> <product_excellence_plan.md>",
             file=sys.stderr,
         )
         return 2
@@ -52,7 +52,7 @@ def main() -> int:
     pilot_dir = Path(sys.argv[2])
     scorecard = Path(sys.argv[3])
     go_live = Path(sys.argv[4])
-    market_plan = Path(sys.argv[5])
+    excellence_plan = Path(sys.argv[5])
 
     errors: list[str] = []
     errors += require_text(
@@ -81,7 +81,7 @@ def main() -> int:
         ],
     )
     errors += require_text(
-        market_plan,
+        excellence_plan,
         [
             "`>=2` pilot environments",
             "docs/EXTERNAL_REVIEW_STATUS.md",

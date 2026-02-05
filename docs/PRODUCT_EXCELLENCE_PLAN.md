@@ -1,6 +1,6 @@
-# Market Leadership Plan
+# Product Excellence Plan
 
-This plan turns AegisBPF market-leadership goals into measurable, release-
+This plan turns AegisBPF product-excellence goals into measurable, release-
 blocking gates.
 
 ## Flagship category and differentiation
@@ -110,7 +110,7 @@ Unmapped claims are release blockers.
 
 - Weekly: KPI/status review, risk register update, top-3 blocker burn-down.
 - Monthly: claim audit (remove or downgrade unsupported claims).
-- Per release: go/no-go uses `docs/MARKET_SCORECARD.md` plus
+- Per release: go/no-go uses `docs/RELEASE_READINESS_SCORECARD.md` plus
   `docs/GO_LIVE_CHECKLIST.md`.
 
 ## Immediate implementation backlog

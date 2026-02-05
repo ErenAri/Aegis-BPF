@@ -9,4 +9,4 @@ authoritative docs should appear in the PDF.
 3. docs/POLICY_SEMANTICS.md
 4. docs/NETWORK_LAYER_DESIGN.md
 5. docs/PRODUCTION_ROADMAP.md
-6. docs/MARKET_LEADERSHIP_PLAN.md
+6. docs/PRODUCT_EXCELLENCE_PLAN.md

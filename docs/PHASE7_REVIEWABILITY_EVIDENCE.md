@@ -28,7 +28,7 @@ This page is the single reviewability index for Phase 7 from
   `docs/PHASE5_PERFORMANCE_EVIDENCE.md`
 - Agent meta-security proofs (key lifecycle, release signing, capability bounds):
   `docs/PHASE6_META_SECURITY_EVIDENCE.md`
-- Market go/no-go scorecard: `docs/MARKET_SCORECARD.md`
+- Release readiness scorecard: `docs/RELEASE_READINESS_SCORECARD.md`
 - External review closure status: `docs/EXTERNAL_REVIEW_STATUS.md`
 - Pilot evidence reports: `docs/pilots/`
 - Design artifact sync status: `docs/DESIGN_ARTIFACT_STATUS.md`

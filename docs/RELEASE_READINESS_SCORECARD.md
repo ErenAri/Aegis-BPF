@@ -1,4 +1,4 @@
-# Market Leadership Scorecard
+# Release Readiness Scorecard
 
 Use this scorecard for release go/no-go decisions.
 

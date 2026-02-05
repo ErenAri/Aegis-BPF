@@ -88,8 +88,8 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
 - Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
-- Market-leadership execution plan: `docs/MARKET_LEADERSHIP_PLAN.md`
-- Market-leadership release scorecard: `docs/MARKET_SCORECARD.md`
+- Product-excellence execution plan: `docs/PRODUCT_EXCELLENCE_PLAN.md`
+- Product-excellence release scorecard: `docs/RELEASE_READINESS_SCORECARD.md`
 - External review prep checklist: `docs/EXTERNAL_REVIEW_PREP.md`
 - Pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`
 - External review closure tracker: `docs/EXTERNAL_REVIEW_STATUS.md`

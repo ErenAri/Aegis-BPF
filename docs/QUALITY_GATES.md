@@ -20,7 +20,7 @@ This project enforces quality gates through required CI checks on `main`.
   `phase3_safety_contract`, `phase4_portability_contract`,
   `phase5_performance_contract`,
   `phase6_meta_security_contract`, `phase7_reviewability_contract`)
-- Market-plan contract (`market_leadership_contract`)
+- Product-excellence plan contract (`product_excellence_contract`)
 - Super-Phase C adoption contract (`superphase_c_adoption_contract`)
 - Capability contract validation (`capability_contract`)
 - SBOM generation

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate market-leadership plan and scorecard contracts."""
+"""Validate product-excellence plan and scorecard contracts."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def require_text(path: Path, needles: list[str]) -> list[str]:
 def main() -> int:
     if len(sys.argv) != 11:
         print(
-            "usage: check_market_leadership_contract.py "
-            "<market_leadership_plan.md> <market_scorecard.md> "
+            "usage: check_product_excellence_contract.py "
+            "<product_excellence_plan.md> <release_readiness_scorecard.md> "
             "<maturity_program.md> <go_live_checklist.md> <pr_template.md> <readme.md> "
             "<external_review_prep.md> <pilot_evidence_template.md> "
             "<external_review_status.md> <pilots_readme.md>",
@@ -80,15 +80,15 @@ def main() -> int:
         [
             "## Super-phase execution overlay",
             "Super-Phase A (Defensibility Core)",
-            "docs/MARKET_LEADERSHIP_PLAN.md",
-            "docs/MARKET_SCORECARD.md",
+            "docs/PRODUCT_EXCELLENCE_PLAN.md",
+            "docs/RELEASE_READINESS_SCORECARD.md",
         ],
     )
     errors += require_text(
         go_live_doc,
         [
-            "Market leadership scorecard completed",
-            "docs/MARKET_SCORECARD.md",
+            "Product excellence scorecard completed",
+            "docs/RELEASE_READINESS_SCORECARD.md",
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",
         ],
@@ -96,7 +96,7 @@ def main() -> int:
     errors += require_text(
         pr_template,
         [
-            "Market-leadership claim mapping",
+            "Product-excellence claim mapping",
             "Claim label (ENFORCED/AUDITED/PLANNED):",
             "Spec section:",
             "Test suite/contract:",
@@ -107,8 +107,8 @@ def main() -> int:
     errors += require_text(
         readme,
         [
-            "docs/MARKET_LEADERSHIP_PLAN.md",
-            "docs/MARKET_SCORECARD.md",
+            "docs/PRODUCT_EXCELLENCE_PLAN.md",
+            "docs/RELEASE_READINESS_SCORECARD.md",
             "Claim Taxonomy",
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",

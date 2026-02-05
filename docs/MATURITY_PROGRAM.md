@@ -124,7 +124,7 @@ Implementation details live in `docs/CI_EXECUTION_STRATEGY.md`.
 
 ## Super-phase execution overlay
 
-For market-leadership execution, the phase gates above are grouped into three
+For product-excellence execution, the phase gates above are grouped into three
 delivery tracks:
 
 - **Super-Phase A (Defensibility Core):** contract semantics + kernel
@@ -136,8 +136,8 @@ delivery tracks:
 
 Detailed execution plan:
 
-- `docs/MARKET_LEADERSHIP_PLAN.md`
+- `docs/PRODUCT_EXCELLENCE_PLAN.md`
 
 Release-go/no-go scorecard:
 
-- `docs/MARKET_SCORECARD.md`
+- `docs/RELEASE_READINESS_SCORECARD.md`

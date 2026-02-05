@@ -1,6 +1,6 @@
-# AegisBPF Production Roadmap (Market-Leadership Plan)
+# AegisBPF Production Roadmap (Product Excellence Plan)
 
-This roadmap defines the execution plan to reach a trusted, market-leading
+This roadmap defines the execution plan to reach a trusted, production-grade
 security product. It is intentionally strict: no new surface area is added
 until the current phase gates are met.
 
@@ -168,7 +168,7 @@ Canonical reference: `docs/REFERENCE_ENFORCEMENT_SLICE.md`.
 ## Differentiation Commitment
 
 At least one adoption KPI must improve by >= Z% vs baseline before any
-"market leadership" claim is made.
+public excellence claim is made.
 
 ## Kill Criteria (Hard Stop Conditions)
 

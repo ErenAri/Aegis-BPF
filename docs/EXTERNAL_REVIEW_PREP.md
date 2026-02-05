@@ -13,8 +13,8 @@ This checklist prepares the independent review that starts in Super-Phase A.
 
 ## Required evidence pack
 
-- `docs/MARKET_LEADERSHIP_PLAN.md`
-- `docs/MARKET_SCORECARD.md`
+- `docs/PRODUCT_EXCELLENCE_PLAN.md`
+- `docs/RELEASE_READINESS_SCORECARD.md`
 - `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
 - `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`
 - `docs/PHASE6_META_SECURITY_EVIDENCE.md`

@@ -39,7 +39,7 @@ def main() -> int:
             "actions/workflows/release.yml",
             "docs/THREAT_MODEL.md",
             "docs/PHASE6_META_SECURITY_EVIDENCE.md",
-            "docs/MARKET_SCORECARD.md",
+            "docs/RELEASE_READINESS_SCORECARD.md",
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",
             "docs/DESIGN_ARTIFACT_STATUS.md",

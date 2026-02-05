@@ -1,7 +1,7 @@
 # Pilot Evidence Packs
 
 This folder stores weekly pilot evidence reports used by
-`docs/MARKET_SCORECARD.md`.
+`docs/RELEASE_READINESS_SCORECARD.md`.
 
 Rules:
 - Keep at least **two active pilot reports** under version control.

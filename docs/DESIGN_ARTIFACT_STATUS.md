@@ -17,7 +17,7 @@ This page tracks synchronization status between active markdown specs in
 - Notes: Box-drawing diagrams were converted to ASCII to keep PDF output clean.
   The generator prefers DejaVu/Noto fonts when available.
 - Blocking delta areas:
-  - Market-leadership super-phase gates
+  - Product-excellence super-phase gates
   - Updated soak/perf KPI enforcement (`<0.1%` drop ratio, `p95 <= 5%`)
   - External review and pilot evidence tracking
 
