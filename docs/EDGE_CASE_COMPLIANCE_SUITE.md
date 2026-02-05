@@ -16,6 +16,8 @@ Baseline basis set (must always be covered):
 - hardlink paths (same inode)
 - rename before/after open
 - bind mount alias behavior
+- overlayfs alias checks (skipped if overlay mount unavailable or inode diverges)
+- mount-namespace checks (skipped if `unshare -m` is unavailable)
 
 ## How to run
 

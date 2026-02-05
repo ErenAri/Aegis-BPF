@@ -231,6 +231,68 @@ run_signal_suite() {
         skip "${signal}: bind mount alias checks" "mount --bind unavailable in this environment"
     fi
 
+    # OverlayFS alias checks (optional, may be unavailable).
+    local overlay_root="${scenario_dir}/overlay"
+    local overlay_lower="${overlay_root}/lower"
+    local overlay_upper="${overlay_root}/upper"
+    local overlay_work="${overlay_root}/work"
+    local overlay_merged="${overlay_root}/merged"
+    local overlay_target="${overlay_lower}/overlay_target.sh"
+    mkdir -p "${overlay_lower}" "${overlay_upper}" "${overlay_work}" "${overlay_merged}"
+    printf '#!/bin/sh\necho overlay=%s\n' "${signal}" >"${overlay_target}"
+    chmod +x "${overlay_target}"
+    local overlay_inode
+    overlay_inode="$(stat -c %i "${overlay_target}")"
+    if ! "${BIN}" block add "${overlay_target}" >/dev/null 2>&1; then
+        echo "Failed to add block rule for overlay target ${overlay_target}" >&2
+        exit 1
+    fi
+    local overlay_mounted=0
+    if mount -t overlay overlay -o "lowerdir=${overlay_lower},upperdir=${overlay_upper},workdir=${overlay_work}" "${overlay_merged}" >/dev/null 2>&1; then
+        overlay_mounted=1
+        local merged_target="${overlay_merged}/overlay_target.sh"
+        if [[ ! -f "${merged_target}" ]]; then
+            fail "${signal}: overlay merged path" "missing ${merged_target}"
+        else
+            local merged_inode
+            merged_inode="$(stat -c %i "${merged_target}")"
+            if [[ "${merged_inode}" == "${overlay_inode}" ]]; then
+                run_expect_blocked "${signal}: overlay cat" cat "${merged_target}"
+                run_expect_blocked "${signal}: overlay exec" "${merged_target}"
+            else
+                skip "${signal}: overlay cat" "overlay inode differs (documented caveat)"
+                skip "${signal}: overlay exec" "overlay inode differs (documented caveat)"
+            fi
+        fi
+    else
+        skip "${signal}: overlay cat" "overlayfs mount unavailable in this environment"
+        skip "${signal}: overlay exec" "overlayfs mount unavailable in this environment"
+    fi
+
+    if [[ "${overlay_mounted}" -eq 1 ]]; then
+        if ! umount "${overlay_merged}" >/dev/null 2>&1; then
+            fail "${signal}: overlay umount" "failed to unmount ${overlay_merged}"
+        fi
+    fi
+    "${BIN}" block del "${overlay_target}" >/dev/null 2>&1 || true
+
+    # Mount-namespace checks (optional).
+    local ns_bind_path="${scenario_dir}/ns_bind"
+    touch "${ns_bind_path}"
+    if command -v unshare >/dev/null 2>&1; then
+        if unshare -m --propagation private true >/dev/null 2>&1; then
+            run_expect_blocked "${signal}: unshare cat direct" unshare -m --propagation private cat "${target}"
+            run_expect_blocked "${signal}: unshare bind cat" unshare -m --propagation private bash -c \
+                "mount --bind \"${target}\" \"${ns_bind_path}\" && cat \"${ns_bind_path}\""
+        else
+            skip "${signal}: unshare cat direct" "unshare -m not permitted in this environment"
+            skip "${signal}: unshare bind cat" "unshare -m not permitted in this environment"
+        fi
+    else
+        skip "${signal}: unshare cat direct" "unshare not available in this environment"
+        skip "${signal}: unshare bind cat" "unshare not available in this environment"
+    fi
+
     sleep 1
     run_expect_success "${signal}: expected action logged" grep -q "\"action\":\"${expected_action}\"" "${LOG_FILE}"
     run_expect_success "${signal}: inode logged" grep -q "\"ino\":${inode}" "${LOG_FILE}"
