@@ -13,7 +13,7 @@ This page tracks synchronization status between active markdown specs in
 ## Root PDF status
 
 - Artifact: `eBPF Runtime Security Agent Design.pdf`
-- Status on 2026-02-05: **In sync** (generated from docs at commit `9374e70`)
+- Status on 2026-02-05: **In sync** (generated from docs at commit `b89443a`)
 - Notes: Box-drawing diagrams were converted to ASCII to keep PDF output clean.
   The generator prefers DejaVu/Noto fonts when available.
 - Blocking delta areas:
