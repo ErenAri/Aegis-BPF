@@ -78,7 +78,7 @@ AegisBPF cannot run if:
 \* Requires adding `lsm=bpf` or `lsm=landlock,lockdown,yama,bpf` to kernel boot parameters.
 
 Compatibility CI evidence and kernel/distro matrix source of truth are tracked
-in `docs/PHASE4_PORTABILITY_EVIDENCE.md`.
+in the CI kernel-matrix artifacts.
 
 ## CI-Backed Evidence Matrix
 

@@ -54,23 +54,22 @@ To avoid overclaiming, features are labeled as:
 - `AUDITED`: operation is observed/logged but not denied
 - `PLANNED`: not shipped yet
 
-Current flagship contract (`docs/MATURITY_PROGRAM.md`):
+Flagship contract:
 
 > Block unauthorized file opens/reads using inode-first enforcement for
 > cgroup-scoped workloads, with safe rollback and signed policy provenance.
 
-Phase-1 contract evidence: `docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`.
-Product-excellence execution plan: `docs/PRODUCT_EXCELLENCE_PLAN.md`.
-Production roadmap (execution gates): `docs/PRODUCTION_ROADMAP.md`.
-Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`.
-Product-excellence release scorecard: `docs/RELEASE_READINESS_SCORECARD.md`.
-External review closure status: `docs/EXTERNAL_REVIEW_STATUS.md`.
-Pilot evidence reports: `docs/pilots/`.
-Design artifact sync status (including root PDF): `docs/DESIGN_ARTIFACT_STATUS.md`.
-Threat model: `docs/THREAT_MODEL.md`.
-Policy semantics: `docs/POLICY_SEMANTICS.md`.
-Bypass catalog: `docs/BYPASS_CATALOG.md`.
-Reference enforcement slice: `docs/REFERENCE_ENFORCEMENT_SLICE.md`.
+Core documentation:
+- Threat model: `docs/THREAT_MODEL.md`
+- Policy semantics: `docs/POLICY_SEMANTICS.md`
+- Bypass catalog: `docs/BYPASS_CATALOG.md`
+- Reference enforcement slice: `docs/REFERENCE_ENFORCEMENT_SLICE.md`
+- Production readiness: `docs/PRODUCTION_READINESS.md`
+- Deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`
+- Compatibility: `docs/COMPATIBILITY.md`
+- Performance methodology: `docs/PERF.md`
+- Metrics operations: `docs/METRICS_OPERATIONS.md`
+- Runbooks: `docs/runbooks/`
 
 Current scope labels:
 - `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), network
@@ -560,15 +559,15 @@ Security boundaries, attacker model, and known blind spots are documented in
 | [POLICY_SEMANTICS.md](docs/POLICY_SEMANTICS.md) | Precise runtime rule semantics and edge-case behavior |
 | [NETWORK_LAYER_DESIGN.md](docs/NETWORK_LAYER_DESIGN.md) | Network blocking architecture |
 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Threat model, coverage boundaries, and known bypass surface |
-| [MATURITY_PROGRAM.md](docs/MATURITY_PROGRAM.md) | Phase-gated maturity ladder with numeric completion criteria |
-| [PHASE1_PRODUCT_CONTRACT_EVIDENCE.md](docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md) | Evidence bundle for the flagship product contract |
+| [BYPASS_CATALOG.md](docs/BYPASS_CATALOG.md) | Known bypasses, mitigations, and accepted gaps |
+| [REFERENCE_ENFORCEMENT_SLICE.md](docs/REFERENCE_ENFORCEMENT_SLICE.md) | Decision-grade enforcement reference slice |
 
 ### Operations
 
 | Document | Description |
 |----------|-------------|
-| [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Production gates and evidence checklist |
-| [GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md) | Final go/no-go checklist for release candidates |
+| [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Production readiness checklist and operator guidance |
+| [PRODUCTION_DEPLOYMENT_BLUEPRINT.md](docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md) | Deployment hardening and rollout blueprint |
 | [CANARY_RUNBOOK.md](docs/CANARY_RUNBOOK.md) | Staging canary and soak validation workflow |
 | [RELEASE_DRILL.md](docs/RELEASE_DRILL.md) | Pre-release packaging and upgrade drill |
 | [KEY_MANAGEMENT.md](docs/KEY_MANAGEMENT.md) | Policy signing key rotation and revocation runbook |

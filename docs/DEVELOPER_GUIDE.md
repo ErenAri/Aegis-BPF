@@ -741,7 +741,7 @@ git push origin v0.2.0
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
 - [THREAT_MODEL.md](THREAT_MODEL.md) - Security scope and blind spots
 - [POLICY_SEMANTICS.md](POLICY_SEMANTICS.md) - Runtime policy behavior
-- [MATURITY_PROGRAM.md](MATURITY_PROGRAM.md) - Phase gates and objective done criteria
+- [QUALITY_GATES.md](QUALITY_GATES.md) - CI gate policy and coverage expectations
 - [CI_EXECUTION_STRATEGY.md](CI_EXECUTION_STRATEGY.md) - Privileged CI execution model
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
 - [VENDORED_DEPENDENCIES.md](VENDORED_DEPENDENCIES.md) - Vendored dependency tracking

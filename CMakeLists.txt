@@ -392,69 +392,6 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tracing.cpp
     )
 
-    add_test(
-        NAME phase1_product_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase1_product_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/THREAT_MODEL.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/POLICY_SEMANTICS.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-    )
-
-    add_test(
-        NAME phase2_evidence_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase2_evidence_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE2_CORRECTNESS_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/e2e.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/kernel-matrix.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/e2e_file_enforcement_matrix.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/validate_e2e_matrix_summary.py
-    )
-
-    add_test(
-        NAME phase3_safety_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase3_safety_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/canary.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/go-live-gate.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/canary_gate.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tracing.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_policy.cpp
-    )
-
-    add_test(
-        NAME phase4_portability_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase4_portability_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/kernel-matrix.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/COMPATIBILITY.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE4_PORTABILITY_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_kernel_features.cpp
-    )
-
-    add_test(
-        NAME phase5_performance_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase5_performance_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PERF.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE5_PERFORMANCE_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/perf.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/perf_open_bench.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/perf_connect_bench.sh
-    )
-
-    add_test(
-        NAME phase6_meta_security_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase6_meta_security_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE6_META_SECURITY_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/release.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/SECURITY.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/KEY_MANAGEMENT.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_commands.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/packaging/systemd/aegisbpf.service
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/workflows/key-rotation-drill.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/key_rotation_drill.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/validate_capability_contract.py
-    )
 
     add_test(
         NAME capability_contract
@@ -463,40 +400,6 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/packaging/systemd/aegisbpf.service
     )
 
-    add_test(
-        NAME phase7_reviewability_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_phase7_reviewability_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PHASE7_REVIEWABILITY_EVIDENCE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/PULL_REQUEST_TEMPLATE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-    )
-
-    add_test(
-        NAME product_excellence_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_product_excellence_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PRODUCT_EXCELLENCE_PLAN.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/RELEASE_READINESS_SCORECARD.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/MATURITY_PROGRAM.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/.github/PULL_REQUEST_TEMPLATE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_PREP.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PILOT_EVIDENCE_TEMPLATE.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_STATUS.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/pilots/README.md
-    )
-
-    add_test(
-        NAME superphase_c_adoption_contract
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_superphase_c_adoption_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_REVIEW_STATUS.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/pilots
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/RELEASE_READINESS_SCORECARD.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/GO_LIVE_CHECKLIST.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PRODUCT_EXCELLENCE_PLAN.md
-    )
 
     add_test(
         NAME runbooks_contract

@@ -77,4 +77,4 @@ Canary is considered pass only when:
 - No critical false positives remain unresolved.
 - Rollback drill is validated.
 
-Record final status in `docs/GO_LIVE_CHECKLIST.md`.
+Record final status in the release notes or change ticket.

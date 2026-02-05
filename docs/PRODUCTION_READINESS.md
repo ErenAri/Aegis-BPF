@@ -4,9 +4,6 @@ This checklist captures the minimum bar for a senior-level, production-ready
 release. Items are grouped by priority. Track completion and evidence as you
 deliver each requirement.
 
-For phase-by-phase numeric gates and the current MVP freeze contract, see
-`docs/MATURITY_PROGRAM.md`.
-
 ## P0 (must-have before production)
 - Policy format is versioned, validated, and backward-compatible (or has a
   clear migration plan).
@@ -87,23 +84,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
-- Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
-- Product-excellence execution plan: `docs/PRODUCT_EXCELLENCE_PLAN.md`
-- Product-excellence release scorecard: `docs/RELEASE_READINESS_SCORECARD.md`
-- External review prep checklist: `docs/EXTERNAL_REVIEW_PREP.md`
-- Pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`
-- External review closure tracker: `docs/EXTERNAL_REVIEW_STATUS.md`
-- Pilot weekly evidence reports: `docs/pilots/`
-- Design artifact synchronization status (root PDF vs docs): `docs/DESIGN_ARTIFACT_STATUS.md`
 - Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`
-- Phase-1 product-contract evidence pack: `docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`
-- Phase-2 correctness evidence pack: `docs/PHASE2_CORRECTNESS_EVIDENCE.md`
-- Phase-3 operational safety evidence pack: `docs/PHASE3_OPERATIONAL_SAFETY_EVIDENCE.md`
-- Phase-4 portability evidence pack: `docs/PHASE4_PORTABILITY_EVIDENCE.md`
-- Phase-5 performance evidence pack: `docs/PHASE5_PERFORMANCE_EVIDENCE.md`
-- Phase-6 meta-security evidence pack: `docs/PHASE6_META_SECURITY_EVIDENCE.md`
-- Phase-7 reviewability evidence pack: `docs/PHASE7_REVIEWABILITY_EVIDENCE.md`
 - CI kernel-e2e execution strategy: `docs/CI_EXECUTION_STRATEGY.md`
-- Final go/no-go checklist: `docs/GO_LIVE_CHECKLIST.md`
 - Branch-protection baseline: `docs/BRANCH_PROTECTION.md` + `scripts/check_branch_protection.sh`
 - Branch-protection audit workflow: `.github/workflows/branch-protection-audit.yml`

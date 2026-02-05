@@ -5,10 +5,8 @@ senior-level, production-ready AegisBPF agent.
 
 For full attacker-model detail, coverage boundaries, and known bypass surfaces,
 see `docs/THREAT_MODEL.md`.
-Phase gates and numeric completion criteria are tracked in
-`docs/MATURITY_PROGRAM.md`.
-Phase-1 contract evidence is tracked in
-`docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`.
+Production readiness gates are tracked in
+`docs/PRODUCTION_READINESS.md` and `docs/QUALITY_GATES.md`.
 
 ## Golden contract
 

@@ -75,7 +75,7 @@ The suite fails if any workload exceeds threshold.
   - `scripts/soak_reliability.sh`
   - `.github/workflows/soak.yml`
 - Product reliability target remains `<0.1%` event-drop ratio under sustained
-  benchmarked load (see `docs/MATURITY_PROGRAM.md`).
+  benchmarked load (see CI perf artifacts).
 
 ## JSON output
 

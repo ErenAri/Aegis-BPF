@@ -32,14 +32,6 @@ def main() -> int:
         ["## Metric interpretation and action", "## Operator response flow"],
     )
     errors += require_text(
-        root / "docs" / "MATURITY_PROGRAM.md",
-        [
-            "## Golden contract (Phase 0 freeze)",
-            "## Phase 0: MVP freeze and success metrics",
-            "## Claim taxonomy",
-        ],
-    )
-    errors += require_text(
         root / "docs" / "CI_EXECUTION_STRATEGY.md",
         ["## Strategy", "## Kernel matrix minimum", "## Enforcement-path PR rule"],
     )
@@ -49,7 +41,6 @@ def main() -> int:
             "docs/THREAT_MODEL.md",
             "docs/POLICY_SEMANTICS.md",
             "docs/METRICS_OPERATIONS.md",
-            "docs/MATURITY_PROGRAM.md",
             "docs/CI_EXECUTION_STRATEGY.md",
             "Claim Taxonomy",
             "`ENFORCED`",

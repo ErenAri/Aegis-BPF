@@ -60,13 +60,9 @@ ctest --test-dir "${ROOT_DIR}/${BUILD_DIR}" --output-on-failure \
 
 echo "[7/7] Go-live artifact sanity"
 required_files=(
-  "${ROOT_DIR}/docs/GO_LIVE_CHECKLIST.md"
   "${ROOT_DIR}/docs/BRANCH_PROTECTION.md"
   "${ROOT_DIR}/docs/CANARY_RUNBOOK.md"
   "${ROOT_DIR}/docs/RELEASE_DRILL.md"
-  "${ROOT_DIR}/docs/EXTERNAL_REVIEW_STATUS.md"
-  "${ROOT_DIR}/docs/pilots/README.md"
-  "${ROOT_DIR}/docs/DESIGN_ARTIFACT_STATUS.md"
   "${ROOT_DIR}/config/required_checks.txt"
   "${ROOT_DIR}/scripts/check_branch_protection.sh"
   "${ROOT_DIR}/scripts/canary_gate.sh"
