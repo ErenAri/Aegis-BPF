@@ -104,6 +104,9 @@ def main() -> int:
                 "Unexplained event drop ratio",
                 "Silent partial attach incidents",
                 "Delta % (target: <=5%)",
+                "Time-to-correct-policy",
+                "Time-to-diagnose-deny",
+                "Operator cognitive load",
                 "CI/workflow runs:",
             ]
             for marker in report_markers:
@@ -114,6 +117,9 @@ def main() -> int:
                 drop_ratio = extract_percent(report, text, "Unexplained event drop ratio")
                 syscall_delta = extract_percent(report, text, "Delta %")
                 silent_attach_incidents = extract_int(report, text, "Silent partial attach incidents")
+                extract_int(report, text, "Time-to-correct-policy")
+                extract_int(report, text, "Time-to-diagnose-deny")
+                extract_int(report, text, "Operator cognitive load")
             except ValueError as exc:
                 errors.append(str(exc))
                 continue

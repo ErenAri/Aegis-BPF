@@ -113,6 +113,7 @@ def main() -> int:
             "docs/EXTERNAL_REVIEW_STATUS.md",
             "docs/pilots/",
             "docs/DESIGN_ARTIFACT_STATUS.md",
+            "docs/REFERENCE_ENFORCEMENT_SLICE.md",
         ],
     )
     errors += require_text(
@@ -132,6 +133,9 @@ def main() -> int:
             "Unexplained event drop ratio",
             "Silent partial attach incidents",
             "Explainability quality",
+            "Time-to-correct-policy",
+            "Time-to-diagnose-deny",
+            "Operator cognitive load",
         ],
     )
     errors += require_text(
