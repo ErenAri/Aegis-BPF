@@ -86,6 +86,33 @@ Result<void> verify_pinned_map_access(const char* pin_path)
 
 }  // namespace
 
+std::string build_block_metrics_output(const BlockStats& stats)
+{
+    std::ostringstream oss;
+    append_metric_header(oss, "aegisbpf_blocks_total", "counter",
+                         "Total number of blocked operations");
+    append_metric_sample(oss, "aegisbpf_blocks_total", stats.blocks);
+    append_metric_header(oss, "aegisbpf_ringbuf_drops_total", "counter",
+                         "Number of dropped events");
+    append_metric_sample(oss, "aegisbpf_ringbuf_drops_total", stats.ringbuf_drops);
+    return oss.str();
+}
+
+std::string build_net_metrics_output(const NetBlockStats& stats)
+{
+    std::ostringstream oss;
+    append_metric_header(oss, "aegisbpf_net_blocks_total", "counter",
+                         "Blocked network operations by direction");
+    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "connect"}},
+                         stats.connect_blocks);
+    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "bind"}},
+                         stats.bind_blocks);
+    append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter",
+                         "Dropped network events");
+    append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", stats.ringbuf_drops);
+    return oss.str();
+}
+
 int cmd_stats(bool detailed)
 {
     const std::string trace_id = make_span_id("trace-stats");

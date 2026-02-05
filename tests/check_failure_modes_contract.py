@@ -32,6 +32,9 @@ def main() -> int:
         # Map update and rollback failure paths.
         "PolicyRollbackTest.MapFullFailureTriggersRollbackAttemptWhenEnabled",
         "PolicyRollbackTest.RollbackFailureStillReturnsOriginalApplyError",
+        # Observability degradation path (ring buffer drops surfaced).
+        "MetricsTest.IncludesRingbufDropsInBlockMetrics",
+        "MetricsTest.IncludesRingbufDropsInNetMetrics",
         # BPF load/verifier failure paths.
         "TracingTest.DaemonRunMarksLoadSpanErrorWhenLoadBpfFails",
         "TracingTest.DaemonRunSurfacesVerifierRejectError",
