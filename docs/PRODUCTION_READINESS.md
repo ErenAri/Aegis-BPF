@@ -62,6 +62,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Kernel file-enforcement matrix (114 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
 - Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 100 --max-failed-checks 0`)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
+- Chaos ringbuf overflow check: `scripts/chaos_ringbuf_overflow.sh` (runs in `e2e.yml`)
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
 - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` + `artifacts/perf/perf-evidence-report.md`

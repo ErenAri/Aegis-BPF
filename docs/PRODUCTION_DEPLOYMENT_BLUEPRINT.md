@@ -41,6 +41,15 @@ Dry-run traces:
 - Run audit-only with JSON logs: `aegisbpf run --audit --log-format=json`.
 - Use `aegisbpf explain` on captured events for best-effort decision traces.
 
+Example decision trace:
+```text
+$ aegisbpf explain --event /var/log/aegisbpf/event.json --policy /etc/aegisbpf/policy.conf
+decision=deny
+reason=matched deny_inode rule
+rule_id=deny_inode:/usr/bin/oldtool (dev=259, inode=123456)
+mode=enforce
+```
+
 ### Rollback
 - `aegisbpf policy rollback` is the primary rollback lever.
 - Break-glass: create `/etc/aegisbpf/break_glass` to force audit-only.

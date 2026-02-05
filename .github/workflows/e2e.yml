@@ -55,6 +55,18 @@ jobs:
             OUT_JSON=artifacts/e2e/soak_summary.json \
             scripts/soak_reliability.sh
 
+      - name: Chaos ringbuf overflow
+        run: |
+          mkdir -p artifacts/e2e
+          sudo AEGIS_BIN=./build/aegisbpf \
+            RINGBUF_BYTES=4096 \
+            EVENT_SAMPLE_RATE=1 \
+            WORKERS=8 \
+            DURATION_SECONDS=15 \
+            TARGET_DROPS=1 \
+            OUT_JSON=artifacts/e2e/chaos_ringbuf.json \
+            scripts/chaos_ringbuf_overflow.sh
+
       - name: Capture E2E environment
         if: always()
         run: |

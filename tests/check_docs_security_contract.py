@@ -36,6 +36,10 @@ def main() -> int:
         ["## Evidence map", "## How to access evidence"],
     )
     errors += require_text(
+        root / "docs" / "EXTERNAL_VALIDATION.md",
+        ["## Status", "## Published reviews"],
+    )
+    errors += require_text(
         root / "docs" / "CI_EXECUTION_STRATEGY.md",
         ["## Strategy", "## Kernel matrix minimum", "## Enforcement-path PR rule"],
     )
@@ -46,6 +50,7 @@ def main() -> int:
             "docs/POLICY_SEMANTICS.md",
             "docs/METRICS_OPERATIONS.md",
             "docs/EVIDENCE.md",
+            "docs/EXTERNAL_VALIDATION.md",
             "docs/CI_EXECUTION_STRATEGY.md",
             "Claim Taxonomy",
             "`ENFORCED`",

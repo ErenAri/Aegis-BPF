@@ -16,17 +16,36 @@ artifacts on each run.
 |------------|----------|-------------|-------|
 | Build + unit tests + sanitizers | `CI` (`.github/workflows/ci.yml`) | `coverage-report` (HTML), `sbom` | Coverage report + SBOM are published as artifacts. |
 | Kernel portability | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | Includes kernel + OS details and ctest log. |
-| BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info and short soak summary. |
+| BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info, soak summary, and chaos ringbuf overflow result. |
 | Perf regression (self-hosted) | `Perf Regression` (`.github/workflows/perf.yml`) | `perf-evidence` | Includes open/close microbench + workload suite JSON. |
 | Soak reliability (self-hosted) | `Soak Reliability` (`.github/workflows/soak.yml`) | `soak-evidence` | Includes soak summary JSON with drop/RSS thresholds. |
 | Release readiness | `Release Readiness` (`.github/workflows/release-readiness.yml`) | (status only) | Status gate for release readiness script. |
 | Security scans | `Security` (`.github/workflows/security.yml`) | (status only) | CodeQL, gitleaks, semgrep results. |
+| External validation | (manual) | `docs/EXTERNAL_VALIDATION.md` | Public summaries of independent reviews or pilot case studies. |
 
 ## Evidence expectations
 
 - **Self-hosted evidence** (kernel matrix, perf, soak) requires tagged runners.
 - **Hosted evidence** (CI, security scans, SBOM, coverage) should be present on
   every PR and main run.
+- **External validation** is only listed once a public summary exists.
+
+## Kernel matrix coverage
+
+Target runners for portability evidence (self-hosted):
+
+| Runner label | Kernel target | Evidence artifact |
+|-------------|---------------|-------------------|
+| `kernel-5.14` | 5.14.x | `kernel-matrix-kernel-5.14` |
+| `kernel-5.15` | 5.15.x | `kernel-matrix-kernel-5.15` |
+| `kernel-6.1` | 6.1.x | `kernel-matrix-kernel-6.1` |
+| `kernel-6.5` | 6.5.x | `kernel-matrix-kernel-6.5` |
+
+## Perf evidence trend
+
+- **Self-hosted perf artifacts:** `perf-evidence` (from `Perf Regression`).
+- **Benchmark trend history:** `benchmark.yml` publishes to `gh-pages` under
+  `dev/bench/` for long-term trend visualization.
 
 If an artifact is missing, check the workflow log for runner availability or
 permission issues.
