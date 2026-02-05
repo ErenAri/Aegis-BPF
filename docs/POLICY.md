@@ -44,6 +44,8 @@ This section is an explicit bypass control: matching cgroups skip deny rules.
 ## CLI lifecycle
 
 - `policy lint <file>`: parse and validate formatting.
+- `policy lint <file> --fix [--out <path>]`: emit a normalized policy file
+  (sorted/deduped sections) to `<file>.fixed` by default.
 - `policy apply <file> [--reset] [--sha256 <hex>|--sha256-file <path>] [--no-rollback]`:
   apply rules to pinned maps. `--reset` clears deny/allow maps and counters
   before applying. `--sha256`/`--sha256-file` enforce integrity checks. By

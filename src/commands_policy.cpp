@@ -30,6 +30,50 @@ int cmd_policy_lint(const std::string& path)
     return result ? 0 : 1;
 }
 
+int cmd_policy_lint_fix(const std::string& path, const std::string& out_path)
+{
+    const std::string trace_id = make_span_id("trace-policy-lint-fix");
+    ScopedSpan span("cli.policy_lint_fix", trace_id);
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    report_policy_issues(issues);
+    if (!result) {
+        span.fail(result.error().to_string());
+        return 1;
+    }
+    if (issues.has_errors()) {
+        span.fail("Policy contains errors");
+        return 1;
+    }
+
+    const Policy& policy = *result;
+    std::vector<std::string> deny_inodes;
+    deny_inodes.reserve(policy.deny_inodes.size());
+    for (const auto& id : policy.deny_inodes) {
+        deny_inodes.push_back(inode_to_string(id));
+    }
+
+    std::vector<std::string> allow_entries = policy.allow_cgroup_paths;
+    allow_entries.reserve(policy.allow_cgroup_paths.size() + policy.allow_cgroup_ids.size());
+    for (uint64_t id : policy.allow_cgroup_ids) {
+        allow_entries.push_back("cgid:" + std::to_string(id));
+    }
+
+    std::string target = out_path.empty() ? (path + ".fixed") : out_path;
+    auto write_result = write_policy_file(target, policy.deny_paths, deny_inodes, allow_entries);
+    if (!write_result) {
+        logger().log(SLOG_ERROR("Failed to write normalized policy")
+                         .field("path", target)
+                         .field("error", write_result.error().to_string()));
+        span.fail(write_result.error().to_string());
+        return 1;
+    }
+
+    std::cout << "Wrote normalized policy to " << target << "\n";
+    return 0;
+}
+
 int cmd_policy_validate(const std::string& path, bool verbose)
 {
     const std::string trace_id = make_span_id("trace-policy-validate");

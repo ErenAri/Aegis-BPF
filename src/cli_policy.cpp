@@ -15,7 +15,28 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
     std::string sub = argv[2];
 
     if (sub == "lint") {
-        if (argc != 4) return usage(prog);
+        if (argc < 4) return usage(prog);
+        bool fix = false;
+        std::string out_path;
+        for (int i = 4; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--fix") {
+                fix = true;
+            }
+            else if (arg == "--out") {
+                if (i + 1 >= argc) return usage(prog);
+                out_path = argv[++i];
+            }
+            else {
+                return usage(prog);
+            }
+        }
+        if (fix) {
+            return cmd_policy_lint_fix(argv[3], out_path);
+        }
+        if (!out_path.empty()) {
+            return usage(prog);
+        }
         return cmd_policy_lint(argv[3]);
     }
 

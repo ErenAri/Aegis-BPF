@@ -325,6 +325,9 @@ cgid:123456
 # Validate policy
 sudo aegisbpf policy lint /etc/aegisbpf/policy.conf
 
+# Normalize policy formatting (sorted + deduped)
+sudo aegisbpf policy lint /etc/aegisbpf/policy.conf --fix --out /tmp/policy.normalized.conf
+
 # Apply with SHA256 verification
 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf --sha256 abc123...
 

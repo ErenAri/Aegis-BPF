@@ -104,8 +104,15 @@ Manage the cgroup allowlist.
 
 Manage policy files.
 
-**aegisbpf policy lint** *FILE*
+**aegisbpf policy lint** *FILE* [**--fix**] [**--out** *PATH*]
 :   Validate a policy file without applying it.
+
+**--fix**
+:   Emit a normalized policy file (sorted, deduped sections). Defaults to
+    `FILE.fixed` when **--out** is not provided.
+
+**--out** *PATH*
+:   Write the normalized policy output to the specified path.
 
 **aegisbpf policy apply** *FILE* [**--reset**] [**--sha256** *HEX*] [**--sha256-file** *PATH*] [**--no-rollback**]
 :   Apply a policy file. Options:
