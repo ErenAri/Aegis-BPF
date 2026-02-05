@@ -46,7 +46,7 @@ def main() -> int:
             "Super-Phase A - Defensibility Core",
             "Super-Phase B - Production Survivability",
             "Super-Phase C - Trust and Adoption",
-            "`>=60` kernel e2e enforcement cases",
+            "`>=100` kernel e2e enforcement cases",
             "`>=4` kernel targets across `>=2` distro families",
             "Rollback success `100%` over `1,000` stress iterations",
             "Rollback completion `p99 <= 5s`",
@@ -65,7 +65,7 @@ def main() -> int:
         [
             "# Market Leadership Scorecard",
             "Kernel e2e coverage",
-            "`>=60` enforced cases",
+            "`>=100` enforced cases",
             "Rollback reliability",
             "`100%` over `1,000` stress iterations",
             "Syscall overhead (p95)",

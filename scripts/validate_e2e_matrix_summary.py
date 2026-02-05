@@ -15,8 +15,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-total-checks",
         type=int,
-        default=60,
-        help="Minimum required total checks (default: 60)",
+        default=100,
+        help="Minimum required total checks (default: 100)",
     )
     parser.add_argument(
         "--max-failed-checks",

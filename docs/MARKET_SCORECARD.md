@@ -11,7 +11,7 @@ Status values:
 
 | Category | KPI | Target | Evidence |
 |---|---|---|---|
-| Defensibility | Kernel e2e coverage | `>=60` enforced cases | CI artifact + test report |
+| Defensibility | Kernel e2e coverage | `>=100` enforced cases | CI artifact + test report |
 | Defensibility | Portability matrix | `>=4` kernels, `>=2` distro families | Kernel matrix workflow |
 | Defensibility | Ambiguous policy outcomes | `0` in golden vectors | Decision-vector tests |
 | Defensibility | Silent partial attaches | `0` | Attach matrix tests + health evidence |
@@ -27,7 +27,7 @@ Status values:
 
 | KPI | Status | Notes |
 |---|---|---|
-| Kernel e2e coverage (`>=60`) | `GREEN` | Phase-2 matrix floor enforced by contract tests and CI validators |
+| Kernel e2e coverage (`>=100`) | `GREEN` | Phase-2 matrix floor enforced by contract tests and CI validators |
 | Portability matrix (`>=4 kernels`, `>=2 distros`) | `GREEN` | Kernel matrix workflows and Phase-4 contract active |
 | Ambiguous policy outcomes (`0`) | `GREEN` | Parser/contract tests pass |
 | Silent partial attaches (`0`) | `GREEN` | Attach-contract hard-fail and regression test in place |

@@ -51,7 +51,7 @@ jobs:
             ./scripts/e2e_file_enforcement_matrix.sh
           sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary.json
           sudo chown "$USER:$USER" ./e2e-matrix-summary.json
-          python3 scripts/validate_e2e_matrix_summary.py ./e2e-matrix-summary.json --min-total-checks 60 --max-failed-checks 0
+          python3 scripts/validate_e2e_matrix_summary.py ./e2e-matrix-summary.json --min-total-checks 100 --max-failed-checks 0
 
       - name: Collect environment metadata
         if: always()

@@ -38,7 +38,7 @@ sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
   ./scripts/e2e_file_enforcement_matrix.sh
 python3 scripts/validate_e2e_matrix_summary.py \
   /tmp/e2e-matrix-summary.json \
-  --min-total-checks 60 \
+  --min-total-checks 100 \
   --max-failed-checks 0
 ```
 

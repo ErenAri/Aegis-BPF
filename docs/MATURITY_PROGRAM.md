@@ -54,7 +54,7 @@ Definition of done:
 ## Phase 2: Correctness proof
 
 Definition of done:
-- At least 60 kernel e2e enforcement tests run in CI.
+- At least 100 kernel e2e enforcement tests run in CI.
 - Basis-set scenarios (direct/symlink/hardlink/rename) are mandatory and
   versioned in Phase-2 evidence.
 - CI executes on at least 2 kernel targets for enforcement-path changes.

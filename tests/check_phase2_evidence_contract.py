@@ -46,7 +46,7 @@ def main() -> int:
             "user namespaces",
             "scripts/e2e_file_enforcement_matrix.sh",
             "scripts/validate_e2e_matrix_summary.py",
-            ">=60",
+            ">=100",
             "kernel-matrix-pr",
             "scripts/run_parser_fuzz_changed.sh",
             "smoke-fuzz",
@@ -60,7 +60,7 @@ def main() -> int:
         [
             "SUMMARY_OUT=/tmp/e2e-matrix-summary.json",
             "validate_e2e_matrix_summary.py",
-            "--min-total-checks 60",
+            "--min-total-checks 100",
             "Upload e2e matrix artifacts",
             "e2e-matrix-summary.json",
         ],
@@ -70,7 +70,7 @@ def main() -> int:
         [
             "SUMMARY_OUT=/tmp/e2e-matrix-summary.json",
             "validate_e2e_matrix_summary.py",
-            "--min-total-checks 60",
+            "--min-total-checks 100",
             "Upload kernel-matrix artifacts",
             "kernel-matrix-artifacts-",
         ],

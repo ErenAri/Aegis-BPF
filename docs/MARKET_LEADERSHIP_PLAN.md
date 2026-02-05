@@ -34,7 +34,7 @@ Workstreams:
 
 Numeric gate (all required):
 
-- `>=60` kernel e2e enforcement cases.
+- `>=100` kernel e2e enforcement cases.
 - `>=4` kernel targets across `>=2` distro families.
 - `0` ambiguous policy decisions in golden decision vectors.
 - `0` silent partial attaches (explicit hard-fail or explicit degraded mode).

@@ -151,7 +151,8 @@ run_signal_suite() {
     mkdir -p "${scenario_dir}"
     mkdir -p "${scenario_dir}/subdir"
     mkdir -p "${scenario_dir}/hardlinks"
-    printf 'signal=%s\n' "${signal}" >"${target}"
+    printf '#!/bin/sh\necho signal=%s\n' "${signal}" >"${target}"
+    chmod +x "${target}"
     printf 'benign=%s\n' "${signal}" >"${benign_target}"
     ln -sf "${target}" "${symlink_path}"
     ln "${target}" "${hardlink_path}"
@@ -169,18 +170,30 @@ run_signal_suite() {
         exit 1
     fi
 
-    # 10 blocked-open assertions per signal mode.
+    # Blocked-open assertions per signal mode.
     run_expect_blocked "${signal}: cat direct" cat "${target}"
     run_expect_blocked "${signal}: head direct" head -c 1 "${target}"
     run_expect_blocked "${signal}: tail direct" tail -c 1 "${target}"
     run_expect_blocked "${signal}: dd direct" dd if="${target}" of=/dev/null bs=1 count=1 status=none
+    run_expect_blocked "${signal}: dd direct 4k" dd if="${target}" of=/dev/null bs=4k count=1 status=none
     run_expect_blocked "${signal}: grep direct" grep -m1 . "${target}"
+    run_expect_blocked "${signal}: awk direct" awk 'NR==1{print; exit}' "${target}"
+    run_expect_blocked "${signal}: sed direct" sed -n '1p' "${target}"
+    run_expect_blocked "${signal}: od direct" od -An -N1 "${target}" >/dev/null
+    run_expect_blocked "${signal}: wc direct" wc -c "${target}" >/dev/null
+    run_expect_blocked "${signal}: bash read" bash -c "while IFS= read -r line; do break; done <\"${target}\""
+    run_expect_blocked "${signal}: cp direct" cp "${target}" "${scenario_dir}/copy.txt"
+    run_expect_blocked "${signal}: xargs cat" bash -c "printf '%s\\0' \"${target}\" | xargs -0 cat"
     run_expect_blocked "${signal}: python direct" python3 -c "import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()" "${target}"
     run_expect_blocked "${signal}: cat symlink" cat "${symlink_path}"
     run_expect_blocked "${signal}: head symlink" head -c 1 "${symlink_path}"
     run_expect_blocked "${signal}: cat hardlink" cat "${hardlink_path}"
     run_expect_blocked "${signal}: dd hardlink" dd if="${hardlink_path}" of=/dev/null bs=1 count=1 status=none
     run_expect_blocked "${signal}: cat cross-dir hardlink" cat "${cross_hardlink_path}"
+    run_expect_blocked "${signal}: exec direct" "${target}"
+    run_expect_blocked "${signal}: exec symlink" "${symlink_path}"
+    run_expect_blocked "${signal}: exec hardlink" "${hardlink_path}"
+    run_expect_blocked "${signal}: exec cross-dir hardlink" "${cross_hardlink_path}"
     run_expect_success "${signal}: cat benign symlink before swap" cat "${swap_symlink_path}"
     ln -sf "${target}" "${swap_symlink_path}"
     run_expect_blocked "${signal}: cat symlink after swap" cat "${swap_symlink_path}"

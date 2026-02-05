@@ -12,7 +12,7 @@ This project enforces quality gates through required CI checks on `main`.
 - Semgrep (changed C/C++ files; full scan on schedule)
 - Smoke fuzzing (60s per fuzz target on PR/main)
 - Kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
-  minimum 60 checks, zero failed checks)
+  minimum 100 checks, zero failed checks)
 - Coverage report with minimum thresholds
 - Required-checks contract validation (`required_checks*.txt` -> workflow contexts)
 - Label contract validation (`repo_labels.json` -> workflows/templates references)

@@ -60,8 +60,8 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Security automation: `.github/workflows/security.yml` (CodeQL, dependency review, gitleaks)
 - Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
-- Kernel file-enforcement matrix (66 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
-- Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 60 --max-failed-checks 0`)
+- Kernel file-enforcement matrix (102 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
+- Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 100 --max-failed-checks 0`)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
