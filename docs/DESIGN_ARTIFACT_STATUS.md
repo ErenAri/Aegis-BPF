@@ -13,10 +13,9 @@ This page tracks synchronization status between active markdown specs in
 ## Root PDF status
 
 - Artifact: `eBPF Runtime Security Agent Design.pdf`
-- Status on 2026-02-05: **In sync** (generated from docs at commit `50172f8`)
-- Notes: PDF generation emits warnings for Unicode box-drawing characters
-  (┌─┐/├─┤/└─┘). Consider replacing those diagrams with ASCII-safe variants or
-  adding a font with full box-drawing coverage if you need a warning-free build.
+- Status on 2026-02-05: **In sync** (generated from docs at commit `2a08aaf`)
+- Notes: Box-drawing diagrams were converted to ASCII to keep PDF output clean.
+  The generator prefers DejaVu/Noto fonts when available.
 - Blocking delta areas:
   - Market-leadership super-phase gates
   - Updated soak/perf KPI enforcement (`<0.1%` drop ratio, `p95 <= 5%`)
