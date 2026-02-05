@@ -116,6 +116,7 @@ These items are planned only after v1 gates are met.
 - Secrets handling guide
 
 **Gate C3:** production deployment blueprint published.
+Blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`.
 
 ### C4. Governance & Evidence Pack
 - Strict DoD for enforcement changes

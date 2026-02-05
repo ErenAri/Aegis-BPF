@@ -62,6 +62,7 @@ Current flagship contract (`docs/MATURITY_PROGRAM.md`):
 Phase-1 contract evidence: `docs/PHASE1_PRODUCT_CONTRACT_EVIDENCE.md`.
 Market-leadership execution plan: `docs/MARKET_LEADERSHIP_PLAN.md`.
 Production roadmap (execution gates): `docs/PRODUCTION_ROADMAP.md`.
+Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`.
 Market-leadership release scorecard: `docs/MARKET_SCORECARD.md`.
 External review closure status: `docs/EXTERNAL_REVIEW_STATUS.md`.
 Pilot evidence reports: `docs/pilots/`.
