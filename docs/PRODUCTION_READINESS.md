@@ -86,6 +86,7 @@ For phase-by-phase numeric gates and the current MVP freeze contract, see
 - Threat model and bypass boundaries: `docs/THREAT_MODEL.md`
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
+- Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
 - Maturity phase gates and done criteria: `docs/MATURITY_PROGRAM.md`
 - Market-leadership execution plan: `docs/MARKET_LEADERSHIP_PLAN.md`
 - Market-leadership release scorecard: `docs/MARKET_SCORECARD.md`
