@@ -65,6 +65,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Chaos ringbuf overflow check: `scripts/chaos_ringbuf_overflow.sh` (runs in `e2e.yml`)
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
+- Performance baseline report: `docs/PERF_BASELINE.md`
 - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` + `artifacts/perf/perf-evidence-report.md`
 - Hosted benchmark trend workflow (advisory): `.github/workflows/benchmark.yml`
 - Kernel matrix workflow: `.github/workflows/kernel-matrix.yml`
@@ -87,6 +88,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
 - Enforcement semantics whitepaper: `docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md`
 - Edge‑case compliance suite: `docs/EDGE_CASE_COMPLIANCE_SUITE.md`
+- Edge‑case compliance results: `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
 - Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`

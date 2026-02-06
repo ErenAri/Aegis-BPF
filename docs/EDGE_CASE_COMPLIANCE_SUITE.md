@@ -53,6 +53,11 @@ Artifacts produced:
 - `kernel-matrix-<runner>/summary.json`
 - `e2e-evidence/*` (when run from the e2e workflow)
 
+## Results
+
+Public, human‑readable results live in:
+`docs/EDGE_CASE_COMPLIANCE_RESULTS.md`
+
 ## Latest evidence run
 
 - Kernel Matrix (dispatch): 2026-02-06  
@@ -64,4 +69,3 @@ Any enforcement change that can affect file deny semantics must:
 1) Update this suite if a new edge case is introduced.
 2) Update expected outcomes in `docs/POLICY_SEMANTICS.md`.
 3) Produce fresh evidence artifacts linked from `docs/EVIDENCE.md`.
-
