@@ -2,10 +2,7 @@ name: Kernel Matrix
 # touch: retrigger kernel-matrix PR checks
 
 on:
-  workflow_dispatch:
   workflow_call:
-  schedule:
-    - cron: "0 5 * * 0"
 
 jobs:
   kernel-matrix:
