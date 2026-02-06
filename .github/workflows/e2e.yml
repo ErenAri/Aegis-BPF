@@ -45,6 +45,17 @@ jobs:
       - name: E2E bypass tests
         run: sudo ./build/aegisbpf_bypass_test
 
+      - name: Edge-case enforcement matrix
+        run: |
+          mkdir -p artifacts/e2e
+          sudo BIN=./build/aegisbpf \
+            SUMMARY_OUT=artifacts/e2e/matrix_summary.json \
+            scripts/e2e_file_enforcement_matrix.sh
+          python3 scripts/validate_e2e_matrix_summary.py \
+            --summary artifacts/e2e/matrix_summary.json \
+            --min-total-checks 100 \
+            --max-failed-checks 0
+
       - name: Short soak reliability
         run: |
           mkdir -p artifacts/e2e
