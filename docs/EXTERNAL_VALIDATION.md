@@ -3,6 +3,15 @@
 This document tracks **public, third-party validation** of AegisBPF. We do not
 claim independent review unless it is recorded here with a verifiable summary.
 
+## Transparency status (current)
+
+**As of 2026-02-06:** no independent security review has been published and no
+pilot case study has been published. We will update this page immediately when
+that changes.
+
+If you are evaluating AegisBPF, assume **no external validation** unless a
+dated entry appears under “Published reviews” or “Pilot case studies.”
+
 ## Status
 
 - **Independent security review:** not yet published.
@@ -20,6 +29,10 @@ email `security@aegisbpf.io` with:
 - Whether the summary can be published
 
 ## Published reviews
+
+None yet.
+
+## Pilot case studies
 
 None yet.
 

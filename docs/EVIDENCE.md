@@ -30,6 +30,13 @@ artifacts on each run.
   every PR and main run.
 - **External validation** is only listed once a public summary exists.
 
+## Latest evidence runs
+
+- Kernel Matrix (dispatch): 2026-02-06
+  - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
+  - Artifacts: `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`, `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
+- External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
+
 ## Kernel matrix coverage
 
 Target runners for portability evidence (self-hosted):
