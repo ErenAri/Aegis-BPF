@@ -791,7 +791,10 @@ int BPF_PROG(handle_file_open, struct file *file)
         return 0;
 
     __u8 audit = get_effective_audit_mode();
-    audit &= 1;
+    if (audit)
+        audit = 1;
+    else
+        audit = 0;
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u8 enforce_signal = 0;
     if (!audit) {
@@ -866,7 +869,10 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         return 0;
 
     __u8 audit = get_effective_audit_mode();
-    audit &= 1;
+    if (audit)
+        audit = 1;
+    else
+        audit = 0;
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u8 enforce_signal = 0;
     if (!audit) {
@@ -1108,7 +1114,10 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();
-    audit &= 1;
+    if (audit)
+        audit = 1;
+    else
+        audit = 0;
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u8 enforce_signal = 0;
     if (!audit) {
@@ -1213,7 +1222,10 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();
-    audit &= 1;
+    if (audit)
+        audit = 1;
+    else
+        audit = 0;
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u8 enforce_signal = 0;
     if (!audit) {
