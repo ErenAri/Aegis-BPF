@@ -57,6 +57,9 @@ if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Ensure high-volume events by denying a hot path (audit mode still emits events).
+"${AEGIS_BIN}" block add /etc/hosts >/dev/null 2>&1 || true
+
 for _ in $(seq 1 "${WORKERS}"); do
   (
     while kill -0 "${DAEMON_PID}" >/dev/null 2>&1; do
