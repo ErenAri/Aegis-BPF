@@ -16,6 +16,7 @@ artifacts on each run.
 |------------|----------|-------------|-------|
 | Build + unit tests + sanitizers | `CI` (`.github/workflows/ci.yml`) | `coverage-report` (HTML), `sbom` | Coverage report + SBOM are published as artifacts. |
 | Kernel portability | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | Includes kernel + OS details and ctest log. |
+| Edge‑case compliance | `Kernel Matrix` + `E2E (BPF LSM)` | `kernel-matrix-<runner>`, `e2e-evidence` | File‑enforcement matrix and edge‑case behaviors. |
 | BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info, soak summary, and chaos ringbuf overflow result. |
 | Perf regression (self-hosted) | `Perf Regression` (`.github/workflows/perf.yml`) | `perf-evidence` | Includes open/close microbench + workload suite JSON. |
 | Soak reliability (self-hosted) | `Soak Reliability` (`.github/workflows/soak.yml`) | `soak-evidence` | Includes soak summary JSON with drop/RSS thresholds. |

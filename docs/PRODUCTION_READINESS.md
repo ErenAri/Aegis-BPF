@@ -84,6 +84,8 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Support and deprecation policy: `docs/SUPPORT_POLICY.md`
 - Threat model and bypass boundaries: `docs/THREAT_MODEL.md`
 - Policy runtime semantics: `docs/POLICY_SEMANTICS.md`
+- Enforcement semantics whitepaper: `docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md`
+- Edge‑case compliance suite: `docs/EDGE_CASE_COMPLIANCE_SUITE.md`
 - Metrics interpretation guide: `docs/METRICS_OPERATIONS.md`
 - Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
 - Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`

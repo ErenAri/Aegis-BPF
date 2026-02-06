@@ -71,6 +71,8 @@ Public proof lives in the docs and CI artifacts:
 - Kernel/distro compatibility: `docs/COMPATIBILITY.md`
 - Threat model + non-goals: `docs/THREAT_MODEL.md`
 - Policy semantics contract: `docs/POLICY_SEMANTICS.md`
+- Enforcement semantics whitepaper: `docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md`
+- Edge-case compliance suite: `docs/EDGE_CASE_COMPLIANCE_SUITE.md`
 
 Kernel-matrix artifacts are uploaded by `.github/workflows/kernel-matrix.yml`
 as `kernel-matrix-<runner>` (kernel + distro + test logs).
