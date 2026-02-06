@@ -41,12 +41,7 @@ jobs:
             for bin in clang cmake ninja bpftool python3; do
               command -v "$bin" >/dev/null 2>&1 || missing=1
             done
-            python3 - <<'PY' || missing=1
-try:
-    import jsonschema  # noqa: F401
-except Exception:
-    raise SystemExit(1)
-PY
+            python3 -c "import jsonschema" || missing=1
             if [ "$missing" -ne 0 ]; then
               echo "Required build tools missing after apt-get attempts" >&2
               exit 1
@@ -74,15 +69,8 @@ PY
           if [[ -f build/Testing/Temporary/LastTest.log ]]; then
             cp build/Testing/Temporary/LastTest.log artifacts/kernel-matrix/ctest.log
           fi
-          python3 - <<PY
-import json
-payload = {
-    "runner": "${{ matrix.runner }}",
-    "commit": "${{ github.sha }}",
-}
-with open("artifacts/kernel-matrix/summary.json", "w", encoding="utf-8") as f:
-    json.dump(payload, f, separators=(",", ":"))
-PY
+          KM_RUNNER="${{ matrix.runner }}" \
+          python3 -c 'import json,os; payload={"runner":os.environ["KM_RUNNER"],"commit":os.environ["GITHUB_SHA"]}; open("artifacts/kernel-matrix/summary.json","w",encoding="utf-8").write(json.dumps(payload,separators=(",",":")))' 
 
       - name: Upload kernel matrix evidence
         if: always()
