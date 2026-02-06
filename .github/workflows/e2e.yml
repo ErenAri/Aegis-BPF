@@ -109,10 +109,10 @@ jobs:
         run: |
           mkdir -p artifacts/e2e
           sudo AEGIS_BIN=./build/aegisbpf \
-            RINGBUF_BYTES=4096 \
+            RINGBUF_BYTES=1024 \
             EVENT_SAMPLE_RATE=1 \
-            WORKERS=8 \
-            DURATION_SECONDS=15 \
+            WORKERS=32 \
+            DURATION_SECONDS=30 \
             TARGET_DROPS=1 \
             OUT_JSON=artifacts/e2e/chaos_ringbuf.json \
             scripts/chaos_ringbuf_overflow.sh
