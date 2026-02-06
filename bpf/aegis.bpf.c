@@ -809,6 +809,9 @@ int BPF_PROG(handle_file_open, struct file *file)
     }
     struct task_struct *task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
+    volatile int verdict = 0;
+    if (!audit)
+        verdict = -EPERM;
 
     /* Update statistics */
     increment_block_stats();
@@ -820,11 +823,8 @@ int BPF_PROG(handle_file_open, struct file *file)
         maybe_send_enforce_signal(enforce_signal);
 
     /* Send block event */
-    if (!should_emit_event(sample_rate)) {
-        if (audit)
-            return 0;
-        return -EPERM;
-    }
+    if (!should_emit_event(sample_rate))
+        return verdict;
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
@@ -840,9 +840,7 @@ int BPF_PROG(handle_file_open, struct file *file)
         increment_ringbuf_drops();
     }
 
-    if (audit)
-        return 0;
-    return -EPERM;
+    return verdict;
 }
 
 static __always_inline int handle_inode_permission_impl(struct inode *inode, int mask)
