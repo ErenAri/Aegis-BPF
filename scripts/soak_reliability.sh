@@ -13,6 +13,7 @@ MIN_TOTAL_DECISIONS="${MIN_TOTAL_DECISIONS:-100}"
 SOAK_GENERATE_BLOCK_EVENTS="${SOAK_GENERATE_BLOCK_EVENTS:-1}"
 SOAK_BLOCK_PATH="${SOAK_BLOCK_PATH:-/etc/hosts}"
 SOAK_SUMMARY_OUT="${SOAK_SUMMARY_OUT:-}"
+OUT_JSON="${OUT_JSON:-}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "soak_reliability.sh must run as root" >&2
@@ -209,6 +210,38 @@ echo "max ringbuf drops: ${MAX_DROPS} (file=${MAX_FILE_DROPS}, net=${MAX_NET_DRO
 echo "max observed decision events: ${MAX_TOTAL_DECISIONS}"
 echo "max observed total events (decisions + drops): ${MAX_TOTAL_EVENTS}"
 echo "max observed drop ratio: ${MAX_DROP_RATIO_PCT}% (target <= ${MAX_EVENT_DROP_RATIO_PCT}%)"
+
+if [[ -n "${OUT_JSON}" ]]; then
+  python3 - <<PY
+import json
+
+payload = {
+    "duration_seconds": int("${DURATION_SECONDS}"),
+    "workers": int("${WORKERS}"),
+    "poll_seconds": int("${POLL_SECONDS}"),
+    "ringbuf_bytes": int("${RINGBUF_BYTES}"),
+    "initial_rss_kb": int("${INITIAL_RSS}"),
+    "max_rss_kb": int("${MAX_RSS}"),
+    "rss_growth_kb": int("${RSS_GROWTH}"),
+    "max_ringbuf_drops_total": int("${MAX_DROPS}"),
+    "max_ringbuf_drops_file": int("${MAX_FILE_DROPS}"),
+    "max_ringbuf_drops_net": int("${MAX_NET_DROPS}"),
+    "max_decision_events": int("${MAX_TOTAL_DECISIONS}"),
+    "max_total_events": int("${MAX_TOTAL_EVENTS}"),
+    "max_drop_ratio_pct": float("${MAX_DROP_RATIO_PCT}"),
+    "max_allowed_drops": int("${MAX_RINGBUF_DROPS}"),
+    "max_allowed_rss_growth_kb": int("${MAX_RSS_GROWTH_KB}"),
+    "max_allowed_drop_ratio_pct": float("${MAX_EVENT_DROP_RATIO_PCT}"),
+    "min_total_decisions": int("${MIN_TOTAL_DECISIONS}"),
+    "pass": (${RSS_GROWTH} <= ${MAX_RSS_GROWTH_KB}
+             and ${MAX_DROPS} <= ${MAX_RINGBUF_DROPS}
+             and ${MAX_TOTAL_DECISIONS} >= ${MIN_TOTAL_DECISIONS}
+             and float("${MAX_DROP_RATIO_PCT}") <= float("${MAX_EVENT_DROP_RATIO_PCT}")),
+}
+with open("${OUT_JSON}", "w", encoding="utf-8") as f:
+    json.dump(payload, f, separators=(",", ":"))
+PY
+fi
 
 if [[ "${RSS_GROWTH}" -gt "${MAX_RSS_GROWTH_KB}" ]]; then
   echo "RSS growth exceeded threshold (${RSS_GROWTH} > ${MAX_RSS_GROWTH_KB})" >&2

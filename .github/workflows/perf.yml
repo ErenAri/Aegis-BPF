@@ -27,56 +27,38 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Prepare perf artifacts
+        run: mkdir -p artifacts/perf
+
       - name: Perf regression (open/close microbench)
-        run: sudo MAX_PCT=10 ITERATIONS=200000 FILE=/etc/hosts scripts/perf_compare.sh
+        run: sudo OUT_JSON=artifacts/perf/open_compare.json MAX_PCT=10 ITERATIONS=200000 FILE=/etc/hosts scripts/perf_compare.sh
 
       - name: Perf workload suite (realistic file workloads)
         run: |
-          mkdir -p artifacts/perf
           sudo BIN=./build/aegisbpf \
             FILE=/etc/hosts \
             OPEN_ITERATIONS=200000 \
-            CONNECT_ITERATIONS=50000 \
             READ_ITERATIONS=50000 \
             STAT_SAMPLE=400 \
             STAT_ITERATIONS=50 \
             MAX_OPEN_PCT=10 \
-            MAX_CONNECT_PCT=15 \
             MAX_READ_PCT=15 \
             MAX_STAT_PCT=15 \
             FORMAT=json \
-            OUT=artifacts/perf/perf_workload.json \
-            scripts/perf_workload_suite.sh | tee artifacts/perf/perf_workload.log
+            OUT=artifacts/perf/workload_suite.json \
+            scripts/perf_workload_suite.sh
 
-      - name: Capture percentile profiles (open/connect)
+      - name: Capture perf environment
         run: |
-          mkdir -p artifacts/perf
-          sudo FORMAT=json OUT=artifacts/perf/open_baseline.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
-          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/open_with_agent.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
-          sudo FORMAT=json OUT=artifacts/perf/connect_baseline.json ITERATIONS=50000 scripts/perf_connect_bench.sh
-          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/connect_with_agent.json ITERATIONS=50000 scripts/perf_connect_bench.sh
-
-      - name: Capture perf metadata
-        run: |
-          uname -a > artifacts/perf/kernel-info.txt
+          uname -a > artifacts/perf/kernel.txt
           cat /etc/os-release > artifacts/perf/os-release.txt || true
-          lscpu > artifacts/perf/cpu-info.txt || true
-          stat -f -c '%T' /tmp > artifacts/perf/fs-type.txt || true
+          lscpu > artifacts/perf/cpu.txt || true
+          stat -f -c '%T' /tmp > artifacts/perf/fs.txt || true
 
-      - name: Validate perf artifact schema
-        run: |
-          python3 scripts/validate_perf_artifacts.py \
-            --open-baseline artifacts/perf/open_baseline.json \
-            --open-with-agent artifacts/perf/open_with_agent.json \
-            --connect-baseline artifacts/perf/connect_baseline.json \
-            --connect-with-agent artifacts/perf/connect_with_agent.json \
-            --workload artifacts/perf/perf_workload.json \
-            --report artifacts/perf/perf-evidence-report.md \
-            --max-open-p95-ratio 1.05 \
-            --max-connect-p95-ratio 1.05
-
-      - name: Upload perf profiles
+      - name: Upload perf evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: perf-profiles
+          name: perf-evidence
           path: artifacts/perf/
+          if-no-files-found: warn

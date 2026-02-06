@@ -5,8 +5,8 @@ senior-level, production-ready AegisBPF agent.
 
 For full attacker-model detail, coverage boundaries, and known bypass surfaces,
 see `docs/THREAT_MODEL.md`.
-Production readiness gates are tracked in
-`docs/PRODUCTION_READINESS.md` and `docs/QUALITY_GATES.md`.
+Production readiness gates are tracked in `docs/PRODUCTION_READINESS.md` and
+`docs/QUALITY_GATES.md`.
 
 ## Golden contract
 

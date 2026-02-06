@@ -26,6 +26,35 @@ Fallback model:
   - privileged e2e (`.github/workflows/e2e.yml`)
 - `self-hosted,kernel-*`:
   - kernel matrix (`.github/workflows/kernel-matrix.yml`)
+- `self-hosted,perf`:
+  - perf regression evidence (`.github/workflows/perf.yml`)
+- `self-hosted,bpf-lsm`:
+  - soak reliability evidence (`.github/workflows/soak.yml`)
+
+## Runner setup (self-hosted)
+
+Use the helper script on **each runner host** (must run as root):
+
+```bash
+sudo REPO=ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype \
+  RUNNER_NAME=kernel-6.8-host \
+  LABELS=kernel-6.8,bpf-lsm \
+  scripts/setup_self_hosted_runner.sh
+```
+
+Example labels:
+- `kernel-6.8` (Ubuntu 22.04 HWE host)
+- `kernel-6.1` (Debian 12 host)
+- `kernel-5.14` (RHEL 9 host)
+- `kernel-6.5` (Ubuntu 24.04 host)
+- `bpf-lsm` (privileged e2e + soak)
+- `perf` (perf regression)
+
+Notes:
+- Runner hosts must have the **target kernel** installed and booted.
+- The runner service runs as root to allow BPF and `sudo` operations.
+- If you prefer a non-root service, configure passwordless `sudo` for the
+  runner user and adjust `RUNNER_ALLOW_RUNASROOT=0`.
 
 ## Kernel matrix minimum
 
@@ -35,7 +64,7 @@ Required evidence floor:
 - Total >=4 kernel targets
 
 Example target set:
-- 5.14, 5.15, 6.1, 6.8
+- 5.14, 6.1, 6.5, 6.8
 
 ## Determinism requirements
 

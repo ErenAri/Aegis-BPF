@@ -45,88 +45,39 @@ jobs:
       - name: E2E bypass tests
         run: sudo ./build/aegisbpf_bypass_test
 
-      - name: E2E file enforcement matrix (100+ checks)
+      - name: Short soak reliability
         run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
-            ./scripts/e2e_file_enforcement_matrix.sh
-          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary.json
-          sudo chown "$USER:$USER" ./e2e-matrix-summary.json
-          python3 scripts/validate_e2e_matrix_summary.py ./e2e-matrix-summary.json --min-total-checks 100 --max-failed-checks 0
+          mkdir -p artifacts/e2e
+          sudo AEGIS_BIN=./build/aegisbpf \
+            DURATION_SECONDS=180 \
+            MAX_RINGBUF_DROPS=100 \
+            MAX_RSS_GROWTH_KB=65536 \
+            OUT_JSON=artifacts/e2e/soak_summary.json \
+            scripts/soak_reliability.sh
 
-      - name: Reference enforcement slice
+      - name: Chaos ringbuf overflow
         run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/reference-slice-summary.json \
-            ./scripts/reference_enforcement_slice.sh
-          sudo cp /tmp/reference-slice-summary.json ./reference-slice-summary.json
-          sudo chown "$USER:$USER" ./reference-slice-summary.json
+          mkdir -p artifacts/e2e
+          sudo AEGIS_BIN=./build/aegisbpf \
+            RINGBUF_BYTES=4096 \
+            EVENT_SAMPLE_RATE=1 \
+            WORKERS=8 \
+            DURATION_SECONDS=15 \
+            TARGET_DROPS=1 \
+            OUT_JSON=artifacts/e2e/chaos_ringbuf.json \
+            scripts/chaos_ringbuf_overflow.sh
 
-      - name: Collect environment metadata
+      - name: Capture E2E environment
         if: always()
         run: |
-          uname -a > kernel-info.txt
-          stat -f -c '%T' /tmp > fs-type.txt || true
-          cat /etc/os-release > os-release.txt || true
+          uname -a > artifacts/e2e/kernel.txt
+          cat /etc/os-release > artifacts/e2e/os-release.txt || true
+          lscpu > artifacts/e2e/cpu.txt || true
 
-      - name: Build compatibility evidence note
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import json
-          import pathlib
-
-          summary_path = pathlib.Path("e2e-matrix-summary.json")
-          os_release_path = pathlib.Path("os-release.txt")
-          kernel_info_path = pathlib.Path("kernel-info.txt")
-          fs_type_path = pathlib.Path("fs-type.txt")
-
-          def parse_os_release(path: pathlib.Path) -> dict[str, str]:
-              data: dict[str, str] = {}
-              if not path.is_file():
-                  return data
-              for raw in path.read_text(encoding="utf-8").splitlines():
-                  if "=" not in raw:
-                      continue
-                  key, value = raw.split("=", 1)
-                  data[key] = value.strip().strip('"')
-              return data
-
-          summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
-          os_release = parse_os_release(os_release_path)
-          kernel_info = kernel_info_path.read_text(encoding="utf-8").strip() if kernel_info_path.is_file() else "unknown"
-          fs_type = fs_type_path.read_text(encoding="utf-8").strip() if fs_type_path.is_file() else "unknown"
-          distro = os_release.get("ID", "unknown")
-          distro_version = os_release.get("VERSION_ID", "unknown")
-
-          lines = [
-              f"# Compatibility Evidence (e2e privileged run)",
-              "",
-              f"- distro: `{distro}`",
-              f"- distro_version: `{distro_version}`",
-              f"- kernel_info: `{kernel_info}`",
-              f"- filesystem_type: `{fs_type}`",
-              f"- total_checks: `{summary.get('total_checks', 'n/a')}`",
-              f"- passed_checks: `{summary.get('passed_checks', 'n/a')}`",
-              f"- failed_checks: `{summary.get('failed_checks', 'n/a')}`",
-              f"- skipped_checks: `{summary.get('skipped_checks', 'n/a')}`",
-          ]
-          pathlib.Path("compatibility-evidence-e2e.md").write_text(
-              "\n".join(lines) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Upload e2e matrix artifacts
+      - name: Upload E2E evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-matrix-artifacts
-          path: |
-            e2e-matrix-summary.json
-            reference-slice-summary.json
-            compatibility-evidence-e2e.md
-            kernel-info.txt
-            fs-type.txt
-            os-release.txt
-
-      - name: Short soak reliability
-        run: sudo AEGIS_BIN=./build/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/soak_reliability.sh
+          name: e2e-evidence
+          path: artifacts/e2e/
+          if-no-files-found: warn

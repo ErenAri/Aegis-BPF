@@ -67,7 +67,7 @@ AegisBPF cannot run if:
 
 | Distribution | Version | Kernel | LSM Enforce | Audit-Only | Notes |
 |-------------|---------|--------|-------------|------------|-------|
-| Ubuntu | 22.04 LTS | 5.15+ | Yes* | Yes | Add `lsm=bpf` to boot params |
+| Ubuntu | 22.04 LTS | 5.15+ (CI: 6.8 HWE) | Yes* | Yes | Add `lsm=bpf` to boot params |
 | Ubuntu | 24.04 LTS | 6.5+ | Yes* | Yes | Add `lsm=bpf` to boot params |
 | Debian | 12 (Bookworm) | 6.1+ | Yes* | Yes | Add `lsm=bpf` to boot params |
 | RHEL | 9.x | 5.14+ | Yes* | Yes | Add `lsm=bpf` to boot params |
@@ -103,7 +103,7 @@ Review procedure:
 
 ## Distribution and Runtime Quirks
 
-- **Ubuntu 22.04 (5.15)**: stable baseline for LSM hooks; ensure BTF package is present on custom kernels.
+- **Ubuntu 22.04 (6.8 HWE in CI)**: stable baseline for LSM hooks; ensure BTF package is present on custom kernels.
 - **Ubuntu 24.04 (6.5+)**: newer libbpf/kernel combos are generally smoother for CO-RE.
 - **RHEL 9.x (5.14)**: verify backported BPF features; some behavior differs from upstream 5.14 docs.
 - **Container hosts**: run the agent in host PID/cgroup/mount namespaces for deterministic cgroup and path behavior.

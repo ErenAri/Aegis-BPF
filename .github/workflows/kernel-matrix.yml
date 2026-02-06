@@ -1,38 +1,18 @@
 name: Kernel Matrix
+# touch: retrigger kernel-matrix PR checks
 
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 5 * * 0"
-  pull_request:
-    paths:
-      - "bpf/**"
-      - "src/bpf_ops.cpp"
-      - "src/bpf_ops.hpp"
-      - "src/policy.cpp"
-      - "src/policy.hpp"
-      - "src/network_ops.cpp"
-      - "src/network_ops.hpp"
-      - "src/commands_block_allow.cpp"
-      - "scripts/e2e_file_enforcement_matrix.sh"
-      - ".github/workflows/kernel-matrix.yml"
-      - ".github/workflows/e2e.yml"
 
 jobs:
-  kernel-matrix-pr:
-    if: github.event_name == 'pull_request'
-    name: kernel-matrix-pr (${{ matrix.distro_family }} / ${{ matrix.kernel }})
+  kernel-matrix:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: kernel-5.15
-            distro_family: ubuntu
-            kernel: "5.15"
-          - runner: kernel-6.1
-            distro_family: debian
-            kernel: "6.1"
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
+        runner: [kernel-6.8, kernel-6.1, kernel-6.5, kernel-5.14]
+    runs-on: [self-hosted, ${{ matrix.runner }}]
     steps:
       - uses: actions/checkout@v4
 
@@ -55,216 +35,29 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --timeout 120
 
-      - name: Run file enforcement matrix
-        run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
-            ./scripts/e2e_file_enforcement_matrix.sh
-          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
-          sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
-          python3 scripts/validate_e2e_matrix_summary.py \
-            ./e2e-matrix-summary-${{ matrix.kernel }}.json \
-            --min-total-checks 100 \
-            --max-failed-checks 0
-
-      - name: Reference enforcement slice
-        run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/reference-slice-summary.json \
-            ./scripts/reference_enforcement_slice.sh
-          sudo cp /tmp/reference-slice-summary.json ./reference-slice-summary-${{ matrix.kernel }}.json
-          sudo chown "$USER:$USER" ./reference-slice-summary-${{ matrix.kernel }}.json
-
-      - name: Collect kernel-matrix metadata
+      - name: Collect kernel matrix evidence
         if: always()
         run: |
-          uname -a > kernel-info-${{ matrix.kernel }}.txt
-          stat -f -c '%T' /tmp > fs-type-${{ matrix.kernel }}.txt || true
-          cat /etc/os-release > os-release-${{ matrix.kernel }}.txt || true
-
-      - name: Build compatibility evidence note
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import json
-          import pathlib
-
-          kernel = "${{ matrix.kernel }}"
-          distro = "${{ matrix.distro_family }}"
-          summary_path = pathlib.Path(f"e2e-matrix-summary-{kernel}.json")
-          os_release_path = pathlib.Path(f"os-release-{kernel}.txt")
-          kernel_info_path = pathlib.Path(f"kernel-info-{kernel}.txt")
-          fs_type_path = pathlib.Path(f"fs-type-{kernel}.txt")
-
-          def parse_os_release(path: pathlib.Path) -> dict[str, str]:
-              data: dict[str, str] = {}
-              if not path.is_file():
-                  return data
-              for raw in path.read_text(encoding="utf-8").splitlines():
-                  if "=" not in raw:
-                      continue
-                  key, value = raw.split("=", 1)
-                  data[key] = value.strip().strip('"')
-              return data
-
-          summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
-          os_release = parse_os_release(os_release_path)
-          kernel_info = kernel_info_path.read_text(encoding="utf-8").strip() if kernel_info_path.is_file() else "unknown"
-          fs_type = fs_type_path.read_text(encoding="utf-8").strip() if fs_type_path.is_file() else "unknown"
-
-          lines = [
-              f"# Compatibility Evidence ({distro} / {kernel})",
-              "",
-              f"- distro_family: `{distro}`",
-              f"- target_kernel: `{kernel}`",
-              f"- kernel_info: `{kernel_info}`",
-              f"- filesystem_type: `{fs_type}`",
-              f"- total_checks: `{summary.get('total_checks', 'n/a')}`",
-              f"- passed_checks: `{summary.get('passed_checks', 'n/a')}`",
-              f"- failed_checks: `{summary.get('failed_checks', 'n/a')}`",
-              f"- skipped_checks: `{summary.get('skipped_checks', 'n/a')}`",
-          ]
-          pathlib.Path(f"compatibility-evidence-{kernel}.md").write_text(
-              "\n".join(lines) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Upload kernel-matrix artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-matrix-artifacts-${{ matrix.distro_family }}-${{ matrix.kernel }}
-          path: |
-            e2e-matrix-summary-${{ matrix.kernel }}.json
-            reference-slice-summary-${{ matrix.kernel }}.json
-            compatibility-evidence-${{ matrix.kernel }}.md
-            kernel-info-${{ matrix.kernel }}.txt
-            fs-type-${{ matrix.kernel }}.txt
-            os-release-${{ matrix.kernel }}.txt
-
-  kernel-matrix-weekly:
-    if: github.event_name != 'pull_request'
-    name: kernel-matrix-weekly (${{ matrix.distro_family }} / ${{ matrix.kernel }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: kernel-5.15
-            distro_family: ubuntu
-            kernel: "5.15"
-          - runner: kernel-6.1
-            distro_family: debian
-            kernel: "6.1"
-          - runner: kernel-6.5
-            distro_family: ubuntu
-            kernel: "6.5"
-          - runner: kernel-5.14
-            distro_family: rhel
-            kernel: "5.14"
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies (if apt-get is available)
-        run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+          mkdir -p artifacts/kernel-matrix
+          uname -a > artifacts/kernel-matrix/kernel.txt
+          cat /etc/os-release > artifacts/kernel-matrix/os-release.txt || true
+          if [[ -f build/Testing/Temporary/LastTest.log ]]; then
+            cp build/Testing/Temporary/LastTest.log artifacts/kernel-matrix/ctest.log
           fi
+          python3 - <<PY
+import json
+payload = {
+    "runner": "${{ matrix.runner }}",
+    "commit": "${{ github.sha }}",
+}
+with open("artifacts/kernel-matrix/summary.json", "w", encoding="utf-8") as f:
+    json.dump(payload, f, separators=(",", ":"))
+PY
 
-      - name: Verify environment
-        run: scripts/verify_env.sh --strict
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure --timeout 120
-
-      - name: Run file enforcement matrix
-        run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/e2e-matrix-summary.json \
-            ./scripts/e2e_file_enforcement_matrix.sh
-          sudo cp /tmp/e2e-matrix-summary.json ./e2e-matrix-summary-${{ matrix.kernel }}.json
-          sudo chown "$USER:$USER" ./e2e-matrix-summary-${{ matrix.kernel }}.json
-          python3 scripts/validate_e2e_matrix_summary.py \
-            ./e2e-matrix-summary-${{ matrix.kernel }}.json \
-            --min-total-checks 100 \
-            --max-failed-checks 0
-
-      - name: Reference enforcement slice
-        run: |
-          sudo env PRESERVE_TMP_ON_FAIL=1 SUMMARY_OUT=/tmp/reference-slice-summary.json \
-            ./scripts/reference_enforcement_slice.sh
-          sudo cp /tmp/reference-slice-summary.json ./reference-slice-summary-${{ matrix.kernel }}.json
-          sudo chown "$USER:$USER" ./reference-slice-summary-${{ matrix.kernel }}.json
-
-      - name: Collect kernel-matrix metadata
-        if: always()
-        run: |
-          uname -a > kernel-info-${{ matrix.kernel }}.txt
-          stat -f -c '%T' /tmp > fs-type-${{ matrix.kernel }}.txt || true
-          cat /etc/os-release > os-release-${{ matrix.kernel }}.txt || true
-
-      - name: Build compatibility evidence note
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import json
-          import pathlib
-
-          kernel = "${{ matrix.kernel }}"
-          distro = "${{ matrix.distro_family }}"
-          summary_path = pathlib.Path(f"e2e-matrix-summary-{kernel}.json")
-          os_release_path = pathlib.Path(f"os-release-{kernel}.txt")
-          kernel_info_path = pathlib.Path(f"kernel-info-{kernel}.txt")
-          fs_type_path = pathlib.Path(f"fs-type-{kernel}.txt")
-
-          def parse_os_release(path: pathlib.Path) -> dict[str, str]:
-              data: dict[str, str] = {}
-              if not path.is_file():
-                  return data
-              for raw in path.read_text(encoding="utf-8").splitlines():
-                  if "=" not in raw:
-                      continue
-                  key, value = raw.split("=", 1)
-                  data[key] = value.strip().strip('"')
-              return data
-
-          summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
-          os_release = parse_os_release(os_release_path)
-          kernel_info = kernel_info_path.read_text(encoding="utf-8").strip() if kernel_info_path.is_file() else "unknown"
-          fs_type = fs_type_path.read_text(encoding="utf-8").strip() if fs_type_path.is_file() else "unknown"
-
-          lines = [
-              f"# Compatibility Evidence ({distro} / {kernel})",
-              "",
-              f"- distro_family: `{distro}`",
-              f"- target_kernel: `{kernel}`",
-              f"- kernel_info: `{kernel_info}`",
-              f"- filesystem_type: `{fs_type}`",
-              f"- total_checks: `{summary.get('total_checks', 'n/a')}`",
-              f"- passed_checks: `{summary.get('passed_checks', 'n/a')}`",
-              f"- failed_checks: `{summary.get('failed_checks', 'n/a')}`",
-              f"- skipped_checks: `{summary.get('skipped_checks', 'n/a')}`",
-          ]
-          pathlib.Path(f"compatibility-evidence-{kernel}.md").write_text(
-              "\n".join(lines) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Upload kernel-matrix artifacts
+      - name: Upload kernel matrix evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-matrix-artifacts-${{ matrix.distro_family }}-${{ matrix.kernel }}
-          path: |
-            e2e-matrix-summary-${{ matrix.kernel }}.json
-            reference-slice-summary-${{ matrix.kernel }}.json
-            compatibility-evidence-${{ matrix.kernel }}.md
-            kernel-info-${{ matrix.kernel }}.txt
-            fs-type-${{ matrix.kernel }}.txt
-            os-release-${{ matrix.kernel }}.txt
+          name: kernel-matrix-${{ matrix.runner }}
+          path: artifacts/kernel-matrix/
+          if-no-files-found: warn

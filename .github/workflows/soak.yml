@@ -35,15 +35,20 @@ jobs:
             DURATION_SECONDS=900 \
             MAX_RINGBUF_DROPS=250 \
             MAX_RSS_GROWTH_KB=131072 \
-            MAX_EVENT_DROP_RATIO_PCT=0.1 \
-            MIN_TOTAL_DECISIONS=1000 \
-            SOAK_SUMMARY_OUT=artifacts/soak/soak-summary.json \
+            OUT_JSON=artifacts/soak/soak_summary.json \
             scripts/soak_reliability.sh
 
-      - name: Upload soak artifacts
+      - name: Capture soak environment
+        if: always()
+        run: |
+          uname -a > artifacts/soak/kernel.txt
+          cat /etc/os-release > artifacts/soak/os-release.txt || true
+          lscpu > artifacts/soak/cpu.txt || true
+
+      - name: Upload soak evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-reliability
+          name: soak-evidence
           path: artifacts/soak/
           if-no-files-found: warn

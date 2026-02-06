@@ -4,6 +4,7 @@ set -euo pipefail
 FILE="${FILE:-/etc/hosts}"
 ITERATIONS="${ITERATIONS:-200000}"
 MAX_PCT="${MAX_PCT:-10}"
+OUT_JSON="${OUT_JSON:-}"
 
 if [[ $EUID -ne 0 ]]; then
     echo "Run as root to benchmark with the agent." >&2
@@ -22,6 +23,7 @@ with_agent=$(WITH_AGENT=1 ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_ope
 
 python3 - <<PY
 import os
+import json
 
 baseline = float("$baseline")
 with_agent = float("$with_agent")
@@ -34,6 +36,21 @@ print(f"delta_us_per_op={delta:.2f}")
 print(f"delta_pct={pct:.2f}")
 
 max_pct = float("$MAX_PCT" or 0)
+passed = (max_pct <= 0) or (pct <= max_pct)
+
+out_json = os.environ.get("OUT_JSON", "")
+if out_json:
+    payload = {
+        "baseline_us_per_op": round(baseline, 2),
+        "with_agent_us_per_op": round(with_agent, 2),
+        "delta_us_per_op": round(delta, 2),
+        "delta_pct": round(pct, 2),
+        "max_allowed_pct": round(max_pct, 2),
+        "pass": passed,
+    }
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"))
+
 if max_pct > 0 and pct > max_pct:
     raise SystemExit(1)
 PY

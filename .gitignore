@@ -19,6 +19,8 @@ coverage.xml
 coverage.css
 coverage.js
 __pycache__/
-*.pyc
+.tools/
+docs/_internal/
+__pycache__/
 .tools/
 docs/_internal/
