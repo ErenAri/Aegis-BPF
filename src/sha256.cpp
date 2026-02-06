@@ -283,7 +283,7 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b)
         // Normalize to lowercase for case-insensitive comparison
         unsigned char ca = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(a[i])));
         unsigned char cb = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(b[i])));
-        result |= ca ^ cb;
+        result = static_cast<unsigned char>(result | (ca ^ cb));
     }
     return result == 0;
 }

@@ -10,11 +10,15 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          - '["self-hosted","kernel-6.8"]'
-          - '["self-hosted","kernel-6.1"]'
-          - '["self-hosted","kernel-6.5"]'
-          - '["self-hosted","kernel-5.14"]'
-    runs-on: ${{ fromJSON(matrix.runner) }}
+          - label: kernel-6.8
+            runs_on: '["self-hosted","kernel-6.8"]'
+          - label: kernel-6.1
+            runs_on: '["self-hosted","kernel-6.1"]'
+          - label: kernel-6.5
+            runs_on: '["self-hosted","kernel-6.5"]'
+          - label: kernel-5.14
+            runs_on: '["self-hosted","kernel-5.14"]'
+    runs-on: ${{ fromJSON(matrix.runner.runs_on) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,18 +31,20 @@ jobs:
             else
               SUDO="sudo"
             fi
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema"
+            if ! command -v bpftool >/dev/null 2>&1; then
+              pkgs="$pkgs linux-tools-$(uname -r) linux-tools-common"
+            fi
             for attempt in 1 2 3; do
               if $SUDO apt-get -o DPkg::Lock::Timeout=120 update && \
-                 $SUDO apt-get -o DPkg::Lock::Timeout=120 install -y \
-                   clang llvm bpftool libbpf-dev libsystemd-dev pkg-config \
-                   cmake ninja-build python3-jsonschema; then
+                 $SUDO apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
                 break
               fi
               echo "apt-get attempt ${attempt} failed; retrying in 10s..."
               sleep 10
             done
             missing=0
-            for bin in clang cmake ninja bpftool python3; do
+            for bin in clang cmake ninja python3; do
               command -v "$bin" >/dev/null 2>&1 || missing=1
             done
             python3 -c "import jsonschema" || missing=1
@@ -69,13 +75,13 @@ jobs:
           if [[ -f build/Testing/Temporary/LastTest.log ]]; then
             cp build/Testing/Temporary/LastTest.log artifacts/kernel-matrix/ctest.log
           fi
-          KM_RUNNER="${{ matrix.runner }}" \
+          KM_RUNNER="${{ matrix.runner.label }}" \
           python3 -c 'import json,os; payload={"runner":os.environ["KM_RUNNER"],"commit":os.environ["GITHUB_SHA"]}; open("artifacts/kernel-matrix/summary.json","w",encoding="utf-8").write(json.dumps(payload,separators=(",",":")))' 
 
       - name: Upload kernel matrix evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-matrix-${{ matrix.runner }}
+          name: kernel-matrix-${{ matrix.runner.label }}
           path: artifacts/kernel-matrix/
           if-no-files-found: warn
