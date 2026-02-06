@@ -19,8 +19,36 @@ jobs:
       - name: Install dependencies (if apt-get is available)
         run: |
           if command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            export DEBIAN_FRONTEND=noninteractive
+            if sudo -n true 2>/dev/null; then
+              SUDO="sudo -n"
+            else
+              SUDO="sudo"
+            fi
+            for attempt in 1 2 3; do
+              if $SUDO apt-get -o DPkg::Lock::Timeout=120 update && \
+                 $SUDO apt-get -o DPkg::Lock::Timeout=120 install -y \
+                   clang llvm bpftool libbpf-dev libsystemd-dev pkg-config \
+                   cmake ninja-build python3-jsonschema; then
+                break
+              fi
+              echo "apt-get attempt ${attempt} failed; retrying in 10s..."
+              sleep 10
+            done
+            missing=0
+            for bin in clang cmake ninja bpftool python3; do
+              command -v "$bin" >/dev/null 2>&1 || missing=1
+            done
+            python3 - <<'PY' || missing=1
+try:
+    import jsonschema  # noqa: F401
+except Exception:
+    raise SystemExit(1)
+PY
+            if [ "$missing" -ne 0 ]; then
+              echo "Required build tools missing after apt-get attempts" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify environment
