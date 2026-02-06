@@ -15,15 +15,25 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build libelf-dev zlib1g-dev git"
             for attempt in 1 2 3; do
               if sudo apt-get -o DPkg::Lock::Timeout=120 update && \
-                 sudo apt-get -o DPkg::Lock::Timeout=120 install -y \
-                   clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build; then
+                 sudo apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
                 break
               fi
               echo "apt-get attempt ${attempt} failed; retrying in 10s..."
               sleep 10
             done
+            if ! pkg-config --exists libbpf || ! pkg-config --atleast-version=1.1.0 libbpf; then
+              rm -rf /tmp/libbpf
+              git clone --depth 1 --branch v1.4.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+              make -C /tmp/libbpf/src
+              sudo make -C /tmp/libbpf/src install
+              echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/libbpf.conf
+              sudo ldconfig
+              echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+              echo "LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+            fi
             if ! command -v bpftool >/dev/null 2>&1; then
               sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-common || true
               sudo apt-get -o DPkg::Lock::Timeout=120 install -y "linux-tools-$(uname -r)" || \
