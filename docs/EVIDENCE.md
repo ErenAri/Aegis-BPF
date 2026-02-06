@@ -37,7 +37,7 @@ Target runners for portability evidence (self-hosted):
 | Runner label | Kernel target | Evidence artifact |
 |-------------|---------------|-------------------|
 | `kernel-5.14` | 5.14.x | `kernel-matrix-kernel-5.14` |
-| `kernel-5.15` | 5.15.x | `kernel-matrix-kernel-5.15` |
+| `kernel-6.8` | 6.8.x | `kernel-matrix-kernel-6.8` |
 | `kernel-6.1` | 6.1.x | `kernel-matrix-kernel-6.1` |
 | `kernel-6.5` | 6.5.x | `kernel-matrix-kernel-6.5` |
 

@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [kernel-5.15, kernel-6.1, kernel-6.5, kernel-5.14]
+        runner: [kernel-6.8, kernel-6.1, kernel-6.5, kernel-5.14]
     runs-on: [self-hosted, ${{ matrix.runner }}]
     steps:
       - uses: actions/checkout@v4

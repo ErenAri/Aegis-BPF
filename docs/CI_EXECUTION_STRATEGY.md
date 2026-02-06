@@ -37,13 +37,13 @@ Use the helper script on **each runner host** (must run as root):
 
 ```bash
 sudo REPO=ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype \
-  RUNNER_NAME=kernel-5.15-host \
-  LABELS=kernel-5.15,bpf-lsm \
+  RUNNER_NAME=kernel-6.8-host \
+  LABELS=kernel-6.8,bpf-lsm \
   scripts/setup_self_hosted_runner.sh
 ```
 
 Example labels:
-- `kernel-5.15` (Ubuntu 22.04 host)
+- `kernel-6.8` (Ubuntu 22.04 HWE host)
 - `kernel-6.1` (Debian 12 host)
 - `kernel-5.14` (RHEL 9 host)
 - `kernel-6.5` (Ubuntu 24.04 host)
@@ -64,7 +64,7 @@ Required evidence floor:
 - Total >=4 kernel targets
 
 Example target set:
-- 5.14, 5.15, 6.1, 6.8
+- 5.14, 6.1, 6.5, 6.8
 
 ## Determinism requirements
 
