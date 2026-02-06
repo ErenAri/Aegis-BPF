@@ -21,10 +21,13 @@ classified as accepted, mitigated, or roadmap to keep claims defensible.
 
 - **Symlink swaps**
   - Canonical path resolution + inode-based enforcement.
+  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (symlink swap scenarios).
 - **Rename / hardlink path drift**
   - Inode-based deny persists across renames and hardlinks.
+  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (rename + hardlink scenarios).
 - **Bind-mount aliases**
   - Enforcement is inode-driven; path telemetry can differ by namespace.
+  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (bind‑mount alias scenarios).
 
 ## Roadmap (planned mitigation or coverage expansion)
 
