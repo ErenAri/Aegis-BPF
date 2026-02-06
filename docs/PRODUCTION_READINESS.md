@@ -68,6 +68,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` + `artifacts/perf/perf-evidence-report.md`
 - Hosted benchmark trend workflow (advisory): `.github/workflows/benchmark.yml`
 - Kernel matrix workflow: `.github/workflows/kernel-matrix.yml`
+- Kernel matrix run evidence: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269 (2026-02-06)
 - Nightly fuzz workflow: `.github/workflows/nightly-fuzz.yml`
 - Parser-change fuzz gate: `parser-fuzz` job in `.github/workflows/ci.yml` + `scripts/run_parser_fuzz_changed.sh`
 - Release drill workflow: `.github/workflows/release-drill.yml` + `scripts/release_drill.sh`

@@ -23,6 +23,12 @@ artifacts on each run.
 | Security scans | `Security` (`.github/workflows/security.yml`) | (status only) | CodeQL, gitleaks, semgrep results. |
 | External validation | (manual) | `docs/EXTERNAL_VALIDATION.md` | Public summaries of independent reviews or pilot case studies. |
 
+## Latest evidence runs
+
+- Kernel Matrix (dispatch): 2026-02-06
+  - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
+  - Artifacts: `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`, `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
+
 ## Evidence expectations
 
 - **Self-hosted evidence** (kernel matrix, perf, soak) requires tagged runners.
