@@ -33,6 +33,11 @@ jobs:
               if [ -d /usr/local/lib64 ]; then
                 echo "/usr/local/lib64" | sudo tee /etc/ld.so.conf.d/libbpf64.conf
               fi
+              for dir in /usr/local/lib /usr/local/lib64; do
+                if ls "$dir"/libbpf.so.* >/dev/null 2>&1; then
+                  sudo ln -sf "$(ls "$dir"/libbpf.so.* | head -n1)" "$dir/libbpf.so.1"
+                fi
+              done
               sudo ldconfig
               echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
               echo "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
