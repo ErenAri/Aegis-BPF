@@ -58,15 +58,28 @@ INO=$(stat -c %i "$TMPFILE")
 echo "[*] Starting agent (enforce mode)..."
 "$BIN" run --enforce --enforce-signal="${ENFORCE_SIGNAL}" >"$LOGFILE" 2>&1 &
 AGENT_PID=$!
-sleep 1
+echo "[*] Agent PID: $AGENT_PID"
+sleep 2
 if ! kill -0 "$AGENT_PID" 2>/dev/null; then
     echo "[!] Agent failed to start; log follows:" >&2
     cat "$LOGFILE" >&2
     exit 1
 fi
+echo "[*] Agent is running"
 
 echo "[*] Blocking $TMPFILE (enforce expected)"
-"$BIN" block add "$TMPFILE"
+# Add timeout to prevent indefinite hangs
+if command -v timeout >/dev/null 2>&1; then
+    timeout 30 "$BIN" block add "$TMPFILE" || {
+        echo "[!] block add command timed out or failed (exit code: $?)" >&2
+        exit 1
+    }
+else
+    "$BIN" block add "$TMPFILE" || {
+        echo "[!] block add command failed (exit code: $?)" >&2
+        exit 1
+    }
+fi
 
 echo "[*] Attempting access (should be blocked)..."
 set +e

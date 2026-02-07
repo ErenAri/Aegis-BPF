@@ -37,6 +37,29 @@
 #define SIGKILL_ESCALATION_THRESHOLD_DEFAULT 5
 #define SIGKILL_ESCALATION_WINDOW_NS_DEFAULT (30ULL * 1000000000ULL)
 
+/* BPF Map Size Constants */
+#define MAX_PROCESS_TREE_ENTRIES 65536
+#define MAX_ALLOW_CGROUP_ENTRIES 1024
+#define MAX_SURVIVAL_ALLOWLIST_ENTRIES 256
+#define MAX_DENY_BLOOM_ENTRIES 16384
+#define MAX_DENY_EXACT_ENTRIES 65536
+#define MAX_DENY_INODE_ENTRIES 65536
+#define MAX_DENY_PATH_ENTRIES 16384
+#define MAX_DENY_CGROUP_STATS_ENTRIES 4096
+#define MAX_DENY_PATH_STATS_ENTRIES 16384
+#define MAX_DENY_INODE_STATS_ENTRIES 65536
+#define RINGBUF_SIZE_BYTES (1 << 24)  /* 16MB default */
+
+/* Network Map Size Constants */
+#define MAX_DENY_IPV4_ENTRIES 65536
+#define MAX_DENY_IPV6_ENTRIES 65536
+#define MAX_DENY_PORT_ENTRIES 4096
+#define MAX_DENY_CIDR_V4_ENTRIES 16384
+#define MAX_DENY_CIDR_V6_ENTRIES 16384
+#define MAX_NET_IP_STATS_ENTRIES 16384
+#define MAX_NET_PORT_STATS_ENTRIES 4096
+#define MAX_ENFORCE_SIGNAL_STATE_ENTRIES 65536
+
 /* ============================================================================
  * Type Definitions
  * ============================================================================ */
@@ -147,14 +170,14 @@ struct signal_escalation_state {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_PROCESS_TREE_ENTRIES);
     __type(key, __u32);
     __type(value, struct process_info);
 } process_tree SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 1024);
+    __uint(max_entries, MAX_ALLOW_CGROUP_ENTRIES);
     __type(key, __u64);
     __type(value, __u8);
 } allow_cgroup_map SEC(".maps");
@@ -162,7 +185,7 @@ struct {
 /* Survival allowlist - critical binaries that can NEVER be blocked */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 256);
+    __uint(max_entries, MAX_SURVIVAL_ALLOWLIST_ENTRIES);
     __type(key, struct inode_id);
     __type(value, __u8);
 } survival_allowlist SEC(".maps");
@@ -183,7 +206,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_BLOOM_FILTER);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_DENY_BLOOM_ENTRIES);
     __uint(key_size, 0);
     __uint(value_size, sizeof(__u64));
     __uint(map_extra, 5);
@@ -191,42 +214,42 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_DENY_EXACT_ENTRIES);
     __type(key, __u64);
     __type(value, __u8);
 } deny_exact SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_DENY_INODE_ENTRIES);
     __type(key, struct inode_id);
     __type(value, __u8);
 } deny_inode_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_DENY_PATH_ENTRIES);
     __type(key, struct path_key);
     __type(value, __u8);
 } deny_path_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, MAX_DENY_CGROUP_STATS_ENTRIES);
     __type(key, __u64);
     __type(value, __u64);
 } deny_cgroup_stats SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_DENY_PATH_STATS_ENTRIES);
     __type(key, struct path_key);
     __type(value, __u64);
 } deny_path_stats SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_DENY_INODE_STATS_ENTRIES);
     __type(key, struct inode_id);
     __type(value, __u64);
 } deny_inode_stats SEC(".maps");
@@ -240,7 +263,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24);
+    __uint(max_entries, RINGBUF_SIZE_BYTES);
 } events SEC(".maps");
 
 /* ============================================================================
@@ -250,7 +273,7 @@ struct {
 /* IPv4 deny list - exact match */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_DENY_IPV4_ENTRIES);
     __type(key, __be32);
     __type(value, __u8);
 } deny_ipv4 SEC(".maps");
@@ -262,7 +285,7 @@ struct ipv6_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_DENY_IPV6_ENTRIES);
     __type(key, struct ipv6_key);
     __type(value, __u8);
 } deny_ipv6 SEC(".maps");
@@ -277,7 +300,7 @@ struct port_key {
 /* Port deny list */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, MAX_DENY_PORT_ENTRIES);
     __type(key, struct port_key);
     __type(value, __u8);
 } deny_port SEC(".maps");
@@ -290,7 +313,7 @@ struct ipv4_lpm_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_DENY_CIDR_V4_ENTRIES);
     __uint(map_flags, BPF_F_NO_PREALLOC);
     __type(key, struct ipv4_lpm_key);
     __type(value, __u8);
@@ -303,7 +326,7 @@ struct ipv6_lpm_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_DENY_CIDR_V6_ENTRIES);
     __uint(map_flags, BPF_F_NO_PREALLOC);
     __type(key, struct ipv6_lpm_key);
     __type(value, __u8);
@@ -332,7 +355,7 @@ struct net_ip_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_NET_IP_STATS_ENTRIES);
     __type(key, struct net_ip_key);
     __type(value, __u64);
 } net_ip_stats SEC(".maps");
@@ -340,14 +363,14 @@ struct {
 /* Per-port block statistics */
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, MAX_NET_PORT_STATS_ENTRIES);
     __type(key, __u16);
     __type(value, __u64);
 } net_port_stats SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 65536);
+    __uint(max_entries, MAX_ENFORCE_SIGNAL_STATE_ENTRIES);
     __type(key, __u32);
     __type(value, struct signal_escalation_state);
 } enforce_signal_state SEC(".maps");

@@ -26,7 +26,7 @@ for var in RINGBUF_BYTES EVENT_SAMPLE_RATE WORKERS DURATION_SECONDS TARGET_DROPS
   fi
 done
 
-LOG_DIR="$(mktemp -d /tmp/aegisbpf-chaos-XXXXXX)"
+LOG_DIR="$(mktemp -d)" || { echo "Failed to create temp directory" >&2; exit 1; }
 DAEMON_LOG="${LOG_DIR}/daemon.log"
 WORKER_PIDS=()
 DAEMON_PID=""
@@ -58,7 +58,13 @@ if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
 fi
 
 # Ensure high-volume events by denying a hot path (audit mode still emits events).
-"${AEGIS_BIN}" block add /etc/hosts >/dev/null 2>&1 || true
+if command -v timeout >/dev/null 2>&1; then
+  timeout 30 "${AEGIS_BIN}" block add /etc/hosts >/dev/null 2>&1 || {
+    echo "[!] block add failed or timed out, chaos test may not generate events" >&2
+  }
+else
+  "${AEGIS_BIN}" block add /etc/hosts >/dev/null 2>&1 || true
+fi
 
 for _ in $(seq 1 "${WORKERS}"); do
   (

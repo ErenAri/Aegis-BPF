@@ -310,7 +310,7 @@ run_signal_suite() {
 main() {
     require_prereqs
 
-    TMP_DIR="$(mktemp -d /tmp/aegisbpf_e2e_matrix.XXXXXX)"
+    TMP_DIR="$(mktemp -d)" || { echo "Failed to create temp directory" >&2; exit 1; }
     echo "Running kernel enforcement matrix using ${BIN}"
     echo "Workspace: ${TMP_DIR}"
 

@@ -76,7 +76,7 @@ jobs:
         run: sudo ./build/aegisbpf health
 
       - name: Enforce smoke test
-        run: ENFORCE_SIGNAL=none sudo scripts/smoke_enforce.sh
+        run: sudo env ENFORCE_SIGNAL=none scripts/smoke_enforce.sh
 
       - name: Audit fallback smoke test
         run: sudo scripts/smoke_audit_fallback.sh

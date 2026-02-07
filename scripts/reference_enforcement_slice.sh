@@ -111,7 +111,7 @@ stop_agent() {
 main() {
     require_prereqs
 
-    TMP_DIR="$(mktemp -d /tmp/aegisbpf_reference_slice.XXXXXX)"
+    TMP_DIR="$(mktemp -d)" || { echo "Failed to create temp directory" >&2; exit 1; }
     echo "Running reference enforcement slice using ${BIN}"
     echo "Workspace: ${TMP_DIR}"
 
