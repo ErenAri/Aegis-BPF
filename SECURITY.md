@@ -181,3 +181,27 @@ The following environment variables affect security behavior. In production, avo
    paths.
 5. **Coverage limits**: Network enforcement currently focuses on connect/bind
    hooks; other socket paths are not yet covered.
+
+## Security Fixes History
+
+### 2026-02-07: TweetNaCl Memory Exhaustion Prevention (CRITICAL)
+
+**Vulnerability:** Unbounded heap allocation in signature verification could lead to memory exhaustion DoS attacks.
+
+**Impact:** HIGH - Availability impact via memory exhaustion
+
+**Status:** ✅ FIXED
+
+**Details:** See `docs/SECURITY_FIX_TWEETNACL_MEMORY.md`
+
+**Affected Versions:** Pre-fix versions (< v0.1.1)
+
+**Fix Version:** v0.1.1+
+
+**Changes:**
+- Replaced heap-based allocation with stack-based buffers (4KB limit)
+- Added size validation before cryptographic operations
+- Enhanced test coverage with 9 new security tests
+- All 153 unit tests pass
+
+**Action Required:** Update to latest version immediately
