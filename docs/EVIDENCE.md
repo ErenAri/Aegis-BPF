@@ -29,6 +29,9 @@ artifacts on each run.
 - Kernel Matrix (dispatch): 2026-02-06
   - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
   - Artifacts: `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`, `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
+- External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
+- Perf baseline: **pending** (see `docs/PERF_BASELINE.md`)
+- Edge‑case compliance results: **pending** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 
 ## Evidence expectations
 
@@ -36,13 +39,6 @@ artifacts on each run.
 - **Hosted evidence** (CI, security scans, SBOM, coverage) should be present on
   every PR and main run.
 - **External validation** is only listed once a public summary exists.
-
-## Latest evidence runs
-
-- Kernel Matrix (dispatch): 2026-02-06
-  - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
-  - Artifacts: `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`, `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
-- External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
 
 ## Kernel matrix coverage
 
