@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema linux-tools-common
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema linux-tools-common
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
@@ -97,7 +97,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema linux-tools-common
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure with coverage
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON
