@@ -1,6 +1,7 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_ops.hpp"
 
+#include <dirent.h>
 #include <limits.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -8,11 +9,13 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <numeric>
+#include <set>
 
 #include "logging.hpp"
 #include "sha256.hpp"
@@ -1037,35 +1040,14 @@ Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
     return {};
 }
 
-// Default critical binaries that should never be blocked
-static const char* kSurvivalBinaries[] = {"/sbin/init",
-                                          "/lib/systemd/systemd",
-                                          "/usr/lib/systemd/systemd",
-                                          "/usr/bin/kubelet",
-                                          "/usr/local/bin/kubelet",
-                                          "/usr/sbin/sshd",
-                                          "/usr/bin/ssh",
-                                          "/usr/bin/containerd",
-                                          "/usr/bin/runc",
-                                          "/usr/bin/crio",
-                                          "/usr/bin/dockerd",
-                                          "/usr/bin/apt",
-                                          "/usr/bin/apt-get",
-                                          "/usr/bin/dpkg",
-                                          "/usr/bin/yum",
-                                          "/usr/bin/dnf",
-                                          "/usr/bin/rpm",
-                                          "/bin/sh",
-                                          "/bin/bash",
-                                          "/bin/dash",
-                                          "/usr/bin/bash",
-                                          "/usr/bin/sudo",
-                                          "/usr/bin/su",
-                                          "/sbin/reboot",
-                                          "/sbin/shutdown",
-                                          "/usr/sbin/reboot",
-                                          "/usr/sbin/shutdown",
-                                          nullptr};
+// Critical binary name patterns to discover via /proc scan
+// These match against basename(exe) to find binaries regardless of installation path
+static const char* kSurvivalBinaryNames[] = {"init",      "systemd",  "kubelet",   "sshd",
+                                              "ssh",       "containerd", "runc",       "crio",
+                                              "dockerd",   "apt",      "apt-get",   "dpkg",
+                                              "yum",       "dnf",      "rpm",       "sh",
+                                              "bash",      "dash",     "sudo",      "su",
+                                              "reboot",    "shutdown", nullptr};
 
 Result<void> add_survival_entry(BpfState& state, const InodeId& id)
 {
@@ -1080,34 +1062,126 @@ Result<void> add_survival_entry(BpfState& state, const InodeId& id)
     return {};
 }
 
+static bool is_survival_binary_name(const std::string& basename)
+{
+    for (int i = 0; kSurvivalBinaryNames[i] != nullptr; ++i) {
+        if (basename == kSurvivalBinaryNames[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Result<std::vector<std::pair<pid_t, std::string>>> discover_survival_processes()
+{
+    std::vector<std::pair<pid_t, std::string>> processes;
+    DIR* proc_dir = opendir("/proc");
+    if (!proc_dir) {
+        return Error::system(errno, "Failed to open /proc");
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(proc_dir)) != nullptr) {
+        // Skip non-numeric entries
+        if (!isdigit(entry->d_name[0])) {
+            continue;
+        }
+
+        pid_t pid = atoi(entry->d_name);
+        std::string exe_path = std::string("/proc/") + entry->d_name + "/exe";
+
+        char target[PATH_MAX] = {};
+        ssize_t len = readlink(exe_path.c_str(), target, sizeof(target) - 1);
+        if (len <= 0) {
+            continue;  // Process may have exited or we don't have permission
+        }
+        target[len] = '\0';
+
+        // Extract basename
+        const char* basename_ptr = strrchr(target, '/');
+        std::string basename = basename_ptr ? std::string(basename_ptr + 1) : std::string(target);
+
+        if (is_survival_binary_name(basename)) {
+            processes.emplace_back(pid, std::string(target));
+        }
+    }
+
+    closedir(proc_dir);
+    return processes;
+}
+
 Result<void> populate_survival_allowlist(BpfState& state)
 {
     if (!state.survival_allowlist) {
         return Error(ErrorCode::BpfMapOperationFailed, "Survival allowlist map not found");
     }
 
+    // Discover survival binaries from running processes
+    auto proc_result = discover_survival_processes();
+    if (!proc_result) {
+        logger().log(SLOG_WARN("Failed to discover survival processes from /proc")
+                         .field("error", proc_result.error().to_string()));
+        // Continue anyway, don't fail the entire operation
+    }
+
+    std::set<InodeId> added_inodes;  // Deduplicate by inode
     int count = 0;
-    for (int i = 0; kSurvivalBinaries[i] != nullptr; ++i) {
-        const char* path = kSurvivalBinaries[i];
 
-        struct stat st {};
-        if (stat(path, &st) != 0) {
-            // Binary doesn't exist on this system, skip it
-            continue;
-        }
+    if (proc_result) {
+        for (const auto& [pid, exe_path] : proc_result.value()) {
+            struct stat st {};
+            if (stat(exe_path.c_str(), &st) != 0) {
+                continue;
+            }
 
-        InodeId id{};
-        id.ino = st.st_ino;
-        id.dev = encode_dev(st.st_dev);
-        id.pad = 0;
+            InodeId id{};
+            id.ino = st.st_ino;
+            id.dev = encode_dev(st.st_dev);
+            id.pad = 0;
 
-        auto result = add_survival_entry(state, id);
-        if (result) {
-            ++count;
+            // Deduplicate: same binary may be running in multiple processes
+            if (added_inodes.find(id) != added_inodes.end()) {
+                continue;
+            }
+
+            auto result = add_survival_entry(state, id);
+            if (result) {
+                added_inodes.insert(id);
+                ++count;
+                logger().log(SLOG_DEBUG("Added survival binary")
+                                 .field("path", exe_path)
+                                 .field("pid", static_cast<int64_t>(pid))
+                                 .field("inode", static_cast<int64_t>(id.ino)));
+            }
         }
     }
 
-    logger().log(SLOG_INFO("Populated survival allowlist").field("count", static_cast<int64_t>(count)));
+    // Also add PID 1 (init) as a failsafe, regardless of what it's called
+    struct stat st {};
+    if (stat("/proc/1/exe", &st) == 0) {
+        char target[PATH_MAX] = {};
+        ssize_t len = readlink("/proc/1/exe", target, sizeof(target) - 1);
+        if (len > 0) {
+            target[len] = '\0';
+            if (stat(target, &st) == 0) {
+                InodeId id{};
+                id.ino = st.st_ino;
+                id.dev = encode_dev(st.st_dev);
+                id.pad = 0;
+
+                if (added_inodes.find(id) == added_inodes.end()) {
+                    auto result = add_survival_entry(state, id);
+                    if (result) {
+                        ++count;
+                        logger().log(SLOG_INFO("Added PID 1 to survival allowlist").field("path", std::string(target)));
+                    }
+                }
+            }
+        }
+    }
+
+    logger().log(SLOG_INFO("Populated survival allowlist via /proc scan")
+                     .field("count", static_cast<int64_t>(count)));
     return {};
 }
 

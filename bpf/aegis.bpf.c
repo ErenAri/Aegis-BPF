@@ -158,6 +158,12 @@ struct block_stats_entry {
     __u64 ringbuf_drops;
 };
 
+/* Key for process-specific maps that prevents PID reuse attacks */
+struct process_key {
+    __u32 pid;
+    __u64 start_time;  /* task->start_time to uniquely identify process lifecycle */
+};
+
 struct signal_escalation_state {
     __u64 window_start_ns;
     __u32 strikes;
@@ -371,9 +377,22 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENFORCE_SIGNAL_STATE_ENTRIES);
-    __type(key, __u32);
+    __type(key, struct process_key);
     __type(value, struct signal_escalation_state);
 } enforce_signal_state SEC(".maps");
+
+/* Socket storage for network policy caching - avoids repeated map lookups */
+struct socket_check_cache {
+    __u8 checked;  /* 1 if socket passed initial checks */
+    __u8 _pad[7];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_SK_STORAGE);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __type(key, int);
+    __type(value, struct socket_check_cache);
+} socket_check_storage SEC(".maps");
 
 /* ============================================================================
  * Helper Functions
@@ -535,7 +554,7 @@ static __always_inline __u64 get_sigkill_escalation_window_ns(void)
 }
 
 static __always_inline __u8 runtime_enforce_signal(
-    __u8 configured_signal, __u32 pid, __u32 threshold, __u64 window_ns)
+    __u8 configured_signal, __u32 pid, __u64 start_time, __u32 threshold, __u64 window_ns)
 {
     if (configured_signal != SIGKILL)
         return configured_signal;
@@ -544,16 +563,21 @@ static __always_inline __u8 runtime_enforce_signal(
     if (window_ns == 0)
         window_ns = SIGKILL_ESCALATION_WINDOW_NS_DEFAULT;
 
+    struct process_key key = {
+        .pid = pid,
+        .start_time = start_time,
+    };
+
     __u64 now = bpf_ktime_get_boot_ns();
     struct signal_escalation_state *state =
-        bpf_map_lookup_elem(&enforce_signal_state, &pid);
+        bpf_map_lookup_elem(&enforce_signal_state, &key);
     if (!state) {
         struct signal_escalation_state new_state = {
             .window_start_ns = now,
             .strikes = 1,
             ._pad = 0,
         };
-        bpf_map_update_elem(&enforce_signal_state, &pid, &new_state, BPF_ANY);
+        bpf_map_update_elem(&enforce_signal_state, &key, &new_state, BPF_ANY);
         if (threshold <= 1)
             return SIGKILL;
         return SIGTERM;
@@ -847,16 +871,18 @@ int BPF_PROG(handle_file_open, struct file *file)
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
     __u8 enforce_signal = 0;
     __u8 configured_signal = get_effective_enforce_signal();
     if (configured_signal == SIGKILL) {
         __u32 kill_threshold = get_sigkill_escalation_threshold();
         __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, kill_threshold, kill_window_ns);
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
     } else {
         enforce_signal = configured_signal;
     }
-    struct task_struct *task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
 
     /* Update statistics */
@@ -945,16 +971,18 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
     __u8 enforce_signal = 0;
     __u8 configured_signal = get_effective_enforce_signal();
     if (configured_signal == SIGKILL) {
         __u32 kill_threshold = get_sigkill_escalation_threshold();
         __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, kill_threshold, kill_window_ns);
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
     } else {
         enforce_signal = configured_signal;
     }
-    struct task_struct *task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
 
     /* Update statistics */
@@ -1066,8 +1094,18 @@ SEC("tracepoint/sched/sched_process_exit")
 int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    /* Get start_time before deleting process_tree entry */
+    struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
+    if (pi) {
+        struct process_key key = {
+            .pid = pid,
+            .start_time = pi->start_time,
+        };
+        bpf_map_delete_elem(&enforce_signal_state, &key);
+    }
+
     bpf_map_delete_elem(&process_tree, &pid);
-    bpf_map_delete_elem(&enforce_signal_state, &pid);
     return 0;
 }
 
@@ -1082,6 +1120,16 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (!sock || !address)
         return 0;
     (void)addrlen;
+
+    /* Fast path: check socket storage cache to avoid repeated lookups */
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (sk) {
+        struct socket_check_cache *cache = bpf_sk_storage_get(&socket_check_storage, sk, 0, 0);
+        if (cache && cache->checked) {
+            /* Socket already passed checks, skip expensive lookups */
+            return 0;
+        }
+    }
 
     __u64 cgid = bpf_get_current_cgroup_id();
 
@@ -1113,8 +1161,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
     }
 
-    /* Get socket protocol */
-    struct sock *sk = BPF_CORE_READ(sock, sk);
+    /* Get socket protocol (sk already declared at function start for cache check) */
     __u8 protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
 
     int matched = 0;
@@ -1172,8 +1219,14 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
     }
 
-    if (!matched)
+    if (!matched) {
+        /* No deny rule matched - cache this socket as checked to skip future lookups */
+        if (sk) {
+            struct socket_check_cache new_cache = {.checked = 1};
+            bpf_sk_storage_get(&socket_check_storage, sk, &new_cache, BPF_SK_STORAGE_GET_F_CREATE);
+        }
         return 0;
+    }
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();
@@ -1218,16 +1271,18 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
     __u8 enforce_signal = 0;
     __u8 configured_signal = get_effective_enforce_signal();
     if (configured_signal == SIGKILL) {
         __u32 kill_threshold = get_sigkill_escalation_threshold();
         __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, kill_threshold, kill_window_ns);
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
     } else {
         enforce_signal = configured_signal;
     }
-    struct task_struct *task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
 
     /* Update global network block stats */
@@ -1275,6 +1330,16 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         return 0;
     (void)addrlen;
 
+    /* Fast path: check socket storage cache to avoid repeated lookups */
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (sk) {
+        struct socket_check_cache *cache = bpf_sk_storage_get(&socket_check_storage, sk, 0, 0);
+        if (cache && cache->checked) {
+            /* Socket already passed checks, skip expensive lookups */
+            return 0;
+        }
+    }
+
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
@@ -1303,13 +1368,18 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     }
 
     /* Get socket protocol */
-    struct sock *sk = BPF_CORE_READ(sock, sk);
     __u8 protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
 
     int matched = port_rule_matches(bind_port, protocol, 1);
 
-    if (!matched)
+    if (!matched) {
+        /* No deny rule matched - cache this socket as checked to skip future lookups */
+        if (sk) {
+            struct socket_check_cache new_cache = {.checked = 1};
+            bpf_sk_storage_get(&socket_check_storage, sk, &new_cache, BPF_SK_STORAGE_GET_F_CREATE);
+        }
         return 0;
+    }
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();
@@ -1352,16 +1422,18 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
     __u8 enforce_signal = 0;
     __u8 configured_signal = get_effective_enforce_signal();
     if (configured_signal == SIGKILL) {
         __u32 kill_threshold = get_sigkill_escalation_threshold();
         __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, kill_threshold, kill_window_ns);
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
     } else {
         enforce_signal = configured_signal;
     }
-    struct task_struct *task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
 
     /* Update statistics */

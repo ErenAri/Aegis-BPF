@@ -171,6 +171,12 @@ struct InodeId {
     uint32_t pad;
 
     bool operator==(const InodeId& other) const noexcept { return ino == other.ino && dev == other.dev; }
+    bool operator<(const InodeId& other) const noexcept
+    {
+        if (dev != other.dev)
+            return dev < other.dev;
+        return ino < other.ino;
+    }
 };
 
 struct InodeIdHash {
