@@ -18,7 +18,7 @@ using aegis::SecretKey;
 using aegis::Signature;
 
 class CryptoSafeTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override
     {
         // Generate a test keypair
@@ -46,9 +46,8 @@ TEST_F(CryptoSafeTest, VerifySmallMessageSucceeds)
     Signature sig{};
 
     // Sign the message first
-    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(sig.data(),
-                                                             reinterpret_cast<const uint8_t*>(message.data()),
-                                                             message.size(), sk.data()),
+    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(
+                  sig.data(), reinterpret_cast<const uint8_t*>(message.data()), message.size(), sk.data()),
               0);
 
     // Verify it
@@ -175,9 +174,8 @@ TEST_F(CryptoSafeTest, VerifyInvalidSignatureFails)
     Signature sig{};
 
     // Create a valid signature first
-    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(sig.data(),
-                                                             reinterpret_cast<const uint8_t*>(message.data()),
-                                                             message.size(), sk.data()),
+    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(
+                  sig.data(), reinterpret_cast<const uint8_t*>(message.data()), message.size(), sk.data()),
               0);
 
     // Corrupt the signature
@@ -215,9 +213,8 @@ TEST_F(CryptoSafeTest, VerifyWithWrongPublicKeyFails)
     Signature sig{};
 
     // Sign with original keypair
-    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(sig.data(),
-                                                             reinterpret_cast<const uint8_t*>(message.data()),
-                                                             message.size(), sk.data()),
+    ASSERT_EQ(aegis::crypto_safe::crypto_sign_detached_safe(
+                  sig.data(), reinterpret_cast<const uint8_t*>(message.data()), message.size(), sk.data()),
               0);
 
     // Generate a different keypair

@@ -30,8 +30,7 @@ constexpr size_t kMaxMessageSize = 4096;
  * @param sk Secret key (64 bytes)
  * @return 0 on success, -1 on failure
  */
-inline int crypto_sign_detached_safe(uint8_t* sig, const uint8_t* m,
-                                      unsigned long long mlen, const uint8_t* sk)
+inline int crypto_sign_detached_safe(uint8_t* sig, const uint8_t* m, unsigned long long mlen, const uint8_t* sk)
 {
     // Reject messages that are too large for stack allocation
     if (mlen > kMaxMessageSize) {
@@ -69,8 +68,8 @@ inline int crypto_sign_detached_safe(uint8_t* sig, const uint8_t* m,
  * @param pk Public key (32 bytes)
  * @return 0 on success, -1 on failure
  */
-inline int crypto_sign_verify_detached_safe(const uint8_t* sig, const uint8_t* m,
-                                             unsigned long long mlen, const uint8_t* pk)
+inline int crypto_sign_verify_detached_safe(const uint8_t* sig, const uint8_t* m, unsigned long long mlen,
+                                            const uint8_t* pk)
 {
     // Reject messages that are too large for stack allocation
     if (mlen > kMaxMessageSize) {
