@@ -297,25 +297,25 @@ int cmd_stats(bool detailed)
     }
 
     const auto& stats = *stats_result;
-    std::cout << "Block Statistics:" << std::endl;
-    std::cout << "  Total blocks: " << stats.blocks << std::endl;
-    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << std::endl;
+    std::cout << "Block Statistics:" << '\n';
+    std::cout << "  Total blocks: " << stats.blocks << '\n';
+    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << '\n';
 
     if (!detailed) {
         return 0;
     }
 
-    std::cout << std::endl;
-    std::cout << "Detailed Block Statistics (for debugging only):" << std::endl;
-    std::cout << "WARNING: This output is NOT suitable for Prometheus metrics." << std::endl;
-    std::cout << "         Use `aegisbpf metrics` for low-cardinality production metrics." << std::endl;
+    std::cout << '\n';
+    std::cout << "Detailed Block Statistics (for debugging only):" << '\n';
+    std::cout << "WARNING: This output is NOT suitable for Prometheus metrics." << '\n';
+    std::cout << "         Use `aegisbpf metrics` for low-cardinality production metrics." << '\n';
 
     auto cgroup_stats_result = read_cgroup_block_counts(state.deny_cgroup_stats);
     if (cgroup_stats_result) {
         auto cgroup_stats = *cgroup_stats_result;
         std::sort(cgroup_stats.begin(), cgroup_stats.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
-        std::cout << "  Top blocked cgroups:" << std::endl;
+        std::cout << "  Top blocked cgroups:" << '\n';
         size_t limit = std::min<size_t>(10, cgroup_stats.size());
         for (size_t i = 0; i < limit; ++i) {
             const auto& [cgid, count] = cgroup_stats[i];
@@ -323,7 +323,7 @@ int cmd_stats(bool detailed)
             if (cgroup_path.empty()) {
                 cgroup_path = "cgid:" + std::to_string(cgid);
             }
-            std::cout << "    " << cgroup_path << ": " << count << std::endl;
+            std::cout << "    " << cgroup_path << ": " << count << '\n';
         }
     }
 
@@ -332,11 +332,11 @@ int cmd_stats(bool detailed)
         auto path_stats = *path_stats_result;
         std::sort(path_stats.begin(), path_stats.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
-        std::cout << "  Top blocked paths:" << std::endl;
+        std::cout << "  Top blocked paths:" << '\n';
         size_t limit = std::min<size_t>(10, path_stats.size());
         for (size_t i = 0; i < limit; ++i) {
             const auto& [path, count] = path_stats[i];
-            std::cout << "    " << path << ": " << count << std::endl;
+            std::cout << "    " << path << ": " << count << '\n';
         }
     }
 
@@ -346,11 +346,11 @@ int cmd_stats(bool detailed)
             auto net_ip_stats = *net_ip_stats_result;
             std::sort(net_ip_stats.begin(), net_ip_stats.end(),
                       [](const auto& a, const auto& b) { return a.second > b.second; });
-            std::cout << "  Top blocked destination IPs:" << std::endl;
+            std::cout << "  Top blocked destination IPs:" << '\n';
             size_t limit = std::min<size_t>(10, net_ip_stats.size());
             for (size_t i = 0; i < limit; ++i) {
                 const auto& [ip, count] = net_ip_stats[i];
-                std::cout << "    " << ip << ": " << count << std::endl;
+                std::cout << "    " << ip << ": " << count << '\n';
             }
         }
     }
@@ -361,11 +361,11 @@ int cmd_stats(bool detailed)
             auto net_port_stats = *net_port_stats_result;
             std::sort(net_port_stats.begin(), net_port_stats.end(),
                       [](const auto& a, const auto& b) { return a.second > b.second; });
-            std::cout << "  Top blocked destination ports:" << std::endl;
+            std::cout << "  Top blocked destination ports:" << '\n';
             size_t limit = std::min<size_t>(10, net_port_stats.size());
             for (size_t i = 0; i < limit; ++i) {
                 const auto& [port, count] = net_port_stats[i];
-                std::cout << "    " << port << ": " << count << std::endl;
+                std::cout << "    " << port << ": " << count << '\n';
             }
         }
     }
@@ -741,7 +741,7 @@ std::string build_health_json(const HealthReport& report)
 
 void emit_health_json(const HealthReport& report)
 {
-    std::cout << build_health_json(report) << std::endl;
+    std::cout << build_health_json(report) << '\n';
 }
 
 std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
@@ -780,28 +780,28 @@ std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
 
 void emit_doctor_text(const HealthReport& report, const std::vector<DoctorAdvice>& advice)
 {
-    std::cout << "AegisBPF Doctor" << std::endl;
-    std::cout << "status: " << (report.ok ? "ok" : "error") << std::endl;
-    std::cout << "capability: " << capability_name(report.capability) << std::endl;
-    std::cout << "kernel: " << report.kernel_version << std::endl;
+    std::cout << "AegisBPF Doctor" << '\n';
+    std::cout << "status: " << (report.ok ? "ok" : "error") << '\n';
+    std::cout << "capability: " << capability_name(report.capability) << '\n';
+    std::cout << "kernel: " << report.kernel_version << '\n';
     std::cout << "checks: prereqs=" << (report.prereqs_ok ? "ok" : "fail")
               << " bpf_load=" << (report.bpf_load_ok ? "ok" : "fail")
               << " required_maps=" << (report.required_maps_ok ? "ok" : "fail")
               << " layout=" << (report.layout_ok ? "ok" : "fail")
               << " required_pins=" << (report.required_pins_ok ? "ok" : "fail")
-              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail") << std::endl;
+              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail") << '\n';
     if (!report.error.empty()) {
-        std::cout << "error: " << report.error << std::endl;
+        std::cout << "error: " << report.error << '\n';
     }
     if (advice.empty()) {
-        std::cout << "advice: none" << std::endl;
+        std::cout << "advice: none" << '\n';
         return;
     }
-    std::cout << "advice:" << std::endl;
+    std::cout << "advice:" << '\n';
     for (const auto& item : advice) {
-        std::cout << "- [" << item.code << "] " << item.message << std::endl;
+        std::cout << "- [" << item.code << "] " << item.message << '\n';
         if (!item.remediation.empty()) {
-            std::cout << "  remediation: " << item.remediation << std::endl;
+            std::cout << "  remediation: " << item.remediation << '\n';
         }
     }
 }
@@ -824,7 +824,7 @@ void emit_doctor_json(const HealthReport& report, const std::vector<DoctorAdvice
         out << "}";
     }
     out << "]}";
-    std::cout << out.str() << std::endl;
+    std::cout << out.str() << '\n';
 }
 
 int cmd_health(bool json_output)
@@ -842,28 +842,28 @@ int cmd_health(bool json_output)
         return report.ok ? 0 : 1;
     }
 
-    std::cout << "Kernel version: " << report.kernel_version << std::endl;
-    std::cout << "Capability: " << capability_name(report.capability) << std::endl;
-    std::cout << "Features:" << std::endl;
-    std::cout << "  bpf_lsm: " << (report.features.bpf_lsm ? "yes" : "no") << std::endl;
-    std::cout << "  cgroup_v2: " << (report.features.cgroup_v2 ? "yes" : "no") << std::endl;
-    std::cout << "  btf: " << (report.features.btf ? "yes" : "no") << std::endl;
-    std::cout << "  bpf_syscall: " << (report.features.bpf_syscall ? "yes" : "no") << std::endl;
-    std::cout << "  ringbuf: " << (report.features.ringbuf ? "yes" : "no") << std::endl;
-    std::cout << "  tracepoints: " << (report.features.tracepoints ? "yes" : "no") << std::endl;
-    std::cout << "  bpffs: " << (report.bpffs_mounted ? "yes" : "no") << std::endl;
+    std::cout << "Kernel version: " << report.kernel_version << '\n';
+    std::cout << "Capability: " << capability_name(report.capability) << '\n';
+    std::cout << "Features:" << '\n';
+    std::cout << "  bpf_lsm: " << (report.features.bpf_lsm ? "yes" : "no") << '\n';
+    std::cout << "  cgroup_v2: " << (report.features.cgroup_v2 ? "yes" : "no") << '\n';
+    std::cout << "  btf: " << (report.features.btf ? "yes" : "no") << '\n';
+    std::cout << "  bpf_syscall: " << (report.features.bpf_syscall ? "yes" : "no") << '\n';
+    std::cout << "  ringbuf: " << (report.features.ringbuf ? "yes" : "no") << '\n';
+    std::cout << "  tracepoints: " << (report.features.tracepoints ? "yes" : "no") << '\n';
+    std::cout << "  bpffs: " << (report.bpffs_mounted ? "yes" : "no") << '\n';
 
     if (!report.ok) {
         return fail(report.error.empty() ? "Health check failed" : report.error);
     }
 
     if (report.capability == EnforcementCapability::AuditOnly) {
-        std::cout << "Health check passed (audit-only capability)" << std::endl;
-        std::cout << "  Note: BPF LSM is unavailable; enforcement actions run in audit mode." << std::endl;
+        std::cout << "Health check passed (audit-only capability)" << '\n';
+        std::cout << "  Note: BPF LSM is unavailable; enforcement actions run in audit mode." << '\n';
         return 0;
     }
 
-    std::cout << "Health check passed" << std::endl;
+    std::cout << "Health check passed" << '\n';
     return 0;
 }
 
@@ -1053,48 +1053,48 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
             out << "\"" << json_escape(notes[i]) << "\"";
         }
         out << "]}";
-        std::cout << out.str() << std::endl;
+        std::cout << out.str() << '\n';
         return 0;
     }
 
-    std::cout << "Explain (best-effort)" << std::endl;
-    std::cout << "  type: " << event.type << std::endl;
+    std::cout << "Explain (best-effort)" << '\n';
+    std::cout << "  type: " << event.type << '\n';
     if (!event.action.empty()) {
-        std::cout << "  action: " << event.action << std::endl;
+        std::cout << "  action: " << event.action << '\n';
     }
     if (!event.path.empty()) {
-        std::cout << "  path: " << event.path << std::endl;
+        std::cout << "  path: " << event.path << '\n';
     }
     if (!event.resolved_path.empty()) {
-        std::cout << "  resolved_path: " << event.resolved_path << std::endl;
+        std::cout << "  resolved_path: " << event.resolved_path << '\n';
     }
     if (event.has_ino) {
-        std::cout << "  ino: " << event.ino << std::endl;
+        std::cout << "  ino: " << event.ino << '\n';
     }
     if (event.has_dev) {
-        std::cout << "  dev: " << event.dev << std::endl;
+        std::cout << "  dev: " << event.dev << '\n';
     }
     if (!event.cgroup_path.empty()) {
-        std::cout << "  cgroup_path: " << event.cgroup_path << std::endl;
+        std::cout << "  cgroup_path: " << event.cgroup_path << '\n';
     }
     if (event.has_cgid) {
-        std::cout << "  cgid: " << event.cgid << std::endl;
+        std::cout << "  cgid: " << event.cgid << '\n';
     }
-    std::cout << "  policy: " << (policy_loaded ? policy_source : "not loaded") << std::endl;
+    std::cout << "  policy: " << (policy_loaded ? policy_source : "not loaded") << '\n';
     if (policy_loaded) {
-        std::cout << "  allow_cgroup_match: " << (allow_match ? "yes" : "no") << std::endl;
-        std::cout << "  deny_inode_match: " << (deny_inode_match ? "yes" : "no") << std::endl;
-        std::cout << "  deny_path_match: " << (deny_path_match ? "yes" : "no") << std::endl;
+        std::cout << "  allow_cgroup_match: " << (allow_match ? "yes" : "no") << '\n';
+        std::cout << "  deny_inode_match: " << (deny_inode_match ? "yes" : "no") << '\n';
+        std::cout << "  deny_path_match: " << (deny_path_match ? "yes" : "no") << '\n';
     } else {
-        std::cout << "  allow_cgroup_match: unknown" << std::endl;
-        std::cout << "  deny_inode_match: unknown" << std::endl;
-        std::cout << "  deny_path_match: unknown" << std::endl;
+        std::cout << "  allow_cgroup_match: unknown" << '\n';
+        std::cout << "  deny_inode_match: unknown" << '\n';
+        std::cout << "  deny_path_match: unknown" << '\n';
     }
-    std::cout << "  inferred_rule: " << inferred_rule << std::endl;
+    std::cout << "  inferred_rule: " << inferred_rule << '\n';
     if (!notes.empty()) {
-        std::cout << "  notes:" << std::endl;
+        std::cout << "  notes:" << '\n';
         for (const auto& note : notes) {
-            std::cout << "    - " << note << std::endl;
+            std::cout << "    - " << note << '\n';
         }
     }
     return 0;

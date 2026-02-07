@@ -158,7 +158,7 @@ fi
 log_section "Test 5: Audit Mode (Shadow Mode - ${TEST_DURATION}s)"
 
 log_info "Starting AegisBPF in audit mode..."
-sudo "$BINARY" run --audit --metrics-port=$METRICS_PORT >/tmp/aegisbpf.log 2>&1 &
+sudo "$BINARY" run --audit >/tmp/aegisbpf.log 2>&1 &
 DAEMON_PID=$!
 
 sleep 3
@@ -173,24 +173,24 @@ log_pass "Daemon started (PID: $DAEMON_PID)"
 
 # Apply policy
 log_info "Applying policy..."
-if sudo "$BINARY" apply "$POLICY" 2>&1; then
+if sudo "$BINARY" policy apply "$POLICY" 2>&1; then
     log_pass "Policy applied"
 else
     log_fail "Policy application failed"
 fi
 
-# Check metrics endpoint
+# Check metrics using CLI command
 sleep 2
-log_info "Checking metrics endpoint..."
-if curl -sf http://localhost:$METRICS_PORT/metrics >/tmp/metrics.txt 2>&1; then
+log_info "Checking metrics..."
+if sudo "$BINARY" metrics >/tmp/metrics.txt 2>&1; then
     METRIC_COUNT=$(grep -c "^aegisbpf_" /tmp/metrics.txt || echo "0")
-    log_pass "Metrics endpoint responding ($METRIC_COUNT metrics)"
+    log_pass "Metrics exported ($METRIC_COUNT metrics)"
 
     # Show key metrics
     echo "  Key metrics:"
     grep "^aegisbpf_blocks_total\|^aegisbpf_map_utilization\|^aegisbpf_deny" /tmp/metrics.txt | head -5 | sed 's/^/    /'
 else
-    log_warn "Metrics endpoint not responding"
+    log_warn "Failed to export metrics"
 fi
 
 # Generate some test activity
@@ -270,7 +270,7 @@ sudo killall -TERM aegisbpf 2>/dev/null || true
 sleep 2
 
 log_info "Starting in enforcement mode..."
-sudo "$BINARY" run --enforce --metrics-port=$METRICS_PORT >/tmp/aegisbpf-enforce.log 2>&1 &
+sudo "$BINARY" run --enforce >/tmp/aegisbpf-enforce.log 2>&1 &
 ENFORCE_PID=$!
 
 sleep 3
@@ -282,7 +282,7 @@ else
     log_pass "Enforcement mode started (PID: $ENFORCE_PID)"
 
     # Re-apply policy
-    sudo "$BINARY" apply "$POLICY" >/dev/null 2>&1 || true
+    sudo "$BINARY" policy apply "$POLICY" >/dev/null 2>&1 || true
 
     # Test actual blocking
     log_info "Testing file access blocking..."
@@ -355,8 +355,8 @@ echo "3. Run extended test (1 hour):"
 echo "   TEST_DURATION=3600 $0"
 echo
 echo "4. Start Phase 1 (Shadow Mode) for longer observation:"
-echo "   sudo $BINARY run --audit --metrics-port=9090 &"
-echo "   $BINARY apply $POLICY"
+echo "   sudo $BINARY run --audit &"
+echo "   $BINARY policy apply $POLICY"
 echo "   # Monitor for 24-48 hours, then review stats"
 echo
 echo "5. When ready, progress to Phase 2 (Test Enforcement)"

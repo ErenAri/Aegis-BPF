@@ -338,6 +338,10 @@ if(BUILD_TESTING)
         set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
         FetchContent_MakeAvailable(googlebenchmark)
 
+        # Remove googlebenchmark's .clang-tidy file which has outdated options
+        # that conflict with newer clang-tidy versions
+        file(REMOVE "${googlebenchmark_SOURCE_DIR}/.clang-tidy")
+
         add_executable(aegisbpf_bench tests/bench_policy.cpp)
         target_link_libraries(aegisbpf_bench PRIVATE
             aegisbpf_lib
