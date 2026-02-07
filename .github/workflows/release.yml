@@ -21,8 +21,20 @@ jobs:
       - name: Install dependencies (if apt-get is available)
         run: |
           if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
             sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev
+            # Install bpftool from kernel tools packages
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get install -y linux-tools-common || true
+              sudo apt-get install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get install -y linux-tools-gcp || \
+                sudo apt-get install -y linux-tools-generic || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify environment

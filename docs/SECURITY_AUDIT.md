@@ -3,7 +3,7 @@
 **Date:** 2026-02-07
 **Auditor:** Security Analysis
 **Scope:** Ed25519 signature verification and timing attack prevention
-**Status:** ✅ MOSTLY SECURE (1 minor issue found)
+**Status:**  MOSTLY SECURE (1 minor issue found)
 
 ---
 
@@ -25,17 +25,17 @@ AegisBPF's Ed25519 signature verification implementation is **well-designed and 
 5. `src/sha256.cpp` - SHA-256 and constant-time hex comparison
 
 ### Operations Audited
-- ✅ Ed25519 signature generation (`sign_bytes`)
-- ✅ Ed25519 signature verification (`verify_bytes`)
-- ✅ SHA-256 hash comparison
-- ✅ Public key comparison
-- ✅ Bundle signature verification workflow
+-  Ed25519 signature generation (`sign_bytes`)
+-  Ed25519 signature verification (`verify_bytes`)
+-  SHA-256 hash comparison
+-  Public key comparison
+-  Bundle signature verification workflow
 
 ---
 
 ## Findings
 
-### ✅ SECURE: Ed25519 Signature Verification
+###  SECURE: Ed25519 Signature Verification
 
 **Location:** `src/crypto.cpp:138-141`
 
@@ -70,11 +70,11 @@ static int crypto_verify_32(const u8* x, const u8* y) {
 }
 ```
 
-**Verdict:** ✅ **SECURE** - Uses constant-time comparison via bit manipulation, no early exit
+**Verdict:**  **SECURE** - Uses constant-time comparison via bit manipulation, no early exit
 
 ---
 
-### ✅ SECURE: SHA-256 Hash Comparison
+###  SECURE: SHA-256 Hash Comparison
 
 **Location:** `src/crypto.cpp:341`
 
@@ -104,11 +104,11 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b)
 }
 ```
 
-**Verdict:** ✅ **SECURE** - Uses `volatile` to prevent compiler optimization, no branching in comparison loop
+**Verdict:**  **SECURE** - Uses `volatile` to prevent compiler optimization, no branching in comparison loop
 
 ---
 
-### ⚠️ MINOR ISSUE: Trusted Key Lookup
+###  MINOR ISSUE: Trusted Key Lookup
 
 **Location:** `src/crypto.cpp:347-348`
 
@@ -178,14 +178,14 @@ bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
 ## TweetNaCl Library Assessment
 
 **Version:** TweetNaCl 20140917 (modified for AegisBPF)
-**Security Reputation:** ✅ EXCELLENT
+**Security Reputation:**  EXCELLENT
 
 ### Modifications Made
 1. Added detached signature functions
 2. Uses `/dev/urandom` for randomness (good)
 3. UBSan-safe carry math in `modL`
 
-**Modifications Assessment:** ✅ SAFE - No security-sensitive changes
+**Modifications Assessment:**  SAFE - No security-sensitive changes
 
 ### TweetNaCl Security Features
 - Public domain reference implementation by D.J. Bernstein
@@ -206,22 +206,22 @@ parse_signed_bundle() - Extracts metadata + signature
         ↓
 verify_bundle() - Main verification function
         ↓
-    ┌─────────────────────────────────────────┐
-    │ 1. SHA256 Comparison (CONSTANT-TIME) ✅│
-    │    constant_time_hex_compare()           │
-    └─────────────────────────────────────────┘
+    
+     1. SHA256 Comparison (CONSTANT-TIME) 
+        constant_time_hex_compare()           
+    
         ↓
-    ┌─────────────────────────────────────────┐
-    │ 2. Trusted Key Lookup (NOT CT) ⚠️      │
-    │    std::any_of + operator==              │
-    └─────────────────────────────────────────┘
+    
+     2. Trusted Key Lookup (NOT CT)       
+        std::any_of + operator==              
+    
         ↓
-    ┌─────────────────────────────────────────┐
-    │ 3. Ed25519 Verify (CONSTANT-TIME) ✅   │
-    │    crypto_sign_verify_detached()         │
-    │      → crypto_sign_open()                │
-    │        → crypto_verify_32() ✅          │
-    └─────────────────────────────────────────┘
+    
+     3. Ed25519 Verify (CONSTANT-TIME)    
+        crypto_sign_verify_detached()         
+          → crypto_sign_open()                
+            → crypto_verify_32()           
+    
         ↓
     Success or Failure
 ```
@@ -231,11 +231,11 @@ verify_bundle() - Main verification function
 ## Test Coverage
 
 ### Existing Tests
-- ✅ `CmdPolicySignTest.CreatesSignedBundle` - Bundle creation
-- ✅ `CmdPolicySignTest.RejectsInvalidKeyEncoding` - Key validation
-- ✅ `CmdPolicyApplySignedTest.RequireSignatureRejectsUnsignedPolicy` - Signature required
-- ✅ `CmdPolicyApplySignedTest.RejectsCorruptedBundleSignature` - Signature integrity
-- ✅ `KeyLifecycleTest.RotateAndRevokeTrustedSigningKeys` - Key rotation
+-  `CmdPolicySignTest.CreatesSignedBundle` - Bundle creation
+-  `CmdPolicySignTest.RejectsInvalidKeyEncoding` - Key validation
+-  `CmdPolicyApplySignedTest.RequireSignatureRejectsUnsignedPolicy` - Signature required
+-  `CmdPolicyApplySignedTest.RejectsCorruptedBundleSignature` - Signature integrity
+-  `KeyLifecycleTest.RotateAndRevokeTrustedSigningKeys` - Key rotation
 
 ### Missing Test (Recommended)
 Add timing attack fuzzing test:
@@ -255,9 +255,9 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 
 | Risk | Likelihood | Impact | Overall |
 |------|-----------|--------|---------|
-| **Ed25519 timing leak** | ✅ None | N/A | ✅ SAFE |
-| **SHA256 timing leak** | ✅ None | N/A | ✅ SAFE |
-| **Key lookup timing leak** | ⚠️ Low | Low | ⚠️ LOW |
+| **Ed25519 timing leak** |  None | N/A |  SAFE |
+| **SHA256 timing leak** |  None | N/A |  SAFE |
+| **Key lookup timing leak** |  Low | Low |  LOW |
 
 ### Key Lookup Timing Leak Details
 
@@ -282,7 +282,7 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 
 ## Compliance & Best Practices
 
-### ✅ COMPLIANT
+###  COMPLIANT
 - [x] Uses established cryptographic library (TweetNaCl)
 - [x] Constant-time signature verification
 - [x] Constant-time hash comparison
@@ -290,7 +290,7 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 - [x] Proper use of `volatile` to prevent compiler optimization
 - [x] Public domain crypto (no licensing issues)
 
-### ⚠️ RECOMMENDATIONS
+###  RECOMMENDATIONS
 - [ ] Add constant-time key lookup (optional, low priority)
 - [ ] Add timing attack fuzzing test (recommended)
 - [ ] Document crypto assumptions in developer guide
@@ -299,7 +299,7 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 
 ## Conclusion
 
-**Overall Security Rating:** ⭐⭐⭐⭐⭐ (5/5)
+**Overall Security Rating:**  (5/5)
 
 AegisBPF's cryptographic implementation is **production-ready from a timing attack perspective**. The use of TweetNaCl and constant-time comparison functions demonstrates good security awareness.
 
@@ -317,7 +317,7 @@ The minor timing leak in trusted key lookup is:
 
 ### Production Deployment Decision
 
-✅ **APPROVED** - No blocking cryptographic security issues found
+ **APPROVED** - No blocking cryptographic security issues found
 
 The Ed25519 signature verification path is properly implemented with constant-time operations. The minor timing leak in key lookup does not pose a significant security risk for production deployment.
 

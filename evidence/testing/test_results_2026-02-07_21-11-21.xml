@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="157" failures="0" disabled="0" errors="0" time="0.258" timestamp="2026-02-07T21:11:21.809" name="AllTests">
+  <testsuite name="CmdPolicySignTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.007" timestamp="2026-02-07T21:11:21.809">
+    <testcase name="CreatesSignedBundle" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="103" status="run" result="completed" time="0.007" timestamp="2026-02-07T21:11:21.809" classname="CmdPolicySignTest" />
+    <testcase name="RejectsInvalidKeyEncoding" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="144" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.817" classname="CmdPolicySignTest" />
+  </testsuite>
+  <testsuite name="CmdPolicyApplySignedTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.032" timestamp="2026-02-07T21:11:21.817">
+    <testcase name="RequireSignatureRejectsUnsignedPolicy" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="168" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.817" classname="CmdPolicyApplySignedTest" />
+    <testcase name="RejectsWorldWritableBundle" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="182" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.817" classname="CmdPolicyApplySignedTest" />
+    <testcase name="RejectsRollbackBundleVersion" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="201" status="run" result="completed" time="0.016" timestamp="2026-02-07T21:11:21.817" classname="CmdPolicyApplySignedTest" />
+    <testcase name="RejectsCorruptedBundleSignature" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="236" status="run" result="completed" time="0.016" timestamp="2026-02-07T21:11:21.834" classname="CmdPolicyApplySignedTest" />
+  </testsuite>
+  <testsuite name="CmdNetworkDenyDelPortTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:21.850">
+    <testcase name="RejectsInvalidProtocolAndDirection" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="195" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.850" classname="CmdNetworkDenyDelPortTest" />
+  </testsuite>
+  <testsuite name="CmdKeysAddTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:21.850">
+    <testcase name="RejectsWorldWritableKeyFile" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="279" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.850" classname="CmdKeysAddTest" />
+  </testsuite>
+  <testsuite name="KeyLifecycleTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.036" timestamp="2026-02-07T21:11:21.850">
+    <testcase name="RotateAndRevokeTrustedSigningKeys" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="292" status="run" result="completed" time="0.036" timestamp="2026-02-07T21:11:21.850" classname="KeyLifecycleTest" />
+  </testsuite>
+  <testsuite name="CmdTracingTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.009" timestamp="2026-02-07T21:11:21.886">
+    <testcase name="PolicySignEmitsRootSpanOnSuccess" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="360" status="run" result="completed" time="0.008" timestamp="2026-02-07T21:11:21.886" classname="CmdTracingTest" />
+    <testcase name="PolicySignMarksSpanErrorOnFailure" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="397" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.894" classname="CmdTracingTest" />
+    <testcase name="NetworkDenyDelPortMarksSpanErrorOnInvalidProtocol" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="428" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.895" classname="CmdTracingTest" />
+    <testcase name="StatsCommandEmitsNestedLoadBpfSpan" file="/home/ern42/CLionProjects/aegisbpf/tests/test_commands.cpp" line="440" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:21.895" classname="CmdTracingTest" />
+  </testsuite>
+  <testsuite name="CryptoSafeTest" tests="13" failures="0" disabled="0" skipped="0" errors="0" time="0.14" timestamp="2026-02-07T21:11:21.896">
+    <testcase name="SignSmallMessageSucceeds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="32" status="run" result="completed" time="0.009" timestamp="2026-02-07T21:11:21.896" classname="CryptoSafeTest" />
+    <testcase name="VerifySmallMessageSucceeds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="43" status="run" result="completed" time="0.015" timestamp="2026-02-07T21:11:21.905" classname="CryptoSafeTest" />
+    <testcase name="SignLargeMessageWithinLimitSucceeds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="61" status="run" result="completed" time="0.008" timestamp="2026-02-07T21:11:21.921" classname="CryptoSafeTest" />
+    <testcase name="SignMessageExceedingLimitFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="73" status="run" result="completed" time="0.003" timestamp="2026-02-07T21:11:21.929" classname="CryptoSafeTest" />
+    <testcase name="VerifyMessageExceedingLimitFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="86" status="run" result="completed" time="0.003" timestamp="2026-02-07T21:11:21.933" classname="CryptoSafeTest" />
+    <testcase name="PolicySignatureStringsFitWithinLimit" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="99" status="run" result="completed" time="0.003" timestamp="2026-02-07T21:11:21.937" classname="CryptoSafeTest" />
+    <testcase name="HighLevelAPIUsesSecureWrapper" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="111" status="run" result="completed" time="0.015" timestamp="2026-02-07T21:11:21.941" classname="CryptoSafeTest" />
+    <testcase name="HighLevelAPIRejectsOversizedMessage" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="124" status="run" result="completed" time="0.003" timestamp="2026-02-07T21:11:21.957" classname="CryptoSafeTest" />
+    <testcase name="MemoryIsClearedAfterSigning" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="137" status="run" result="completed" time="0.007" timestamp="2026-02-07T21:11:21.961" classname="CryptoSafeTest" />
+    <testcase name="SignEmptyMessageSucceeds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="153" status="run" result="completed" time="0.015" timestamp="2026-02-07T21:11:21.969" classname="CryptoSafeTest" />
+    <testcase name="VerifyInvalidSignatureFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="171" status="run" result="completed" time="0.015" timestamp="2026-02-07T21:11:21.985" classname="CryptoSafeTest" />
+    <testcase name="SignExactlyAtLimitSucceeds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="193" status="run" result="completed" time="0.015" timestamp="2026-02-07T21:11:22.000" classname="CryptoSafeTest" />
+    <testcase name="VerifyWithWrongPublicKeyFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_crypto_safe.cpp" line="211" status="run" result="completed" time="0.019" timestamp="2026-02-07T21:11:22.016" classname="CryptoSafeTest" />
+  </testsuite>
+  <testsuite name="KernelFeaturesTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.002" timestamp="2026-02-07T21:11:22.036">
+    <testcase name="ParseKernelVersionHandlesStandardAndTaggedReleases" file="/home/ern42/CLionProjects/aegisbpf/tests/test_kernel_features.cpp" line="64" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.036" classname="KernelFeaturesTest" />
+    <testcase name="ParseKernelVersionRejectsEmptyInput" file="/home/ern42/CLionProjects/aegisbpf/tests/test_kernel_features.cpp" line="81" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.036" classname="KernelFeaturesTest" />
+    <testcase name="DetermineCapabilityCoversFullAuditAndDisabledModes" file="/home/ern42/CLionProjects/aegisbpf/tests/test_kernel_features.cpp" line="89" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.036" classname="KernelFeaturesTest" />
+    <testcase name="FeatureChecksHonorPathOverrides" file="/home/ern42/CLionProjects/aegisbpf/tests/test_kernel_features.cpp" line="109" status="run" result="completed" time="0.002" timestamp="2026-02-07T21:11:22.036" classname="KernelFeaturesTest" />
+  </testsuite>
+  <testsuite name="TrimTest" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="EmptyString" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="25" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+    <testcase name="NoWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="30" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+    <testcase name="LeadingWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="35" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+    <testcase name="TrailingWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="41" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+    <testcase name="BothEnds" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="47" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+    <testcase name="AllWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="53" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="TrimTest" />
+  </testsuite>
+  <testsuite name="ParseKeyValueTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="ValidKeyValue" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="59" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseKeyValueTest" />
+    <testcase name="WithWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="67" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseKeyValueTest" />
+    <testcase name="EmptyValue" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="75" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseKeyValueTest" />
+    <testcase name="NoEquals" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="83" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseKeyValueTest" />
+    <testcase name="EmptyKey" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="89" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseKeyValueTest" />
+  </testsuite>
+  <testsuite name="ParseUint64Test" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="ValidNumber" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="95" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseUint64Test" />
+    <testcase name="Zero" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="102" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseUint64Test" />
+    <testcase name="LargeNumber" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="109" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseUint64Test" />
+    <testcase name="EmptyString" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="116" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseUint64Test" />
+    <testcase name="InvalidCharacters" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="122" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseUint64Test" />
+  </testsuite>
+  <testsuite name="ParseInodeIdTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="ValidFormat" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="130" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseInodeIdTest" />
+    <testcase name="WithWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="138" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseInodeIdTest" />
+    <testcase name="NoColon" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="146" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseInodeIdTest" />
+    <testcase name="InvalidDev" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="152" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseInodeIdTest" />
+    <testcase name="DevTooLarge" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="158" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ParseInodeIdTest" />
+  </testsuite>
+  <testsuite name="JoinListTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="EmptyList" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="165" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JoinListTest" />
+    <testcase name="SingleItem" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="171" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JoinListTest" />
+    <testcase name="MultipleItems" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="177" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JoinListTest" />
+  </testsuite>
+  <testsuite name="ToStringTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="NullTerminated" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="183" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ToStringTest" />
+    <testcase name="NotNullTerminated" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="189" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ToStringTest" />
+    <testcase name="PartialBuffer" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="195" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="ToStringTest" />
+  </testsuite>
+  <testsuite name="JsonEscapeTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="NoEscapeNeeded" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="201" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JsonEscapeTest" />
+    <testcase name="Quotes" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="206" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JsonEscapeTest" />
+    <testcase name="Backslash" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="211" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="JsonEscapeTest" />
+  </testsuite>
+  <testsuite name="PrometheusEscapeLabelTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="NoEscapeNeeded" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="216" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="PrometheusEscapeLabelTest" />
+    <testcase name="Newline" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="221" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="PrometheusEscapeLabelTest" />
+  </testsuite>
+  <testsuite name="InodeToStringTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="Format" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="226" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="InodeToStringTest" />
+  </testsuite>
+  <testsuite name="BuildExecIdTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.038">
+    <testcase name="ValidInput" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="232" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="BuildExecIdTest" />
+    <testcase name="ZeroPid" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="237" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="BuildExecIdTest" />
+    <testcase name="ZeroStartTime" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="242" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.038" classname="BuildExecIdTest" />
+  </testsuite>
+  <testsuite name="ResolveCgroupPathTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.005" timestamp="2026-02-07T21:11:22.038">
+    <testcase name="InvalidCgroupIdDoesNotThrow" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="247" status="run" result="completed" time="0.005" timestamp="2026-02-07T21:11:22.038" classname="ResolveCgroupPathTest" />
+  </testsuite>
+  <testsuite name="ValidatePathTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="EmptyPath" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="255" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidatePathTest" />
+    <testcase name="ValidPath" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="262" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidatePathTest" />
+    <testcase name="PathTooLong" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="269" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidatePathTest" />
+    <testcase name="PathWithNullBytes" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="277" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidatePathTest" />
+  </testsuite>
+  <testsuite name="ValidateExistingPathTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="NonExistentPath" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="287" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidateExistingPathTest" />
+    <testcase name="ExistingPath" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="294" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidateExistingPathTest" />
+    <testcase name="SymlinkResolution" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="302" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidateExistingPathTest" />
+  </testsuite>
+  <testsuite name="ValidateFilePermissionsTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="RegularFilePasses" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="312" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidateFilePermissionsTest" />
+    <testcase name="WorldWritableFileFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_utils.cpp" line="333" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ValidateFilePermissionsTest" />
+  </testsuite>
+  <testsuite name="ResultTest" tests="8" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="SuccessValue" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="11" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="FailureError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="20" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="ErrorWithContext" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="29" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="ErrorWithoutContext" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="35" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="ValueOr" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="41" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="PointerOperator" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="50" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="MapSuccess" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="61" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+    <testcase name="MapFailure" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="69" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultTest" />
+  </testsuite>
+  <testsuite name="ResultVoidTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="Success" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="77" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultVoidTest" />
+    <testcase name="Failure" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="84" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ResultVoidTest" />
+  </testsuite>
+  <testsuite name="ErrorTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="SystemError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="92" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ErrorTest" />
+    <testcase name="NotFoundError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="99" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ErrorTest" />
+    <testcase name="InvalidArgumentError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="106" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ErrorTest" />
+    <testcase name="BpfError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_result.cpp" line="112" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="ErrorTest" />
+  </testsuite>
+  <testsuite name="Sha256Test" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.044">
+    <testcase name="EmptyString" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="11" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="Sha256Test" />
+    <testcase name="HelloWorld" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="18" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="Sha256Test" />
+    <testcase name="SingleCharacter" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="25" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="Sha256Test" />
+    <testcase name="LongString" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="32" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.044" classname="Sha256Test" />
+    <testcase name="IncrementalUpdate" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="44" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="Sha256Test" />
+    <testcase name="BinaryData" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="54" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="Sha256Test" />
+  </testsuite>
+  <testsuite name="ParseSha256TokenTest" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.045">
+    <testcase name="ValidToken" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="63" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+    <testcase name="UppercaseToken" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="70" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+    <testcase name="WithWhitespace" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="77" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+    <testcase name="TooShort" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="86" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+    <testcase name="InvalidCharacters" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="92" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+    <testcase name="EmptyString" file="/home/ern42/CLionProjects/aegisbpf/tests/test_sha256.cpp" line="98" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="ParseSha256TokenTest" />
+  </testsuite>
+  <testsuite name="PolicyTest" tests="14" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.045">
+    <testcase name="ParseValidPolicy" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="40" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="ParsePolicyWithInodes" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="65" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="ParsePolicyWithCgid" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="84" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="ParsePolicyWithIpv6NetworkRules" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="103" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="MissingVersion" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="129" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="InvalidVersion" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="143" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="UnknownSection" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="159" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="CommentsIgnored" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="175" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="EmptyLinesIgnored" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="194" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="DuplicatePathsDeduped" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="214" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="RelativePathWarning" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="233" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="InvalidInodeFormat" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="249" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="NonexistentFile" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="265" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+    <testcase name="ApplyRejectsConflictingHashOptions" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="274" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyTest" />
+  </testsuite>
+  <testsuite name="PolicyRollbackTest" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0.021" timestamp="2026-02-07T21:11:22.045">
+    <testcase name="ApplyFailureTriggersRollbackWhenEnabled" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="374" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyRollbackTest" />
+    <testcase name="ApplyFailureSkipsRollbackWhenDisabled" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="390" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyRollbackTest" />
+    <testcase name="ApplyFailureSkipsRollbackWhenNoAppliedPolicyExists" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="403" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyRollbackTest" />
+    <testcase name="MapFullFailureTriggersRollbackAttemptWhenEnabled" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="416" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.045" classname="PolicyRollbackTest" />
+    <testcase name="RollbackFailureStillReturnsOriginalApplyError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="434" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.046" classname="PolicyRollbackTest" />
+    <testcase name="RollbackControlPathCompletesWithinFiveSecondsUnderLoad" file="/home/ern42/CLionProjects/aegisbpf/tests/test_policy.cpp" line="451" status="run" result="completed" time="0.02" timestamp="2026-02-07T21:11:22.046" classname="PolicyRollbackTest" />
+  </testsuite>
+  <testsuite name="ParseIpv4Test" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidIp" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="11" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv4Test" />
+    <testcase name="ZeroAddress" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="18" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv4Test" />
+    <testcase name="BroadcastAddress" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="25" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv4Test" />
+    <testcase name="InvalidFormat" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="32" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv4Test" />
+    <testcase name="OutOfRangeOctet" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="41" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv4Test" />
+  </testsuite>
+  <testsuite name="ParseIpv6Test" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidIp" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="48" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv6Test" />
+    <testcase name="InvalidFormat" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="54" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseIpv6Test" />
+  </testsuite>
+  <testsuite name="ParseCidrV4Test" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidCidr" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="62" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV4Test" />
+    <testcase name="SingleHost" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="70" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV4Test" />
+    <testcase name="InvalidPrefix" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="78" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV4Test" />
+    <testcase name="MissingPrefix" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="86" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV4Test" />
+  </testsuite>
+  <testsuite name="ParseCidrV6Test" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidCidr" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="93" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV6Test" />
+    <testcase name="InvalidPrefix" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="101" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV6Test" />
+    <testcase name="MissingPrefix" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="108" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ParseCidrV6Test" />
+  </testsuite>
+  <testsuite name="FormatIpv4Test" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidAddresses" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="115" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="FormatIpv4Test" />
+    <testcase name="Localhost" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="124" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="FormatIpv4Test" />
+  </testsuite>
+  <testsuite name="FormatIpv6Test" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="ValidAddresses" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="132" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="FormatIpv6Test" />
+  </testsuite>
+  <testsuite name="ProtocolNameTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="KnownProtocols" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="139" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ProtocolNameTest" />
+    <testcase name="UnknownProtocol" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="145" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="ProtocolNameTest" />
+  </testsuite>
+  <testsuite name="DirectionNameTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="KnownDirections" file="/home/ern42/CLionProjects/aegisbpf/tests/test_network.cpp" line="151" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="DirectionNameTest" />
+  </testsuite>
+  <testsuite name="MetricsTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-02-07T21:11:22.067">
+    <testcase name="IncludesRingbufDropsInBlockMetrics" file="/home/ern42/CLionProjects/aegisbpf/tests/test_metrics.cpp" line="11" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="MetricsTest" />
+    <testcase name="IncludesRingbufDropsInNetMetrics" file="/home/ern42/CLionProjects/aegisbpf/tests/test_metrics.cpp" line="22" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="MetricsTest" />
+  </testsuite>
+  <testsuite name="TracingTest" tests="13" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2026-02-07T21:11:22.067">
+    <testcase name="MakeSpanIdUsesPrefix" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="184" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="ScopedSpanLogsStartAndEndWhenEnabled" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="190" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="ScopedSpanLogsErrorStatusWhenMarkedFailed" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="211" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="ScopedSpanRestoresThreadLocalContext" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="230" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="NestedSpanLogsParentSpanId" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="258" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunGuardsSigkillBehindBuildAndRuntimeFlags" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="279" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunForcesAuditOnlyWhenBreakGlassActive" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="301" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunMarksRootSpanErrorWhenConfigValidationFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="321" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunMarksRootSpanErrorWhenFeatureDetectionFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="344" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunMarksLoadSpanErrorWhenLoadBpfFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="368" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunSurfacesVerifierRejectError" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="391" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.067" classname="TracingTest" />
+    <testcase name="DaemonRunMarksAttachSpanErrorWhenAttachAllFails" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="412" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.068" classname="TracingTest" />
+    <testcase name="DaemonRunRejectsSilentPartialAttachContract" file="/home/ern42/CLionProjects/aegisbpf/tests/test_tracing.cpp" line="436" status="run" result="completed" time="0." timestamp="2026-02-07T21:11:22.068" classname="TracingTest" />
+  </testsuite>
+</testsuites>

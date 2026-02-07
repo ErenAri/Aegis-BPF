@@ -188,17 +188,17 @@ sudo dmesg | grep -i bpf | tail -20
 
 ### Phase 1: Shadow Mode (1 week minimum)
 
-✅ **Stability:**
+ **Stability:**
 - [ ] Zero daemon crashes
 - [ ] Zero kernel panics or BPF errors
 - [ ] Zero OOM kills
 
-✅ **Performance:**
+ **Performance:**
 - [ ] CPU usage: sustained <2% (p99 <5%)
 - [ ] Memory usage: <50MB sustained, no growth trend
 - [ ] Memory growth: <1MB per day (indicates no leaks)
 
-✅ **Correctness:**
+ **Correctness:**
 - [ ] Ring buffer drops: <0.01% of events
 - [ ] BPF map entries stable (not growing unbounded)
 - [ ] No unexplained system slowdowns
@@ -207,7 +207,7 @@ sudo dmesg | grep -i bpf | tail -20
 
 All Phase 1 criteria, plus:
 
-✅ **Enforcement:**
+ **Enforcement:**
 - [ ] False positive rate: <0.01%
 - [ ] No legitimate application failures
 - [ ] Block events correlate with expected policy violations
@@ -341,7 +341,7 @@ Create report with:
 
 ## Results
 
-✅ **PASS** - All criteria met
+ **PASS** - All criteria met
 
 **Stability:**
 - Uptime: 14 days, 0 crashes
@@ -358,7 +358,7 @@ Create report with:
 
 ## Recommendation
 
-✅ Ready for Phase 2 (Enforcement Mode Soak)
+ Ready for Phase 2 (Enforcement Mode Soak)
 ```
 
 ---

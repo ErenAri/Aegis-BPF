@@ -69,14 +69,14 @@ aegisbpf block clear
 
 #### Go/No-Go Criteria
 
-✅ **GO** if:
+ **GO** if:
 - Health check passes on all target kernel versions
 - Performance overhead < 30% in audit mode
 - No memory leaks during 24h soak test
 - Recovery procedures tested and documented
 - On-call team trained on runbooks
 
-❌ **NO-GO** if:
+ **NO-GO** if:
 - Kernel compatibility issues detected
 - Performance degradation > 30%
 - Crash or instability during soak testing
@@ -264,14 +264,14 @@ aegisbpf_blocks_total rate > 100/sec  # Alert threshold
 
 **After 1 week:**
 
-✅ **Proceed** if:
+ **Proceed** if:
 - No increase in application errors
 - Block rate is expected
 - No unexpected blocks of legitimate traffic
 - Performance impact < 5%
 - On-call reports no issues
 
-❌ **Rollback** if:
+ **Rollback** if:
 - Application errors increased
 - Unexpected blocks detected
 - Performance degradation

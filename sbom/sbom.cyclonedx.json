@@ -1,0 +1,96 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:745beb89-c2b2-41b4-9cec-6d5a60aea66e",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-02-07T21:11:16Z",
+    "tools": [
+      {
+        "name": "generate_sbom.sh",
+        "version": "1.0.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "name": "AegisBPF",
+      "version": "v0.1.1-1-gf5eadef",
+      "description": "eBPF-based runtime security agent",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:github/aegisbpf/aegisbpf@v0.1.1-1-gf5eadef"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "libbpf",
+      "version": "1.3.0",
+      "description": "BPF CO-RE (Compile Once – Run Everywhere) library",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-only OR BSD-2-Clause"
+        }
+      ],
+      "purl": "pkg:github/libbpf/libbpf@1.3.0"
+    },
+    {
+      "type": "library",
+      "name": "TweetNaCl",
+      "version": "20140427",
+      "description": "Compact cryptographic library",
+      "licenses": [
+        {
+          "license": {
+            "name": "Public Domain"
+          }
+        }
+      ],
+      "purl": "pkg:generic/tweetnacl@20140427"
+    },
+    {
+      "type": "library",
+      "name": "GoogleTest",
+      "version": "1.14.0",
+      "scope": "optional",
+      "description": "Google Testing and Mocking Framework",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:github/google/googletest@1.14.0"
+    },
+    {
+      "type": "library",
+      "name": "GoogleBenchmark",
+      "version": "1.8.3",
+      "scope": "optional",
+      "description": "A microbenchmark support library",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/google/benchmark@1.8.3"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:github/aegisbpf/aegisbpf@v0.1.1-1-gf5eadef",
+      "dependsOn": [
+        "pkg:github/libbpf/libbpf@1.3.0",
+        "pkg:generic/tweetnacl@20140427"
+      ]
+    }
+  ]
+}

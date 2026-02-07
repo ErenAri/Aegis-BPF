@@ -308,6 +308,7 @@ if(BUILD_TESTING)
     set(TEST_SOURCES
         tests/test_main.cpp
         tests/test_commands.cpp
+        tests/test_crypto_safe.cpp
         tests/test_kernel_features.cpp
         tests/test_utils.cpp
         tests/test_result.cpp

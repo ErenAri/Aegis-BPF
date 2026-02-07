@@ -1,0 +1,111 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "AegisBPF-v0.1.1-1-gf5eadef",
+  "documentNamespace": "https://github.com/aegisbpf/aegisbpf/spdx/v0.1.1-1-gf5eadef",
+  "creationInfo": {
+    "created": "2026-02-07T21:11:16Z",
+    "creators": [
+      "Tool: generate_sbom.sh",
+      "Organization: AegisBPF"
+    ],
+    "licenseListVersion": "3.21"
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-AegisBPF",
+      "name": "AegisBPF",
+      "versionInfo": "v0.1.1-1-gf5eadef",
+      "downloadLocation": "https://github.com/aegisbpf/aegisbpf/archive/v0.1.1-1-gf5eadef.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2024-2026 AegisBPF Contributors",
+      "summary": "eBPF-based runtime security agent",
+      "description": "AegisBPF is an eBPF-based runtime security agent that monitors and blocks unauthorized file access using Linux Security Modules (LSM).",
+      "homepage": "https://github.com/aegisbpf/aegisbpf",
+      "externalRefs": [
+        {
+          "referenceCategory": "SECURITY",
+          "referenceType": "url",
+          "referenceLocator": "https://github.com/aegisbpf/aegisbpf/security"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libbpf",
+      "name": "libbpf",
+      "versionInfo": "1.3.0",
+      "downloadLocation": "https://github.com/libbpf/libbpf",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LGPL-2.1-only OR BSD-2-Clause",
+      "licenseDeclared": "LGPL-2.1-only OR BSD-2-Clause",
+      "copyrightText": "Copyright (c) Linux Kernel Contributors",
+      "summary": "BPF CO-RE (Compile Once \u2013 Run Everywhere) library"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-TweetNaCl",
+      "name": "TweetNaCl",
+      "versionInfo": "20140427",
+      "downloadLocation": "https://tweetnacl.cr.yp.to/software.html",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Public-Domain",
+      "licenseDeclared": "Public-Domain",
+      "copyrightText": "Public Domain",
+      "summary": "Compact cryptographic library",
+      "comment": "Vendored in src/tweetnacl.{c,h}"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-GoogleTest",
+      "name": "GoogleTest",
+      "versionInfo": "1.14.0",
+      "downloadLocation": "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "Copyright 2008, Google Inc.",
+      "summary": "Google Testing and Mocking Framework",
+      "comment": "Build-time dependency only (FetchContent)"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-GoogleBenchmark",
+      "name": "GoogleBenchmark",
+      "versionInfo": "1.8.3",
+      "downloadLocation": "https://github.com/google/benchmark/archive/refs/tags/v1.8.3.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "Copyright 2015, Google Inc.",
+      "summary": "A microbenchmark support library",
+      "comment": "Build-time dependency only (FetchContent)"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-AegisBPF"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-AegisBPF",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-libbpf"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-AegisBPF",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-TweetNaCl"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-AegisBPF",
+      "relationshipType": "TEST_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-GoogleTest"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-AegisBPF",
+      "relationshipType": "TEST_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-GoogleBenchmark"
+    }
+  ]
+}

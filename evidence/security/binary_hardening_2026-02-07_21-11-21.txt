@@ -1,0 +1,9 @@
+=== Binary Hardening Report ===
+File: /home/ern42/CLionProjects/aegisbpf/build/aegisbpf
+Date: 2026-02-07_21-11-21
+
+✅ PIE (Position Independent Executable): ENABLED
+✅ RELRO (Relocation Read-Only): ENABLED
+✅ Full RELRO: ENABLED
+✅ Stack Canary: ENABLED
+✅ NX (No-Execute): ENABLED

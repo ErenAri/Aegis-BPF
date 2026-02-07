@@ -239,7 +239,7 @@ histogram_quantile(0.99, aegisbpf_event_processing_latency_microseconds)
 
 1. **System Health** (Stat panel)
    - Query: `aegisbpf_up`
-   - Display: ✅ UP / ❌ DOWN
+   - Display:  UP /  DOWN
 
 2. **Enforcement Rate** (Graph)
    - Query: `rate(aegisbpf_blocks_total[5m])`

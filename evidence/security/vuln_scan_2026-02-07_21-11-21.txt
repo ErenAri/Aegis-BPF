@@ -1,0 +1,12 @@
+=== Vulnerability Pattern Scan ===
+Date: 2026-02-07_21-11-21
+
+Checking for unsafe string functions...
+⚠️  Found 1 potential unsafe string functions
+/home/ern42/CLionProjects/aegisbpf/src/utils.cpp:425:    while (fgets(buf, sizeof(buf), fp.get())) {
+
+Checking for system() calls...
+⚠️  Found 48 system() calls
+
+Checking for TODO/FIXME markers...
+ℹ️  Found 0 TODO/FIXME markers

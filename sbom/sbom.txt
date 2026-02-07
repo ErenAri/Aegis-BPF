@@ -1,0 +1,119 @@
+═══════════════════════════════════════════════════════════════
+    SOFTWARE BILL OF MATERIALS (SBOM)
+    AegisBPF v0.1.1-1-gf5eadef
+═══════════════════════════════════════════════════════════════
+
+Generated: 2026-02-07T21:11:16Z
+Format: Human-Readable Text
+
+═══════════════════════════════════════════════════════════════
+MAIN COMPONENT
+═══════════════════════════════════════════════════════════════
+
+Name:        AegisBPF
+Version:     v0.1.1-1-gf5eadef
+Type:        Application
+License:     MIT
+Description: eBPF-based runtime security agent that monitors and
+             blocks unauthorized file access using Linux Security
+             Modules (LSM).
+Homepage:    https://github.com/aegisbpf/aegisbpf
+Repository:  https://github.com/aegisbpf/aegisbpf.git
+
+═══════════════════════════════════════════════════════════════
+RUNTIME DEPENDENCIES
+═══════════════════════════════════════════════════════════════
+
+1. libbpf
+   Version:     1.3.0
+   Type:        System Library
+   License:     LGPL-2.1-only OR BSD-2-Clause
+   Description: BPF CO-RE (Compile Once – Run Everywhere) library
+   Source:      https://github.com/libbpf/libbpf
+   Usage:       BPF program loading and management
+
+2. TweetNaCl
+   Version:     20140427
+   Type:        Vendored Library
+   License:     Public Domain
+   Description: Compact cryptographic library (Ed25519 signatures)
+   Source:      https://tweetnacl.cr.yp.to/
+   Location:    src/tweetnacl.{c,h}
+   Usage:       Policy bundle signing and verification
+
+3. libsystemd (optional)
+   Version:     255
+   Type:        System Library
+   License:     LGPL-2.1-or-later
+   Description: systemd journal logging
+   Usage:       Structured logging to systemd journal
+
+═══════════════════════════════════════════════════════════════
+BUILD-TIME DEPENDENCIES
+═══════════════════════════════════════════════════════════════
+
+1. GoogleTest
+   Version:     1.14.0
+   Type:        Test Framework (FetchContent)
+   License:     BSD-3-Clause
+   Description: Google Testing and Mocking Framework
+   Source:      https://github.com/google/googletest
+   Hash:        SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
+   Usage:       Unit testing
+
+2. GoogleBenchmark
+   Version:     1.8.3
+   Type:        Benchmark Framework (FetchContent)
+   License:     Apache-2.0
+   Description: Microbenchmark support library
+   Source:      https://github.com/google/benchmark
+   Hash:        SHA256=6bc180a57d23d4d9515519f92b0c83d61b05b5bab188961f36ac7b06b0d9e9ce
+   Usage:       Performance testing
+
+═══════════════════════════════════════════════════════════════
+DEVELOPMENT TOOLS
+═══════════════════════════════════════════════════════════════
+
+- clang/gcc:    C/C++ compiler (11+)
+- cmake:        Build system (3.20+)
+- bpftool:      BPF object generation
+- pkg-config:   Dependency management
+
+═══════════════════════════════════════════════════════════════
+LICENSE SUMMARY
+═══════════════════════════════════════════════════════════════
+
+Main License:           MIT
+Runtime Dependencies:   LGPL-2.1, BSD-2-Clause, Public Domain
+Build Dependencies:     BSD-3-Clause, Apache-2.0
+
+All licenses are OSI-approved and compatible.
+
+═══════════════════════════════════════════════════════════════
+SECURITY INFORMATION
+═══════════════════════════════════════════════════════════════
+
+Vulnerability Reporting:
+  See SECURITY.md in the repository
+
+Known Vulnerabilities:
+  None (as of 2026-02-07T21:11:16Z)
+
+Security Fixes:
+  v0.1.1: TweetNaCl memory exhaustion (FIXED)
+
+═══════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+To verify this SBOM:
+  1. Check source code matches declared version
+  2. Verify dependency hashes in CMakeLists.txt
+  3. Run: ./scripts/verify_trustworthiness.sh
+
+For more information:
+  - TRUST_EVIDENCE.md
+  - CMakeLists.txt (dependency definitions)
+  - docs/VENDORED_DEPENDENCIES.md
+
+═══════════════════════════════════════════════════════════════

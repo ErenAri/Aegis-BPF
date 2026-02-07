@@ -6,15 +6,15 @@
 
 ---
 
-## 🚨 Quick Reference
+##  Quick Reference
 
 | Scenario | Severity | Action | Time to Recovery |
 |----------|----------|--------|------------------|
-| [Enforcement blocking legitimate traffic](#scenario-1-enforcement-blocking-legitimate-traffic) | 🔴 **CRITICAL** | Disable enforcement immediately | < 2 minutes |
+| [Enforcement blocking legitimate traffic](#scenario-1-enforcement-blocking-legitimate-traffic) |  **CRITICAL** | Disable enforcement immediately | < 2 minutes |
 | [Daemon crash loop](#scenario-2-daemon-crash-loop) | 🟡 **HIGH** | Restart in audit mode | < 5 minutes |
 | [Performance degradation](#scenario-3-performance-degradation) | 🟡 **MEDIUM** | Reduce event sampling | < 3 minutes |
 | [Map capacity full](#scenario-4-bpf-map-capacity-full) | 🟢 **LOW** | Clean up old rules | < 10 minutes |
-| [Kernel panic after upgrade](#scenario-5-kernel-panic-after-upgrade) | 🔴 **CRITICAL** | Disable LSM, rollback kernel | < 15 minutes |
+| [Kernel panic after upgrade](#scenario-5-kernel-panic-after-upgrade) |  **CRITICAL** | Disable LSM, rollback kernel | < 15 minutes |
 
 ---
 

@@ -96,7 +96,7 @@ Error: Failed to add block rule: Map full (65536/65536 entries)
 
 # Existing blocks still work
 $ cat /already/blocked/file
-cat: /already/blocked/file: Operation not permitted  # ✅ Still blocked
+cat: /already/blocked/file: Operation not permitted  #  Still blocked
 
 # Enforcement continues
 $ sudo aegisbpf stats
@@ -129,7 +129,7 @@ Examples:
 
 **Capacity Needed:** < 0.1% of default limits
 
-**Recommendation:** ✅ Default limits are fine
+**Recommendation:**  Default limits are fine
 
 ---
 
@@ -146,7 +146,7 @@ Examples:
 
 **Capacity Needed:** < 15% of default limits
 
-**Recommendation:** ✅ Default limits are sufficient
+**Recommendation:**  Default limits are sufficient
 
 **Monitoring:** Watch map utilization, alert at >80%
 
@@ -164,7 +164,7 @@ Examples:
 
 **Capacity Needed:** 15-90% of default limits
 
-**Recommendation:** ⚠️ Monitor closely
+**Recommendation:**  Monitor closely
 
 **Actions:**
 1. Implement stale entry cleanup (remove unused rules weekly)
@@ -180,7 +180,7 @@ Examples:
 
 **Capacity Needed:** >90% of default limits
 
-**Recommendation:** ❌ Rethink architecture
+**Recommendation:**  Rethink architecture
 
 **Problems:**
 - Approaching map capacity limits
@@ -563,7 +563,7 @@ sudo aegisbpf allow cgroup add /service-b.slice
 
 ## Summary Recommendations
 
-### ✅ Best Practices
+###  Best Practices
 
 1. **Monitor map utilization** - Alert at 70-80% capacity
 2. **Implement automated cleanup** - Remove stale entries weekly
@@ -572,14 +572,14 @@ sudo aegisbpf allow cgroup add /service-b.slice
 5. **Plan for growth** - Track policy size over time
 6. **Test capacity limits** - Know what happens when full
 
-### ⚠️ Warning Signs
+###  Warning Signs
 
 - Map utilization consistently >80%
 - Frequent "map full" errors
 - Ringbuf drops increasing
 - Performance degradation
 
-### 🔴 Action Required
+###  Action Required
 
 - Map at 90%+ capacity → Clean up immediately
 - Ringbuf drops >1% → Increase size or reduce events

@@ -15,6 +15,7 @@
 extern "C" {
 #include "tweetnacl.h"
 }
+#include "tweetnacl_safe.hpp"
 
 namespace aegis {
 
@@ -126,8 +127,9 @@ Result<Signature> sign_message(const std::string& message, const SecretKey& secr
 Result<Signature> sign_bytes(const uint8_t* data, size_t data_len, const SecretKey& secret_key)
 {
     Signature sig{};
-    if (crypto_sign_detached(sig.data(), data, data_len, secret_key.data()) != 0) {
-        return Error(ErrorCode::CryptoError, "Failed to sign message");
+    // Use safe wrapper that prevents memory exhaustion attacks
+    if (crypto_safe::crypto_sign_detached_safe(sig.data(), data, data_len, secret_key.data()) != 0) {
+        return Error(ErrorCode::CryptoError, "Failed to sign message (message may be too large)");
     }
     return sig;
 }
@@ -139,7 +141,8 @@ bool verify_signature(const std::string& message, const Signature& signature, co
 
 bool verify_bytes(const uint8_t* data, size_t data_len, const Signature& signature, const PublicKey& public_key)
 {
-    return crypto_sign_verify_detached(signature.data(), data, data_len, public_key.data()) == 0;
+    // Use safe wrapper that prevents memory exhaustion attacks
+    return crypto_safe::crypto_sign_verify_detached_safe(signature.data(), data, data_len, public_key.data()) == 0;
 }
 
 std::string encode_hex(const PublicKey& key)

@@ -36,13 +36,13 @@ Real workload testing measures AegisBPF's performance impact on actual applicati
 
 ### Success Criteria
 
-✅ **Performance Impact:**
+ **Performance Impact:**
 - Latency increase: <5% at p95, <10% at p99
 - Throughput decrease: <5%
 - CPU overhead: <2% additional
 - Memory overhead: <50MB
 
-✅ **Stability:**
+ **Stability:**
 - No increase in error rates
 - No application failures
 - No system instability
@@ -130,7 +130,7 @@ pgbench -c 10 -j 4 -t 10000 mydatabase
 - Latency: +2-5% (file I/O overhead)
 - CPU: +2-3%
 
-**⚠️ Warning:** Database files often need allow rules if they match deny patterns.
+** Warning:** Database files often need allow rules if they match deny patterns.
 
 ### 3. Build System / CI/CD
 
@@ -170,7 +170,7 @@ sudo ./build/aegisbpf stats --detailed
 - This is typically acceptable for build systems
 - CPU: +3-5%
 
-**⚠️ Important:** Check `aegisbpf stats --detailed` for false positives! Build systems may access sensitive files legitimately.
+** Important:** Check `aegisbpf stats --detailed` for false positives! Build systems may access sensitive files legitimately.
 
 ### 4. Container Runtime
 
@@ -338,9 +338,9 @@ print(f"Baseline p99:      {baseline['p99']}")
 print(f"With AegisBPF p99: {with_aegis['p99']}")
 
 if abs(rps_overhead) < 5:
-    print("\n✓ PASS: Overhead within acceptable range (<5%)")
+    print("\n PASS: Overhead within acceptable range (<5%)")
 else:
-    print(f"\n✗ FAIL: Overhead too high ({rps_overhead:.2f}%)")
+    print(f"\n FAIL: Overhead too high ({rps_overhead:.2f}%)")
 PYTHON
 
 # Cleanup
@@ -418,11 +418,11 @@ print(f"With AegisBPF p99: {with_aegis_latency_p99}ms")
 print(f"Overhead: {overhead_pct:.2f}%")
 
 if overhead_pct < 5:
-    print("✓ Within acceptable range (<5%)")
+    print(" Within acceptable range (<5%)")
 elif overhead_pct < 10:
-    print("⚠ Marginal (5-10%) - review if acceptable")
+    print(" Marginal (5-10%) - review if acceptable")
 else:
-    print("✗ Too high (>10%) - investigate")
+    print(" Too high (>10%) - investigate")
 ```
 
 ### Common Patterns
@@ -510,7 +510,7 @@ else:
 - Ring buffer drops: 0
 - Memory usage: 8.2MB
 
-**Verdict:** ✅ PASS - Overhead within acceptable range
+**Verdict:**  PASS - Overhead within acceptable range
 
 **Notes:**
 - Most blocks were log file access (expected)
@@ -525,11 +525,11 @@ else:
 
 After completing real workload tests:
 
-1. ✅ **Document results** in report format above
-2. ✅ **Share with team** for review
-3. ✅ **Adjust policy** if false positives found
-4. ✅ **Optimize** if overhead too high
-5. ✅ **Proceed to Phase 1** (Shadow Mode) if tests pass
+1.  **Document results** in report format above
+2.  **Share with team** for review
+3.  **Adjust policy** if false positives found
+4.  **Optimize** if overhead too high
+5.  **Proceed to Phase 1** (Shadow Mode) if tests pass
 
 ---
 
