@@ -1,0 +1,87 @@
+# AlertManager configuration for AegisBPF
+#
+# Configure notification channels and routing
+
+global:
+  resolve_timeout: 5m
+
+# Templates for notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Routing tree
+route:
+  # Default receiver
+  receiver: 'aegisbpf-team'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'cluster', 'service']
+
+  # Wait before sending first notification
+  group_wait: 30s
+
+  # Wait before sending updates about same group
+  group_interval: 5m
+
+  # Wait before re-sending same alert
+  repeat_interval: 4h
+
+  # Child routes
+  routes:
+    # Critical alerts go to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      continue: true  # Also send to default receiver
+
+    # AegisBPF-specific routing
+    - match:
+        job: aegisbpf
+      receiver: 'aegisbpf-team'
+      group_by: ['alertname', 'severity']
+      routes:
+        # Daemon down - immediate page
+        - match:
+            alertname: AegisBPFDaemonDown
+          receiver: 'pagerduty-critical'
+          group_wait: 10s
+          repeat_interval: 5m
+
+# Receivers - customize for your environment
+receivers:
+  - name: 'aegisbpf-team'
+    # Email notifications
+    email_configs:
+      - to: 'aegisbpf-alerts@example.com'
+        from: 'prometheus@example.com'
+        smarthost: 'smtp.example.com:587'
+        auth_username: 'alerts'
+        auth_password: 'CHANGE_ME'
+        headers:
+          Subject: '[AegisBPF] {{ .GroupLabels.alertname }}'
+
+    # Slack notifications
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+        channel: '#aegisbpf-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}'
+        send_resolved: true
+
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        severity: '{{ .GroupLabels.severity }}'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        details:
+          runbook: '{{ .CommonAnnotations.runbook }}'
+          cluster: '{{ .GroupLabels.cluster }}'
+
+# Inhibit rules - prevent noise
+inhibit_rules:
+  # Inhibit warning if critical is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']

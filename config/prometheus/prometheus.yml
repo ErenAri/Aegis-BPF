@@ -1,0 +1,63 @@
+# Prometheus configuration for AegisBPF monitoring
+#
+# Deploy this configuration with Prometheus to scrape AegisBPF metrics
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'production'
+    monitor: 'aegisbpf'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load alert rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # AegisBPF metrics
+  - job_name: 'aegisbpf'
+    static_configs:
+      - targets:
+          - 'localhost:9090'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+    # Relabel to add instance metadata
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9090
+
+  # Node exporter for system metrics correlation
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets:
+          - 'localhost:9100'
+
+  # Application metrics (customize for your environment)
+  - job_name: 'application'
+    static_configs:
+      - targets:
+          # Add your application metrics endpoints
+          # - 'app-server-1:8080'
+          # - 'app-server-2:8080'
+
+    # Label applications for correlation
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: app_instance
+
+# Remote write for long-term storage (optional)
+# remote_write:
+#   - url: "http://prometheus-remote-storage:9009/api/v1/write"
