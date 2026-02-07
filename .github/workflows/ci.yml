@@ -218,6 +218,7 @@ jobs:
             --suppress=syntaxError:tests/test_kernel_features.cpp \
             --suppress=syntaxError:tests/test_metrics.cpp \
             --suppress=syntaxError:tests/test_tracing.cpp \
+            --suppress=syntaxError:tests/test_crypto_safe.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
             --suppress=knownConditionTrueFalse \
