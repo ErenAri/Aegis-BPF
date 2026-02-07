@@ -42,6 +42,8 @@ pkg_check_modules(SYSTEMD QUIET libsystemd)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
+    # Explicitly define NDEBUG to disable debug-only code paths (e.g., BPF verification bypass)
+    add_definitions(-DNDEBUG)
 endif()
 
 # Security hardening flags
