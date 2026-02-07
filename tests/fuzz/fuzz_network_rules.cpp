@@ -43,8 +43,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         try {
             uint16_t port = static_cast<uint16_t>(std::stoul(input.substr(0, std::min(size, size_t(5)))));
             (void)port;
-            // NOLINT(bugprone-empty-catch)
-        } catch (...) {
+        } catch (...) { // NOLINT(bugprone-empty-catch)
             // Expected for malformed input - fuzzing intentionally tests error cases
         }
     }

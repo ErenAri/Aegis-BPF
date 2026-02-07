@@ -46,7 +46,7 @@ int cmd_keys_list()
         for (size_t i = 0; i < std::min(key.size(), size_t(8)); ++i) {
             oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(key[i]);
         }
-        std::cout << oss.str() << "..." << std::endl;
+        std::cout << oss.str() << "..." << '\n';
     }
     return 0;
 }
@@ -109,9 +109,9 @@ int cmd_survival_list()
         return fail_span(span, ids_result.error().to_string());
     }
 
-    std::cout << "Survival allowlist:" << std::endl;
+    std::cout << "Survival allowlist:" << '\n';
     for (const auto& id : *ids_result) {
-        std::cout << "  " << id.dev << ":" << id.ino << std::endl;
+        std::cout << "  " << id.dev << ":" << id.ino << '\n';
     }
     return 0;
 }
@@ -146,11 +146,11 @@ int cmd_survival_verify()
 
     if (errors > 0) {
         span.fail("survival allowlist verification failed");
-        std::cout << "Survival allowlist verification found " << errors << " issues" << std::endl;
+        std::cout << "Survival allowlist verification found " << errors << " issues" << '\n';
         return 1;
     }
 
-    std::cout << "Survival allowlist verified successfully (" << ids_result->size() << " entries)" << std::endl;
+    std::cout << "Survival allowlist verified successfully (" << ids_result->size() << " entries)" << '\n';
     return 0;
 }
 

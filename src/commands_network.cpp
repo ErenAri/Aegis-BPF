@@ -263,12 +263,12 @@ int cmd_network_deny_list()
         return fail_span(span, load_result.error().to_string());
     }
 
-    std::cout << "Denied IPs:" << std::endl;
+    std::cout << "Denied IPs:" << '\n';
     if (state.deny_ipv4) {
         auto ips_result = list_deny_ipv4(state);
         if (ips_result) {
             for (uint32_t ip : *ips_result) {
-                std::cout << "  " << format_ipv4(ip) << std::endl;
+                std::cout << "  " << format_ipv4(ip) << '\n';
             }
         }
     }
@@ -276,17 +276,17 @@ int cmd_network_deny_list()
         auto ips_result = list_deny_ipv6(state);
         if (ips_result) {
             for (const auto& ip : *ips_result) {
-                std::cout << "  " << format_ipv6(ip) << std::endl;
+                std::cout << "  " << format_ipv6(ip) << '\n';
             }
         }
     }
 
-    std::cout << "\nDenied CIDRs:" << std::endl;
+    std::cout << "\nDenied CIDRs:" << '\n';
     if (state.deny_cidr_v4) {
         auto cidrs_result = list_deny_cidr_v4(state);
         if (cidrs_result) {
             for (const auto& cidr : *cidrs_result) {
-                std::cout << "  " << format_cidr_v4(cidr.first, cidr.second) << std::endl;
+                std::cout << "  " << format_cidr_v4(cidr.first, cidr.second) << '\n';
             }
         }
     }
@@ -294,18 +294,18 @@ int cmd_network_deny_list()
         auto cidrs_result = list_deny_cidr_v6(state);
         if (cidrs_result) {
             for (const auto& cidr : *cidrs_result) {
-                std::cout << "  " << format_cidr_v6(cidr.first, cidr.second) << std::endl;
+                std::cout << "  " << format_cidr_v6(cidr.first, cidr.second) << '\n';
             }
         }
     }
 
-    std::cout << "\nDenied Ports:" << std::endl;
+    std::cout << "\nDenied Ports:" << '\n';
     if (state.deny_port) {
         auto ports_result = list_deny_ports(state);
         if (ports_result) {
             for (const auto& pr : *ports_result) {
                 std::cout << "  " << pr.port << " (" << protocol_name(pr.protocol) << ", "
-                          << direction_name(pr.direction) << ")" << std::endl;
+                          << direction_name(pr.direction) << ")" << '\n';
             }
         }
     }
@@ -364,10 +364,10 @@ int cmd_network_stats()
     }
 
     const auto& stats = *stats_result;
-    std::cout << "Network Block Statistics:" << std::endl;
-    std::cout << "  Connect blocks: " << stats.connect_blocks << std::endl;
-    std::cout << "  Bind blocks: " << stats.bind_blocks << std::endl;
-    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << std::endl;
+    std::cout << "Network Block Statistics:" << '\n';
+    std::cout << "  Connect blocks: " << stats.connect_blocks << '\n';
+    std::cout << "  Bind blocks: " << stats.bind_blocks << '\n';
+    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << '\n';
 
     return 0;
 }

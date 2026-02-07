@@ -141,7 +141,7 @@ void print_exec_event(const ExecEvent& ev)
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
-        std::cout << payload << std::endl;
+        std::cout << payload << '\n';
     }
 #ifdef HAVE_SYSTEMD
     if (sink_wants_journald(g_event_sink)) {
@@ -183,7 +183,7 @@ void print_block_event(const BlockEvent& ev)
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
-        std::cout << payload << std::endl;
+        std::cout << payload << '\n';
     }
 #ifdef HAVE_SYSTEMD
     if (sink_wants_journald(g_event_sink)) {
@@ -273,7 +273,7 @@ void print_net_block_event(const NetBlockEvent& ev)
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
-        std::cout << payload << std::endl;
+        std::cout << payload << '\n';
     }
 #ifdef HAVE_SYSTEMD
     if (sink_wants_journald(g_event_sink)) {

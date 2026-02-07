@@ -149,9 +149,9 @@ int cmd_block_list()
     while (!rc) {
         auto it = db.find(key);
         if (it != db.end() && !it->second.empty()) {
-            std::cout << it->second << " (" << inode_to_string(key) << ")" << std::endl;
+            std::cout << it->second << " (" << inode_to_string(key) << ")" << '\n';
         } else {
-            std::cout << inode_to_string(key) << std::endl;
+            std::cout << inode_to_string(key) << '\n';
         }
         rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), &key, &next_key);
         key = next_key;
@@ -273,7 +273,7 @@ int cmd_allow_list()
     }
 
     for (uint64_t id : *ids_result) {
-        std::cout << id << std::endl;
+        std::cout << id << '\n';
     }
 
     return 0;

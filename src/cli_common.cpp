@@ -21,8 +21,7 @@ int usage(const char* prog)
            "<hex>|--sha256-file <path>] [--no-rollback] [--require-signature] [--verbose]"
         << " | policy sign <policy.conf> --key <private.key> --output <policy.signed>" << " | policy {show|rollback}"
         << " | keys {list|add <pubkey.pub>}" << " | stats [--detailed]" << " | metrics [--out <path>] [--detailed]"
-        << " | health [--json]" << " | doctor [--json]" << " | explain <event.json> [--policy <path>] [--json]"
-        << std::endl;
+        << " | health [--json]" << " | doctor [--json]" << " | explain <event.json> [--policy <path>] [--json]" << '\n';
     return 1;
 }
 

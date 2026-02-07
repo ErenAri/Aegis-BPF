@@ -41,7 +41,7 @@ class BypassTest : public ::testing::Test {
         // Create test directory and file
         std::filesystem::create_directories(kTestDir);
         std::ofstream out(kTestFile);
-        out << "secret content" << std::endl;
+        out << "secret content" << '\n';
         out.close();
     }
 
@@ -173,7 +173,7 @@ TEST_F(BypassTest, InodeStability)
     // Append to file - inode should stay the same
     {
         std::ofstream out(kTestFile, std::ios::app);
-        out << "more content" << std::endl;
+        out << "more content" << '\n';
     }
     ASSERT_EQ(0, stat(kTestFile, &st));
     EXPECT_EQ(original_inode, st.st_ino);
@@ -218,7 +218,7 @@ TEST_F(BypassTest, CaseSensitivity)
     const char* uppercase_path = "/tmp/aegisbpf_bypass_test/TARGET.txt";
 
     std::ofstream out(uppercase_path);
-    out << "different file" << std::endl;
+    out << "different file" << '\n';
     out.close();
 
     // These should be different files with different inodes
