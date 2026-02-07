@@ -42,7 +42,7 @@
   - [x] scripts/phase0_validation.sh (automated prerequisite checking)
 
 - [x] **Policy file ready**
-  - [x] config/policy-production.yml created
+  - [x] config/policy-production.conf created
   - [x] Minimal baseline policy (sensitive files only)
   - [x] Designed for expansion based on Phase 1 analysis
   - [ ] Policy approved by security team (when deploying)

@@ -557,7 +557,7 @@ allow:
 
 ### Phase 3: Production Policy (Full)
 ```yaml
-# policy-production.yml
+# policy-production.conf
 version: 1
 deny:
   paths:

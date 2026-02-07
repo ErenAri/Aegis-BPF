@@ -58,12 +58,12 @@ fi
 
 # Test 3: Create test policy
 log_section "Test Policy"
-TEST_POLICY="/tmp/aegis-test-policy.yml"
+TEST_POLICY="/tmp/aegis-test-policy.conf"
 cat > "$TEST_POLICY" <<'EOF'
-version: 1
-deny:
-  paths:
-    - /tmp/aegis-blocked-file.txt
+version=1
+
+[deny_path]
+/tmp/aegis-blocked-file.txt
 EOF
 log_pass "Test policy created"
 

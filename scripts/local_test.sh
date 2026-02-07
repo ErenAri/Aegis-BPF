@@ -18,7 +18,7 @@ NC='\033[0m'
 # Test configuration
 TEST_DURATION=${TEST_DURATION:-60}  # 60 seconds for quick test
 BINARY="${BINARY:-./build/aegisbpf}"
-POLICY="${POLICY:-./config/policy-production.yml}"
+POLICY="${POLICY:-./config/policy-production.conf}"
 METRICS_PORT=9090
 
 log_section() {
@@ -136,12 +136,12 @@ log_section "Test 4: Policy Validation"
 if [ ! -f "$POLICY" ]; then
     log_warn "Policy file not found: $POLICY"
     log_info "Using minimal test policy..."
-    POLICY="/tmp/test-policy.yml"
+    POLICY="/tmp/test-policy.conf"
     cat > "$POLICY" <<'POLICY_EOF'
-version: 1
-deny:
-  paths:
-    - /tmp/aegisbpf-test-blocked.txt
+version=1
+
+[deny_path]
+/tmp/aegisbpf-test-blocked.txt
 POLICY_EOF
 fi
 
