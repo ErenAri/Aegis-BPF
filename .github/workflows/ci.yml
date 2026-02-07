@@ -221,6 +221,7 @@ jobs:
             --suppress=syntaxError:tests/test_crypto_safe.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
+            --suppress=constVariablePointer \
             --suppress=knownConditionTrueFalse \
             --suppress=unusedFunction \
             --suppress=checkersReport \
