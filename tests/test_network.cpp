@@ -2,6 +2,7 @@
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
+
 #include "network_ops.hpp"
 
 namespace aegis {
@@ -154,5 +155,5 @@ TEST(DirectionNameTest, KnownDirections)
     EXPECT_EQ(direction_name(2), "both");
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

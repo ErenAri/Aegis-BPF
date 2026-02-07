@@ -1,9 +1,9 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "result.hpp"
-
 #include <string>
+
+#include "result.hpp"
 
 namespace aegis {
 
@@ -14,16 +14,16 @@ namespace aegis {
  * capability level for the current system.
  */
 struct KernelFeatures {
-    bool bpf_lsm = false;        // BPF LSM support (full enforcement)
-    bool ringbuf = false;        // Ring buffer support
-    bool cgroup_v2 = false;      // cgroup v2 support
-    bool btf = false;            // BTF (BPF Type Format) available
-    bool bpf_syscall = false;    // BPF syscall available
-    bool tracepoints = false;    // Tracepoints available
-    std::string kernel_version;  // Kernel version string (e.g., "6.1.0")
-    int kernel_major = 0;        // Major version number
-    int kernel_minor = 0;        // Minor version number
-    int kernel_patch = 0;        // Patch version number
+    bool bpf_lsm = false;       // BPF LSM support (full enforcement)
+    bool ringbuf = false;       // Ring buffer support
+    bool cgroup_v2 = false;     // cgroup v2 support
+    bool btf = false;           // BTF (BPF Type Format) available
+    bool bpf_syscall = false;   // BPF syscall available
+    bool tracepoints = false;   // Tracepoints available
+    std::string kernel_version; // Kernel version string (e.g., "6.1.0")
+    int kernel_major = 0;       // Major version number
+    int kernel_minor = 0;       // Minor version number
+    int kernel_patch = 0;       // Patch version number
 };
 
 /**
@@ -32,9 +32,9 @@ struct KernelFeatures {
  * Determines what level of enforcement is possible on this system.
  */
 enum class EnforcementCapability {
-    Full,       // LSM enforcement + all features
-    AuditOnly,  // Tracepoint only, can log but not block
-    Disabled    // Cannot run at all, missing critical requirements
+    Full,      // LSM enforcement + all features
+    AuditOnly, // Tracepoint only, can log but not block
+    Disabled   // Cannot run at all, missing critical requirements
 };
 
 /**
@@ -122,4 +122,4 @@ bool check_btf_available();
  */
 bool check_bpffs_mounted();
 
-}  // namespace aegis
+} // namespace aegis

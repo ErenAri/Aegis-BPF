@@ -1,7 +1,5 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "crypto.hpp"
-#include "logging.hpp"
-#include "sha256.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -10,6 +8,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+
+#include "logging.hpp"
+#include "sha256.hpp"
 
 extern "C" {
 #include "tweetnacl.h"
@@ -25,9 +26,12 @@ constexpr const char* kBundleSeparator = "---";
 
 uint8_t hex_digit_value(char c)
 {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F')
+        return 10 + (c - 'A');
     return 0xff;
 }
 
@@ -83,7 +87,7 @@ bool parse_header_line(const std::string& line, std::string& key, std::string& v
     return !key.empty();
 }
 
-}  // anonymous namespace
+} // anonymous namespace
 
 std::string trusted_keys_dir()
 {
@@ -116,8 +120,7 @@ Result<std::pair<PublicKey, SecretKey>> generate_keypair()
 
 Result<Signature> sign_message(const std::string& message, const SecretKey& secret_key)
 {
-    return sign_bytes(reinterpret_cast<const uint8_t*>(message.data()),
-                      message.size(), secret_key);
+    return sign_bytes(reinterpret_cast<const uint8_t*>(message.data()), message.size(), secret_key);
 }
 
 Result<Signature> sign_bytes(const uint8_t* data, size_t data_len, const SecretKey& secret_key)
@@ -131,8 +134,7 @@ Result<Signature> sign_bytes(const uint8_t* data, size_t data_len, const SecretK
 
 bool verify_signature(const std::string& message, const Signature& signature, const PublicKey& public_key)
 {
-    return verify_bytes(reinterpret_cast<const uint8_t*>(message.data()),
-                        message.size(), signature, public_key);
+    return verify_bytes(reinterpret_cast<const uint8_t*>(message.data()), message.size(), signature, public_key);
 }
 
 bool verify_bytes(const uint8_t* data, size_t data_len, const Signature& signature, const PublicKey& public_key)
@@ -198,7 +200,8 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content)
 
     while (std::getline(iss, line)) {
         line = trim_string(line);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         if (!found_header) {
             if (line != kBundleHeader) {
@@ -217,50 +220,40 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content)
         if (key == "format_version") {
             try {
                 bundle.format_version = static_cast<uint32_t>(std::stoul(value));
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid format_version", value);
             }
-        }
-        else if (key == "policy_version") {
+        } else if (key == "policy_version") {
             try {
                 bundle.policy_version = std::stoull(value);
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid policy_version", value);
             }
-        }
-        else if (key == "timestamp") {
+        } else if (key == "timestamp") {
             try {
                 bundle.timestamp = std::stoull(value);
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid timestamp", value);
             }
-        }
-        else if (key == "expires") {
+        } else if (key == "expires") {
             try {
                 bundle.expires = std::stoull(value);
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid expires", value);
             }
-        }
-        else if (key == "signer_key") {
+        } else if (key == "signer_key") {
             auto key_result = decode_public_key(value);
             if (!key_result) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid signer_key", key_result.error().message());
             }
             bundle.signer_key = *key_result;
-        }
-        else if (key == "signature") {
+        } else if (key == "signature") {
             auto sig_result = decode_signature(value);
             if (!sig_result) {
                 return Error(ErrorCode::PolicyParseFailed, "Invalid signature", sig_result.error().message());
             }
             bundle.signature = *sig_result;
-        }
-        else if (key == "policy_sha256") {
+        } else if (key == "policy_sha256") {
             bundle.policy_sha256 = value;
         }
     }
@@ -276,10 +269,8 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content)
     return bundle;
 }
 
-Result<std::string> create_signed_bundle(const std::string& policy_content,
-                                         const SecretKey& secret_key,
-                                         uint64_t policy_version,
-                                         uint64_t expires)
+Result<std::string> create_signed_bundle(const std::string& policy_content, const SecretKey& secret_key,
+                                         uint64_t policy_version, uint64_t expires)
 {
     // Compute SHA256 of policy content
     std::string policy_sha256 = Sha256::hash_hex(policy_content);
@@ -319,8 +310,7 @@ Result<std::string> create_signed_bundle(const std::string& policy_content,
     return oss.str();
 }
 
-Result<void> verify_bundle(const SignedPolicyBundle& bundle,
-                           const std::vector<PublicKey>& trusted_keys)
+Result<void> verify_bundle(const SignedPolicyBundle& bundle, const std::vector<PublicKey>& trusted_keys)
 {
     // Check format version
     if (bundle.format_version != 1) {
@@ -347,14 +337,12 @@ Result<void> verify_bundle(const SignedPolicyBundle& bundle,
     bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
                                    [&bundle](const auto& trusted) { return trusted == bundle.signer_key; });
     if (!key_trusted) {
-        return Error(ErrorCode::SignatureInvalid, "Signer key is not trusted",
-                     encode_hex(bundle.signer_key));
+        return Error(ErrorCode::SignatureInvalid, "Signer key is not trusted", encode_hex(bundle.signer_key));
     }
 
     // Verify signature
     std::ostringstream sign_data;
-    sign_data << bundle.policy_sha256 << bundle.policy_version
-              << bundle.timestamp << bundle.expires;
+    sign_data << bundle.policy_sha256 << bundle.policy_version << bundle.timestamp << bundle.expires;
     std::string sign_str = sign_data.str();
 
     if (!verify_signature(sign_str, bundle.signature, bundle.signer_key)) {
@@ -441,4 +429,4 @@ bool check_version_acceptable(const SignedPolicyBundle& bundle)
     return bundle.policy_version > current;
 }
 
-}  // namespace aegis
+} // namespace aegis

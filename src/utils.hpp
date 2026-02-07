@@ -1,14 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "result.hpp"
-#include "types.hpp"
+#include <sys/types.h>
 
 #include <mutex>
 #include <string>
 #include <system_error>
-#include <sys/types.h>
 #include <vector>
+
+#include "result.hpp"
+#include "types.hpp"
 
 namespace aegis {
 
@@ -70,7 +71,8 @@ class PipeGuard {
     explicit PipeGuard(FILE* fp) : fp_(fp) {}
     ~PipeGuard()
     {
-        if (fp_) pclose(fp_);
+        if (fp_)
+            pclose(fp_);
     }
 
     PipeGuard(const PipeGuard&) = delete;
@@ -80,7 +82,8 @@ class PipeGuard {
     PipeGuard& operator=(PipeGuard&& other) noexcept
     {
         if (this != &other) {
-            if (fp_) pclose(fp_);
+            if (fp_)
+                pclose(fp_);
             fp_ = other.fp_;
             other.fp_ = nullptr;
         }
@@ -122,4 +125,4 @@ class CwdCache {
     std::unordered_map<uint32_t, Entry> cache_;
 };
 
-}  // namespace aegis
+} // namespace aegis

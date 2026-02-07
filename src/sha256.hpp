@@ -43,4 +43,4 @@ bool read_sha256_file(const std::string& path, std::string& hash);
 // Returns true if the two hex strings are equal (case-insensitive).
 bool constant_time_hex_compare(const std::string& a, const std::string& b);
 
-}  // namespace aegis
+} // namespace aegis

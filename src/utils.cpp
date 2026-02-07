@@ -1,7 +1,11 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "utils.hpp"
-#include "bpf_ops.hpp"
-#include "logging.hpp"
+
+#include <limits.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <sys/utsname.h>
+#include <unistd.h>
 
 #include <cctype>
 #include <cerrno>
@@ -9,12 +13,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <limits.h>
 #include <sstream>
-#include <sys/stat.h>
-#include <sys/sysmacros.h>
-#include <sys/utsname.h>
-#include <unistd.h>
+
+#include "bpf_ops.hpp"
+#include "logging.hpp"
 
 namespace aegis {
 
@@ -106,38 +108,37 @@ std::string json_escape(const std::string& in)
     out.reserve(in.size() + 4);
     for (unsigned char c : in) {
         switch (c) {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        case '\r':
-            out += "\\r";
-            break;
-        case '\t':
-            out += "\\t";
-            break;
-        case '\b':
-            out += "\\b";
-            break;
-        case '\f':
-            out += "\\f";
-            break;
-        default:
-            // Escape control characters (0x00-0x1f) as \u00XX
-            if (c < 0x20) {
-                char buf[8];
-                snprintf(buf, sizeof(buf), "\\u%04x", c);
-                out += buf;
-            }
-            else {
-                out += static_cast<char>(c);
-            }
-            break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            case '\b':
+                out += "\\b";
+                break;
+            case '\f':
+                out += "\\f";
+                break;
+            default:
+                // Escape control characters (0x00-0x1f) as \u00XX
+                if (c < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(c);
+                }
+                break;
         }
     }
     return out;
@@ -149,18 +150,18 @@ std::string prometheus_escape_label(const std::string& in)
     out.reserve(in.size() + 4);
     for (char c : in) {
         switch (c) {
-        case '\\':
-            out += "\\\\";
-            break;
-        case '"':
-            out += "\\\"";
-            break;
-        case '\n':
-            out += "\\n";
-            break;
-        default:
-            out += c;
-            break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            default:
+                out += c;
+                break;
         }
     }
     return out;
@@ -237,9 +238,7 @@ std::string CgroupPathCache::resolve(uint64_t cgid)
     try {
         std::error_code ec;
         std::filesystem::recursive_directory_iterator dir(
-            "/sys/fs/cgroup",
-            std::filesystem::directory_options::skip_permission_denied,
-            ec);
+            "/sys/fs/cgroup", std::filesystem::directory_options::skip_permission_denied, ec);
         if (!ec) {
             auto end = std::filesystem::recursive_directory_iterator();
             for (; dir != end;) {
@@ -259,8 +258,7 @@ std::string CgroupPathCache::resolve(uint64_t cgid)
                 }
             }
         }
-    }
-    catch (const std::exception&) {
+    } catch (const std::exception&) {
         found.clear();
     }
 
@@ -307,8 +305,7 @@ std::string CwdCache::resolve(uint32_t pid, uint64_t start_time, const std::stri
         auto it = cache_.find(pid);
         if (it != cache_.end() && (!start_time || it->second.start_time == start_time)) {
             cwd = it->second.cwd;
-        }
-        else {
+        } else {
             cwd = read_proc_cwd(pid);
             if (cwd.empty()) {
                 return path;
@@ -575,8 +572,7 @@ Result<InodeId> resolve_to_inode(const std::string& path, bool follow_symlinks)
     int rc;
     if (follow_symlinks) {
         rc = stat(path.c_str(), &st);
-    }
-    else {
+    } else {
         rc = lstat(path.c_str(), &st);
     }
 
@@ -609,8 +605,7 @@ Result<void> validate_config_directory_permissions(const std::string& path)
 
     // Must be owned by root (uid 0)
     if (st.st_uid != 0) {
-        return Error(ErrorCode::PermissionDenied,
-                     "Config directory must be owned by root",
+        return Error(ErrorCode::PermissionDenied, "Config directory must be owned by root",
                      path + " (owner uid=" + std::to_string(st.st_uid) + ")");
     }
 
@@ -618,8 +613,7 @@ Result<void> validate_config_directory_permissions(const std::string& path)
     // Acceptable modes: 0700, 0750, 0755
     mode_t mode = st.st_mode & 0777;
     if (mode & S_IWOTH) {
-        return Error(ErrorCode::PermissionDenied,
-                     "Config directory must not be world-writable",
+        return Error(ErrorCode::PermissionDenied, "Config directory must not be world-writable",
                      path + " (mode=" + std::to_string(mode) + ")");
     }
 
@@ -649,16 +643,14 @@ Result<void> validate_file_permissions(const std::string& path, bool require_roo
 
     // Must be owned by root if required
     if (require_root_owner && st.st_uid != 0) {
-        return Error(ErrorCode::PermissionDenied,
-                     "File must be owned by root",
+        return Error(ErrorCode::PermissionDenied, "File must be owned by root",
                      path + " (owner uid=" + std::to_string(st.st_uid) + ")");
     }
 
     // Check permissions: must not be world-writable
     mode_t mode = st.st_mode & 0777;
     if (mode & S_IWOTH) {
-        return Error(ErrorCode::PermissionDenied,
-                     "File must not be world-writable",
+        return Error(ErrorCode::PermissionDenied, "File must not be world-writable",
                      path + " (mode=" + std::to_string(mode) + ")");
     }
 
@@ -670,4 +662,4 @@ Result<void> validate_file_permissions(const std::string& path, bool require_roo
     return {};
 }
 
-}  // namespace aegis
+} // namespace aegis

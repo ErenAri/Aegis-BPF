@@ -1,24 +1,26 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_ops.hpp"
-#include "logging.hpp"
-#include "sha256.hpp"
-#include "tracing.hpp"
-#include "utils.hpp"
+
+#include <limits.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <limits.h>
 #include <numeric>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <sys/sysmacros.h>
-#include <unistd.h>
+
+#include "logging.hpp"
+#include "sha256.hpp"
+#include "tracing.hpp"
+#include "utils.hpp"
 
 #ifndef AEGIS_BPF_OBJ_PATH
-#define AEGIS_BPF_OBJ_PATH ""
+#    define AEGIS_BPF_OBJ_PATH ""
 #endif
 
 namespace aegis {
@@ -26,7 +28,7 @@ namespace aegis {
 namespace {
 constexpr const char* kBpfObjPath = AEGIS_BPF_OBJ_PATH;
 std::atomic<uint32_t> g_ringbuf_bytes{0};
-}  // namespace
+} // namespace
 
 bool kernel_bpf_lsm_enabled()
 {
@@ -94,8 +96,7 @@ std::string resolve_bpf_obj_path()
         if (std::filesystem::exists(kBpfObjPath, ec)) {
             return kBpfObjPath;
         }
-    }
-    else {
+    } else {
         if (std::filesystem::exists(kBpfObjPath, ec)) {
             return kBpfObjPath;
         }
@@ -189,11 +190,9 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
     // Try /etc/aegisbpf first (admin override), then installed path
     if (std::filesystem::exists(kBpfObjHashPath, ec)) {
         hash_path = kBpfObjHashPath;
-    }
-    else if (std::filesystem::exists(kBpfObjHashInstallPath, ec)) {
+    } else if (std::filesystem::exists(kBpfObjHashInstallPath, ec)) {
         hash_path = kBpfObjHashInstallPath;
-    }
-    else {
+    } else {
         // No hash file found - in production this should be an error
         // For development/testing, warn and continue
         logger().log(SLOG_WARN("BPF object hash file not found, verification skipped")
@@ -224,9 +223,7 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
                      "expected=" + expected_hash + " actual=" + actual_hash);
     }
 
-    logger().log(SLOG_INFO("BPF object integrity verified")
-                     .field("path", obj_path)
-                     .field("hash", actual_hash));
+    logger().log(SLOG_INFO("BPF object integrity verified").field("path", obj_path).field("hash", actual_hash));
     return {};
 }
 
@@ -298,10 +295,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
 
-        if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup ||
-            !state.block_stats || !state.deny_cgroup_stats || !state.deny_inode_stats ||
-            !state.deny_path_stats || !state.agent_meta || !state.config_map ||
-            !state.survival_allowlist) {
+        if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
+            !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
+            !state.config_map || !state.survival_allowlist) {
             cleanup_bpf(state);
             Error error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
             span.fail(error.to_string());
@@ -420,18 +416,14 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
     }
 
-    bool need_pins = !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused ||
-                     !state.block_stats_reused || !state.deny_cgroup_stats_reused ||
-                     !state.deny_inode_stats_reused || !state.deny_path_stats_reused ||
-                     !state.agent_meta_reused || !state.survival_allowlist_reused ||
-                     (state.deny_ipv4 && !state.deny_ipv4_reused) ||
-                     (state.deny_ipv6 && !state.deny_ipv6_reused) ||
-                     (state.deny_port && !state.deny_port_reused) ||
-                     (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) ||
-                     (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
-                     (state.net_block_stats && !state.net_block_stats_reused) ||
-                     (state.net_ip_stats && !state.net_ip_stats_reused) ||
-                     (state.net_port_stats && !state.net_port_stats_reused);
+    bool need_pins =
+        !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused || !state.block_stats_reused ||
+        !state.deny_cgroup_stats_reused || !state.deny_inode_stats_reused || !state.deny_path_stats_reused ||
+        !state.agent_meta_reused || !state.survival_allowlist_reused || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
+        (state.deny_ipv6 && !state.deny_ipv6_reused) || (state.deny_port && !state.deny_port_reused) ||
+        (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
+        (state.net_block_stats && !state.net_block_stats_reused) ||
+        (state.net_ip_stats && !state.net_ip_stats_reused) || (state.net_port_stats && !state.net_port_stats_reused);
 
     if (need_pins) {
         ScopedSpan span("bpf.pin_maps", trace_id, root_span.span_id());
@@ -594,8 +586,7 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             span.fail(error.to_string());
             return fail(error);
         }
-    }
-    else {
+    } else {
         ScopedSpan span("bpf.attach.file_hooks_tracepoint", trace_id, root_span.span_id());
         state.file_hooks_expected = 1;
         prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
@@ -649,16 +640,16 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         if (prog) {
             auto result = attach_prog(prog, state);
             if (!result) {
-                logger().log(SLOG_WARN("Optional socket_connect hook attach failed")
-                                 .field("error", result.error().to_string()));
+                logger().log(
+                    SLOG_WARN("Optional socket_connect hook attach failed").field("error", result.error().to_string()));
             }
         }
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
         if (prog) {
             auto result = attach_prog(prog, state);
             if (!result) {
-                logger().log(SLOG_WARN("Optional socket_bind hook attach failed")
-                                 .field("error", result.error().to_string()));
+                logger().log(
+                    SLOG_WARN("Optional socket_bind hook attach failed").field("error", result.error().to_string()));
             }
         }
     }
@@ -870,10 +861,8 @@ Result<void> ensure_layout_version(BpfState& state)
         return {};
     }
     if (meta.layout_version != kLayoutVersion) {
-        return Error(ErrorCode::LayoutVersionMismatch,
-                     "Pinned maps layout version mismatch",
-                     "found " + std::to_string(meta.layout_version) +
-                         ", expected " + std::to_string(kLayoutVersion) +
+        return Error(ErrorCode::LayoutVersionMismatch, "Pinned maps layout version mismatch",
+                     "found " + std::to_string(meta.layout_version) + ", expected " + std::to_string(kLayoutVersion) +
                          ". Run 'sudo aegisbpf block clear' to reset pins.");
     }
     return {};
@@ -916,8 +905,7 @@ Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries
     struct stat lstat_buf {};
     bool is_symlink = (lstat(path.c_str(), &lstat_buf) == 0) && S_ISLNK(lstat_buf.st_mode);
     if (is_symlink) {
-        logger().log(SLOG_INFO("Deny path is symlink, will resolve to target")
-                         .field("symlink", path));
+        logger().log(SLOG_INFO("Deny path is symlink, will resolve to target").field("symlink", path));
     }
 
     // Canonicalize path - resolves symlinks, removes . and .., normalizes slashes
@@ -932,7 +920,8 @@ Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries
     // Check length AFTER canonicalization (resolved path might be longer)
     if (resolved_str.size() >= kDenyPathMax) {
         return Error(ErrorCode::PathTooLong, "Resolved path exceeds maximum length",
-                     resolved_str + " (" + std::to_string(resolved_str.size()) + " >= " + std::to_string(kDenyPathMax) + ")");
+                     resolved_str + " (" + std::to_string(resolved_str.size()) + " >= " + std::to_string(kDenyPathMax) +
+                         ")");
     }
 
     struct stat st {};
@@ -1049,35 +1038,34 @@ Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
 }
 
 // Default critical binaries that should never be blocked
-static const char* kSurvivalBinaries[] = {
-    "/sbin/init",
-    "/lib/systemd/systemd",
-    "/usr/lib/systemd/systemd",
-    "/usr/bin/kubelet",
-    "/usr/local/bin/kubelet",
-    "/usr/sbin/sshd",
-    "/usr/bin/ssh",
-    "/usr/bin/containerd",
-    "/usr/bin/runc",
-    "/usr/bin/crio",
-    "/usr/bin/dockerd",
-    "/usr/bin/apt",
-    "/usr/bin/apt-get",
-    "/usr/bin/dpkg",
-    "/usr/bin/yum",
-    "/usr/bin/dnf",
-    "/usr/bin/rpm",
-    "/bin/sh",
-    "/bin/bash",
-    "/bin/dash",
-    "/usr/bin/bash",
-    "/usr/bin/sudo",
-    "/usr/bin/su",
-    "/sbin/reboot",
-    "/sbin/shutdown",
-    "/usr/sbin/reboot",
-    "/usr/sbin/shutdown",
-    nullptr};
+static const char* kSurvivalBinaries[] = {"/sbin/init",
+                                          "/lib/systemd/systemd",
+                                          "/usr/lib/systemd/systemd",
+                                          "/usr/bin/kubelet",
+                                          "/usr/local/bin/kubelet",
+                                          "/usr/sbin/sshd",
+                                          "/usr/bin/ssh",
+                                          "/usr/bin/containerd",
+                                          "/usr/bin/runc",
+                                          "/usr/bin/crio",
+                                          "/usr/bin/dockerd",
+                                          "/usr/bin/apt",
+                                          "/usr/bin/apt-get",
+                                          "/usr/bin/dpkg",
+                                          "/usr/bin/yum",
+                                          "/usr/bin/dnf",
+                                          "/usr/bin/rpm",
+                                          "/bin/sh",
+                                          "/bin/bash",
+                                          "/bin/dash",
+                                          "/usr/bin/bash",
+                                          "/usr/bin/sudo",
+                                          "/usr/bin/su",
+                                          "/sbin/reboot",
+                                          "/sbin/shutdown",
+                                          "/usr/sbin/reboot",
+                                          "/usr/sbin/shutdown",
+                                          nullptr};
 
 Result<void> add_survival_entry(BpfState& state, const InodeId& id)
 {
@@ -1119,8 +1107,7 @@ Result<void> populate_survival_allowlist(BpfState& state)
         }
     }
 
-    logger().log(SLOG_INFO("Populated survival allowlist")
-                     .field("count", static_cast<int64_t>(count)));
+    logger().log(SLOG_INFO("Populated survival allowlist").field("count", static_cast<int64_t>(count)));
     return {};
 }
 
@@ -1144,4 +1131,4 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
     return entries;
 }
 
-}  // namespace aegis
+} // namespace aegis

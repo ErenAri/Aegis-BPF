@@ -17,4 +17,4 @@ int cmd_network_deny_list();
 int cmd_network_deny_clear();
 int cmd_network_stats();
 
-}  // namespace aegis
+} // namespace aegis

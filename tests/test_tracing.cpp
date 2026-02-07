@@ -1,16 +1,16 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <iostream>
+#include <sstream>
+#include <string>
+
 #include "bpf_ops.hpp"
 #include "daemon.hpp"
 #include "daemon_test_hooks.hpp"
 #include "logging.hpp"
 #include "tracing.hpp"
-
-#include <cstdlib>
-#include <iostream>
-#include <sstream>
-#include <string>
 
 namespace {
 
@@ -25,8 +25,7 @@ class TracingEnvGuard {
         }
         if (value != nullptr) {
             setenv("AEGIS_OTEL_SPANS", value, 1);
-        }
-        else {
+        } else {
             unsetenv("AEGIS_OTEL_SPANS");
         }
     }
@@ -35,8 +34,7 @@ class TracingEnvGuard {
     {
         if (had_previous_) {
             setenv("AEGIS_OTEL_SPANS", previous_.c_str(), 1);
-        }
-        else {
+        } else {
             unsetenv("AEGIS_OTEL_SPANS");
         }
     }
@@ -46,7 +44,7 @@ class TracingEnvGuard {
     std::string previous_;
 };
 
-}  // namespace
+} // namespace
 
 namespace aegis {
 
@@ -54,15 +52,11 @@ namespace {
 
 class DaemonHookGuard {
   public:
-    DaemonHookGuard(ValidateConfigDirectoryPermissionsFn config_fn,
-                    DetectKernelFeaturesFn detect_fn,
-                    BumpMemlockRlimitFn memlock_fn = nullptr,
-                    LoadBpfFn load_fn = nullptr,
-                    EnsureLayoutVersionFn ensure_layout_fn = nullptr,
-                    SetAgentConfigFullFn set_config_fn = nullptr,
+    DaemonHookGuard(ValidateConfigDirectoryPermissionsFn config_fn, DetectKernelFeaturesFn detect_fn,
+                    BumpMemlockRlimitFn memlock_fn = nullptr, LoadBpfFn load_fn = nullptr,
+                    EnsureLayoutVersionFn ensure_layout_fn = nullptr, SetAgentConfigFullFn set_config_fn = nullptr,
                     PopulateSurvivalAllowlistFn populate_survival_fn = nullptr,
-                    SetupAgentCgroupFn setup_cgroup_fn = nullptr,
-                    AttachAllFn attach_all_fn = nullptr)
+                    SetupAgentCgroupFn setup_cgroup_fn = nullptr, AttachAllFn attach_all_fn = nullptr)
     {
         set_validate_config_directory_permissions_for_test(config_fn);
         set_detect_kernel_features_for_test(detect_fn);
@@ -91,15 +85,9 @@ class DaemonHookGuard {
 
 class BreakGlassHookGuard {
   public:
-    explicit BreakGlassHookGuard(DetectBreakGlassFn fn)
-    {
-        set_detect_break_glass_for_test(fn);
-    }
+    explicit BreakGlassHookGuard(DetectBreakGlassFn fn) { set_detect_break_glass_for_test(fn); }
 
-    ~BreakGlassHookGuard()
-    {
-        reset_detect_break_glass_for_test();
-    }
+    ~BreakGlassHookGuard() { reset_detect_break_glass_for_test(); }
 };
 
 Result<void> test_config_ok(const std::string&)
@@ -191,7 +179,7 @@ Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled,
     return {};
 }
 
-}  // namespace
+} // namespace
 
 TEST(TracingTest, MakeSpanIdUsesPrefix)
 {
@@ -470,4 +458,4 @@ TEST(TracingTest, DaemonRunRejectsSilentPartialAttachContract)
     EXPECT_NE(log.find("hooks_attached"), std::string::npos);
 }
 
-}  // namespace aegis
+} // namespace aegis

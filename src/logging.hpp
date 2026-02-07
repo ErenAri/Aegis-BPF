@@ -26,12 +26,18 @@ enum class LogLevel {
 inline const char* log_level_string(LogLevel level)
 {
     switch (level) {
-    case LogLevel::Debug: return "DEBUG";
-    case LogLevel::Info: return "INFO";
-    case LogLevel::Warn: return "WARN";
-    case LogLevel::Error: return "ERROR";
-    case LogLevel::Fatal: return "FATAL";
-    default: return "UNKNOWN";
+        case LogLevel::Debug:
+            return "DEBUG";
+        case LogLevel::Info:
+            return "INFO";
+        case LogLevel::Warn:
+            return "WARN";
+        case LogLevel::Error:
+            return "ERROR";
+        case LogLevel::Fatal:
+            return "FATAL";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -84,14 +90,8 @@ class LogEntry {
 
     [[nodiscard]] LogLevel level() const { return level_; }
     [[nodiscard]] const std::string& message() const { return message_; }
-    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& fields() const
-    {
-        return fields_;
-    }
-    [[nodiscard]] std::chrono::system_clock::time_point timestamp() const
-    {
-        return timestamp_;
-    }
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& fields() const { return fields_; }
+    [[nodiscard]] std::chrono::system_clock::time_point timestamp() const { return timestamp_; }
 
     [[nodiscard]] std::string format_text() const
     {
@@ -99,9 +99,7 @@ class LogEntry {
 
         // Timestamp
         auto time_t = std::chrono::system_clock::to_time_t(timestamp_);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      timestamp_.time_since_epoch()) %
-                  1000;
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp_.time_since_epoch()) % 1000;
         oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
         oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
 
@@ -116,7 +114,8 @@ class LogEntry {
             oss << " {";
             bool first = true;
             for (const auto& [key, value] : fields_) {
-                if (!first) oss << ", ";
+                if (!first)
+                    oss << ", ";
                 oss << key << "=" << escape_value(value);
                 first = false;
             }
@@ -158,9 +157,12 @@ class LogEntry {
         if (s.find(' ') != std::string::npos || s.find('"') != std::string::npos) {
             std::string escaped = "\"";
             for (char c : s) {
-                if (c == '"') escaped += "\\\"";
-                else if (c == '\\') escaped += "\\\\";
-                else escaped += c;
+                if (c == '"')
+                    escaped += "\\\"";
+                else if (c == '\\')
+                    escaped += "\\\\";
+                else
+                    escaped += c;
             }
             escaped += "\"";
             return escaped;
@@ -174,12 +176,23 @@ class LogEntry {
         out.reserve(s.size());
         for (char c : s) {
             switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default: out += c;
+                case '"':
+                    out += "\\\"";
+                    break;
+                case '\\':
+                    out += "\\\\";
+                    break;
+                case '\n':
+                    out += "\\n";
+                    break;
+                case '\r':
+                    out += "\\r";
+                    break;
+                case '\t':
+                    out += "\\t";
+                    break;
+                default:
+                    out += c;
             }
         }
         return out;
@@ -208,21 +221,18 @@ class Logger {
 
     void log(const LogEntry& entry)
     {
-        if (entry.level() < min_level_) return;
+        if (entry.level() < min_level_)
+            return;
 
         std::lock_guard<std::mutex> lock(mutex_);
         if (json_format_) {
             *output_ << entry.format_json() << std::endl;
-        }
-        else {
+        } else {
             *output_ << entry.format_text() << std::endl;
         }
     }
 
-    void log(LogLevel level, const std::string& message)
-    {
-        log(LogEntry(level, message));
-    }
+    void log(LogLevel level, const std::string& message) { log(LogEntry(level, message)); }
 
     // Convenience methods that return LogEntry for chaining
     LogEntry debug(const std::string& message) { return LogEntry(LogLevel::Debug, message); }
@@ -241,7 +251,10 @@ class Logger {
 };
 
 // Global convenience functions
-inline Logger& logger() { return Logger::instance(); }
+inline Logger& logger()
+{
+    return Logger::instance();
+}
 
 inline void log_debug(const std::string& msg)
 {
@@ -283,10 +296,10 @@ inline void log_fatal(const std::string& msg)
 #define SLOG_FATAL(msg) aegis::logger().fatal(msg)
 
 // Helper to log and return
-#define LOG_AND_RETURN(entry, ret)  \
-    do {                            \
-        aegis::logger().log(entry); \
-        return (ret);               \
+#define LOG_AND_RETURN(entry, ret)                                                                                     \
+    do {                                                                                                               \
+        aegis::logger().log(entry);                                                                                    \
+        return (ret);                                                                                                  \
     } while (0)
 
-}  // namespace aegis
+} // namespace aegis

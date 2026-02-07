@@ -1,33 +1,34 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "cli_policy.hpp"
 
-#include "cli_common.hpp"
-#include "commands_policy.hpp"
-
 #include <fstream>
 #include <string>
+
+#include "cli_common.hpp"
+#include "commands_policy.hpp"
 
 namespace aegis {
 
 int dispatch_policy_command(int argc, char** argv, const char* prog)
 {
-    if (argc < 3) return usage(prog);
+    if (argc < 3)
+        return usage(prog);
     std::string sub = argv[2];
 
     if (sub == "lint") {
-        if (argc < 4) return usage(prog);
+        if (argc < 4)
+            return usage(prog);
         bool fix = false;
         std::string out_path;
         for (int i = 4; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "--fix") {
                 fix = true;
-            }
-            else if (arg == "--out") {
-                if (i + 1 >= argc) return usage(prog);
+            } else if (arg == "--out") {
+                if (i + 1 >= argc)
+                    return usage(prog);
                 out_path = argv[++i];
-            }
-            else {
+            } else {
                 return usage(prog);
             }
         }
@@ -41,14 +42,14 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
     }
 
     if (sub == "validate") {
-        if (argc < 4) return usage(prog);
+        if (argc < 4)
+            return usage(prog);
         bool verbose = false;
         for (int i = 4; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "--verbose" || arg == "-v") {
                 verbose = true;
-            }
-            else {
+            } else {
                 return usage(prog);
             }
         }
@@ -56,7 +57,8 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
     }
 
     if (sub == "apply") {
-        if (argc < 4) return usage(prog);
+        if (argc < 4)
+            return usage(prog);
         bool reset = false;
         bool rollback_on_failure = true;
         bool require_signature = false;
@@ -67,22 +69,19 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
             std::string arg = argv[i];
             if (arg == "--reset") {
                 reset = true;
-            }
-            else if (arg == "--no-rollback") {
+            } else if (arg == "--no-rollback") {
                 rollback_on_failure = false;
-            }
-            else if (arg == "--require-signature") {
+            } else if (arg == "--require-signature") {
                 require_signature = true;
-            }
-            else if (arg == "--sha256") {
-                if (i + 1 >= argc) return usage(prog);
+            } else if (arg == "--sha256") {
+                if (i + 1 >= argc)
+                    return usage(prog);
                 sha256 = argv[++i];
-            }
-            else if (arg == "--sha256-file") {
-                if (i + 1 >= argc) return usage(prog);
+            } else if (arg == "--sha256-file") {
+                if (i + 1 >= argc)
+                    return usage(prog);
                 sha256_file = argv[++i];
-            }
-            else {
+            } else {
                 return usage(prog);
             }
         }
@@ -97,43 +96,48 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
     }
 
     if (sub == "sign") {
-        if (argc < 4) return usage(prog);
+        if (argc < 4)
+            return usage(prog);
         std::string key_path;
         std::string output_path;
         for (int i = 4; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "--key") {
-                if (i + 1 >= argc) return usage(prog);
+                if (i + 1 >= argc)
+                    return usage(prog);
                 key_path = argv[++i];
-            }
-            else if (arg == "--output") {
-                if (i + 1 >= argc) return usage(prog);
+            } else if (arg == "--output") {
+                if (i + 1 >= argc)
+                    return usage(prog);
                 output_path = argv[++i];
-            }
-            else {
+            } else {
                 return usage(prog);
             }
         }
-        if (key_path.empty() || output_path.empty()) return usage(prog);
+        if (key_path.empty() || output_path.empty())
+            return usage(prog);
         return cmd_policy_sign(argv[3], key_path, output_path);
     }
 
     if (sub == "export") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_policy_export(argv[3]);
     }
 
     if (sub == "show") {
-        if (argc != 3) return usage(prog);
+        if (argc != 3)
+            return usage(prog);
         return cmd_policy_show();
     }
 
     if (sub == "rollback") {
-        if (argc != 3) return usage(prog);
+        if (argc != 3)
+            return usage(prog);
         return cmd_policy_rollback();
     }
 
     return usage(prog);
 }
 
-}  // namespace aegis
+} // namespace aegis

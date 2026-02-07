@@ -58,11 +58,12 @@ enum class ErrorCode {
  */
 class Error {
   public:
-    Error(ErrorCode code, std::string message)
-        : code_(code), message_(std::move(message)) {}
+    Error(ErrorCode code, std::string message) : code_(code), message_(std::move(message)) {}
 
     Error(ErrorCode code, std::string message, std::string context)
-        : code_(code), message_(std::move(message)), context_(std::move(context)) {}
+        : code_(code), message_(std::move(message)), context_(std::move(context))
+    {
+    }
 
     [[nodiscard]] ErrorCode code() const { return code_; }
     [[nodiscard]] const std::string& message() const { return message_; }
@@ -82,10 +83,7 @@ class Error {
         return Error(ErrorCode::IoError, operation, std::strerror(errno_val));
     }
 
-    static Error not_found(const std::string& what)
-    {
-        return Error(ErrorCode::ResourceNotFound, what + " not found");
-    }
+    static Error not_found(const std::string& what) { return Error(ErrorCode::ResourceNotFound, what + " not found"); }
 
     static Error invalid_argument(const std::string& what)
     {
@@ -119,8 +117,7 @@ class Error {
  *   }
  *   int value = *result;
  */
-template <typename T>
-class Result {
+template <typename T> class Result {
   public:
     // Implicit construction from value (success)
     // cppcheck-suppress noExplicitConstructor
@@ -150,13 +147,13 @@ class Result {
     // cppcheck-suppress passedByValue
     [[nodiscard]] T value_or(T default_value) const
     {
-        if (ok()) return value();
+        if (ok())
+            return value();
         return default_value;
     }
 
     // Map success value to new type
-    template <typename F>
-    auto map(F&& f) -> Result<decltype(f(std::declval<T>()))>
+    template <typename F> auto map(F&& f) -> Result<decltype(f(std::declval<T>()))>
     {
         using U = decltype(f(std::declval<T>()));
         if (ok()) {
@@ -172,8 +169,7 @@ class Result {
 /**
  * Specialization for void - operations that succeed or fail with no value
  */
-template <>
-class Result<void> {
+template <> class Result<void> {
   public:
     // Success
     Result() : error_(std::nullopt) {}
@@ -193,16 +189,18 @@ class Result<void> {
 };
 
 // Helper for early return on error
-#define TRY(expr)                             \
-    do {                                      \
-        auto _result = (expr);                \
-        if (!_result) return _result.error(); \
+#define TRY(expr)                                                                                                      \
+    do {                                                                                                               \
+        auto _result = (expr);                                                                                         \
+        if (!_result)                                                                                                  \
+            return _result.error();                                                                                    \
     } while (0)
 
-#define TRY_OR(expr, error_expr)           \
-    do {                                   \
-        auto _result = (expr);             \
-        if (!_result) return (error_expr); \
+#define TRY_OR(expr, error_expr)                                                                                       \
+    do {                                                                                                               \
+        auto _result = (expr);                                                                                         \
+        if (!_result)                                                                                                  \
+            return (error_expr);                                                                                       \
     } while (0)
 
-}  // namespace aegis
+} // namespace aegis

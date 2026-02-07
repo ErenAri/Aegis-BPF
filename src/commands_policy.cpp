@@ -5,17 +5,18 @@
 
 #include "commands_policy.hpp"
 
-#include "crypto.hpp"
-#include "logging.hpp"
-#include "policy.hpp"
-#include "tracing.hpp"
-#include "utils.hpp"
+#include <unistd.h>
 
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <unistd.h>
+
+#include "crypto.hpp"
+#include "logging.hpp"
+#include "policy.hpp"
+#include "tracing.hpp"
+#include "utils.hpp"
 
 namespace aegis {
 
@@ -82,8 +83,7 @@ int cmd_policy_validate(const std::string& path, bool verbose)
     auto result = parse_policy_file(path, issues);
     report_policy_issues(issues);
     if (!result) {
-        logger().log(SLOG_ERROR("Policy validation failed")
-                         .field("error", result.error().to_string()));
+        logger().log(SLOG_ERROR("Policy validation failed").field("error", result.error().to_string()));
         span.fail(result.error().to_string());
         return 1;
     }
@@ -137,10 +137,8 @@ int cmd_policy_validate(const std::string& path, bool verbose)
             if (!policy.network.deny_ports.empty()) {
                 std::cout << "\nNetwork deny ports:\n";
                 for (const auto& pr : policy.network.deny_ports) {
-                    std::string proto = (pr.protocol == 6) ? "tcp" : (pr.protocol == 17) ? "udp"
-                                                                                         : "any";
-                    std::string dir = (pr.direction == 0) ? "egress" : (pr.direction == 1) ? "bind"
-                                                                                           : "both";
+                    std::string proto = (pr.protocol == 6) ? "tcp" : (pr.protocol == 17) ? "udp" : "any";
+                    std::string dir = (pr.direction == 0) ? "egress" : (pr.direction == 1) ? "bind" : "both";
                     std::cout << "  - port " << pr.port << " (" << proto << ", " << dir << ")\n";
                 }
             }
@@ -154,8 +152,8 @@ int cmd_policy_validate(const std::string& path, bool verbose)
     return 0;
 }
 
-int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256,
-                     const std::string& sha256_file, bool rollback_on_failure)
+int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
+                     bool rollback_on_failure)
 {
     const std::string trace_id = make_span_id("trace-policy-cli");
     ScopedSpan span("cli.policy_apply", trace_id);
@@ -196,16 +194,14 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
     if (content.starts_with("AEGIS-POLICY-BUNDLE")) {
         auto bundle_result = parse_signed_bundle(content);
         if (!bundle_result) {
-            logger().log(SLOG_ERROR("Failed to parse signed bundle")
-                             .field("error", bundle_result.error().to_string()));
+            logger().log(SLOG_ERROR("Failed to parse signed bundle").field("error", bundle_result.error().to_string()));
             return fail(bundle_result.error().to_string());
         }
         SignedPolicyBundle bundle = *bundle_result;
 
         auto keys_result = load_trusted_keys();
         if (!keys_result) {
-            logger().log(SLOG_ERROR("Failed to load trusted keys")
-                             .field("error", keys_result.error().to_string()));
+            logger().log(SLOG_ERROR("Failed to load trusted keys").field("error", keys_result.error().to_string()));
             return fail(keys_result.error().to_string());
         }
         const auto& trusted_keys = *keys_result;
@@ -216,8 +212,7 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
 
         auto verify_result = verify_bundle(bundle, trusted_keys);
         if (!verify_result) {
-            logger().log(SLOG_ERROR("Bundle verification failed")
-                             .field("error", verify_result.error().to_string()));
+            logger().log(SLOG_ERROR("Bundle verification failed").field("error", verify_result.error().to_string()));
             return fail(verify_result.error().to_string());
         }
 
@@ -246,8 +241,8 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
 
         auto write_result = write_version_counter(bundle.policy_version);
         if (!write_result) {
-            logger().log(SLOG_WARN("Failed to update version counter")
-                             .field("error", write_result.error().to_string()));
+            logger().log(
+                SLOG_WARN("Failed to update version counter").field("error", write_result.error().to_string()));
         }
 
         return 0;
@@ -312,9 +307,12 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
     }
 
     auto hex_value = [](char c) -> int {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-        if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'a' && c <= 'f')
+            return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F')
+            return 10 + (c - 'A');
         return -1;
     };
 
@@ -332,8 +330,7 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
     uint64_t version = read_version_counter() + 1;
     auto bundle_result = create_signed_bundle(policy_content, secret_key, version, 0);
     if (!bundle_result) {
-        logger().log(SLOG_ERROR("Failed to create signed bundle")
-                         .field("error", bundle_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to create signed bundle").field("error", bundle_result.error().to_string()));
         return fail(bundle_result.error().to_string());
     }
 
@@ -383,4 +380,4 @@ int cmd_policy_rollback()
     return result ? 0 : 1;
 }
 
-}  // namespace aegis
+} // namespace aegis

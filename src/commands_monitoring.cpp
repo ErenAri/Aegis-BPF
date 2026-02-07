@@ -5,6 +5,20 @@
 
 #include "commands_monitoring.hpp"
 
+#include <unistd.h>
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cerrno>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <utility>
+#include <vector>
+
 #include "bpf_ops.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
@@ -14,21 +28,19 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-#include <algorithm>
-#include <array>
-#include <cctype>
-#include <cerrno>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <utility>
-#include <unistd.h>
-#include <vector>
-
 namespace aegis {
 
 namespace {
+
+// BPF map capacity constants (must match bpf/aegis.bpf.c)
+constexpr uint64_t MAX_DENY_INODE_ENTRIES = 65536;
+constexpr uint64_t MAX_DENY_PATH_ENTRIES = 16384;
+constexpr uint64_t MAX_ALLOW_CGROUP_ENTRIES = 1024;
+constexpr uint64_t MAX_DENY_IPV4_ENTRIES = 65536;
+constexpr uint64_t MAX_DENY_IPV6_ENTRIES = 65536;
+constexpr uint64_t MAX_DENY_PORT_ENTRIES = 4096;
+constexpr uint64_t MAX_DENY_CIDR_V4_ENTRIES = 16384;
+constexpr uint64_t MAX_DENY_CIDR_V6_ENTRIES = 16384;
 
 int fail_span(ScopedSpan& span, const std::string& message)
 {
@@ -36,9 +48,7 @@ int fail_span(ScopedSpan& span, const std::string& message)
     return 1;
 }
 
-void append_metric_header(std::ostringstream& oss,
-                          const std::string& name,
-                          const std::string& type,
+void append_metric_header(std::ostringstream& oss, const std::string& name, const std::string& type,
                           const std::string& help)
 {
     oss << "# HELP " << name << " " << help << "\n";
@@ -50,10 +60,8 @@ void append_metric_sample(std::ostringstream& oss, const std::string& name, uint
     oss << name << " " << value << "\n";
 }
 
-void append_metric_sample(std::ostringstream& oss,
-                          const std::string& name,
-                          const std::vector<std::pair<std::string, std::string>>& labels,
-                          uint64_t value)
+void append_metric_sample(std::ostringstream& oss, const std::string& name,
+                          const std::vector<std::pair<std::string, std::string>>& labels, uint64_t value)
 {
     oss << name;
     if (!labels.empty()) {
@@ -69,9 +77,35 @@ void append_metric_sample(std::ostringstream& oss,
     oss << " " << value << "\n";
 }
 
+void append_metric_sample(std::ostringstream& oss, const std::string& name,
+                          const std::vector<std::pair<std::string, std::string>>& labels, double value)
+{
+    oss << name;
+    if (!labels.empty()) {
+        oss << "{";
+        for (size_t i = 0; i < labels.size(); ++i) {
+            if (i > 0) {
+                oss << ",";
+            }
+            oss << labels[i].first << "=\"" << prometheus_escape_label(labels[i].second) << "\"";
+        }
+        oss << "}";
+    }
+    oss << " " << std::fixed << std::setprecision(6) << value << "\n";
+}
+
 size_t safe_map_entry_count(bpf_map* map)
 {
     return map ? map_entry_count(map) : 0;
+}
+
+double calculate_map_utilization(bpf_map* map, uint64_t max_entries)
+{
+    if (!map || max_entries == 0) {
+        return 0.0;
+    }
+    uint64_t current = map_entry_count(map);
+    return static_cast<double>(current) / static_cast<double>(max_entries);
 }
 
 Result<void> verify_pinned_map_access(const char* pin_path)
@@ -142,24 +176,24 @@ bool extract_json_string(const std::string& json, const std::string& key, std::s
         char c = json[pos];
         if (escape) {
             switch (c) {
-            case '"':
-                result.push_back('"');
-                break;
-            case '\\':
-                result.push_back('\\');
-                break;
-            case 'n':
-                result.push_back('\n');
-                break;
-            case 'r':
-                result.push_back('\r');
-                break;
-            case 't':
-                result.push_back('\t');
-                break;
-            default:
-                result.push_back(c);
-                break;
+                case '"':
+                    result.push_back('"');
+                    break;
+                case '\\':
+                    result.push_back('\\');
+                    break;
+                case 'n':
+                    result.push_back('\n');
+                    break;
+                case 'r':
+                    result.push_back('\r');
+                    break;
+                case 't':
+                    result.push_back('\t');
+                    break;
+                default:
+                    result.push_back(c);
+                    break;
             }
             escape = false;
             continue;
@@ -221,16 +255,14 @@ bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string
     return true;
 }
 
-}  // namespace
+} // namespace
 
 std::string build_block_metrics_output(const BlockStats& stats)
 {
     std::ostringstream oss;
-    append_metric_header(oss, "aegisbpf_blocks_total", "counter",
-                         "Total number of blocked operations");
+    append_metric_header(oss, "aegisbpf_blocks_total", "counter", "Total number of blocked operations");
     append_metric_sample(oss, "aegisbpf_blocks_total", stats.blocks);
-    append_metric_header(oss, "aegisbpf_ringbuf_drops_total", "counter",
-                         "Number of dropped events");
+    append_metric_header(oss, "aegisbpf_ringbuf_drops_total", "counter", "Number of dropped events");
     append_metric_sample(oss, "aegisbpf_ringbuf_drops_total", stats.ringbuf_drops);
     return oss.str();
 }
@@ -238,14 +270,10 @@ std::string build_block_metrics_output(const BlockStats& stats)
 std::string build_net_metrics_output(const NetBlockStats& stats)
 {
     std::ostringstream oss;
-    append_metric_header(oss, "aegisbpf_net_blocks_total", "counter",
-                         "Blocked network operations by direction");
-    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "connect"}},
-                         stats.connect_blocks);
-    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "bind"}},
-                         stats.bind_blocks);
-    append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter",
-                         "Dropped network events");
+    append_metric_header(oss, "aegisbpf_net_blocks_total", "counter", "Blocked network operations by direction");
+    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "connect"}}, stats.connect_blocks);
+    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "bind"}}, stats.bind_blocks);
+    append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter", "Dropped network events");
     append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", stats.ringbuf_drops);
     return oss.str();
 }
@@ -258,39 +286,36 @@ int cmd_stats(bool detailed)
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
-        logger().log(SLOG_ERROR("Failed to read block stats")
-                         .field("error", stats_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to read block stats").field("error", stats_result.error().to_string()));
         return fail_span(span, stats_result.error().to_string());
     }
 
     const auto& stats = *stats_result;
-    std::cout << "Block Statistics:" << std::endl;
-    std::cout << "  Total blocks: " << stats.blocks << std::endl;
-    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << std::endl;
+    std::cout << "Block Statistics:" << '\n';
+    std::cout << "  Total blocks: " << stats.blocks << '\n';
+    std::cout << "  Ringbuf drops: " << stats.ringbuf_drops << '\n';
 
     if (!detailed) {
         return 0;
     }
 
-    std::cout << std::endl;
-    std::cout << "Detailed Block Statistics (for debugging only):" << std::endl;
-    std::cout << "WARNING: This output is NOT suitable for Prometheus metrics." << std::endl;
-    std::cout << "         Use `aegisbpf metrics` for low-cardinality production metrics."
-              << std::endl;
+    std::cout << '\n';
+    std::cout << "Detailed Block Statistics (for debugging only):" << '\n';
+    std::cout << "WARNING: This output is NOT suitable for Prometheus metrics." << '\n';
+    std::cout << "         Use `aegisbpf metrics` for low-cardinality production metrics." << '\n';
 
     auto cgroup_stats_result = read_cgroup_block_counts(state.deny_cgroup_stats);
     if (cgroup_stats_result) {
         auto cgroup_stats = *cgroup_stats_result;
         std::sort(cgroup_stats.begin(), cgroup_stats.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
-        std::cout << "  Top blocked cgroups:" << std::endl;
+        std::cout << "  Top blocked cgroups:" << '\n';
         size_t limit = std::min<size_t>(10, cgroup_stats.size());
         for (size_t i = 0; i < limit; ++i) {
             const auto& [cgid, count] = cgroup_stats[i];
@@ -298,7 +323,7 @@ int cmd_stats(bool detailed)
             if (cgroup_path.empty()) {
                 cgroup_path = "cgid:" + std::to_string(cgid);
             }
-            std::cout << "    " << cgroup_path << ": " << count << std::endl;
+            std::cout << "    " << cgroup_path << ": " << count << '\n';
         }
     }
 
@@ -307,11 +332,11 @@ int cmd_stats(bool detailed)
         auto path_stats = *path_stats_result;
         std::sort(path_stats.begin(), path_stats.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
-        std::cout << "  Top blocked paths:" << std::endl;
+        std::cout << "  Top blocked paths:" << '\n';
         size_t limit = std::min<size_t>(10, path_stats.size());
         for (size_t i = 0; i < limit; ++i) {
             const auto& [path, count] = path_stats[i];
-            std::cout << "    " << path << ": " << count << std::endl;
+            std::cout << "    " << path << ": " << count << '\n';
         }
     }
 
@@ -321,11 +346,11 @@ int cmd_stats(bool detailed)
             auto net_ip_stats = *net_ip_stats_result;
             std::sort(net_ip_stats.begin(), net_ip_stats.end(),
                       [](const auto& a, const auto& b) { return a.second > b.second; });
-            std::cout << "  Top blocked destination IPs:" << std::endl;
+            std::cout << "  Top blocked destination IPs:" << '\n';
             size_t limit = std::min<size_t>(10, net_ip_stats.size());
             for (size_t i = 0; i < limit; ++i) {
                 const auto& [ip, count] = net_ip_stats[i];
-                std::cout << "    " << ip << ": " << count << std::endl;
+                std::cout << "    " << ip << ": " << count << '\n';
             }
         }
     }
@@ -336,11 +361,11 @@ int cmd_stats(bool detailed)
             auto net_port_stats = *net_port_stats_result;
             std::sort(net_port_stats.begin(), net_port_stats.end(),
                       [](const auto& a, const auto& b) { return a.second > b.second; });
-            std::cout << "  Top blocked destination ports:" << std::endl;
+            std::cout << "  Top blocked destination ports:" << '\n';
             size_t limit = std::min<size_t>(10, net_port_stats.size());
             for (size_t i = 0; i < limit; ++i) {
                 const auto& [port, count] = net_port_stats[i];
-                std::cout << "    " << port << ": " << count << std::endl;
+                std::cout << "    " << port << ": " << count << '\n';
             }
         }
     }
@@ -356,8 +381,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
@@ -366,16 +390,13 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     // Core block stats
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
-        logger().log(SLOG_ERROR("Failed to read block stats")
-                         .field("error", stats_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to read block stats").field("error", stats_result.error().to_string()));
         return fail_span(span, stats_result.error().to_string());
     }
     const auto& stats = *stats_result;
-    append_metric_header(oss, "aegisbpf_blocks_total", "counter",
-                         "Total number of blocked operations");
+    append_metric_header(oss, "aegisbpf_blocks_total", "counter", "Total number of blocked operations");
     append_metric_sample(oss, "aegisbpf_blocks_total", stats.blocks);
-    append_metric_header(oss, "aegisbpf_ringbuf_drops_total", "counter",
-                         "Number of dropped events");
+    append_metric_header(oss, "aegisbpf_ringbuf_drops_total", "counter", "Number of dropped events");
     append_metric_sample(oss, "aegisbpf_ringbuf_drops_total", stats.ringbuf_drops);
 
     if (detailed) {
@@ -390,64 +411,49 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         auto cgroup_stats = *cgroup_stats_result;
         std::sort(cgroup_stats.begin(), cgroup_stats.end(),
                   [](const auto& a, const auto& b) { return a.first < b.first; });
-        append_metric_header(oss, "aegisbpf_blocks_by_cgroup_total", "counter",
-                             "Blocked operations by cgroup");
+        append_metric_header(oss, "aegisbpf_blocks_by_cgroup_total", "counter", "Blocked operations by cgroup");
         for (const auto& [cgid, count] : cgroup_stats) {
             std::string cgroup_path = resolve_cgroup_path(cgid);
             if (cgroup_path.empty()) {
                 cgroup_path = "cgid:" + std::to_string(cgid);
             }
-            append_metric_sample(
-                oss,
-                "aegisbpf_blocks_by_cgroup_total",
-                {
-                    {"cgroup_id", std::to_string(cgid)},
-                    {"cgroup_path", cgroup_path},
-                },
-                count);
+            append_metric_sample(oss, "aegisbpf_blocks_by_cgroup_total",
+                                 {
+                                     {"cgroup_id", std::to_string(cgid)},
+                                     {"cgroup_path", cgroup_path},
+                                 },
+                                 count);
         }
 
         auto inode_stats_result = read_inode_block_counts(state.deny_inode_stats);
         if (!inode_stats_result) {
-            logger().log(SLOG_ERROR("Failed to read inode block stats")
-                             .field("error", inode_stats_result.error().to_string()));
+            logger().log(
+                SLOG_ERROR("Failed to read inode block stats").field("error", inode_stats_result.error().to_string()));
             return fail_span(span, inode_stats_result.error().to_string());
         }
         auto inode_stats = *inode_stats_result;
-        std::sort(inode_stats.begin(), inode_stats.end(),
-                  [](const auto& a, const auto& b) {
-                      if (a.first.dev != b.first.dev) {
-                          return a.first.dev < b.first.dev;
-                      }
-                      return a.first.ino < b.first.ino;
-                  });
-        append_metric_header(oss, "aegisbpf_blocks_by_inode_total", "counter",
-                             "Blocked operations by inode");
+        std::sort(inode_stats.begin(), inode_stats.end(), [](const auto& a, const auto& b) {
+            if (a.first.dev != b.first.dev) {
+                return a.first.dev < b.first.dev;
+            }
+            return a.first.ino < b.first.ino;
+        });
+        append_metric_header(oss, "aegisbpf_blocks_by_inode_total", "counter", "Blocked operations by inode");
         for (const auto& [inode, count] : inode_stats) {
-            append_metric_sample(
-                oss,
-                "aegisbpf_blocks_by_inode_total",
-                {{"inode", inode_to_string(inode)}},
-                count);
+            append_metric_sample(oss, "aegisbpf_blocks_by_inode_total", {{"inode", inode_to_string(inode)}}, count);
         }
 
         auto path_stats_result = read_path_block_counts(state.deny_path_stats);
         if (!path_stats_result) {
-            logger().log(SLOG_ERROR("Failed to read path block stats")
-                             .field("error", path_stats_result.error().to_string()));
+            logger().log(
+                SLOG_ERROR("Failed to read path block stats").field("error", path_stats_result.error().to_string()));
             return fail_span(span, path_stats_result.error().to_string());
         }
         auto path_stats = *path_stats_result;
-        std::sort(path_stats.begin(), path_stats.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
-        append_metric_header(oss, "aegisbpf_blocks_by_path_total", "counter",
-                             "Blocked operations by path");
+        std::sort(path_stats.begin(), path_stats.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        append_metric_header(oss, "aegisbpf_blocks_by_path_total", "counter", "Blocked operations by path");
         for (const auto& [path, count] : path_stats) {
-            append_metric_sample(
-                oss,
-                "aegisbpf_blocks_by_path_total",
-                {{"path", path}},
-                count);
+            append_metric_sample(oss, "aegisbpf_blocks_by_path_total", {{"path", path}}, count);
         }
     }
 
@@ -455,27 +461,17 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     if (state.net_block_stats) {
         auto net_stats_result = read_net_block_stats(state);
         if (!net_stats_result) {
-            logger().log(SLOG_ERROR("Failed to read network block stats")
-                             .field("error", net_stats_result.error().to_string()));
+            logger().log(
+                SLOG_ERROR("Failed to read network block stats").field("error", net_stats_result.error().to_string()));
             return fail_span(span, net_stats_result.error().to_string());
         }
 
         const auto& net_stats = *net_stats_result;
-        append_metric_header(oss, "aegisbpf_net_blocks_total", "counter",
-                             "Blocked network operations by direction");
-        append_metric_sample(
-            oss,
-            "aegisbpf_net_blocks_total",
-            {{"type", "connect"}},
-            net_stats.connect_blocks);
-        append_metric_sample(
-            oss,
-            "aegisbpf_net_blocks_total",
-            {{"type", "bind"}},
-            net_stats.bind_blocks);
+        append_metric_header(oss, "aegisbpf_net_blocks_total", "counter", "Blocked network operations by direction");
+        append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "connect"}}, net_stats.connect_blocks);
+        append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "bind"}}, net_stats.bind_blocks);
 
-        append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter",
-                             "Dropped network events");
+        append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter", "Dropped network events");
         append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", net_stats.ringbuf_drops);
     }
 
@@ -493,11 +489,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
             append_metric_header(oss, "aegisbpf_net_blocks_by_ip_total", "counter",
                                  "Blocked network operations by destination IP");
             for (const auto& [ip, count] : net_ip_stats) {
-                append_metric_sample(
-                    oss,
-                    "aegisbpf_net_blocks_by_ip_total",
-                    {{"ip", ip}},
-                    count);
+                append_metric_sample(oss, "aegisbpf_net_blocks_by_ip_total", {{"ip", ip}}, count);
             }
         }
 
@@ -514,44 +506,75 @@ int cmd_metrics(const std::string& out_path, bool detailed)
             append_metric_header(oss, "aegisbpf_net_blocks_by_port_total", "counter",
                                  "Blocked network operations by port");
             for (const auto& [port, count] : net_port_stats) {
-                append_metric_sample(
-                    oss,
-                    "aegisbpf_net_blocks_by_port_total",
-                    {{"port", std::to_string(port)}},
-                    count);
+                append_metric_sample(oss, "aegisbpf_net_blocks_by_port_total", {{"port", std::to_string(port)}}, count);
             }
         }
     }
 
     // Map entry counts
-    append_metric_header(oss, "aegisbpf_deny_inode_entries", "gauge",
-                         "Number of deny inode entries");
+    append_metric_header(oss, "aegisbpf_deny_inode_entries", "gauge", "Number of deny inode entries");
     append_metric_sample(oss, "aegisbpf_deny_inode_entries", safe_map_entry_count(state.deny_inode));
-    append_metric_header(oss, "aegisbpf_deny_path_entries", "gauge",
-                         "Number of deny path entries");
+    append_metric_header(oss, "aegisbpf_deny_path_entries", "gauge", "Number of deny path entries");
     append_metric_sample(oss, "aegisbpf_deny_path_entries", safe_map_entry_count(state.deny_path));
-    append_metric_header(oss, "aegisbpf_allow_cgroup_entries", "gauge",
-                         "Number of allow cgroup entries");
+    append_metric_header(oss, "aegisbpf_allow_cgroup_entries", "gauge", "Number of allow cgroup entries");
     append_metric_sample(oss, "aegisbpf_allow_cgroup_entries", safe_map_entry_count(state.allow_cgroup));
-    append_metric_header(oss, "aegisbpf_net_rules_total", "gauge",
-                         "Number of active network deny rules by type");
+    append_metric_header(oss, "aegisbpf_net_rules_total", "gauge", "Number of active network deny rules by type");
     uint64_t ip_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv4)) +
                              static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv6));
     uint64_t cidr_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_cidr_v4)) +
                                static_cast<uint64_t>(safe_map_entry_count(state.deny_cidr_v6));
-    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "ip"}},
-                         ip_rule_count);
-    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "cidr"}},
-                         cidr_rule_count);
-    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "port"}},
-                         safe_map_entry_count(state.deny_port));
+    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "ip"}}, ip_rule_count);
+    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "cidr"}}, cidr_rule_count);
+    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "port"}}, safe_map_entry_count(state.deny_port));
+
+    // Map utilization (entries / capacity)
+    append_metric_header(oss, "aegisbpf_map_utilization", "gauge", "BPF map utilization ratio (0.0 to 1.0)");
+    double deny_inode_util = calculate_map_utilization(state.deny_inode, MAX_DENY_INODE_ENTRIES);
+    double deny_path_util = calculate_map_utilization(state.deny_path, MAX_DENY_PATH_ENTRIES);
+    double allow_cgroup_util = calculate_map_utilization(state.allow_cgroup, MAX_ALLOW_CGROUP_ENTRIES);
+    append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_inode"}}, deny_inode_util);
+    append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_path"}}, deny_path_util);
+    append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "allow_cgroup"}}, allow_cgroup_util);
+
+    if (state.deny_ipv4 || state.deny_ipv6) {
+        double ipv4_util = calculate_map_utilization(state.deny_ipv4, MAX_DENY_IPV4_ENTRIES);
+        double ipv6_util = calculate_map_utilization(state.deny_ipv6, MAX_DENY_IPV6_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_ipv4"}}, ipv4_util);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_ipv6"}}, ipv6_util);
+    }
+    if (state.deny_port) {
+        double port_util = calculate_map_utilization(state.deny_port, MAX_DENY_PORT_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_port"}}, port_util);
+    }
+    if (state.deny_cidr_v4 || state.deny_cidr_v6) {
+        double cidr_v4_util = calculate_map_utilization(state.deny_cidr_v4, MAX_DENY_CIDR_V4_ENTRIES);
+        double cidr_v6_util = calculate_map_utilization(state.deny_cidr_v6, MAX_DENY_CIDR_V6_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_cidr_v4"}}, cidr_v4_util);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_cidr_v6"}}, cidr_v6_util);
+    }
+
+    // Map capacity limits
+    append_metric_header(oss, "aegisbpf_map_capacity", "gauge", "Maximum BPF map capacity");
+    append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_inode"}}, MAX_DENY_INODE_ENTRIES);
+    append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_path"}}, MAX_DENY_PATH_ENTRIES);
+    append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "allow_cgroup"}}, MAX_ALLOW_CGROUP_ENTRIES);
+    if (state.deny_ipv4 || state.deny_ipv6) {
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv4"}}, MAX_DENY_IPV4_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv6"}}, MAX_DENY_IPV6_ENTRIES);
+    }
+    if (state.deny_port) {
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_port"}}, MAX_DENY_PORT_ENTRIES);
+    }
+    if (state.deny_cidr_v4 || state.deny_cidr_v6) {
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_cidr_v4"}}, MAX_DENY_CIDR_V4_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_cidr_v6"}}, MAX_DENY_CIDR_V6_ENTRIES);
+    }
 
     std::string metrics = oss.str();
 
     if (out_path.empty() || out_path == "-") {
         std::cout << metrics;
-    }
-    else {
+    } else {
         std::ofstream out(out_path);
         if (!out.is_open()) {
             logger().log(SLOG_ERROR("Failed to open metrics output file").field("path", out_path));
@@ -593,8 +616,7 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     auto features_result = detect_kernel_features();
     if (!features_result) {
         feature_span.fail(features_result.error().to_string());
-        logger().log(SLOG_ERROR("Kernel feature detection failed")
-                         .field("error", features_result.error().to_string()));
+        logger().log(SLOG_ERROR("Kernel feature detection failed").field("error", features_result.error().to_string()));
         report.error = features_result.error().to_string();
         return report;
     }
@@ -603,12 +625,11 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     report.capability = determine_capability(report.features);
     report.bpffs_mounted = check_bpffs_mounted();
 
-    report.prereqs_ok = report.features.cgroup_v2 && report.features.btf &&
-                        report.features.bpf_syscall && report.bpffs_mounted &&
-                        report.capability != EnforcementCapability::Disabled;
+    report.prereqs_ok = report.features.cgroup_v2 && report.features.btf && report.features.bpf_syscall &&
+                        report.bpffs_mounted && report.capability != EnforcementCapability::Disabled;
     if (!report.prereqs_ok) {
-        report.error = "Kernel prerequisites are not met: " +
-                       capability_explanation(report.features, report.capability);
+        report.error =
+            "Kernel prerequisites are not met: " + capability_explanation(report.features, report.capability);
         logger().log(SLOG_ERROR("Kernel prerequisites are not met")
                          .field("explanation", capability_explanation(report.features, report.capability)));
         return report;
@@ -645,15 +666,8 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     report.layout_ok = true;
 
     const std::array<const char*, 9> required_pin_paths = {
-        kDenyInodePin,
-        kDenyPathPin,
-        kAllowCgroupPin,
-        kBlockStatsPin,
-        kDenyCgroupStatsPin,
-        kDenyInodeStatsPin,
-        kDenyPathStatsPin,
-        kAgentMetaPin,
-        kSurvivalAllowlistPin,
+        kDenyInodePin,      kDenyPathPin,      kAllowCgroupPin, kBlockStatsPin,        kDenyCgroupStatsPin,
+        kDenyInodeStatsPin, kDenyPathStatsPin, kAgentMetaPin,   kSurvivalAllowlistPin,
     };
     for (const char* pin_path : required_pin_paths) {
         auto pin_result = verify_pinned_map_access(pin_path);
@@ -700,28 +714,23 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
 std::string build_health_json(const HealthReport& report)
 {
     std::ostringstream out;
-    out << "{"
-        << "\"ok\":" << (report.ok ? "true" : "false")
-        << ",\"capability\":\"" << json_escape(capability_name(report.capability)) << "\""
-        << ",\"mode\":\"" << (report.capability == EnforcementCapability::AuditOnly ? "audit-only" : "enforce") << "\""
-        << ",\"kernel_version\":\"" << json_escape(report.kernel_version) << "\""
-        << ",\"features\":{"
+    out << "{" << "\"ok\":" << (report.ok ? "true" : "false") << ",\"capability\":\""
+        << json_escape(capability_name(report.capability)) << "\"" << ",\"mode\":\""
+        << (report.capability == EnforcementCapability::AuditOnly ? "audit-only" : "enforce") << "\""
+        << ",\"kernel_version\":\"" << json_escape(report.kernel_version) << "\"" << ",\"features\":{"
         << "\"bpf_lsm\":" << (report.features.bpf_lsm ? "true" : "false")
         << ",\"cgroup_v2\":" << (report.features.cgroup_v2 ? "true" : "false")
         << ",\"btf\":" << (report.features.btf ? "true" : "false")
         << ",\"bpf_syscall\":" << (report.features.bpf_syscall ? "true" : "false")
         << ",\"ringbuf\":" << (report.features.ringbuf ? "true" : "false")
         << ",\"tracepoints\":" << (report.features.tracepoints ? "true" : "false")
-        << ",\"bpffs\":" << (report.bpffs_mounted ? "true" : "false")
-        << "}"
-        << ",\"checks\":{"
+        << ",\"bpffs\":" << (report.bpffs_mounted ? "true" : "false") << "}" << ",\"checks\":{"
         << "\"prereqs\":" << (report.prereqs_ok ? "true" : "false")
         << ",\"bpf_load\":" << (report.bpf_load_ok ? "true" : "false")
         << ",\"required_maps\":" << (report.required_maps_ok ? "true" : "false")
         << ",\"layout_version\":" << (report.layout_ok ? "true" : "false")
         << ",\"required_pins\":" << (report.required_pins_ok ? "true" : "false")
-        << ",\"network_pins\":" << (report.network_pins_ok ? "true" : "false")
-        << "}"
+        << ",\"network_pins\":" << (report.network_pins_ok ? "true" : "false") << "}"
         << ",\"network_maps_present\":" << (report.network_maps_present ? "true" : "false");
     if (!report.error.empty()) {
         out << ",\"error\":\"" << json_escape(report.error) << "\"";
@@ -732,75 +741,67 @@ std::string build_health_json(const HealthReport& report)
 
 void emit_health_json(const HealthReport& report)
 {
-    std::cout << build_health_json(report) << std::endl;
+    std::cout << build_health_json(report) << '\n';
 }
 
 std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
 {
     std::vector<DoctorAdvice> advice;
     if (!report.features.bpf_lsm) {
-        advice.push_back({"bpf_lsm_disabled",
-                          "BPF LSM is not enabled; enforcement will be audit-only.",
+        advice.push_back({"bpf_lsm_disabled", "BPF LSM is not enabled; enforcement will be audit-only.",
                           "Enable BPF LSM via kernel command line (lsm=...,...,bpf) and reboot."});
     }
     if (!report.features.btf) {
-        advice.push_back({"missing_btf",
-                          "Kernel BTF is missing; verifier compatibility is reduced.",
+        advice.push_back({"missing_btf", "Kernel BTF is missing; verifier compatibility is reduced.",
                           "Use a kernel built with CONFIG_DEBUG_INFO_BTF=y."});
     }
     if (!report.bpffs_mounted) {
-        advice.push_back({"bpffs_unmounted",
-                          "bpffs is not mounted at /sys/fs/bpf.",
+        advice.push_back({"bpffs_unmounted", "bpffs is not mounted at /sys/fs/bpf.",
                           "Mount bpffs: sudo mount -t bpf bpffs /sys/fs/bpf."});
     }
     if (report.capability == EnforcementCapability::AuditOnly) {
-        advice.push_back({"audit_only",
-                          "Enforcement capability is audit-only.",
+        advice.push_back({"audit_only", "Enforcement capability is audit-only.",
                           "Ensure BPF LSM is enabled to allow deny enforcement."});
     }
     if (!report.bpf_load_ok) {
-        advice.push_back({"bpf_load_failed",
-                          "Failed to load BPF programs.",
+        advice.push_back({"bpf_load_failed", "Failed to load BPF programs.",
                           "Check kernel logs and verify libbpf, BTF, and permissions."});
     }
     if (!report.layout_ok) {
-        advice.push_back({"layout_mismatch",
-                          "Pinned map layout mismatch detected.",
+        advice.push_back({"layout_mismatch", "Pinned map layout mismatch detected.",
                           "Run 'sudo aegisbpf block clear' to reset pinned maps."});
     }
     if (report.network_maps_present && !report.network_pins_ok) {
-        advice.push_back({"network_pins",
-                          "Network pinned map access failed.",
-                          "Verify bpffs permissions and pinned network maps."});
+        advice.push_back(
+            {"network_pins", "Network pinned map access failed.", "Verify bpffs permissions and pinned network maps."});
     }
     return advice;
 }
 
 void emit_doctor_text(const HealthReport& report, const std::vector<DoctorAdvice>& advice)
 {
-    std::cout << "AegisBPF Doctor" << std::endl;
-    std::cout << "status: " << (report.ok ? "ok" : "error") << std::endl;
-    std::cout << "capability: " << capability_name(report.capability) << std::endl;
-    std::cout << "kernel: " << report.kernel_version << std::endl;
+    std::cout << "AegisBPF Doctor" << '\n';
+    std::cout << "status: " << (report.ok ? "ok" : "error") << '\n';
+    std::cout << "capability: " << capability_name(report.capability) << '\n';
+    std::cout << "kernel: " << report.kernel_version << '\n';
     std::cout << "checks: prereqs=" << (report.prereqs_ok ? "ok" : "fail")
               << " bpf_load=" << (report.bpf_load_ok ? "ok" : "fail")
               << " required_maps=" << (report.required_maps_ok ? "ok" : "fail")
               << " layout=" << (report.layout_ok ? "ok" : "fail")
               << " required_pins=" << (report.required_pins_ok ? "ok" : "fail")
-              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail")
-              << std::endl;
+              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail") << '\n';
     if (!report.error.empty()) {
-        std::cout << "error: " << report.error << std::endl;
+        std::cout << "error: " << report.error << '\n';
     }
     if (advice.empty()) {
-        std::cout << "advice: none" << std::endl;
+        std::cout << "advice: none" << '\n';
         return;
     }
-    std::cout << "advice:" << std::endl;
+    std::cout << "advice:" << '\n';
     for (const auto& item : advice) {
-        std::cout << "- [" << item.code << "] " << item.message << std::endl;
+        std::cout << "- [" << item.code << "] " << item.message << '\n';
         if (!item.remediation.empty()) {
-            std::cout << "  remediation: " << item.remediation << std::endl;
+            std::cout << "  remediation: " << item.remediation << '\n';
         }
     }
 }
@@ -808,25 +809,22 @@ void emit_doctor_text(const HealthReport& report, const std::vector<DoctorAdvice
 void emit_doctor_json(const HealthReport& report, const std::vector<DoctorAdvice>& advice)
 {
     std::ostringstream out;
-    out << "{"
-        << "\"ok\":" << (report.ok ? "true" : "false")
-        << ",\"report\":" << build_health_json(report)
+    out << "{" << "\"ok\":" << (report.ok ? "true" : "false") << ",\"report\":" << build_health_json(report)
         << ",\"advice\":[";
     for (size_t i = 0; i < advice.size(); ++i) {
         const auto& item = advice[i];
         if (i > 0) {
             out << ",";
         }
-        out << "{"
-            << "\"code\":\"" << json_escape(item.code) << "\""
-            << ",\"message\":\"" << json_escape(item.message) << "\"";
+        out << "{" << "\"code\":\"" << json_escape(item.code) << "\"" << ",\"message\":\"" << json_escape(item.message)
+            << "\"";
         if (!item.remediation.empty()) {
             out << ",\"remediation\":\"" << json_escape(item.remediation) << "\"";
         }
         out << "}";
     }
     out << "]}";
-    std::cout << out.str() << std::endl;
+    std::cout << out.str() << '\n';
 }
 
 int cmd_health(bool json_output)
@@ -844,28 +842,28 @@ int cmd_health(bool json_output)
         return report.ok ? 0 : 1;
     }
 
-    std::cout << "Kernel version: " << report.kernel_version << std::endl;
-    std::cout << "Capability: " << capability_name(report.capability) << std::endl;
-    std::cout << "Features:" << std::endl;
-    std::cout << "  bpf_lsm: " << (report.features.bpf_lsm ? "yes" : "no") << std::endl;
-    std::cout << "  cgroup_v2: " << (report.features.cgroup_v2 ? "yes" : "no") << std::endl;
-    std::cout << "  btf: " << (report.features.btf ? "yes" : "no") << std::endl;
-    std::cout << "  bpf_syscall: " << (report.features.bpf_syscall ? "yes" : "no") << std::endl;
-    std::cout << "  ringbuf: " << (report.features.ringbuf ? "yes" : "no") << std::endl;
-    std::cout << "  tracepoints: " << (report.features.tracepoints ? "yes" : "no") << std::endl;
-    std::cout << "  bpffs: " << (report.bpffs_mounted ? "yes" : "no") << std::endl;
+    std::cout << "Kernel version: " << report.kernel_version << '\n';
+    std::cout << "Capability: " << capability_name(report.capability) << '\n';
+    std::cout << "Features:" << '\n';
+    std::cout << "  bpf_lsm: " << (report.features.bpf_lsm ? "yes" : "no") << '\n';
+    std::cout << "  cgroup_v2: " << (report.features.cgroup_v2 ? "yes" : "no") << '\n';
+    std::cout << "  btf: " << (report.features.btf ? "yes" : "no") << '\n';
+    std::cout << "  bpf_syscall: " << (report.features.bpf_syscall ? "yes" : "no") << '\n';
+    std::cout << "  ringbuf: " << (report.features.ringbuf ? "yes" : "no") << '\n';
+    std::cout << "  tracepoints: " << (report.features.tracepoints ? "yes" : "no") << '\n';
+    std::cout << "  bpffs: " << (report.bpffs_mounted ? "yes" : "no") << '\n';
 
     if (!report.ok) {
         return fail(report.error.empty() ? "Health check failed" : report.error);
     }
 
     if (report.capability == EnforcementCapability::AuditOnly) {
-        std::cout << "Health check passed (audit-only capability)" << std::endl;
-        std::cout << "  Note: BPF LSM is unavailable; enforcement actions run in audit mode." << std::endl;
+        std::cout << "Health check passed (audit-only capability)" << '\n';
+        std::cout << "  Note: BPF LSM is unavailable; enforcement actions run in audit mode." << '\n';
         return 0;
     }
 
-    std::cout << "Health check passed" << std::endl;
+    std::cout << "Health check passed" << '\n';
     return 0;
 }
 
@@ -895,13 +893,10 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
     std::string payload;
     if (event_path == "-") {
         payload = read_stream(std::cin);
-    }
-    else {
+    } else {
         std::ifstream in(event_path);
         if (!in.is_open()) {
-            logger().log(SLOG_ERROR("Failed to open event file")
-                             .field("path", event_path)
-                             .error_code(errno));
+            logger().log(SLOG_ERROR("Failed to open event file").field("path", event_path).error_code(errno));
             return 1;
         }
         payload = read_stream(in);
@@ -910,14 +905,12 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
     ExplainEvent event{};
     std::string parse_error;
     if (!parse_explain_event(payload, event, parse_error)) {
-        logger().log(SLOG_ERROR("Failed to parse event JSON")
-                         .field("error", parse_error));
+        logger().log(SLOG_ERROR("Failed to parse event JSON").field("error", parse_error));
         return 1;
     }
 
     if (event.type != "block") {
-        logger().log(SLOG_ERROR("Explain currently supports block events only")
-                         .field("type", event.type));
+        logger().log(SLOG_ERROR("Explain currently supports block events only").field("type", event.type));
         return 1;
     }
 
@@ -939,8 +932,7 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
             return 1;
         }
         if (issues.has_errors()) {
-            logger().log(SLOG_ERROR("Policy contains errors; cannot explain decision")
-                             .field("path", policy_source));
+            logger().log(SLOG_ERROR("Policy contains errors; cannot explain decision").field("path", policy_source));
             return 1;
         }
         policy = *policy_result;
@@ -1000,17 +992,13 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
     std::string inferred_rule;
     if (!policy_loaded) {
         inferred_rule = "unknown";
-    }
-    else if (allow_match) {
+    } else if (allow_match) {
         inferred_rule = "allow_cgroup";
-    }
-    else if (deny_inode_match) {
+    } else if (deny_inode_match) {
         inferred_rule = "deny_inode";
-    }
-    else if (deny_path_match) {
+    } else if (deny_path_match) {
         inferred_rule = "deny_path";
-    }
-    else {
+    } else {
         inferred_rule = "no_policy_match";
     }
 
@@ -1029,8 +1017,7 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
 
     if (json_output) {
         std::ostringstream out;
-        out << "{"
-            << "\"type\":\"" << json_escape(event.type) << "\"";
+        out << "{" << "\"type\":\"" << json_escape(event.type) << "\"";
         if (!event.action.empty()) {
             out << ",\"action\":\"" << json_escape(event.action) << "\"";
         }
@@ -1052,13 +1039,11 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
         if (event.has_cgid) {
             out << ",\"cgid\":" << event.cgid;
         }
-        out << ",\"policy\":{\"path\":\"" << json_escape(policy_source) << "\",\"loaded\":"
-            << (policy_loaded ? "true" : "false") << "}";
-        out << ",\"matches\":{"
-            << "\"allow_cgroup\":" << (policy_loaded ? (allow_match ? "true" : "false") : "false")
+        out << ",\"policy\":{\"path\":\"" << json_escape(policy_source)
+            << "\",\"loaded\":" << (policy_loaded ? "true" : "false") << "}";
+        out << ",\"matches\":{" << "\"allow_cgroup\":" << (policy_loaded ? (allow_match ? "true" : "false") : "false")
             << ",\"deny_inode\":" << (policy_loaded ? (deny_inode_match ? "true" : "false") : "false")
-            << ",\"deny_path\":" << (policy_loaded ? (deny_path_match ? "true" : "false") : "false")
-            << "}";
+            << ",\"deny_path\":" << (policy_loaded ? (deny_path_match ? "true" : "false") : "false") << "}";
         out << ",\"inferred_rule\":\"" << json_escape(inferred_rule) << "\"";
         out << ",\"notes\":[";
         for (size_t i = 0; i < notes.size(); ++i) {
@@ -1068,52 +1053,51 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
             out << "\"" << json_escape(notes[i]) << "\"";
         }
         out << "]}";
-        std::cout << out.str() << std::endl;
+        std::cout << out.str() << '\n';
         return 0;
     }
 
-    std::cout << "Explain (best-effort)" << std::endl;
-    std::cout << "  type: " << event.type << std::endl;
+    std::cout << "Explain (best-effort)" << '\n';
+    std::cout << "  type: " << event.type << '\n';
     if (!event.action.empty()) {
-        std::cout << "  action: " << event.action << std::endl;
+        std::cout << "  action: " << event.action << '\n';
     }
     if (!event.path.empty()) {
-        std::cout << "  path: " << event.path << std::endl;
+        std::cout << "  path: " << event.path << '\n';
     }
     if (!event.resolved_path.empty()) {
-        std::cout << "  resolved_path: " << event.resolved_path << std::endl;
+        std::cout << "  resolved_path: " << event.resolved_path << '\n';
     }
     if (event.has_ino) {
-        std::cout << "  ino: " << event.ino << std::endl;
+        std::cout << "  ino: " << event.ino << '\n';
     }
     if (event.has_dev) {
-        std::cout << "  dev: " << event.dev << std::endl;
+        std::cout << "  dev: " << event.dev << '\n';
     }
     if (!event.cgroup_path.empty()) {
-        std::cout << "  cgroup_path: " << event.cgroup_path << std::endl;
+        std::cout << "  cgroup_path: " << event.cgroup_path << '\n';
     }
     if (event.has_cgid) {
-        std::cout << "  cgid: " << event.cgid << std::endl;
+        std::cout << "  cgid: " << event.cgid << '\n';
     }
-    std::cout << "  policy: " << (policy_loaded ? policy_source : "not loaded") << std::endl;
+    std::cout << "  policy: " << (policy_loaded ? policy_source : "not loaded") << '\n';
     if (policy_loaded) {
-        std::cout << "  allow_cgroup_match: " << (allow_match ? "yes" : "no") << std::endl;
-        std::cout << "  deny_inode_match: " << (deny_inode_match ? "yes" : "no") << std::endl;
-        std::cout << "  deny_path_match: " << (deny_path_match ? "yes" : "no") << std::endl;
+        std::cout << "  allow_cgroup_match: " << (allow_match ? "yes" : "no") << '\n';
+        std::cout << "  deny_inode_match: " << (deny_inode_match ? "yes" : "no") << '\n';
+        std::cout << "  deny_path_match: " << (deny_path_match ? "yes" : "no") << '\n';
+    } else {
+        std::cout << "  allow_cgroup_match: unknown" << '\n';
+        std::cout << "  deny_inode_match: unknown" << '\n';
+        std::cout << "  deny_path_match: unknown" << '\n';
     }
-    else {
-        std::cout << "  allow_cgroup_match: unknown" << std::endl;
-        std::cout << "  deny_inode_match: unknown" << std::endl;
-        std::cout << "  deny_path_match: unknown" << std::endl;
-    }
-    std::cout << "  inferred_rule: " << inferred_rule << std::endl;
+    std::cout << "  inferred_rule: " << inferred_rule << '\n';
     if (!notes.empty()) {
-        std::cout << "  notes:" << std::endl;
+        std::cout << "  notes:" << '\n';
         for (const auto& note : notes) {
-            std::cout << "    - " << note << std::endl;
+            std::cout << "    - " << note << '\n';
         }
     }
     return 0;
 }
 
-}  // namespace aegis
+} // namespace aegis

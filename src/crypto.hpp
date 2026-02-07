@@ -1,12 +1,12 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "result.hpp"
-#include "types.hpp"
-
 #include <array>
 #include <string>
 #include <vector>
+
+#include "result.hpp"
+#include "types.hpp"
 
 namespace aegis {
 
@@ -140,10 +140,8 @@ Result<SignedPolicyBundle> parse_signed_bundle(const std::string& content);
  * @param expires Expiration timestamp (0 = no expiration)
  * @return Serialized bundle content or error
  */
-Result<std::string> create_signed_bundle(const std::string& policy_content,
-                                         const SecretKey& secret_key,
-                                         uint64_t policy_version,
-                                         uint64_t expires = 0);
+Result<std::string> create_signed_bundle(const std::string& policy_content, const SecretKey& secret_key,
+                                         uint64_t policy_version, uint64_t expires = 0);
 
 /**
  * Verify a signed policy bundle.
@@ -157,8 +155,7 @@ Result<std::string> create_signed_bundle(const std::string& policy_content,
  * @param trusted_keys List of trusted public keys
  * @return Success or error with reason
  */
-Result<void> verify_bundle(const SignedPolicyBundle& bundle,
-                           const std::vector<PublicKey>& trusted_keys);
+Result<void> verify_bundle(const SignedPolicyBundle& bundle, const std::vector<PublicKey>& trusted_keys);
 
 /**
  * Load trusted public keys from directory.
@@ -206,4 +203,4 @@ Result<void> write_version_counter(uint64_t version);
  */
 bool check_version_acceptable(const SignedPolicyBundle& bundle);
 
-}  // namespace aegis
+} // namespace aegis

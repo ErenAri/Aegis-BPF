@@ -1,6 +1,8 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "cli_dispatch.hpp"
 
+#include <string>
+
 #include "cli_common.hpp"
 #include "cli_network.hpp"
 #include "cli_policy.hpp"
@@ -8,43 +10,50 @@
 #include "commands.hpp"
 #include "daemon.hpp"
 
-#include <string>
-
 namespace aegis {
 
 namespace {
 
 int dispatch_block_command(int argc, char** argv, const char* prog)
 {
-    if (argc < 3) return usage(prog);
+    if (argc < 3)
+        return usage(prog);
     std::string sub = argv[2];
     if (sub == "add") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_block_add(argv[3]);
     }
     if (sub == "del") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_block_del(argv[3]);
     }
-    if (sub == "list") return cmd_block_list();
-    if (sub == "clear") return cmd_block_clear();
+    if (sub == "list")
+        return cmd_block_list();
+    if (sub == "clear")
+        return cmd_block_clear();
     return usage(prog);
 }
 
 int dispatch_allow_command(int argc, char** argv, const char* prog)
 {
-    if (argc < 3) return usage(prog);
+    if (argc < 3)
+        return usage(prog);
     std::string sub = argv[2];
     if (sub == "add") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_allow_add(argv[3]);
     }
     if (sub == "del") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_allow_del(argv[3]);
     }
     if (sub == "list") {
-        if (argc > 3) return usage(prog);
+        if (argc > 3)
+            return usage(prog);
         return cmd_allow_list();
     }
     return usage(prog);
@@ -52,11 +61,14 @@ int dispatch_allow_command(int argc, char** argv, const char* prog)
 
 int dispatch_keys_command(int argc, char** argv, const char* prog)
 {
-    if (argc < 3) return usage(prog);
+    if (argc < 3)
+        return usage(prog);
     std::string sub = argv[2];
-    if (sub == "list") return cmd_keys_list();
+    if (sub == "list")
+        return cmd_keys_list();
     if (sub == "add") {
-        if (argc != 4) return usage(prog);
+        if (argc != 4)
+            return usage(prog);
         return cmd_keys_add(argv[3]);
     }
     return usage(prog);
@@ -64,10 +76,13 @@ int dispatch_keys_command(int argc, char** argv, const char* prog)
 
 int dispatch_survival_command(int argc, char** argv, const char* prog)
 {
-    if (argc < 3) return usage(prog);
+    if (argc < 3)
+        return usage(prog);
     std::string sub = argv[2];
-    if (sub == "list") return cmd_survival_list();
-    if (sub == "verify") return cmd_survival_verify();
+    if (sub == "list")
+        return cmd_survival_list();
+    if (sub == "verify")
+        return cmd_survival_verify();
     return usage(prog);
 }
 
@@ -78,8 +93,7 @@ int dispatch_health_command(int argc, char** argv, const char* prog)
         std::string arg = argv[i];
         if (arg == "--json") {
             json_output = true;
-        }
-        else {
+        } else {
             return usage(prog);
         }
     }
@@ -93,8 +107,7 @@ int dispatch_doctor_command(int argc, char** argv, const char* prog)
         std::string arg = argv[i];
         if (arg == "--json") {
             json_output = true;
-        }
-        else {
+        } else {
             return usage(prog);
         }
     }
@@ -110,20 +123,18 @@ int dispatch_explain_command(int argc, char** argv, const char* prog)
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--event") {
-            if (i + 1 >= argc) return usage(prog);
+            if (i + 1 >= argc)
+                return usage(prog);
             event_path = argv[++i];
-        }
-        else if (arg == "--policy") {
-            if (i + 1 >= argc) return usage(prog);
+        } else if (arg == "--policy") {
+            if (i + 1 >= argc)
+                return usage(prog);
             policy_path = argv[++i];
-        }
-        else if (arg == "--json") {
+        } else if (arg == "--json") {
             json_output = true;
-        }
-        else if (event_path.empty() && arg.rfind("--", 0) != 0) {
+        } else if (event_path.empty() && arg.rfind("--", 0) != 0) {
             event_path = arg;
-        }
-        else {
+        } else {
             return usage(prog);
         }
     }
@@ -142,20 +153,19 @@ int dispatch_metrics_command(int argc, char** argv, const char* prog)
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--out") {
-            if (i + 1 >= argc) return usage(prog);
+            if (i + 1 >= argc)
+                return usage(prog);
             out_path = argv[++i];
-        }
-        else if (arg == "--detailed") {
+        } else if (arg == "--detailed") {
             detailed = true;
-        }
-        else {
+        } else {
             return usage(prog);
         }
     }
     return cmd_metrics(out_path, detailed);
 }
 
-}  // namespace
+} // namespace
 
 int dispatch_cli(int argc, char** argv)
 {
@@ -167,23 +177,33 @@ int dispatch_cli(int argc, char** argv)
     }
 
     std::string cmd = argv[1];
-    if (cmd == "run") return dispatch_run_command(argc, argv, argv[0]);
-    if (cmd == "block") return dispatch_block_command(argc, argv, argv[0]);
-    if (cmd == "allow") return dispatch_allow_command(argc, argv, argv[0]);
-    if (cmd == "network") return dispatch_network_command(argc, argv, argv[0]);
-    if (cmd == "policy") return dispatch_policy_command(argc, argv, argv[0]);
-    if (cmd == "keys") return dispatch_keys_command(argc, argv, argv[0]);
-    if (cmd == "survival") return dispatch_survival_command(argc, argv, argv[0]);
-    if (cmd == "health") return dispatch_health_command(argc, argv, argv[0]);
-    if (cmd == "doctor") return dispatch_doctor_command(argc, argv, argv[0]);
-    if (cmd == "explain") return dispatch_explain_command(argc, argv, argv[0]);
-    if (cmd == "metrics") return dispatch_metrics_command(argc, argv, argv[0]);
+    if (cmd == "run")
+        return dispatch_run_command(argc, argv, argv[0]);
+    if (cmd == "block")
+        return dispatch_block_command(argc, argv, argv[0]);
+    if (cmd == "allow")
+        return dispatch_allow_command(argc, argv, argv[0]);
+    if (cmd == "network")
+        return dispatch_network_command(argc, argv, argv[0]);
+    if (cmd == "policy")
+        return dispatch_policy_command(argc, argv, argv[0]);
+    if (cmd == "keys")
+        return dispatch_keys_command(argc, argv, argv[0]);
+    if (cmd == "survival")
+        return dispatch_survival_command(argc, argv, argv[0]);
+    if (cmd == "health")
+        return dispatch_health_command(argc, argv, argv[0]);
+    if (cmd == "doctor")
+        return dispatch_doctor_command(argc, argv, argv[0]);
+    if (cmd == "explain")
+        return dispatch_explain_command(argc, argv, argv[0]);
+    if (cmd == "metrics")
+        return dispatch_metrics_command(argc, argv, argv[0]);
     if (cmd == "stats") {
         bool detailed = false;
         if (argc == 3 && std::string(argv[2]) == "--detailed") {
             detailed = true;
-        }
-        else if (argc > 2) {
+        } else if (argc > 2) {
             return usage(argv[0]);
         }
         return cmd_stats(detailed);
@@ -192,4 +212,4 @@ int dispatch_cli(int argc, char** argv)
     return usage(argv[0]);
 }
 
-}  // namespace aegis
+} // namespace aegis

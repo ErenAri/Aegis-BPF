@@ -162,6 +162,8 @@ Exported metrics:
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`
+- `aegisbpf_map_capacity{map}`
+- `aegisbpf_map_utilization{map}`
 - `aegisbpf_net_blocks_total{type}`
 - `aegisbpf_net_ringbuf_drops_total`
 - `aegisbpf_net_rules_total{type}`

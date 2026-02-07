@@ -1,13 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "kernel_features.hpp"
-#include "logging.hpp"
 
+#include <sys/utsname.h>
+
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <cstdlib>
-#include <sys/utsname.h>
+
+#include "logging.hpp"
 
 namespace aegis {
 
@@ -22,7 +24,7 @@ std::string env_path_or_default(const char* env_name, const char* fallback)
     return std::string(fallback);
 }
 
-}  // namespace
+} // namespace
 
 std::string get_kernel_version()
 {
@@ -43,7 +45,7 @@ bool parse_kernel_version(const std::string& version_str, int& major, int& minor
     // Parse "X.Y.Z-extra" format
     char extra[256] = {0};
     int parsed = std::sscanf(version_str.c_str(), "%d.%d.%d%255s", &major, &minor, &patch, extra);
-    return parsed >= 2;  // At least major.minor is required
+    return parsed >= 2; // At least major.minor is required
 }
 
 bool kernel_version_at_least(int req_major, int req_minor, int req_patch)
@@ -54,10 +56,14 @@ bool kernel_version_at_least(int req_major, int req_minor, int req_patch)
         return false;
     }
 
-    if (major > req_major) return true;
-    if (major < req_major) return false;
-    if (minor > req_minor) return true;
-    if (minor < req_minor) return false;
+    if (major > req_major)
+        return true;
+    if (major < req_major)
+        return false;
+    if (minor > req_minor)
+        return true;
+    if (minor < req_minor)
+        return false;
     return patch >= req_patch;
 }
 
@@ -75,15 +81,13 @@ bool check_cgroup_v2()
 {
     std::error_code ec;
     return std::filesystem::exists(
-        env_path_or_default("AEGIS_CGROUP_CONTROLLERS_PATH", "/sys/fs/cgroup/cgroup.controllers"),
-        ec);
+        env_path_or_default("AEGIS_CGROUP_CONTROLLERS_PATH", "/sys/fs/cgroup/cgroup.controllers"), ec);
 }
 
 bool check_btf_available()
 {
     std::error_code ec;
-    return std::filesystem::exists(
-        env_path_or_default("AEGIS_BTF_VMLINUX_PATH", "/sys/kernel/btf/vmlinux"), ec);
+    return std::filesystem::exists(env_path_or_default("AEGIS_BTF_VMLINUX_PATH", "/sys/kernel/btf/vmlinux"), ec);
 }
 
 bool check_bpffs_mounted()
@@ -96,10 +100,8 @@ static bool check_tracepoints_available()
 {
     std::error_code ec;
     // Check for tracepoint infrastructure
-    return std::filesystem::exists(
-               env_path_or_default("AEGIS_TRACEFS_DEBUG_PATH", "/sys/kernel/debug/tracing"), ec) ||
-           std::filesystem::exists(
-               env_path_or_default("AEGIS_TRACEFS_PATH", "/sys/kernel/tracing"), ec);
+    return std::filesystem::exists(env_path_or_default("AEGIS_TRACEFS_DEBUG_PATH", "/sys/kernel/debug/tracing"), ec) ||
+           std::filesystem::exists(env_path_or_default("AEGIS_TRACEFS_PATH", "/sys/kernel/tracing"), ec);
 }
 
 static bool check_ringbuf_support()
@@ -114,8 +116,7 @@ static bool check_bpf_syscall()
     // or /sys/fs/bpf exists, BPF syscall is available
     std::error_code ec;
     return std::filesystem::exists(
-               env_path_or_default("AEGIS_UNPRIV_BPF_DISABLED_PATH",
-                                   "/proc/sys/kernel/unprivileged_bpf_disabled"),
+               env_path_or_default("AEGIS_UNPRIV_BPF_DISABLED_PATH", "/proc/sys/kernel/unprivileged_bpf_disabled"),
                ec) ||
            check_bpffs_mounted();
 }
@@ -130,10 +131,9 @@ Result<KernelFeatures> detect_kernel_features()
         return Error(ErrorCode::ResourceNotFound, "Failed to get kernel version");
     }
 
-    if (!parse_kernel_version(features.kernel_version, features.kernel_major,
-                              features.kernel_minor, features.kernel_patch)) {
-        return Error(ErrorCode::InvalidArgument, "Failed to parse kernel version",
-                     features.kernel_version);
+    if (!parse_kernel_version(features.kernel_version, features.kernel_major, features.kernel_minor,
+                              features.kernel_patch)) {
+        return Error(ErrorCode::InvalidArgument, "Failed to parse kernel version", features.kernel_version);
     }
 
     // Detect individual features
@@ -178,12 +178,12 @@ EnforcementCapability determine_capability(const KernelFeatures& features)
 const char* capability_name(EnforcementCapability cap)
 {
     switch (cap) {
-    case EnforcementCapability::Full:
-        return "Full";
-    case EnforcementCapability::AuditOnly:
-        return "AuditOnly";
-    case EnforcementCapability::Disabled:
-        return "Disabled";
+        case EnforcementCapability::Full:
+            return "Full";
+        case EnforcementCapability::AuditOnly:
+            return "AuditOnly";
+        case EnforcementCapability::Disabled:
+            return "Disabled";
     }
     return "Unknown";
 }
@@ -193,45 +193,46 @@ std::string capability_explanation(const KernelFeatures& features, EnforcementCa
     std::ostringstream oss;
 
     switch (cap) {
-    case EnforcementCapability::Full:
-        oss << "Full enforcement available. BPF LSM is enabled, "
-            << "allowing file access to be blocked and processes to be killed.";
-        break;
+        case EnforcementCapability::Full:
+            oss << "Full enforcement available. BPF LSM is enabled, "
+                << "allowing file access to be blocked and processes to be killed.";
+            break;
 
-    case EnforcementCapability::AuditOnly:
-        oss << "Audit-only mode. ";
-        if (!features.bpf_lsm) {
-            oss << "BPF LSM is not enabled in the kernel. "
-                << "To enable, add 'lsm=bpf' (or 'lsm=landlock,lockdown,yama,bpf') "
-                << "to kernel boot parameters. ";
-        }
-        if (!features.ringbuf) {
-            oss << "Ring buffer not available (requires kernel 5.8+). ";
-        }
-        oss << "File access will be logged but not blocked.";
-        break;
+        case EnforcementCapability::AuditOnly:
+            oss << "Audit-only mode. ";
+            if (!features.bpf_lsm) {
+                oss << "BPF LSM is not enabled in the kernel. "
+                    << "To enable, add 'lsm=bpf' (or 'lsm=landlock,lockdown,yama,bpf') "
+                    << "to kernel boot parameters. ";
+            }
+            if (!features.ringbuf) {
+                oss << "Ring buffer not available (requires kernel 5.8+). ";
+            }
+            oss << "File access will be logged but not blocked.";
+            break;
 
-    case EnforcementCapability::Disabled:
-        oss << "Cannot run AegisBPF. Missing requirements: ";
-        std::vector<std::string> missing;
-        if (!features.bpf_syscall) {
-            missing.push_back("BPF syscall (CONFIG_BPF_SYSCALL)");
-        }
-        if (!features.cgroup_v2) {
-            missing.push_back("cgroup v2 (mount with cgroup2)");
-        }
-        if (!features.btf) {
-            missing.push_back("BTF (/sys/kernel/btf/vmlinux)");
-        }
-        for (size_t i = 0; i < missing.size(); ++i) {
-            if (i > 0) oss << ", ";
-            oss << missing[i];
-        }
-        oss << ".";
-        break;
+        case EnforcementCapability::Disabled:
+            oss << "Cannot run AegisBPF. Missing requirements: ";
+            std::vector<std::string> missing;
+            if (!features.bpf_syscall) {
+                missing.push_back("BPF syscall (CONFIG_BPF_SYSCALL)");
+            }
+            if (!features.cgroup_v2) {
+                missing.push_back("cgroup v2 (mount with cgroup2)");
+            }
+            if (!features.btf) {
+                missing.push_back("BTF (/sys/kernel/btf/vmlinux)");
+            }
+            for (size_t i = 0; i < missing.size(); ++i) {
+                if (i > 0)
+                    oss << ", ";
+                oss << missing[i];
+            }
+            oss << ".";
+            break;
     }
 
     return oss.str();
 }
 
-}  // namespace aegis
+} // namespace aegis

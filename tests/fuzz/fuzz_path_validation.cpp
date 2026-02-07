@@ -10,12 +10,12 @@
  *   ./fuzz_path corpus/ -max_total_time=300
  */
 
-#include "utils.hpp"
-#include "types.hpp"
-
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+#include "types.hpp"
+#include "utils.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {

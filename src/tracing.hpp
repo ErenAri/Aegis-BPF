@@ -1,22 +1,23 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "logging.hpp"
+#include <unistd.h>
 
 #include <atomic>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <sstream>
 #include <string>
-#include <unistd.h>
+
+#include "logging.hpp"
 
 namespace aegis {
 
 namespace trace_context {
 inline thread_local std::string g_current_trace_id;
 inline thread_local std::string g_current_span_id;
-}  // namespace trace_context
+} // namespace trace_context
 
 inline bool otel_spans_enabled()
 {
@@ -37,8 +38,7 @@ inline std::string make_span_id(const std::string& prefix = "span")
     static std::atomic<uint64_t> seq{0};
     uint64_t step = seq.fetch_add(1, std::memory_order_relaxed) + 1;
     uint64_t now_ns = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
             .count());
     uint64_t pid = static_cast<uint64_t>(getpid());
 
@@ -60,13 +60,9 @@ inline std::string current_span_id()
 class ScopedSpan {
   public:
     ScopedSpan(std::string name, std::string trace_id, std::string parent_span_id = std::string())
-        : enabled_(otel_spans_enabled()),
-          name_(std::move(name)),
-          trace_id_(std::move(trace_id)),
-          span_id_(make_span_id("span")),
-          parent_span_id_(std::move(parent_span_id)),
-          previous_trace_id_(trace_context::g_current_trace_id),
-          previous_span_id_(trace_context::g_current_span_id),
+        : enabled_(otel_spans_enabled()), name_(std::move(name)), trace_id_(std::move(trace_id)),
+          span_id_(make_span_id("span")), parent_span_id_(std::move(parent_span_id)),
+          previous_trace_id_(trace_context::g_current_trace_id), previous_span_id_(trace_context::g_current_span_id),
           started_(std::chrono::steady_clock::now())
     {
         trace_context::g_current_trace_id = trace_id_;
@@ -97,9 +93,7 @@ class ScopedSpan {
         ended_ = true;
 
         uint64_t duration_ms = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - started_)
-                .count());
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started_).count());
 
         auto entry = SLOG_INFO("otel_span_end")
                          .field("span_name", name_)
@@ -139,4 +133,4 @@ class ScopedSpan {
     std::chrono::steady_clock::time_point started_;
 };
 
-}  // namespace aegis
+} // namespace aegis

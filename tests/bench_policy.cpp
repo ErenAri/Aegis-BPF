@@ -1,12 +1,14 @@
 // cppcheck-suppress-file missingIncludeSystem
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file unknownMacro
-#include <benchmark/benchmark.h>
 #include <arpa/inet.h>
-#include <cstring>
-#include <fstream>
-#include <filesystem>
+#include <benchmark/benchmark.h>
 #include <sys/sysmacros.h>
+
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+
 #include "network_ops.hpp"
 #include "policy.hpp"
 #include "sha256.hpp"
@@ -35,10 +37,7 @@ class PolicyBenchmark : public benchmark::Fixture {
         }
     }
 
-    void TearDown(const benchmark::State&) override
-    {
-        std::filesystem::remove_all(test_dir_);
-    }
+    void TearDown(const benchmark::State&) override { std::filesystem::remove_all(test_dir_); }
 
     std::filesystem::path test_dir_;
     std::string policy_path_;
@@ -156,8 +155,7 @@ BENCHMARK(BM_FillPathKeyShort);
 static void BM_FillPathKeyLong(benchmark::State& state)
 {
     // Near-maximum length path
-    std::string path = "/var/lib/containers/storage/overlay/abcdef1234567890/" +
-                       std::string(150, 'x') + "/binary";
+    std::string path = "/var/lib/containers/storage/overlay/abcdef1234567890/" + std::string(150, 'x') + "/binary";
     PathKey key{};
     for (auto _ : state) {
         fill_path_key(path, key);
@@ -170,7 +168,7 @@ BENCHMARK(BM_FillPathKeyLong);
 // encode_dev - Converts dev_t to BPF-compatible format
 static void BM_EncodeDev(benchmark::State& state)
 {
-    dev_t dev = makedev(259, 1);  // Typical NVMe device
+    dev_t dev = makedev(259, 1); // Typical NVMe device
     for (auto _ : state) {
         uint32_t encoded = encode_dev(dev);
         benchmark::DoNotOptimize(encoded);
@@ -302,12 +300,10 @@ BENCHMARK(BM_ParseCidrV6);
 // LPM key construction - IPv4
 static void BM_Ipv4LpmKeyConstruction(benchmark::State& state)
 {
-    uint32_t ip_be = htonl(0x0A000000);  // 10.0.0.0
+    uint32_t ip_be = htonl(0x0A000000); // 10.0.0.0
     uint8_t prefix_len = 8;
     for (auto _ : state) {
-        Ipv4LpmKey key = {
-            .prefixlen = prefix_len,
-            .addr = ip_be};
+        Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ip_be};
         benchmark::DoNotOptimize(key);
     }
 }
@@ -320,9 +316,7 @@ static void BM_Ipv6LpmKeyConstruction(benchmark::State& state)
     parse_ipv6("2001:db8::", ip);
     uint8_t prefix_len = 32;
     for (auto _ : state) {
-        Ipv6LpmKey key = {
-            .prefixlen = prefix_len,
-            .addr = {0}};
+        Ipv6LpmKey key = {.prefixlen = prefix_len, .addr = {0}};
         std::memcpy(key.addr, ip.addr, sizeof(key.addr));
         benchmark::DoNotOptimize(key);
     }
@@ -332,7 +326,7 @@ BENCHMARK(BM_Ipv6LpmKeyConstruction);
 // IP formatting (for logging/output)
 static void BM_FormatIpv4(benchmark::State& state)
 {
-    uint32_t ip_be = htonl(0xC0A80164);  // 192.168.1.100
+    uint32_t ip_be = htonl(0xC0A80164); // 192.168.1.100
     for (auto _ : state) {
         std::string result = format_ipv4(ip_be);
         benchmark::DoNotOptimize(result);
@@ -415,7 +409,7 @@ static void BM_DirectionName(benchmark::State& state)
 }
 BENCHMARK(BM_DirectionName);
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis
 
 BENCHMARK_MAIN();

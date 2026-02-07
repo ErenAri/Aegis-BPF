@@ -1,15 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "cli_run.hpp"
 
+#include <cstdint>
+#include <cstring>
+#include <string>
+
 #include "cli_common.hpp"
 #include "daemon.hpp"
 #include "events.hpp"
 #include "logging.hpp"
 #include "utils.hpp"
-
-#include <cstdint>
-#include <cstring>
-#include <string>
 
 namespace aegis {
 
@@ -47,19 +47,18 @@ bool parse_enforce_signal_option(const std::string& value, uint8_t& out)
 
     uint64_t signal = 0;
     if (parse_uint64(value, signal) && signal <= UINT8_MAX &&
-        (signal == kEnforceSignalNone || signal == kEnforceSignalInt ||
-         signal == kEnforceSignalKill || signal == kEnforceSignalTerm)) {
+        (signal == kEnforceSignalNone || signal == kEnforceSignalInt || signal == kEnforceSignalKill ||
+         signal == kEnforceSignalTerm)) {
         out = static_cast<uint8_t>(signal);
         return true;
     }
 
-    logger().log(SLOG_ERROR("Invalid enforce signal")
-                     .field("value", value)
-                     .field("allowed", "none|term|kill|int|0|2|9|15"));
+    logger().log(
+        SLOG_ERROR("Invalid enforce signal").field("value", value).field("allowed", "none|term|kill|int|0|2|9|15"));
     return false;
 }
 
-}  // namespace
+} // namespace
 
 int dispatch_run_command(int argc, char** argv, const char* prog)
 {
@@ -78,110 +77,105 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         std::string arg = argv[i];
         if (arg == "--audit" || arg == "--mode=audit") {
             audit_only = true;
-        }
-        else if (arg == "--enforce" || arg == "--mode=enforce") {
+        } else if (arg == "--enforce" || arg == "--mode=enforce") {
             audit_only = false;
-        }
-        else if (arg == "--seccomp") {
+        } else if (arg == "--seccomp") {
             enable_seccomp = true;
-        }
-        else if (arg == "--allow-sigkill") {
+        } else if (arg == "--allow-sigkill") {
             allow_sigkill = true;
-        }
-        else if (arg.rfind("--deadman-ttl=", 0) == 0) {
+        } else if (arg.rfind("--deadman-ttl=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--deadman-ttl="));
-            if (!parse_u32_option(value, deadman_ttl, "Invalid deadman TTL value", false)) return 1;
-        }
-        else if (arg == "--deadman-ttl") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!parse_u32_option(argv[++i], deadman_ttl, "Invalid deadman TTL value", false)) return 1;
-        }
-        else if (arg.rfind("--log=", 0) == 0) {
+            if (!parse_u32_option(value, deadman_ttl, "Invalid deadman TTL value", false))
+                return 1;
+        } else if (arg == "--deadman-ttl") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], deadman_ttl, "Invalid deadman TTL value", false))
+                return 1;
+        } else if (arg.rfind("--log=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--log="));
-            if (!set_event_log_sink(value)) return usage(prog);
-        }
-        else if (arg == "--log") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!set_event_log_sink(argv[++i])) return usage(prog);
-        }
-        else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {
+            if (!set_event_log_sink(value))
+                return usage(prog);
+        } else if (arg == "--log") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!set_event_log_sink(argv[++i]))
+                return usage(prog);
+        } else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {
             // Already processed globally.
-        }
-        else if (arg.rfind("--ringbuf-bytes=", 0) == 0) {
+        } else if (arg.rfind("--ringbuf-bytes=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--ringbuf-bytes="));
-            if (!parse_u32_option(value, ringbuf_bytes, "Invalid ringbuf size", false)) return 1;
-        }
-        else if (arg == "--ringbuf-bytes") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!parse_u32_option(argv[++i], ringbuf_bytes, "Invalid ringbuf size", false)) return 1;
-        }
-        else if (arg.rfind("--event-sample-rate=", 0) == 0) {
+            if (!parse_u32_option(value, ringbuf_bytes, "Invalid ringbuf size", false))
+                return 1;
+        } else if (arg == "--ringbuf-bytes") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], ringbuf_bytes, "Invalid ringbuf size", false))
+                return 1;
+        } else if (arg.rfind("--event-sample-rate=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--event-sample-rate="));
-            if (!parse_u32_option(value, event_sample_rate, "Invalid event sample rate", true)) return 1;
-        }
-        else if (arg == "--event-sample-rate") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!parse_u32_option(argv[++i], event_sample_rate, "Invalid event sample rate", true)) return 1;
-        }
-        else if (arg.rfind("--enforce-signal=", 0) == 0) {
+            if (!parse_u32_option(value, event_sample_rate, "Invalid event sample rate", true))
+                return 1;
+        } else if (arg == "--event-sample-rate") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], event_sample_rate, "Invalid event sample rate", true))
+                return 1;
+        } else if (arg.rfind("--enforce-signal=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--enforce-signal="));
-            if (!parse_enforce_signal_option(value, enforce_signal)) return 1;
-        }
-        else if (arg == "--enforce-signal") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!parse_enforce_signal_option(argv[++i], enforce_signal)) return 1;
-        }
-        else if (arg.rfind("--kill-escalation-threshold=", 0) == 0) {
+            if (!parse_enforce_signal_option(value, enforce_signal))
+                return 1;
+        } else if (arg == "--enforce-signal") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_enforce_signal_option(argv[++i], enforce_signal))
+                return 1;
+        } else if (arg.rfind("--kill-escalation-threshold=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--kill-escalation-threshold="));
-            if (!parse_u32_option(value, sigkill_escalation_threshold,
-                                  "Invalid SIGKILL escalation threshold", true)) {
+            if (!parse_u32_option(value, sigkill_escalation_threshold, "Invalid SIGKILL escalation threshold", true)) {
                 return 1;
             }
-        }
-        else if (arg == "--kill-escalation-threshold") {
-            if (i + 1 >= argc) return usage(prog);
-            if (!parse_u32_option(argv[++i], sigkill_escalation_threshold,
-                                  "Invalid SIGKILL escalation threshold", true)) {
+        } else if (arg == "--kill-escalation-threshold") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], sigkill_escalation_threshold, "Invalid SIGKILL escalation threshold",
+                                  true)) {
                 return 1;
             }
-        }
-        else if (arg.rfind("--kill-escalation-window-seconds=", 0) == 0) {
+        } else if (arg.rfind("--kill-escalation-window-seconds=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--kill-escalation-window-seconds="));
-            if (!parse_u32_option(value, sigkill_escalation_window_seconds,
-                                  "Invalid SIGKILL escalation window seconds", true)) {
+            if (!parse_u32_option(value, sigkill_escalation_window_seconds, "Invalid SIGKILL escalation window seconds",
+                                  true)) {
                 return 1;
             }
-        }
-        else if (arg == "--kill-escalation-window-seconds") {
-            if (i + 1 >= argc) return usage(prog);
+        } else if (arg == "--kill-escalation-window-seconds") {
+            if (i + 1 >= argc)
+                return usage(prog);
             if (!parse_u32_option(argv[++i], sigkill_escalation_window_seconds,
                                   "Invalid SIGKILL escalation window seconds", true)) {
                 return 1;
             }
-        }
-        else if (arg.rfind("--lsm-hook=", 0) == 0) {
+        } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
                 logger().log(SLOG_ERROR("Invalid lsm hook value").field("value", value));
                 return 1;
             }
-        }
-        else if (arg == "--lsm-hook") {
-            if (i + 1 >= argc) return usage(prog);
+        } else if (arg == "--lsm-hook") {
+            if (i + 1 >= argc)
+                return usage(prog);
             std::string value = argv[++i];
             if (!parse_lsm_hook(value, lsm_hook)) {
                 logger().log(SLOG_ERROR("Invalid lsm hook value").field("value", value));
                 return 1;
             }
-        }
-        else {
+        } else {
             return usage(prog);
         }
     }
 
-    return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook,
-                      ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
-                      sigkill_escalation_window_seconds);
+    return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
+                      event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds);
 }
 
-}  // namespace aegis
+} // namespace aegis

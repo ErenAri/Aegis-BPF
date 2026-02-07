@@ -1,9 +1,9 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "types.hpp"
-
 #include <string>
+
+#include "types.hpp"
 
 namespace aegis {
 
@@ -29,4 +29,4 @@ void journal_send_block(const BlockEvent& ev, const std::string& payload, const 
                         const std::string& comm, const std::string& exec_id, const std::string& parent_exec_id);
 #endif
 
-}  // namespace aegis
+} // namespace aegis

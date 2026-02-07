@@ -1,10 +1,8 @@
 // cppcheck-suppress-file missingIncludeSystem
 // cppcheck-suppress-file missingInclude
 #include <gtest/gtest.h>
-
-#include "commands.hpp"
-#include "crypto.hpp"
-#include "logging.hpp"
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -12,8 +10,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
+
+#include "commands.hpp"
+#include "crypto.hpp"
+#include "logging.hpp"
 
 namespace aegis {
 namespace {
@@ -24,8 +24,7 @@ class TempDir {
     {
         static uint64_t counter = 0;
         path_ = std::filesystem::temp_directory_path() /
-                ("aegisbpf_cmd_test_" + std::to_string(getpid()) + "_" +
-                 std::to_string(counter++) + "_" +
+                ("aegisbpf_cmd_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) + "_" +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::create_directories(path_);
     }
@@ -58,8 +57,7 @@ class ScopedEnvVar {
     {
         if (had_previous_) {
             ::setenv(key_, previous_.c_str(), 1);
-        }
-        else {
+        } else {
             ::unsetenv(key_);
         }
     }
@@ -452,5 +450,5 @@ TEST(CmdTracingTest, StatsCommandEmitsNestedLoadBpfSpan)
     EXPECT_NE(log.find("\"parent_span_id\":\"span-"), std::string::npos);
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

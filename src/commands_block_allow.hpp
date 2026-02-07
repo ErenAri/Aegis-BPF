@@ -16,4 +16,4 @@ int cmd_allow_add(const std::string& path);
 int cmd_allow_del(const std::string& path);
 int cmd_allow_list();
 
-}  // namespace aegis
+} // namespace aegis

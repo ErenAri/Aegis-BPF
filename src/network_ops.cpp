@@ -1,14 +1,16 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "network_ops.hpp"
-#include "bpf_ops.hpp"
-#include "logging.hpp"
 
 #include <arpa/inet.h>
+
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <numeric>
 #include <sstream>
+
+#include "bpf_ops.hpp"
+#include "logging.hpp"
 
 namespace aegis {
 
@@ -52,8 +54,7 @@ bool parse_cidr_v4(const std::string& cidr_str, uint32_t& ip_be, uint8_t& prefix
             return false;
         }
         prefix_len = static_cast<uint8_t>(prefix);
-    }
-    catch (...) {
+    } catch (...) {
         return false;
     }
 
@@ -80,8 +81,7 @@ bool parse_cidr_v6(const std::string& cidr_str, Ipv6Key& ip, uint8_t& prefix_len
             return false;
         }
         prefix_len = static_cast<uint8_t>(prefix);
-    }
-    catch (...) {
+    } catch (...) {
         return false;
     }
 
@@ -161,33 +161,33 @@ std::string format_net_ip_key(const NetIpKey& key)
     return "unknown";
 }
 
-}  // namespace
+} // namespace
 
 std::string protocol_name(uint8_t protocol)
 {
     switch (protocol) {
-    case 0:
-        return "any";
-    case 6:
-        return "tcp";
-    case 17:
-        return "udp";
-    default:
-        return std::to_string(protocol);
+        case 0:
+            return "any";
+        case 6:
+            return "tcp";
+        case 17:
+            return "udp";
+        default:
+            return std::to_string(protocol);
     }
 }
 
 std::string direction_name(uint8_t direction)
 {
     switch (direction) {
-    case 0:
-        return "egress";
-    case 1:
-        return "bind";
-    case 2:
-        return "both";
-    default:
-        return "unknown";
+        case 0:
+            return "egress";
+        case 1:
+            return "bind";
+        case 2:
+            return "both";
+        default:
+            return "unknown";
     }
 }
 
@@ -249,7 +249,7 @@ Result<void> load_network_maps(BpfState& state, bool reuse_pins)
 Result<void> pin_network_maps(BpfState& state)
 {
     if (!state.deny_ipv4 && !state.deny_ipv6) {
-        return {};  // Network maps not loaded
+        return {}; // Network maps not loaded
     }
 
     TRY(ensure_pin_dir());
@@ -296,8 +296,7 @@ Result<void> attach_network_hooks(BpfState& state, bool lsm_enabled)
         int err = libbpf_get_error(link);
         if (err || !link) {
             logger().log(SLOG_WARN("Failed to attach socket_connect hook").field("error", static_cast<int64_t>(err)));
-        }
-        else {
+        } else {
             state.links.push_back(link);
             logger().log(SLOG_INFO("Attached network socket_connect hook"));
         }
@@ -310,8 +309,7 @@ Result<void> attach_network_hooks(BpfState& state, bool lsm_enabled)
         int err = libbpf_get_error(link);
         if (err || !link) {
             logger().log(SLOG_WARN("Failed to attach socket_bind hook").field("error", static_cast<int64_t>(err)));
-        }
-        else {
+        } else {
             state.links.push_back(link);
             logger().log(SLOG_INFO("Attached network socket_bind hook"));
         }
@@ -484,9 +482,7 @@ Result<void> add_deny_cidr_v4(BpfState& state, const std::string& cidr)
         return Error(ErrorCode::InvalidArgument, "Invalid CIDR notation", cidr);
     }
 
-    Ipv4LpmKey key = {
-        .prefixlen = prefix_len,
-        .addr = ip_be};
+    Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ip_be};
 
     uint8_t one = 1;
     if (bpf_map_update_elem(bpf_map__fd(state.deny_cidr_v4), &key, &one, BPF_ANY)) {
@@ -507,9 +503,7 @@ Result<void> del_deny_cidr_v4(BpfState& state, const std::string& cidr)
         return Error(ErrorCode::InvalidArgument, "Invalid CIDR notation", cidr);
     }
 
-    Ipv4LpmKey key = {
-        .prefixlen = prefix_len,
-        .addr = ip_be};
+    Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ip_be};
 
     if (bpf_map_delete_elem(bpf_map__fd(state.deny_cidr_v4), &key)) {
         if (errno == ENOENT) {
@@ -552,9 +546,7 @@ Result<void> add_deny_cidr_v6(BpfState& state, const std::string& cidr)
         return Error(ErrorCode::InvalidArgument, "Invalid CIDR notation", cidr);
     }
 
-    Ipv6LpmKey key = {
-        .prefixlen = prefix_len,
-        .addr = {0}};
+    Ipv6LpmKey key = {.prefixlen = prefix_len, .addr = {0}};
     std::memcpy(key.addr, ip.addr, sizeof(key.addr));
 
     uint8_t one = 1;
@@ -576,9 +568,7 @@ Result<void> del_deny_cidr_v6(BpfState& state, const std::string& cidr)
         return Error(ErrorCode::InvalidArgument, "Invalid CIDR notation", cidr);
     }
 
-    Ipv6LpmKey key = {
-        .prefixlen = prefix_len,
-        .addr = {0}};
+    Ipv6LpmKey key = {.prefixlen = prefix_len, .addr = {0}};
     std::memcpy(key.addr, ip.addr, sizeof(key.addr));
 
     if (bpf_map_delete_elem(bpf_map__fd(state.deny_cidr_v6), &key)) {
@@ -648,10 +638,7 @@ Result<void> add_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uin
         return Error(ErrorCode::BpfMapOperationFailed, "Network deny_port map not loaded");
     }
 
-    PortKey key = {
-        .port = port,
-        .protocol = protocol,
-        .direction = direction};
+    PortKey key = {.port = port, .protocol = protocol, .direction = direction};
 
     uint8_t one = 1;
     if (bpf_map_update_elem(bpf_map__fd(state.deny_port), &key, &one, BPF_ANY)) {
@@ -666,10 +653,7 @@ Result<void> del_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uin
         return Error(ErrorCode::BpfMapOperationFailed, "Network deny_port map not loaded");
     }
 
-    PortKey key = {
-        .port = port,
-        .protocol = protocol,
-        .direction = direction};
+    PortKey key = {.port = port, .protocol = protocol, .direction = direction};
 
     if (bpf_map_delete_elem(bpf_map__fd(state.deny_port), &key)) {
         if (errno == ENOENT) {
@@ -837,4 +821,4 @@ Result<void> clear_network_maps(BpfState& state)
     return {};
 }
 
-}  // namespace aegis
+} // namespace aegis

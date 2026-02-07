@@ -1,24 +1,27 @@
 // cppcheck-suppress-file missingIncludeSystem
 // cppcheck-suppress-file toomanyconfigs
 #include "seccomp.hpp"
-#include "logging.hpp"
 
-#include <linux/seccomp.h>
-#include <linux/filter.h>
 #include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
 #include <cerrno>
 #include <cstring>
 
+#include "logging.hpp"
+
 // Architecture-specific audit value
 #if defined(__x86_64__)
-#define AUDIT_ARCH_CURRENT AUDIT_ARCH_X86_64
+#    define AUDIT_ARCH_CURRENT AUDIT_ARCH_X86_64
 #elif defined(__aarch64__)
-#define AUDIT_ARCH_CURRENT AUDIT_ARCH_AARCH64
+#    define AUDIT_ARCH_CURRENT AUDIT_ARCH_AARCH64
 #else
-#error "Unsupported architecture for seccomp"
+#    error "Unsupported architecture for seccomp"
 #endif
 
 namespace aegis {
@@ -171,7 +174,7 @@ static const unsigned int ALLOWED_SYSCALLS[] = {
 
 static const size_t NUM_ALLOWED = sizeof(ALLOWED_SYSCALLS) / sizeof(ALLOWED_SYSCALLS[0]);
 
-}  // anonymous namespace
+} // anonymous namespace
 
 bool seccomp_available()
 {
@@ -215,8 +218,8 @@ Result<void> apply_seccomp_filter()
         size_t remaining = NUM_ALLOWED - i - 1;
         // Jump to ALLOW (skip remaining*2 + 1 instructions) if equal
         // Jump offset for true: skip all remaining comparisons (remaining * 2) + default deny (1) - 1 = remaining*2
-        filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ALLOWED_SYSCALLS[i],
-                                  static_cast<uint8_t>(remaining * 2 + 1), 0));
+        filter.push_back(
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ALLOWED_SYSCALLS[i], static_cast<uint8_t>(remaining * 2 + 1), 0));
     }
 
     // Default: kill process for disallowed syscalls
@@ -226,9 +229,7 @@ Result<void> apply_seccomp_filter()
     filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
 
     // Set up the BPF program
-    struct sock_fprog prog = {
-        .len = static_cast<unsigned short>(filter.size()),
-        .filter = filter.data()};
+    struct sock_fprog prog = {.len = static_cast<unsigned short>(filter.size()), .filter = filter.data()};
 
     // Set NO_NEW_PRIVS first (required for unprivileged seccomp)
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
@@ -244,4 +245,4 @@ Result<void> apply_seccomp_filter()
     return {};
 }
 
-}  // namespace aegis
+} // namespace aegis

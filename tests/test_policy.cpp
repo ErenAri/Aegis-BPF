@@ -2,12 +2,14 @@
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <vector>
-#include <unistd.h>
+
 #include "policy.hpp"
 #include "utils.hpp"
 
@@ -22,10 +24,7 @@ class PolicyTest : public ::testing::Test {
         std::filesystem::create_directories(test_dir_);
     }
 
-    void TearDown() override
-    {
-        std::filesystem::remove_all(test_dir_);
-    }
+    void TearDown() override { std::filesystem::remove_all(test_dir_); }
 
     std::string CreateTestPolicy(const std::string& content)
     {
@@ -274,11 +273,7 @@ TEST_F(PolicyTest, NonexistentFile)
 
 TEST_F(PolicyTest, ApplyRejectsConflictingHashOptions)
 {
-    auto result = policy_apply("/tmp/does-not-matter.policy",
-                               false,
-                               std::string(64, 'a'),
-                               "/tmp/policy.sha256",
-                               true);
+    auto result = policy_apply("/tmp/does-not-matter.policy", false, std::string(64, 'a'), "/tmp/policy.sha256", true);
     EXPECT_FALSE(result);
     EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
 }
@@ -299,8 +294,7 @@ class ScopedEnvVar {
     {
         if (had_previous_) {
             ::setenv(key_, previous_.c_str(), 1);
-        }
-        else {
+        } else {
             ::unsetenv(key_);
         }
     }
@@ -324,9 +318,7 @@ bool g_fail_second_apply_call = false;
 Error g_first_apply_error(ErrorCode::PolicyApplyFailed, "Injected apply failure");
 Error g_second_apply_error(ErrorCode::PolicyApplyFailed, "Injected rollback failure");
 
-Result<void> fake_apply_policy_internal(const std::string& path,
-                                        const std::string& computed_hash,
-                                        bool reset,
+Result<void> fake_apply_policy_internal(const std::string& path, const std::string& computed_hash, bool reset,
                                         bool record)
 {
     g_apply_calls.push_back(ApplyCall{path, computed_hash, reset, record});
@@ -345,8 +337,7 @@ class PolicyRollbackTest : public ::testing::Test {
     {
         static uint64_t counter = 0;
         test_dir_ = std::filesystem::temp_directory_path() /
-                    ("aegisbpf_policy_rollback_test_" + std::to_string(getpid()) + "_" +
-                     std::to_string(counter++));
+                    ("aegisbpf_policy_rollback_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++));
         std::filesystem::create_directories(test_dir_);
         g_apply_calls.clear();
         g_fail_first_apply_call = true;
@@ -370,12 +361,9 @@ class PolicyRollbackTest : public ::testing::Test {
         out << content;
         std::error_code ec;
         std::filesystem::permissions(file,
-                                     std::filesystem::perms::owner_read |
-                                         std::filesystem::perms::owner_write |
-                                         std::filesystem::perms::group_read |
-                                         std::filesystem::perms::others_read,
-                                     std::filesystem::perm_options::replace,
-                                     ec);
+                                     std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                                         std::filesystem::perms::group_read | std::filesystem::perms::others_read,
+                                     std::filesystem::perm_options::replace, ec);
         EXPECT_FALSE(ec);
         return file.string();
     }
@@ -477,11 +465,9 @@ TEST_F(PolicyRollbackTest, RollbackControlPathCompletesWithinFiveSecondsUnderLoa
         ASSERT_FALSE(result);
         ASSERT_EQ(g_apply_calls.size(), 2u);
     }
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - start);
-    EXPECT_LT(elapsed.count(), 5000) << "rollback control path exceeded 5s target: "
-                                     << elapsed.count() << "ms";
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    EXPECT_LT(elapsed.count(), 5000) << "rollback control path exceeded 5s target: " << elapsed.count() << "ms";
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

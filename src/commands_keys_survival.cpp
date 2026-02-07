@@ -5,18 +5,18 @@
 
 #include "commands_keys_survival.hpp"
 
-#include "bpf_ops.hpp"
-#include "crypto.hpp"
-#include "logging.hpp"
-#include "tracing.hpp"
-#include "utils.hpp"
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+
+#include "bpf_ops.hpp"
+#include "crypto.hpp"
+#include "logging.hpp"
+#include "tracing.hpp"
+#include "utils.hpp"
 
 namespace aegis {
 
@@ -28,7 +28,7 @@ int fail_span(ScopedSpan& span, const std::string& message)
     return 1;
 }
 
-}  // namespace
+} // namespace
 
 int cmd_keys_list()
 {
@@ -37,8 +37,7 @@ int cmd_keys_list()
 
     auto result = load_trusted_keys();
     if (!result) {
-        logger().log(SLOG_ERROR("Failed to list keys")
-                         .field("error", result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to list keys").field("error", result.error().to_string()));
         return fail_span(span, result.error().to_string());
     }
     for (const auto& key : *result) {
@@ -47,7 +46,7 @@ int cmd_keys_list()
         for (size_t i = 0; i < std::min(key.size(), size_t(8)); ++i) {
             oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(key[i]);
         }
-        std::cout << oss.str() << "..." << std::endl;
+        std::cout << oss.str() << "..." << '\n';
     }
     return 0;
 }
@@ -77,16 +76,14 @@ int cmd_keys_add(const std::string& key_file)
     std::error_code ec;
     std::filesystem::create_directories(keys_dir, ec);
     if (ec) {
-        logger().log(SLOG_ERROR("Failed to create keys directory")
-                         .field("error", ec.message()));
+        logger().log(SLOG_ERROR("Failed to create keys directory").field("error", ec.message()));
         return fail_span(span, ec.message());
     }
 
     std::string dest = keys_dir + "/" + std::filesystem::path(key_file).filename().string();
     std::filesystem::copy_file(key_file, dest, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-        logger().log(SLOG_ERROR("Failed to copy key file")
-                         .field("error", ec.message()));
+        logger().log(SLOG_ERROR("Failed to copy key file").field("error", ec.message()));
         return fail_span(span, ec.message());
     }
 
@@ -102,21 +99,19 @@ int cmd_survival_list()
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
     auto ids_result = read_survival_allowlist(state);
     if (!ids_result) {
-        logger().log(SLOG_ERROR("Failed to read survival allowlist")
-                         .field("error", ids_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to read survival allowlist").field("error", ids_result.error().to_string()));
         return fail_span(span, ids_result.error().to_string());
     }
 
-    std::cout << "Survival allowlist:" << std::endl;
+    std::cout << "Survival allowlist:" << '\n';
     for (const auto& id : *ids_result) {
-        std::cout << "  " << id.dev << ":" << id.ino << std::endl;
+        std::cout << "  " << id.dev << ":" << id.ino << '\n';
     }
     return 0;
 }
@@ -129,15 +124,13 @@ int cmd_survival_verify()
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
     auto ids_result = read_survival_allowlist(state);
     if (!ids_result) {
-        logger().log(SLOG_ERROR("Failed to read survival allowlist")
-                         .field("error", ids_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to read survival allowlist").field("error", ids_result.error().to_string()));
         return fail_span(span, ids_result.error().to_string());
     }
 
@@ -153,12 +146,12 @@ int cmd_survival_verify()
 
     if (errors > 0) {
         span.fail("survival allowlist verification failed");
-        std::cout << "Survival allowlist verification found " << errors << " issues" << std::endl;
+        std::cout << "Survival allowlist verification found " << errors << " issues" << '\n';
         return 1;
     }
 
-    std::cout << "Survival allowlist verified successfully (" << ids_result->size() << " entries)" << std::endl;
+    std::cout << "Survival allowlist verified successfully (" << ids_result->size() << " entries)" << '\n';
     return 0;
 }
 
-}  // namespace aegis
+} // namespace aegis

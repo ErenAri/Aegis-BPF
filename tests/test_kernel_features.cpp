@@ -1,13 +1,13 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <gtest/gtest.h>
-
-#include "kernel_features.hpp"
+#include <unistd.h>
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <unistd.h>
+
+#include "kernel_features.hpp"
 
 namespace aegis {
 namespace {
@@ -28,8 +28,7 @@ class ScopedEnvVar {
     {
         if (had_previous_) {
             ::setenv(key_, previous_.c_str(), 1);
-        }
-        else {
+        } else {
             ::unsetenv(key_);
         }
     }
@@ -46,8 +45,7 @@ class TempDir {
     {
         static uint64_t counter = 0;
         path_ = std::filesystem::temp_directory_path() /
-                ("aegisbpf_kernel_features_test_" + std::to_string(getpid()) + "_" +
-                 std::to_string(counter++));
+                ("aegisbpf_kernel_features_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++));
         std::filesystem::create_directories(path_);
     }
 
@@ -154,5 +152,5 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     EXPECT_FALSE(check_bpffs_mounted());
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

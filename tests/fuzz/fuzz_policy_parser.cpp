@@ -15,14 +15,15 @@
  *   ./fuzz_policy corpus/ -max_total_time=300
  */
 
-#include "policy.hpp"
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <cerrno>
-#include <cstdio>
 #include <cstdint>
-#include <fcntl.h>
+#include <cstdio>
 #include <string>
-#include <unistd.h>
+
+#include "policy.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {

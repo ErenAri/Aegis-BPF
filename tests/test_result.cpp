@@ -2,6 +2,7 @@
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
+
 #include "result.hpp"
 
 namespace aegis {
@@ -114,5 +115,5 @@ TEST(ErrorTest, BpfError)
     EXPECT_EQ(e.code(), ErrorCode::BpfLoadFailed);
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

@@ -10,13 +10,13 @@
  *   ./fuzz_event corpus/ -max_total_time=300
  */
 
-#include "events.hpp"
-#include "types.hpp"
-#include "utils.hpp"
-
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+#include "events.hpp"
+#include "types.hpp"
+#include "utils.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
@@ -32,14 +32,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         aegis::ExecEvent ev{};
         std::memcpy(&ev, data, std::min(size, sizeof(ev)));
         aegis::print_exec_event(ev);
-    }
-    else if (event_type == aegis::EVENT_BLOCK && size >= sizeof(aegis::BlockEvent)) {
+    } else if (event_type == aegis::EVENT_BLOCK && size >= sizeof(aegis::BlockEvent)) {
         aegis::BlockEvent ev{};
         std::memcpy(&ev, data, std::min(size, sizeof(ev)));
         aegis::print_block_event(ev);
-    }
-    else if ((event_type == aegis::EVENT_NET_CONNECT_BLOCK || event_type == aegis::EVENT_NET_BIND_BLOCK) &&
-             size >= sizeof(aegis::NetBlockEvent)) {
+    } else if ((event_type == aegis::EVENT_NET_CONNECT_BLOCK || event_type == aegis::EVENT_NET_BIND_BLOCK) &&
+               size >= sizeof(aegis::NetBlockEvent)) {
         aegis::NetBlockEvent ev{};
         std::memcpy(&ev, data, std::min(size, sizeof(ev)));
         aegis::print_net_block_event(ev);

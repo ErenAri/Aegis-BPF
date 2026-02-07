@@ -2,13 +2,14 @@
 // cppcheck-suppress-file missingInclude
 // cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
-#include "utils.hpp"
+#include <unistd.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <unistd.h>
+
+#include "utils.hpp"
 
 namespace aegis {
 namespace {
@@ -17,8 +18,7 @@ std::filesystem::path make_temp_file_path()
 {
     static uint64_t counter = 0;
     return std::filesystem::temp_directory_path() /
-           ("aegisbpf_utils_test_" + std::to_string(getpid()) + "_" +
-            std::to_string(counter++) + "_" +
+           ("aegisbpf_utils_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) + "_" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
 
@@ -319,10 +319,8 @@ TEST(ValidateFilePermissionsTest, RegularFilePasses)
     }
     std::error_code ec;
     std::filesystem::permissions(file,
-                                 std::filesystem::perms::owner_read |
-                                     std::filesystem::perms::owner_write |
-                                     std::filesystem::perms::group_read |
-                                     std::filesystem::perms::others_read,
+                                 std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::others_read,
                                  std::filesystem::perm_options::replace, ec);
     ASSERT_FALSE(ec);
 
@@ -342,18 +340,16 @@ TEST(ValidateFilePermissionsTest, WorldWritableFileFails)
     }
 
     std::error_code ec;
-    std::filesystem::permissions(file, std::filesystem::perms::others_write,
-                                 std::filesystem::perm_options::add, ec);
+    std::filesystem::permissions(file, std::filesystem::perms::others_write, std::filesystem::perm_options::add, ec);
     ASSERT_FALSE(ec);
 
     auto result = validate_file_permissions(file.string(), false);
     EXPECT_FALSE(result);
     EXPECT_EQ(result.error().code(), ErrorCode::PermissionDenied);
 
-    std::filesystem::permissions(file, std::filesystem::perms::others_write,
-                                 std::filesystem::perm_options::remove, ec);
+    std::filesystem::permissions(file, std::filesystem::perms::others_write, std::filesystem::perm_options::remove, ec);
     std::filesystem::remove(file, ec);
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

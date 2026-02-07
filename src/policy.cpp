@@ -1,11 +1,5 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "policy.hpp"
-#include "bpf_ops.hpp"
-#include "logging.hpp"
-#include "network_ops.hpp"
-#include "sha256.hpp"
-#include "tracing.hpp"
-#include "utils.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -15,6 +9,13 @@
 #include <limits>
 #include <unordered_set>
 
+#include "bpf_ops.hpp"
+#include "logging.hpp"
+#include "network_ops.hpp"
+#include "sha256.hpp"
+#include "tracing.hpp"
+#include "utils.hpp"
+
 namespace aegis {
 
 namespace {
@@ -23,8 +24,7 @@ thread_local std::string g_policy_trace_id;
 
 class PolicyTraceScope {
   public:
-    explicit PolicyTraceScope(std::string trace_id)
-        : previous_(std::move(g_policy_trace_id))
+    explicit PolicyTraceScope(std::string trace_id) : previous_(std::move(g_policy_trace_id))
     {
         g_policy_trace_id = std::move(trace_id);
     }
@@ -67,7 +67,7 @@ std::string policy_applied_hash_path()
     return env_or_default_path("AEGIS_POLICY_APPLIED_HASH_PATH", kPolicyAppliedHashPath);
 }
 
-}  // namespace
+} // namespace
 
 void report_policy_issues(const PolicyIssues& issues)
 {
@@ -83,7 +83,7 @@ void report_policy_issues(const PolicyIssues& issues)
 static bool parse_port_rule(const std::string& str, PortRule& rule)
 {
     rule = {};
-    rule.direction = 2;  // both
+    rule.direction = 2; // both
 
     std::vector<std::string> parts;
     std::string current;
@@ -91,8 +91,7 @@ static bool parse_port_rule(const std::string& str, PortRule& rule)
         if (c == ':') {
             parts.push_back(current);
             current.clear();
-        }
-        else {
+        } else {
             current += c;
         }
     }
@@ -111,14 +110,11 @@ static bool parse_port_rule(const std::string& str, PortRule& rule)
     if (parts.size() > 1 && !parts[1].empty()) {
         if (parts[1] == "tcp") {
             rule.protocol = 6;
-        }
-        else if (parts[1] == "udp") {
+        } else if (parts[1] == "udp") {
             rule.protocol = 17;
-        }
-        else if (parts[1] == "any") {
+        } else if (parts[1] == "any") {
             rule.protocol = 0;
-        }
-        else {
+        } else {
             return false;
         }
     }
@@ -126,14 +122,11 @@ static bool parse_port_rule(const std::string& str, PortRule& rule)
     if (parts.size() > 2 && !parts[2].empty()) {
         if (parts[2] == "egress" || parts[2] == "connect") {
             rule.direction = 0;
-        }
-        else if (parts[2] == "bind") {
+        } else if (parts[2] == "bind") {
             rule.direction = 1;
-        }
-        else if (parts[2] == "both") {
+        } else if (parts[2] == "both") {
             rule.direction = 2;
-        }
-        else {
+        } else {
             return false;
         }
     }
@@ -162,9 +155,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     size_t line_no = 0;
 
     // Valid sections
-    static const std::unordered_set<std::string> valid_sections = {
-        "deny_path", "deny_inode", "allow_cgroup",
-        "deny_ip", "deny_cidr", "deny_port"};
+    static const std::unordered_set<std::string> valid_sections = {"deny_path", "deny_inode", "allow_cgroup",
+                                                                   "deny_ip",   "deny_cidr",  "deny_port"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -197,8 +189,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                     continue;
                 }
                 policy.version = static_cast<int>(version);
-            }
-            else {
+            } else {
                 issues.errors.push_back("line " + std::to_string(line_no) + ": unknown header key '" + key + "'");
             }
             continue;
@@ -273,7 +264,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             uint8_t prefix_len;
             Ipv6Key ipv6{};
             if (!parse_cidr_v4(trimmed, ip_be, prefix_len) && !parse_cidr_v6(trimmed, ipv6, prefix_len)) {
-                issues.errors.push_back("line " + std::to_string(line_no) + ": invalid CIDR notation '" + trimmed + "'");
+                issues.errors.push_back("line " + std::to_string(line_no) + ": invalid CIDR notation '" + trimmed +
+                                        "'");
                 continue;
             }
             if (deny_cidr_seen.insert(trimmed).second) {
@@ -325,9 +317,8 @@ Result<void> record_applied_policy(const std::string& path, const std::string& h
 
     std::error_code ec;
     if (std::filesystem::exists(applied_path, ec)) {
-        std::filesystem::copy_file(
-            applied_path, applied_prev_path,
-            std::filesystem::copy_options::overwrite_existing, ec);
+        std::filesystem::copy_file(applied_path, applied_prev_path, std::filesystem::copy_options::overwrite_existing,
+                                   ec);
         if (ec) {
             return Error(ErrorCode::IoError, "Failed to backup applied policy", ec.message());
         }
@@ -352,8 +343,7 @@ Result<void> record_applied_policy(const std::string& path, const std::string& h
             return Error::system(errno, "Failed to open policy hash file for writing");
         }
         hout << hash << "\n";
-    }
-    else {
+    } else {
         std::error_code rm_ec;
         std::filesystem::remove(applied_hash_path, rm_ec);
         if (rm_ec) {
@@ -410,7 +400,8 @@ Result<void> policy_lint(const std::string& path)
     return {};
 }
 
-Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::string& computed_hash, bool reset, bool record)
+Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::string& computed_hash, bool reset,
+                                           bool record)
 {
     ScopedSpan root_span("policy.apply_internal", active_policy_trace_id());
     auto fail = [&](const Error& err) -> Result<void> {
@@ -512,17 +503,15 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         for (const auto& ip : policy.network.deny_ips) {
             auto result = add_deny_ip(state, ip);
             if (!result) {
-                logger().log(SLOG_WARN("Failed to add deny IP")
-                                 .field("ip", ip)
-                                 .field("error", result.error().message()));
+                logger().log(
+                    SLOG_WARN("Failed to add deny IP").field("ip", ip).field("error", result.error().message()));
             }
         }
         for (const auto& cidr : policy.network.deny_cidrs) {
             auto result = add_deny_cidr(state, cidr);
             if (!result) {
-                logger().log(SLOG_WARN("Failed to add deny CIDR")
-                                 .field("cidr", cidr)
-                                 .field("error", result.error().message()));
+                logger().log(
+                    SLOG_WARN("Failed to add deny CIDR").field("cidr", cidr).field("error", result.error().message()));
             }
         }
         for (const auto& port_rule : policy.network.deny_ports) {
@@ -652,8 +641,7 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
                 span.fail(err.to_string());
                 return fail(err);
             }
-        }
-        else if (!sha256_file_hex(path, computed_hash)) {
+        } else if (!sha256_file_hex(path, computed_hash)) {
             logger().log(SLOG_WARN("Failed to compute policy sha256; continuing without hash"));
             computed_hash.clear();
         }
@@ -739,8 +727,7 @@ Result<void> policy_export(const std::string& path)
     for (const auto& kv : db) {
         if (!kv.second.empty()) {
             deny_paths.push_back(kv.second);
-        }
-        else {
+        } else {
             deny_inodes.push_back(inode_to_string(kv.first));
         }
     }
@@ -755,8 +742,7 @@ Result<void> policy_export(const std::string& path)
         std::string cgpath = resolve_cgroup_path(id);
         if (!cgpath.empty()) {
             allow_entries.push_back(cgpath);
-        }
-        else {
+        } else {
             allow_entries.push_back("cgid:" + std::to_string(id));
         }
     }
@@ -793,4 +779,4 @@ Result<void> policy_rollback()
     return apply_policy_internal(applied_prev_path, computed_hash, true, true);
 }
 
-}  // namespace aegis
+} // namespace aegis

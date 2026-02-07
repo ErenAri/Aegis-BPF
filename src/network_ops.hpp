@@ -1,14 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "result.hpp"
-#include "types.hpp"
-
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "result.hpp"
+#include "types.hpp"
 
 namespace aegis {
 
@@ -75,4 +76,4 @@ std::string format_cidr_v6(const Ipv6Key& ip, uint8_t prefix_len);
 std::string protocol_name(uint8_t protocol);
 std::string direction_name(uint8_t direction);
 
-}  // namespace aegis
+} // namespace aegis

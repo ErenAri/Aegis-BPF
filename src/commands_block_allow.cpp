@@ -5,16 +5,17 @@
 
 #include "commands_block_allow.hpp"
 
+#include <unistd.h>
+
+#include <cstdio>
+#include <filesystem>
+#include <iostream>
+
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
-
-#include <cstdio>
-#include <filesystem>
-#include <iostream>
-#include <unistd.h>
 
 namespace aegis {
 
@@ -36,44 +37,39 @@ int block_file(const std::string& path)
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
-        logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-                         .field("error", rlimit_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
         return 1;
     }
 
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return 1;
     }
 
     auto version_result = ensure_layout_version(state);
     if (!version_result) {
-        logger().log(SLOG_ERROR("Layout version check failed")
-                         .field("error", version_result.error().to_string()));
+        logger().log(SLOG_ERROR("Layout version check failed").field("error", version_result.error().to_string()));
         return 1;
     }
 
     auto entries = read_deny_db();
     auto add_result = add_deny_path(state, *validated, entries);
     if (!add_result) {
-        logger().log(SLOG_ERROR("Failed to add deny entry")
-                         .field("error", add_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to add deny entry").field("error", add_result.error().to_string()));
         return 1;
     }
 
     auto write_result = write_deny_db(entries);
     if (!write_result) {
-        logger().log(SLOG_ERROR("Failed to write deny database")
-                         .field("error", write_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return 1;
     }
     return 0;
 }
 
-}  // namespace
+} // namespace
 
 int cmd_block_add(const std::string& path)
 {
@@ -93,8 +89,7 @@ int cmd_block_del(const std::string& path)
 
     auto inode_result = path_to_inode(path);
     if (!inode_result) {
-        logger().log(SLOG_ERROR("Failed to get inode")
-                         .field("error", inode_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to get inode").field("error", inode_result.error().to_string()));
         return fail_span(span, inode_result.error().to_string());
     }
     InodeId id = *inode_result;
@@ -121,8 +116,7 @@ int cmd_block_del(const std::string& path)
             bpf_map_delete_elem(path_fd, &raw_key);
         }
         close(path_fd);
-    }
-    else {
+    } else {
         logger().log(SLOG_WARN("deny_path_map not found"));
     }
 
@@ -130,8 +124,7 @@ int cmd_block_del(const std::string& path)
     entries.erase(id);
     auto write_result = write_deny_db(entries);
     if (!write_result) {
-        logger().log(SLOG_ERROR("Failed to write deny database")
-                         .field("error", write_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return fail_span(span, write_result.error().to_string());
     }
     return 0;
@@ -145,8 +138,7 @@ int cmd_block_list()
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
@@ -157,10 +149,9 @@ int cmd_block_list()
     while (!rc) {
         auto it = db.find(key);
         if (it != db.end() && !it->second.empty()) {
-            std::cout << it->second << " (" << inode_to_string(key) << ")" << std::endl;
-        }
-        else {
-            std::cout << inode_to_string(key) << std::endl;
+            std::cout << it->second << " (" << inode_to_string(key) << ")" << '\n';
+        } else {
+            std::cout << inode_to_string(key) << '\n';
         }
         rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), &key, &next_key);
         key = next_key;
@@ -189,23 +180,20 @@ int cmd_block_clear()
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
-        logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-                         .field("error", rlimit_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
         return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to reload BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to reload BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
     if (state.block_stats) {
         auto reset_result = reset_block_stats_map(state.block_stats);
         if (!reset_result) {
-            logger().log(SLOG_WARN("Failed to reset block stats")
-                             .field("error", reset_result.error().to_string()));
+            logger().log(SLOG_WARN("Failed to reset block stats").field("error", reset_result.error().to_string()));
         }
     }
     return 0;
@@ -224,23 +212,20 @@ int cmd_allow_add(const std::string& path)
 
     auto rlimit_result = bump_memlock_rlimit();
     if (!rlimit_result) {
-        logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-                         .field("error", rlimit_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
         return fail_span(span, rlimit_result.error().to_string());
     }
 
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
     auto add_result = add_allow_cgroup_path(state, *validated);
     if (!add_result) {
-        logger().log(SLOG_ERROR("Failed to add allow cgroup")
-                         .field("error", add_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to add allow cgroup").field("error", add_result.error().to_string()));
         return fail_span(span, add_result.error().to_string());
     }
 
@@ -254,8 +239,7 @@ int cmd_allow_del(const std::string& path)
 
     auto cgid_result = path_to_cgid(path);
     if (!cgid_result) {
-        logger().log(SLOG_ERROR("Failed to get cgroup ID")
-                         .field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to get cgroup ID").field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
     uint64_t cgid = *cgid_result;
@@ -278,23 +262,21 @@ int cmd_allow_list()
     BpfState state;
     auto load_result = load_bpf(true, false, state);
     if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail_span(span, load_result.error().to_string());
     }
 
     auto ids_result = read_allow_cgroup_ids(state.allow_cgroup);
     if (!ids_result) {
-        logger().log(SLOG_ERROR("Failed to read allow cgroup IDs")
-                         .field("error", ids_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to read allow cgroup IDs").field("error", ids_result.error().to_string()));
         return fail_span(span, ids_result.error().to_string());
     }
 
     for (uint64_t id : *ids_result) {
-        std::cout << id << std::endl;
+        std::cout << id << '\n';
     }
 
     return 0;
 }
 
-}  // namespace aegis
+} // namespace aegis

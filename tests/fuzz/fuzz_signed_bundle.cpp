@@ -15,10 +15,10 @@
  *   ./fuzz_bundle corpus/ -max_total_time=300
  */
 
-#include "crypto.hpp"
-
 #include <cstdint>
 #include <string>
+
+#include "crypto.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {

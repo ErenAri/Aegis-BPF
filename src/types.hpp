@@ -10,7 +10,7 @@
 namespace aegis {
 
 #ifndef AEGIS_ENABLE_SIGKILL_ENFORCEMENT
-#define AEGIS_ENABLE_SIGKILL_ENFORCEMENT 0
+#    define AEGIS_ENABLE_SIGKILL_ENFORCEMENT 0
 #endif
 
 inline constexpr const char* kPinRoot = "/sys/fs/bpf/aegisbpf";
@@ -64,11 +64,7 @@ enum EventType : uint32_t {
     EVENT_NET_BIND_BLOCK = 11,
 };
 
-enum class EventLogSink {
-    Stdout,
-    Journald,
-    StdoutAndJournald
-};
+enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
 
 struct ExecEvent {
     uint32_t pid;
@@ -144,8 +140,7 @@ struct PortKey {
 struct PortKeyHash {
     std::size_t operator()(const PortKey& k) const noexcept
     {
-        return std::hash<uint16_t>{}(k.port) ^
-               (std::hash<uint8_t>{}(k.protocol) << 1) ^
+        return std::hash<uint16_t>{}(k.port) ^ (std::hash<uint8_t>{}(k.protocol) << 1) ^
                (std::hash<uint8_t>{}(k.direction) << 2);
     }
 };
@@ -175,10 +170,7 @@ struct InodeId {
     uint32_t dev;
     uint32_t pad;
 
-    bool operator==(const InodeId& other) const noexcept
-    {
-        return ino == other.ino && dev == other.dev;
-    }
+    bool operator==(const InodeId& other) const noexcept { return ino == other.ino && dev == other.dev; }
 };
 
 struct InodeIdHash {
@@ -197,18 +189,18 @@ using DenyEntries = std::unordered_map<InodeId, std::string, InodeIdHash>;
 // Enhanced deny entry with full tracking information
 struct DenyEntry {
     InodeId id;
-    std::string original_path;  // What user specified
-    std::string resolved_path;  // Canonical path
+    std::string original_path; // What user specified
+    std::string resolved_path; // Canonical path
     uint64_t added_timestamp;
-    std::string source;  // "policy:/path" or "cli"
+    std::string source; // "policy:/path" or "cli"
 };
 
 // Signed policy bundle format
 struct SignedPolicyBundle {
-    uint32_t format_version;  // Bundle format (1)
-    uint64_t policy_version;  // Monotonic counter
-    uint64_t timestamp;       // Unix timestamp
-    uint64_t expires;         // Expiration (0 = none)
+    uint32_t format_version; // Bundle format (1)
+    uint64_t policy_version; // Monotonic counter
+    uint64_t timestamp;      // Unix timestamp
+    uint64_t expires;        // Expiration (0 = none)
     std::array<uint8_t, 32> signer_key;
     std::array<uint8_t, 64> signature;
     std::string policy_sha256;
@@ -270,4 +262,4 @@ struct PolicyIssues {
     [[nodiscard]] bool has_warnings() const { return !warnings.empty(); }
 };
 
-}  // namespace aegis
+} // namespace aegis

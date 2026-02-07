@@ -57,26 +57,20 @@ constexpr uint32_t kRoundConstants[64] = {
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-constexpr std::array<uint32_t, 8> kInitialState = {
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+constexpr std::array<uint32_t, 8> kInitialState = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                                                   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
 
-}  // namespace
+} // namespace
 
-Sha256::Sha256()
-    : state_(kInitialState), bitlen_(0), buffer_{}, buflen_(0)
-{
-}
+Sha256::Sha256() : state_(kInitialState), bitlen_(0), buffer_{}, buflen_(0) {}
 
 void Sha256::transform(const uint8_t data[kBlockSize])
 {
     std::array<uint32_t, 64> m{};
 
     for (size_t i = 0; i < 16; ++i) {
-        m[i] = (static_cast<uint32_t>(data[i * 4]) << 24) |
-               (static_cast<uint32_t>(data[i * 4 + 1]) << 16) |
-               (static_cast<uint32_t>(data[i * 4 + 2]) << 8) |
-               (static_cast<uint32_t>(data[i * 4 + 3]));
+        m[i] = (static_cast<uint32_t>(data[i * 4]) << 24) | (static_cast<uint32_t>(data[i * 4 + 1]) << 16) |
+               (static_cast<uint32_t>(data[i * 4 + 2]) << 8) | (static_cast<uint32_t>(data[i * 4 + 3]));
     }
     for (size_t i = 16; i < 64; ++i) {
         m[i] = sig1(m[i - 2]) + m[i - 7] + sig0(m[i - 15]) + m[i - 16];
@@ -145,8 +139,7 @@ std::array<uint8_t, Sha256::kDigestSize> Sha256::finalize()
         while (i < 56) {
             buffer_[i++] = 0x00;
         }
-    }
-    else {
+    } else {
         buffer_[i++] = 0x80;
         while (i < kBlockSize) {
             buffer_[i++] = 0x00;
@@ -236,14 +229,11 @@ bool parse_sha256_token(const std::string& text, std::string& hex)
     if (token.size() != 64) {
         return false;
     }
-    if (!std::all_of(token.begin(), token.end(), [](unsigned char c) {
-            return std::isxdigit(c);
-        })) {
+    if (!std::all_of(token.begin(), token.end(), [](unsigned char c) { return std::isxdigit(c); })) {
         return false;
     }
-    std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::transform(token.begin(), token.end(), token.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     hex = token;
     return true;
 }
@@ -288,4 +278,4 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b)
     return result == 0;
 }
 
-}  // namespace aegis
+} // namespace aegis

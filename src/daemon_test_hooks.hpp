@@ -40,4 +40,4 @@ void reset_setup_agent_cgroup_for_test();
 void set_attach_all_for_test(AttachAllFn fn);
 void reset_attach_all_for_test();
 
-}  // namespace aegis
+} // namespace aegis

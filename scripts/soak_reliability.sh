@@ -55,7 +55,7 @@ if [[ -z "${SOAK_BLOCK_PATH}" || "${SOAK_BLOCK_PATH}" != /* ]]; then
   exit 1
 fi
 
-LOG_DIR="$(mktemp -d /tmp/aegisbpf-soak-XXXXXX)"
+LOG_DIR="$(mktemp -d)" || { echo "Failed to create temp directory" >&2; exit 1; }
 DAEMON_LOG="${LOG_DIR}/daemon.log"
 WORKLOAD_LOG="${LOG_DIR}/workload.log"
 WORKER_PIDS=()

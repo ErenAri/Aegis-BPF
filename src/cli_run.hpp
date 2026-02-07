@@ -5,4 +5,4 @@ namespace aegis {
 
 int dispatch_run_command(int argc, char** argv, const char* prog);
 
-}  // namespace aegis
+} // namespace aegis

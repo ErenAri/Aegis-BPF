@@ -1,14 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
-#include "result.hpp"
-#include "types.hpp"
-
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "result.hpp"
+#include "types.hpp"
 
 namespace aegis {
 
@@ -210,7 +211,8 @@ class RingBufferGuard {
     explicit RingBufferGuard(ring_buffer* rb) : rb_(rb) {}
     ~RingBufferGuard()
     {
-        if (rb_) ring_buffer__free(rb_);
+        if (rb_)
+            ring_buffer__free(rb_);
     }
 
     RingBufferGuard(const RingBufferGuard&) = delete;
@@ -220,7 +222,8 @@ class RingBufferGuard {
     RingBufferGuard& operator=(RingBufferGuard&& other) noexcept
     {
         if (this != &other) {
-            if (rb_) ring_buffer__free(rb_);
+            if (rb_)
+                ring_buffer__free(rb_);
             rb_ = other.rb_;
             other.rb_ = nullptr;
         }
@@ -242,4 +245,4 @@ class RingBufferGuard {
     ring_buffer* rb_;
 };
 
-}  // namespace aegis
+} // namespace aegis

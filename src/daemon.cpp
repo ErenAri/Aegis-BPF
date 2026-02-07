@@ -6,8 +6,21 @@
  */
 
 #include "daemon.hpp"
-#include "daemon_test_hooks.hpp"
+
+#include <bpf/libbpf.h>
+
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <csignal>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <thread>
+
 #include "bpf_ops.hpp"
+#include "daemon_test_hooks.hpp"
 #include "events.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
@@ -16,24 +29,13 @@
 #include "types.hpp"
 #include "utils.hpp"
 
-#include <bpf/libbpf.h>
-#include <atomic>
-#include <csignal>
-#include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <sys/stat.h>
-#include <thread>
-#include <unistd.h>
-
 namespace aegis {
 
 namespace {
 volatile sig_atomic_t g_exiting = 0;
 std::atomic<bool> g_heartbeat_running{false};
 Result<void> setup_agent_cgroup(BpfState& state);
-ValidateConfigDirectoryPermissionsFn g_validate_config_directory_permissions =
-    validate_config_directory_permissions;
+ValidateConfigDirectoryPermissionsFn g_validate_config_directory_permissions = validate_config_directory_permissions;
 DetectKernelFeaturesFn g_detect_kernel_features = detect_kernel_features;
 DetectBreakGlassFn g_detect_break_glass = detect_break_glass;
 BumpMemlockRlimitFn g_bump_memlock_rlimit = bump_memlock_rlimit;
@@ -60,14 +62,12 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds)
         // Update deadman deadline
         struct timespec ts {};
         clock_gettime(CLOCK_BOOTTIME, &ts);
-        uint64_t now_ns = static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
-                          static_cast<uint64_t>(ts.tv_nsec);
+        uint64_t now_ns = static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
         uint64_t new_deadline = now_ns + (static_cast<uint64_t>(ttl_seconds) * 1000000000ULL);
 
         auto result = update_deadman_deadline(*state, new_deadline);
         if (!result) {
-            logger().log(SLOG_WARN("Failed to update deadman deadline")
-                             .field("error", result.error().to_string()));
+            logger().log(SLOG_WARN("Failed to update deadman deadline").field("error", result.error().to_string()));
         }
 
         // Sleep for TTL/2, but check exit flags more frequently.
@@ -114,20 +114,18 @@ Result<void> setup_agent_cgroup(BpfState& state)
 const char* enforce_signal_name(uint8_t signal)
 {
     switch (signal) {
-    case kEnforceSignalNone:
-        return "none";
-    case kEnforceSignalInt:
-        return "sigint";
-    case kEnforceSignalKill:
-        return "sigkill";
-    default:
-        return "sigterm";
+        case kEnforceSignalNone:
+            return "none";
+        case kEnforceSignalInt:
+            return "sigint";
+        case kEnforceSignalKill:
+            return "sigkill";
+        default:
+            return "sigterm";
     }
 }
 
-Result<void> validate_attach_contract(const BpfState& state,
-                                      bool lsm_enabled,
-                                      bool use_inode_permission,
+Result<void> validate_attach_contract(const BpfState& state, bool lsm_enabled, bool use_inode_permission,
                                       bool use_file_open)
 {
     if (!state.attach_contract_valid) {
@@ -137,33 +135,31 @@ Result<void> validate_attach_contract(const BpfState& state,
                                  ? static_cast<uint8_t>((use_inode_permission ? 1 : 0) + (use_file_open ? 1 : 0))
                                  : static_cast<uint8_t>(1);
     if (state.file_hooks_expected != expected) {
-        return Error(ErrorCode::BpfAttachFailed,
-                     "Attach contract expected-hook mismatch",
+        return Error(ErrorCode::BpfAttachFailed, "Attach contract expected-hook mismatch",
                      "expected=" + std::to_string(expected) +
                          ", reported=" + std::to_string(state.file_hooks_expected));
     }
     if (state.file_hooks_attached != expected) {
-        return Error(ErrorCode::BpfAttachFailed,
-                     "Attach contract attached-hook mismatch",
+        return Error(ErrorCode::BpfAttachFailed, "Attach contract attached-hook mismatch",
                      "expected=" + std::to_string(expected) +
                          ", attached=" + std::to_string(state.file_hooks_attached));
     }
     return {};
 }
 
-}  // namespace
+} // namespace
 
 const char* lsm_hook_name(LsmHookMode mode)
 {
     switch (mode) {
-    case LsmHookMode::FileOpen:
-        return "file_open";
-    case LsmHookMode::InodePermission:
-        return "inode_permission";
-    case LsmHookMode::Both:
-        return "both";
-    default:
-        return "unknown";
+        case LsmHookMode::FileOpen:
+            return "file_open";
+        case LsmHookMode::InodePermission:
+            return "inode_permission";
+        case LsmHookMode::Both:
+            return "both";
+        default:
+            return "unknown";
     }
 }
 
@@ -284,16 +280,9 @@ void reset_attach_all_for_test()
     g_attach_all = attach_all;
 }
 
-int daemon_run(bool audit_only,
-               bool enable_seccomp,
-               uint32_t deadman_ttl,
-               uint8_t enforce_signal,
-               bool allow_sigkill,
-               LsmHookMode lsm_hook,
-               uint32_t ringbuf_bytes,
-               uint32_t event_sample_rate,
-               uint32_t sigkill_escalation_threshold,
-               uint32_t sigkill_escalation_window_seconds)
+int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
+               LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
+               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -309,10 +298,8 @@ int daemon_run(bool audit_only,
         audit_only = true;
     }
 
-    if (enforce_signal != kEnforceSignalNone &&
-        enforce_signal != kEnforceSignalInt &&
-        enforce_signal != kEnforceSignalKill &&
-        enforce_signal != kEnforceSignalTerm) {
+    if (enforce_signal != kEnforceSignalNone && enforce_signal != kEnforceSignalInt &&
+        enforce_signal != kEnforceSignalKill && enforce_signal != kEnforceSignalTerm) {
         logger().log(SLOG_WARN("Invalid enforce signal configured; using SIGTERM")
                          .field("signal", static_cast<int64_t>(enforce_signal)));
         enforce_signal = kEnforceSignalTerm;
@@ -366,8 +353,8 @@ int daemon_run(bool audit_only,
         auto features_result = g_detect_kernel_features();
         if (!features_result) {
             feature_span.fail(features_result.error().to_string());
-            logger().log(SLOG_ERROR("Failed to detect kernel features")
-                             .field("error", features_result.error().to_string()));
+            logger().log(
+                SLOG_ERROR("Failed to detect kernel features").field("error", features_result.error().to_string()));
             return fail(features_result.error().to_string());
         }
         features = *features_result;
@@ -397,17 +384,15 @@ int daemon_run(bool audit_only,
             logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
                              .field("explanation", capability_explanation(features, cap)));
             audit_only = true;
-        }
-        else {
-            logger().log(SLOG_INFO("Running in audit-only mode")
-                             .field("explanation", capability_explanation(features, cap)));
+        } else {
+            logger().log(
+                SLOG_INFO("Running in audit-only mode").field("explanation", capability_explanation(features, cap)));
         }
     }
 
     auto rlimit_result = g_bump_memlock_rlimit();
     if (!rlimit_result) {
-        logger().log(SLOG_ERROR("Failed to raise memlock rlimit")
-                         .field("error", rlimit_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
         return fail(rlimit_result.error().to_string());
     }
 
@@ -423,8 +408,7 @@ int daemon_run(bool audit_only,
     auto load_result = g_load_bpf(true, false, state);
     if (!load_result) {
         load_span.fail(load_result.error().to_string());
-        logger().log(SLOG_ERROR("Failed to load BPF object")
-                         .field("error", load_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
         return fail(load_result.error().to_string());
     }
 
@@ -432,8 +416,7 @@ int daemon_run(bool audit_only,
     auto version_result = g_ensure_layout_version(state);
     if (!version_result) {
         layout_span.fail(version_result.error().to_string());
-        logger().log(SLOG_ERROR("Layout version check failed")
-                         .field("error", version_result.error().to_string()));
+        logger().log(SLOG_ERROR("Layout version check failed").field("error", version_result.error().to_string()));
         return fail(version_result.error().to_string());
     }
 
@@ -450,8 +433,7 @@ int daemon_run(bool audit_only,
     if (config.deadman_enabled) {
         struct timespec ts {};
         clock_gettime(CLOCK_BOOTTIME, &ts);
-        uint64_t now_ns = static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
-                          static_cast<uint64_t>(ts.tv_nsec);
+        uint64_t now_ns = static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
         config.deadman_deadline_ns = now_ns + (static_cast<uint64_t>(deadman_ttl) * 1000000000ULL);
     }
 
@@ -459,24 +441,22 @@ int daemon_run(bool audit_only,
     auto config_result = g_set_agent_config_full(state, config);
     if (!config_result) {
         cfg_span.fail(config_result.error().to_string());
-        logger().log(SLOG_ERROR("Failed to set agent config")
-                         .field("error", config_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to set agent config").field("error", config_result.error().to_string()));
         return fail(config_result.error().to_string());
     }
 
     // Populate survival allowlist with critical binaries
     auto survival_result = g_populate_survival_allowlist(state);
     if (!survival_result) {
-        logger().log(SLOG_WARN("Failed to populate survival allowlist")
-                         .field("error", survival_result.error().to_string()));
+        logger().log(
+            SLOG_WARN("Failed to populate survival allowlist").field("error", survival_result.error().to_string()));
     }
 
     ScopedSpan cgroup_span("daemon.setup_agent_cgroup", trace_id, root_span.span_id());
     auto cgroup_result = g_setup_agent_cgroup(state);
     if (!cgroup_result) {
         cgroup_span.fail(cgroup_result.error().to_string());
-        logger().log(SLOG_ERROR("Failed to setup agent cgroup")
-                         .field("error", cgroup_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to setup agent cgroup").field("error", cgroup_result.error().to_string()));
         return fail(cgroup_result.error().to_string());
     }
 
@@ -486,12 +466,10 @@ int daemon_run(bool audit_only,
     auto attach_result = g_attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
     if (!attach_result) {
         attach_span.fail(attach_result.error().to_string());
-        logger().log(SLOG_ERROR("Failed to attach programs")
-                         .field("error", attach_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to attach programs").field("error", attach_result.error().to_string()));
         return fail(attach_result.error().to_string());
     }
-    auto attach_contract_result =
-        validate_attach_contract(state, lsm_enabled, use_inode_permission, use_file_open);
+    auto attach_contract_result = validate_attach_contract(state, lsm_enabled, use_inode_permission, use_file_open);
     if (!attach_contract_result) {
         attach_span.fail(attach_contract_result.error().to_string());
         logger().log(SLOG_ERROR("Attach contract validation failed")
@@ -513,36 +491,35 @@ int daemon_run(bool audit_only,
         auto seccomp_result = apply_seccomp_filter();
         if (!seccomp_result) {
             seccomp_span.fail(seccomp_result.error().to_string());
-            logger().log(SLOG_ERROR("Failed to apply seccomp filter")
-                             .field("error", seccomp_result.error().to_string()));
+            logger().log(
+                SLOG_ERROR("Failed to apply seccomp filter").field("error", seccomp_result.error().to_string()));
             return fail(seccomp_result.error().to_string());
         }
     }
 
     bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
-    logger().log(SLOG_INFO("Agent started")
-                     .field("audit_only", audit_only)
-                     .field("enforce_signal", enforce_signal_name(config.enforce_signal))
-                     .field("lsm_enabled", lsm_enabled)
-                     .field("lsm_hook", lsm_hook_name(lsm_hook))
-                     .field("network_enabled", network_enabled)
-                     .field("event_sample_rate", static_cast<int64_t>(config.event_sample_rate))
-                     .field("sigkill_escalation_threshold",
-                            static_cast<int64_t>(config.sigkill_escalation_threshold))
-                     .field("sigkill_escalation_window_seconds",
-                            static_cast<int64_t>(config.sigkill_escalation_window_seconds))
-                     .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
-                     .field("seccomp", enable_seccomp)
-                     .field("break_glass", break_glass_active)
-                     .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
+    logger().log(
+        SLOG_INFO("Agent started")
+            .field("audit_only", audit_only)
+            .field("enforce_signal", enforce_signal_name(config.enforce_signal))
+            .field("lsm_enabled", lsm_enabled)
+            .field("lsm_hook", lsm_hook_name(lsm_hook))
+            .field("network_enabled", network_enabled)
+            .field("event_sample_rate", static_cast<int64_t>(config.event_sample_rate))
+            .field("sigkill_escalation_threshold", static_cast<int64_t>(config.sigkill_escalation_threshold))
+            .field("sigkill_escalation_window_seconds", static_cast<int64_t>(config.sigkill_escalation_window_seconds))
+            .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
+            .field("seccomp", enable_seccomp)
+            .field("break_glass", break_glass_active)
+            .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
 
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;
     if (deadman_ttl > 0) {
         g_heartbeat_running.store(true);
         heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl);
-        logger().log(SLOG_INFO("Deadman switch heartbeat started")
-                         .field("ttl_seconds", static_cast<int64_t>(deadman_ttl)));
+        logger().log(
+            SLOG_INFO("Deadman switch heartbeat started").field("ttl_seconds", static_cast<int64_t>(deadman_ttl)));
     }
 
     int err = 0;
@@ -573,4 +550,4 @@ int daemon_run(bool audit_only,
     return 0;
 }
 
-}  // namespace aegis
+} // namespace aegis

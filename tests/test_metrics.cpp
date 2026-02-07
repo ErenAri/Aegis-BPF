@@ -1,9 +1,9 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <gtest/gtest.h>
 
-#include "commands_monitoring.hpp"
-
 #include <string>
+
+#include "commands_monitoring.hpp"
 
 namespace aegis {
 namespace {
@@ -31,5 +31,5 @@ TEST(MetricsTest, IncludesRingbufDropsInNetMetrics)
     EXPECT_NE(output.find("aegisbpf_net_ringbuf_drops_total"), std::string::npos);
 }
 
-}  // namespace
-}  // namespace aegis
+} // namespace
+} // namespace aegis

@@ -7,4 +7,7 @@
 
 #include "cli_dispatch.hpp"
 
-int main(int argc, char** argv) { return aegis::dispatch_cli(argc, argv); }
+int main(int argc, char** argv)
+{
+    return aegis::dispatch_cli(argc, argv);
+}

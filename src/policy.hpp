@@ -1,17 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
+#include <string>
+
 #include "result.hpp"
 #include "types.hpp"
-
-#include <string>
 
 namespace aegis {
 
 class BpfState;
-using ApplyPolicyInternalFn = Result<void> (*)(const std::string& path,
-                                               const std::string& computed_hash,
-                                               bool reset,
+using ApplyPolicyInternalFn = Result<void> (*)(const std::string& path, const std::string& computed_hash, bool reset,
                                                bool record);
 
 // Policy parsing
@@ -38,4 +36,4 @@ Result<void> write_policy_file(const std::string& path, std::vector<std::string>
 void set_apply_policy_internal_for_test(ApplyPolicyInternalFn fn);
 void reset_apply_policy_internal_for_test();
 
-}  // namespace aegis
+} // namespace aegis
