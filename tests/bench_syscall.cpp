@@ -50,10 +50,6 @@ bool can_run_bpf()
 static void BM_OpenBaseline(benchmark::State& state)
 {
     const char* path = "/etc/hosts";
-    if (access(path, R_OK) != 0) {
-        state.SkipWithMessage("Cannot read /etc/hosts");
-        return;
-    }
     char buf[1];
     for (auto _ : state) {
         int fd = open(path, O_RDONLY);
