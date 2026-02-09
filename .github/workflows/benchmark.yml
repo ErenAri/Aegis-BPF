@@ -25,7 +25,7 @@ jobs:
         run: cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
 
       - name: Build benchmarks
-        run: cmake --build build-bench --target aegisbpf_bench
+        run: cmake --build build-bench --target aegisbpf_bench --target aegisbpf_bench_syscall
 
       - name: Run benchmarks
         run: |

@@ -80,6 +80,16 @@ class BpfState {
 
             // Reset other to prevent double-free
             other.obj = nullptr;
+            other.events = nullptr;
+            other.deny_inode = nullptr;
+            other.deny_path = nullptr;
+            other.allow_cgroup = nullptr;
+            other.block_stats = nullptr;
+            other.deny_cgroup_stats = nullptr;
+            other.deny_inode_stats = nullptr;
+            other.deny_path_stats = nullptr;
+            other.agent_meta = nullptr;
+            other.config_map = nullptr;
             other.survival_allowlist = nullptr;
             other.deny_ipv4 = nullptr;
             other.deny_ipv6 = nullptr;
@@ -89,6 +99,26 @@ class BpfState {
             other.net_block_stats = nullptr;
             other.net_ip_stats = nullptr;
             other.net_port_stats = nullptr;
+
+            // Reset reuse flags
+            other.inode_reused = false;
+            other.deny_path_reused = false;
+            other.cgroup_reused = false;
+            other.block_stats_reused = false;
+            other.deny_cgroup_stats_reused = false;
+            other.deny_inode_stats_reused = false;
+            other.deny_path_stats_reused = false;
+            other.agent_meta_reused = false;
+            other.survival_allowlist_reused = false;
+            other.deny_ipv4_reused = false;
+            other.deny_ipv6_reused = false;
+            other.deny_port_reused = false;
+            other.deny_cidr_v4_reused = false;
+            other.deny_cidr_v6_reused = false;
+            other.net_block_stats_reused = false;
+            other.net_ip_stats_reused = false;
+            other.net_port_stats_reused = false;
+
             other.attach_contract_valid = false;
             other.file_hooks_expected = 0;
             other.file_hooks_attached = 0;
@@ -169,6 +199,7 @@ Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused);
 Result<void> pin_map(bpf_map* map, const char* path);
 size_t map_entry_count(bpf_map* map);
 Result<void> clear_map_entries(bpf_map* map);
+Result<void> verify_map_entry_count(bpf_map* map, size_t expected);
 
 // Stats operations
 Result<BlockStats> read_block_stats_map(bpf_map* map);

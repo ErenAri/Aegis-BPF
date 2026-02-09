@@ -35,27 +35,48 @@ namespace {
 volatile sig_atomic_t g_exiting = 0;
 std::atomic<bool> g_heartbeat_running{false};
 Result<void> setup_agent_cgroup(BpfState& state);
-ValidateConfigDirectoryPermissionsFn g_validate_config_directory_permissions = validate_config_directory_permissions;
-DetectKernelFeaturesFn g_detect_kernel_features = detect_kernel_features;
-DetectBreakGlassFn g_detect_break_glass = detect_break_glass;
-BumpMemlockRlimitFn g_bump_memlock_rlimit = bump_memlock_rlimit;
-LoadBpfFn g_load_bpf = load_bpf;
-EnsureLayoutVersionFn g_ensure_layout_version = ensure_layout_version;
-SetAgentConfigFullFn g_set_agent_config_full = set_agent_config_full;
-PopulateSurvivalAllowlistFn g_populate_survival_allowlist = populate_survival_allowlist;
-SetupAgentCgroupFn g_setup_agent_cgroup = setup_agent_cgroup;
-AttachAllFn g_attach_all = attach_all;
+
+// Production defaults for daemon dependencies
+DaemonDeps make_default_deps()
+{
+    DaemonDeps d;
+    d.validate_config_dir = validate_config_directory_permissions;
+    d.detect_kernel_features = aegis::detect_kernel_features;
+    d.detect_break_glass = aegis::detect_break_glass;
+    d.bump_memlock_rlimit = aegis::bump_memlock_rlimit;
+    d.load_bpf = aegis::load_bpf;
+    d.ensure_layout_version = aegis::ensure_layout_version;
+    d.set_agent_config_full = aegis::set_agent_config_full;
+    d.populate_survival_allowlist = aegis::populate_survival_allowlist;
+    d.setup_agent_cgroup = setup_agent_cgroup;
+    d.attach_all = aegis::attach_all;
+    return d;
+}
+
+DaemonDeps g_deps = make_default_deps();
 
 void handle_signal(int)
 {
     g_exiting = 1;
 }
 
-void heartbeat_thread(BpfState* state, uint32_t ttl_seconds)
+void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_threshold,
+                      uint32_t deny_rate_breach_limit)
 {
     uint32_t sleep_interval = ttl_seconds / 2;
     if (sleep_interval < 1) {
         sleep_interval = 1;
+    }
+
+    uint64_t last_block_count = 0;
+    uint32_t rate_breach_count = 0;
+
+    // Seed initial block count
+    if (deny_rate_threshold > 0 && state->block_stats) {
+        auto stats = read_block_stats_map(state->block_stats);
+        if (stats) {
+            last_block_count = stats->blocks;
+        }
     }
 
     while (g_heartbeat_running.load() && !g_exiting) {
@@ -68,6 +89,47 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds)
         auto result = update_deadman_deadline(*state, new_deadline);
         if (!result) {
             logger().log(SLOG_WARN("Failed to update deadman deadline").field("error", result.error().to_string()));
+        }
+
+        // Monitor deny rate and auto-revert to audit-only if threshold exceeded
+        if (deny_rate_threshold > 0 && state->block_stats) {
+            auto stats = read_block_stats_map(state->block_stats);
+            if (stats) {
+                uint64_t current_blocks = stats->blocks;
+                uint64_t delta = current_blocks - last_block_count;
+                double rate = static_cast<double>(delta) / static_cast<double>(sleep_interval);
+                if (rate > static_cast<double>(deny_rate_threshold)) {
+                    ++rate_breach_count;
+                    logger().log(SLOG_WARN("Deny rate exceeded threshold")
+                                     .field("rate", rate)
+                                     .field("threshold", static_cast<int64_t>(deny_rate_threshold))
+                                     .field("breach_count", static_cast<int64_t>(rate_breach_count))
+                                     .field("breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
+                    if (rate_breach_count >= deny_rate_breach_limit) {
+                        // Force audit-only mode
+                        AgentConfig cfg{};
+                        cfg.audit_only = 1;
+                        cfg.deadman_enabled = 1;
+                        cfg.deadman_deadline_ns = new_deadline;
+                        cfg.deadman_ttl_seconds = ttl_seconds;
+                        cfg.event_sample_rate = 1;
+                        auto revert_result = set_agent_config_full(*state, cfg);
+                        if (revert_result) {
+                            logger().log(SLOG_ERROR("Auto-revert: deny rate exceeded threshold, switched to audit-only")
+                                             .field("rate", rate)
+                                             .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
+                        } else {
+                            logger().log(SLOG_ERROR("Auto-revert failed")
+                                             .field("error", revert_result.error().to_string()));
+                        }
+                        // Disable further rate checking after revert
+                        deny_rate_threshold = 0;
+                    }
+                } else {
+                    rate_breach_count = 0;
+                }
+                last_block_count = current_blocks;
+            }
         }
 
         // Sleep for TTL/2, but check exit flags more frequently.
@@ -180,109 +242,143 @@ bool parse_lsm_hook(const std::string& value, LsmHookMode& out)
     return false;
 }
 
+// --- DaemonDeps struct-based API ---
+
+DaemonDeps& daemon_deps()
+{
+    return g_deps;
+}
+
+void set_daemon_deps_for_test(const DaemonDeps& deps)
+{
+    auto defaults = make_default_deps();
+    g_deps.validate_config_dir = deps.validate_config_dir ? deps.validate_config_dir : defaults.validate_config_dir;
+    g_deps.detect_kernel_features =
+        deps.detect_kernel_features ? deps.detect_kernel_features : defaults.detect_kernel_features;
+    g_deps.detect_break_glass = deps.detect_break_glass ? deps.detect_break_glass : defaults.detect_break_glass;
+    g_deps.bump_memlock_rlimit = deps.bump_memlock_rlimit ? deps.bump_memlock_rlimit : defaults.bump_memlock_rlimit;
+    g_deps.load_bpf = deps.load_bpf ? deps.load_bpf : defaults.load_bpf;
+    g_deps.ensure_layout_version =
+        deps.ensure_layout_version ? deps.ensure_layout_version : defaults.ensure_layout_version;
+    g_deps.set_agent_config_full =
+        deps.set_agent_config_full ? deps.set_agent_config_full : defaults.set_agent_config_full;
+    g_deps.populate_survival_allowlist =
+        deps.populate_survival_allowlist ? deps.populate_survival_allowlist : defaults.populate_survival_allowlist;
+    g_deps.setup_agent_cgroup = deps.setup_agent_cgroup ? deps.setup_agent_cgroup : defaults.setup_agent_cgroup;
+    g_deps.attach_all = deps.attach_all ? deps.attach_all : defaults.attach_all;
+}
+
+void reset_daemon_deps_for_test()
+{
+    g_deps = make_default_deps();
+}
+
+// --- Legacy per-function API (delegates to DaemonDeps) ---
+
 void set_validate_config_directory_permissions_for_test(ValidateConfigDirectoryPermissionsFn fn)
 {
-    g_validate_config_directory_permissions = fn ? fn : validate_config_directory_permissions;
+    g_deps.validate_config_dir = fn ? fn : make_default_deps().validate_config_dir;
 }
 
 void reset_validate_config_directory_permissions_for_test()
 {
-    g_validate_config_directory_permissions = validate_config_directory_permissions;
+    g_deps.validate_config_dir = make_default_deps().validate_config_dir;
 }
 
 void set_detect_kernel_features_for_test(DetectKernelFeaturesFn fn)
 {
-    g_detect_kernel_features = fn ? fn : detect_kernel_features;
+    g_deps.detect_kernel_features = fn ? fn : make_default_deps().detect_kernel_features;
 }
 
 void reset_detect_kernel_features_for_test()
 {
-    g_detect_kernel_features = detect_kernel_features;
+    g_deps.detect_kernel_features = make_default_deps().detect_kernel_features;
 }
 
 void set_detect_break_glass_for_test(DetectBreakGlassFn fn)
 {
-    g_detect_break_glass = fn ? fn : detect_break_glass;
+    g_deps.detect_break_glass = fn ? fn : make_default_deps().detect_break_glass;
 }
 
 void reset_detect_break_glass_for_test()
 {
-    g_detect_break_glass = detect_break_glass;
+    g_deps.detect_break_glass = make_default_deps().detect_break_glass;
 }
 
 void set_bump_memlock_rlimit_for_test(BumpMemlockRlimitFn fn)
 {
-    g_bump_memlock_rlimit = fn ? fn : bump_memlock_rlimit;
+    g_deps.bump_memlock_rlimit = fn ? fn : make_default_deps().bump_memlock_rlimit;
 }
 
 void reset_bump_memlock_rlimit_for_test()
 {
-    g_bump_memlock_rlimit = bump_memlock_rlimit;
+    g_deps.bump_memlock_rlimit = make_default_deps().bump_memlock_rlimit;
 }
 
 void set_load_bpf_for_test(LoadBpfFn fn)
 {
-    g_load_bpf = fn ? fn : load_bpf;
+    g_deps.load_bpf = fn ? fn : make_default_deps().load_bpf;
 }
 
 void reset_load_bpf_for_test()
 {
-    g_load_bpf = load_bpf;
+    g_deps.load_bpf = make_default_deps().load_bpf;
 }
 
 void set_ensure_layout_version_for_test(EnsureLayoutVersionFn fn)
 {
-    g_ensure_layout_version = fn ? fn : ensure_layout_version;
+    g_deps.ensure_layout_version = fn ? fn : make_default_deps().ensure_layout_version;
 }
 
 void reset_ensure_layout_version_for_test()
 {
-    g_ensure_layout_version = ensure_layout_version;
+    g_deps.ensure_layout_version = make_default_deps().ensure_layout_version;
 }
 
 void set_set_agent_config_full_for_test(SetAgentConfigFullFn fn)
 {
-    g_set_agent_config_full = fn ? fn : set_agent_config_full;
+    g_deps.set_agent_config_full = fn ? fn : make_default_deps().set_agent_config_full;
 }
 
 void reset_set_agent_config_full_for_test()
 {
-    g_set_agent_config_full = set_agent_config_full;
+    g_deps.set_agent_config_full = make_default_deps().set_agent_config_full;
 }
 
 void set_populate_survival_allowlist_for_test(PopulateSurvivalAllowlistFn fn)
 {
-    g_populate_survival_allowlist = fn ? fn : populate_survival_allowlist;
+    g_deps.populate_survival_allowlist = fn ? fn : make_default_deps().populate_survival_allowlist;
 }
 
 void reset_populate_survival_allowlist_for_test()
 {
-    g_populate_survival_allowlist = populate_survival_allowlist;
+    g_deps.populate_survival_allowlist = make_default_deps().populate_survival_allowlist;
 }
 
 void set_setup_agent_cgroup_for_test(SetupAgentCgroupFn fn)
 {
-    g_setup_agent_cgroup = fn ? fn : setup_agent_cgroup;
+    g_deps.setup_agent_cgroup = fn ? fn : make_default_deps().setup_agent_cgroup;
 }
 
 void reset_setup_agent_cgroup_for_test()
 {
-    g_setup_agent_cgroup = setup_agent_cgroup;
+    g_deps.setup_agent_cgroup = make_default_deps().setup_agent_cgroup;
 }
 
 void set_attach_all_for_test(AttachAllFn fn)
 {
-    g_attach_all = fn ? fn : attach_all;
+    g_deps.attach_all = fn ? fn : make_default_deps().attach_all;
 }
 
 void reset_attach_all_for_test()
 {
-    g_attach_all = attach_all;
+    g_deps.attach_all = make_default_deps().attach_all;
 }
 
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
-               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds)
+               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -292,7 +388,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     };
 
     // Check for break-glass mode FIRST
-    bool break_glass_active = g_detect_break_glass();
+    bool break_glass_active = g_deps.detect_break_glass();
     if (break_glass_active) {
         logger().log(SLOG_WARN("Break-glass mode detected - forcing audit-only mode"));
         audit_only = true;
@@ -337,7 +433,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     // Validate config directory permissions (security check)
     {
         ScopedSpan config_span("daemon.validate_config_dir", trace_id, root_span.span_id());
-        auto config_perm_result = g_validate_config_directory_permissions("/etc/aegisbpf");
+        auto config_perm_result = g_deps.validate_config_dir("/etc/aegisbpf");
         if (!config_perm_result) {
             config_span.fail(config_perm_result.error().to_string());
             logger().log(SLOG_ERROR("Config directory permission check failed")
@@ -350,7 +446,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     KernelFeatures features{};
     {
         ScopedSpan feature_span("daemon.detect_kernel_features", trace_id, root_span.span_id());
-        auto features_result = g_detect_kernel_features();
+        auto features_result = g_deps.detect_kernel_features();
         if (!features_result) {
             feature_span.fail(features_result.error().to_string());
             logger().log(
@@ -390,7 +486,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         }
     }
 
-    auto rlimit_result = g_bump_memlock_rlimit();
+    auto rlimit_result = g_deps.bump_memlock_rlimit();
     if (!rlimit_result) {
         logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
         return fail(rlimit_result.error().to_string());
@@ -405,7 +501,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
 
     BpfState state;
     ScopedSpan load_span("daemon.load_bpf", trace_id, root_span.span_id());
-    auto load_result = g_load_bpf(true, false, state);
+    auto load_result = g_deps.load_bpf(true, false, state);
     if (!load_result) {
         load_span.fail(load_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
@@ -413,7 +509,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     ScopedSpan layout_span("daemon.ensure_layout_version", trace_id, root_span.span_id());
-    auto version_result = g_ensure_layout_version(state);
+    auto version_result = g_deps.ensure_layout_version(state);
     if (!version_result) {
         layout_span.fail(version_result.error().to_string());
         logger().log(SLOG_ERROR("Layout version check failed").field("error", version_result.error().to_string()));
@@ -438,7 +534,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     ScopedSpan cfg_span("daemon.set_agent_config", trace_id, root_span.span_id());
-    auto config_result = g_set_agent_config_full(state, config);
+    auto config_result = g_deps.set_agent_config_full(state, config);
     if (!config_result) {
         cfg_span.fail(config_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to set agent config").field("error", config_result.error().to_string()));
@@ -446,14 +542,14 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     // Populate survival allowlist with critical binaries
-    auto survival_result = g_populate_survival_allowlist(state);
+    auto survival_result = g_deps.populate_survival_allowlist(state);
     if (!survival_result) {
         logger().log(
             SLOG_WARN("Failed to populate survival allowlist").field("error", survival_result.error().to_string()));
     }
 
     ScopedSpan cgroup_span("daemon.setup_agent_cgroup", trace_id, root_span.span_id());
-    auto cgroup_result = g_setup_agent_cgroup(state);
+    auto cgroup_result = g_deps.setup_agent_cgroup(state);
     if (!cgroup_result) {
         cgroup_span.fail(cgroup_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to setup agent cgroup").field("error", cgroup_result.error().to_string()));
@@ -463,7 +559,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     bool use_inode_permission = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::InodePermission);
     bool use_file_open = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::FileOpen);
     ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
-    auto attach_result = g_attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
+    auto attach_result = g_deps.attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
     if (!attach_result) {
         attach_span.fail(attach_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to attach programs").field("error", attach_result.error().to_string()));
@@ -517,9 +613,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     std::thread heartbeat;
     if (deadman_ttl > 0) {
         g_heartbeat_running.store(true);
-        heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl);
+        heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit);
         logger().log(
-            SLOG_INFO("Deadman switch heartbeat started").field("ttl_seconds", static_cast<int64_t>(deadman_ttl)));
+            SLOG_INFO("Deadman switch heartbeat started")
+                .field("ttl_seconds", static_cast<int64_t>(deadman_ttl))
+                .field("deny_rate_threshold", static_cast<int64_t>(deny_rate_threshold))
+                .field("deny_rate_breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
     }
 
     int err = 0;

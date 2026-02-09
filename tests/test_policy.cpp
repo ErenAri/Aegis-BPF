@@ -278,6 +278,106 @@ TEST_F(PolicyTest, ApplyRejectsConflictingHashOptions)
     EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
 }
 
+// --- Golden vector tests ---
+
+TEST_F(PolicyTest, GoldenDenyPathBasic)
+{
+    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_path_basic.conf").string();
+    // If running from build dir, try relative path
+    if (!std::filesystem::exists(src)) {
+        src = "../tests/fixtures/golden/deny_path_basic.conf";
+    }
+    ASSERT_TRUE(std::filesystem::exists(src)) << "Golden fixture not found: " << src;
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(src, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 1);
+    EXPECT_EQ(result->deny_paths.size(), 3u);
+    EXPECT_EQ(result->deny_paths[0], "/usr/bin/dangerous");
+    EXPECT_EQ(result->deny_paths[1], "/opt/malware/loader");
+    EXPECT_EQ(result->deny_paths[2], "/tmp/exploit");
+    EXPECT_TRUE(result->deny_inodes.empty());
+    EXPECT_FALSE(result->network.enabled);
+}
+
+TEST_F(PolicyTest, GoldenDenyInodeBasic)
+{
+    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_inode_basic.conf").string();
+    if (!std::filesystem::exists(src)) {
+        src = "../tests/fixtures/golden/deny_inode_basic.conf";
+    }
+    ASSERT_TRUE(std::filesystem::exists(src)) << "Golden fixture not found: " << src;
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(src, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 1);
+    EXPECT_EQ(result->deny_inodes.size(), 3u);
+    EXPECT_EQ(result->deny_inodes[0].dev, 259u);
+    EXPECT_EQ(result->deny_inodes[0].ino, 12345u);
+    EXPECT_EQ(result->deny_inodes[1].dev, 260u);
+    EXPECT_EQ(result->deny_inodes[1].ino, 67890u);
+    EXPECT_EQ(result->deny_inodes[2].dev, 1u);
+    EXPECT_EQ(result->deny_inodes[2].ino, 999u);
+    EXPECT_TRUE(result->deny_paths.empty());
+}
+
+TEST_F(PolicyTest, GoldenNetworkIpv4Deny)
+{
+    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_ipv4_deny.conf").string();
+    if (!std::filesystem::exists(src)) {
+        src = "../tests/fixtures/golden/network_ipv4_deny.conf";
+    }
+    ASSERT_TRUE(std::filesystem::exists(src)) << "Golden fixture not found: " << src;
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(src, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 2);
+    EXPECT_TRUE(result->network.enabled);
+    EXPECT_EQ(result->network.deny_ips.size(), 2u);
+    EXPECT_EQ(result->network.deny_ips[0], "10.0.0.1");
+    EXPECT_EQ(result->network.deny_ips[1], "192.168.1.100");
+}
+
+TEST_F(PolicyTest, GoldenNetworkCidrDeny)
+{
+    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_cidr_deny.conf").string();
+    if (!std::filesystem::exists(src)) {
+        src = "../tests/fixtures/golden/network_cidr_deny.conf";
+    }
+    ASSERT_TRUE(std::filesystem::exists(src)) << "Golden fixture not found: " << src;
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(src, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 2);
+    EXPECT_TRUE(result->network.enabled);
+    EXPECT_EQ(result->network.deny_cidrs.size(), 2u);
+    EXPECT_EQ(result->network.deny_cidrs[0], "10.0.0.0/8");
+    EXPECT_EQ(result->network.deny_cidrs[1], "192.168.0.0/16");
+}
+
+TEST_F(PolicyTest, GoldenAllowCgroup)
+{
+    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/allow_cgroup.conf").string();
+    if (!std::filesystem::exists(src)) {
+        src = "../tests/fixtures/golden/allow_cgroup.conf";
+    }
+    ASSERT_TRUE(std::filesystem::exists(src)) << "Golden fixture not found: " << src;
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(src, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 1);
+    EXPECT_EQ(result->allow_cgroup_paths.size(), 2u);
+    EXPECT_EQ(result->allow_cgroup_paths[0], "/sys/fs/cgroup/user.slice");
+    EXPECT_EQ(result->allow_cgroup_paths[1], "/sys/fs/cgroup/system.slice/ssh.service");
+    EXPECT_EQ(result->allow_cgroup_ids.size(), 1u);
+    EXPECT_EQ(result->allow_cgroup_ids[0], 12345u);
+}
+
 class ScopedEnvVar {
   public:
     ScopedEnvVar(const char* key, const std::string& value) : key_(key)

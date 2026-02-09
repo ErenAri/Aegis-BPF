@@ -7,7 +7,8 @@ This document defines what AegisBPF is designed to defend, what is explicitly
 out of scope, and where bypass risk remains.
 
 For a dispositioned list of known bypass surfaces, see
-`docs/BYPASS_CATALOG.md`.
+`docs/BYPASS_CATALOG.md`.  For enforcement guarantees and TOCTOU analysis, see
+`docs/GUARANTEES.md`.
 
 ## Security objective
 
@@ -134,6 +135,8 @@ If BPF LSM is enabled and the host is not root-compromised:
 - Use runbooks for ring-buffer drops, false positives, and break-glass events.
 
 Related docs:
+- `docs/GUARANTEES.md`
+- `docs/PERFORMANCE.md`
 - `docs/POLICY_SEMANTICS.md`
 - `docs/COMPATIBILITY.md`
 - `docs/KEY_MANAGEMENT.md`

@@ -36,12 +36,7 @@ std::atomic<uint32_t> g_ringbuf_bytes{0};
 
 bool kernel_bpf_lsm_enabled()
 {
-    std::ifstream lsm("/sys/kernel/security/lsm");
-    std::string line;
-    if (!lsm.is_open() || !std::getline(lsm, line)) {
-        return false;
-    }
-    return line.find("bpf") != std::string::npos;
+    return check_bpf_lsm_enabled();
 }
 
 Result<void> bump_memlock_rlimit()
@@ -712,6 +707,23 @@ size_t map_entry_count(bpf_map* map)
         key.swap(next_key);
     }
     return count;
+}
+
+Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
+{
+    if (!map) {
+        if (expected == 0) {
+            return {};
+        }
+        return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries",
+                     std::to_string(expected));
+    }
+    size_t actual = map_entry_count(map);
+    if (actual != expected) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Map entry count mismatch",
+                     "expected=" + std::to_string(expected) + " actual=" + std::to_string(actual));
+    }
+    return {};
 }
 
 Result<void> clear_map_entries(bpf_map* map)

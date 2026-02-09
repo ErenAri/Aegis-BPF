@@ -19,6 +19,35 @@ using PopulateSurvivalAllowlistFn = Result<void> (*)(BpfState&);
 using SetupAgentCgroupFn = Result<void> (*)(BpfState&);
 using AttachAllFn = Result<void> (*)(BpfState&, bool, bool, bool);
 
+/**
+ * Consolidated dependency injection struct for daemon_run().
+ *
+ * All fields default to the real production functions.
+ * Tests override individual fields to inject fakes.
+ */
+struct DaemonDeps {
+    ValidateConfigDirectoryPermissionsFn validate_config_dir = nullptr;
+    DetectKernelFeaturesFn detect_kernel_features = nullptr;
+    DetectBreakGlassFn detect_break_glass = nullptr;
+    BumpMemlockRlimitFn bump_memlock_rlimit = nullptr;
+    LoadBpfFn load_bpf = nullptr;
+    EnsureLayoutVersionFn ensure_layout_version = nullptr;
+    SetAgentConfigFullFn set_agent_config_full = nullptr;
+    PopulateSurvivalAllowlistFn populate_survival_allowlist = nullptr;
+    SetupAgentCgroupFn setup_agent_cgroup = nullptr;
+    AttachAllFn attach_all = nullptr;
+};
+
+/// Get the current daemon dependency set (initialized with production defaults).
+DaemonDeps& daemon_deps();
+
+/// Override all dependencies for testing. Null fields retain the production defaults.
+void set_daemon_deps_for_test(const DaemonDeps& deps);
+
+/// Reset all dependencies to production defaults.
+void reset_daemon_deps_for_test();
+
+// Legacy per-function API (delegates to DaemonDeps)
 void set_validate_config_directory_permissions_for_test(ValidateConfigDirectoryPermissionsFn fn);
 void reset_validate_config_directory_permissions_for_test();
 void set_detect_kernel_features_for_test(DetectKernelFeaturesFn fn);

@@ -219,7 +219,8 @@ target_include_directories(aegisbpf PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_directories(aegisbpf PRIVATE ${LIBBPF_LIBRARY_DIRS})
-target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES})
+find_package(ZLIB REQUIRED)
+target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
 
 # Systemd integration (optional)
 if (SYSTEMD_FOUND)
@@ -269,7 +270,7 @@ target_include_directories(aegisbpf_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_directories(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARY_DIRS})
-target_link_libraries(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARIES})
+target_link_libraries(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
 target_compile_definitions(aegisbpf_lib PRIVATE AEGIS_BPF_OBJ_PATH="${AEGIS_BPF_OBJ_DEFINE_PATH}")
 target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_ENABLE_SIGKILL_ENFORCEMENT=${AEGIS_SIGKILL_ENFORCEMENT_DEFINE})
 
@@ -369,6 +370,14 @@ if(BUILD_TESTING)
             benchmark::benchmark
         )
         target_include_directories(aegisbpf_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+        # Syscall-level benchmarks (require root + BPF LSM)
+        add_executable(aegisbpf_bench_syscall tests/bench_syscall.cpp)
+        target_link_libraries(aegisbpf_bench_syscall PRIVATE
+            aegisbpf_lib
+            benchmark::benchmark
+        )
+        target_include_directories(aegisbpf_bench_syscall PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     endif()
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

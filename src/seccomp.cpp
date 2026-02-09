@@ -159,17 +159,8 @@ static const unsigned int ALLOWED_SYSCALLS[] = {
     SYS_sched_getaffinity,
     SYS_sched_yield,
 
-    // For popen() in utils.cpp (kernel config check)
-    SYS_pipe2,
-#ifdef SYS_dup2
-    SYS_dup2,
-#endif
-    SYS_dup3,
-    SYS_execve,
-    SYS_wait4,
-#ifdef SYS_vfork
-    SYS_vfork,
-#endif
+    // For O(1) cgroup path resolution via open_by_handle_at
+    SYS_open_by_handle_at,
 };
 
 static const size_t NUM_ALLOWED = sizeof(ALLOWED_SYSCALLS) / sizeof(ALLOWED_SYSCALLS[0]);

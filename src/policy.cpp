@@ -328,21 +328,18 @@ Result<void> record_applied_policy(const std::string& path, const std::string& h
     if (!in.is_open()) {
         return Error::system(errno, "Failed to open policy file for recording");
     }
-    std::ofstream out(applied_path, std::ios::trunc);
-    if (!out.is_open()) {
-        return Error::system(errno, "Failed to open applied policy file for writing");
-    }
-    out << in.rdbuf();
-    if (!out.good()) {
-        return Error(ErrorCode::IoError, "Failed to write applied policy file");
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    auto write_result = atomic_write_file(applied_path, content);
+    if (!write_result) {
+        return write_result.error();
     }
 
     if (!hash.empty()) {
-        std::ofstream hout(applied_hash_path, std::ios::trunc);
-        if (!hout.is_open()) {
-            return Error::system(errno, "Failed to open policy hash file for writing");
+        auto hash_result = atomic_write_file(applied_hash_path, hash + "\n");
+        if (!hash_result) {
+            return hash_result.error();
         }
-        hout << hash << "\n";
     } else {
         std::error_code rm_ec;
         std::filesystem::remove(applied_hash_path, rm_ec);
@@ -528,6 +525,19 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                          .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size())));
     }
 
+    // Verify phase: confirm map entry counts match expectations
+    {
+        ScopedSpan span("policy.verify_maps", root_span.trace_id(), root_span.span_id());
+        auto verify_deny_inode = verify_map_entry_count(state.deny_inode, entries.size());
+        if (!verify_deny_inode) {
+            span.fail(verify_deny_inode.error().to_string());
+            logger().log(SLOG_ERROR("Post-apply verification failed for deny_inode map")
+                             .field("error", verify_deny_inode.error().to_string()));
+            return fail(verify_deny_inode.error());
+        }
+    }
+
+    // Commit phase: persist state to disk atomically
     {
         ScopedSpan span("policy.write_deny_db", root_span.trace_id(), root_span.span_id());
         auto write_result = write_deny_db(entries);
@@ -688,30 +698,28 @@ Result<void> write_policy_file(const std::string& path, std::vector<std::string>
     std::sort(allow_cgroups.begin(), allow_cgroups.end());
     allow_cgroups.erase(std::unique(allow_cgroups.begin(), allow_cgroups.end()), allow_cgroups.end());
 
-    std::ofstream out(path, std::ios::trunc);
-    if (!out.is_open()) {
-        return Error(ErrorCode::IoError, "Failed to write policy file", path);
-    }
-    out << "version=1\n";
-    if (!deny_paths.empty()) {
-        out << "\n[deny_path]\n";
-        for (const auto& p : deny_paths) {
-            out << p << "\n";
+    return atomic_write_stream(path, [&](std::ostream& out) -> bool {
+        out << "version=1\n";
+        if (!deny_paths.empty()) {
+            out << "\n[deny_path]\n";
+            for (const auto& p : deny_paths) {
+                out << p << "\n";
+            }
         }
-    }
-    if (!deny_inodes.empty()) {
-        out << "\n[deny_inode]\n";
-        for (const auto& p : deny_inodes) {
-            out << p << "\n";
+        if (!deny_inodes.empty()) {
+            out << "\n[deny_inode]\n";
+            for (const auto& p : deny_inodes) {
+                out << p << "\n";
+            }
         }
-    }
-    if (!allow_cgroups.empty()) {
-        out << "\n[allow_cgroup]\n";
-        for (const auto& p : allow_cgroups) {
-            out << p << "\n";
+        if (!allow_cgroups.empty()) {
+            out << "\n[allow_cgroup]\n";
+            for (const auto& p : allow_cgroups) {
+                out << p << "\n";
+            }
         }
-    }
-    return {};
+        return out.good();
+    });
 }
 
 Result<void> policy_export(const std::string& path)

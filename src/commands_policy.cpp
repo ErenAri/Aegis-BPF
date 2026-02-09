@@ -223,18 +223,32 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
             return fail("Policy version rollback rejected");
         }
 
-        std::string temp_path = "/tmp/aegisbpf_policy_" + std::to_string(getpid()) + ".conf";
+        char temp_path[] = "/tmp/aegisbpf_policy_XXXXXX";
+        int temp_fd = mkstemp(temp_path);
+        if (temp_fd < 0) {
+            logger().log(SLOG_ERROR("Failed to create temp policy file").error_code(errno));
+            return fail("Failed to create temp policy file");
+        }
         {
-            std::ofstream temp_out(temp_path);
-            if (!temp_out.is_open()) {
-                logger().log(SLOG_ERROR("Failed to create temp policy file").field("path", temp_path));
-                return fail("Failed to create temp policy file");
+            const auto& content_ref = bundle.policy_content;
+            ssize_t written = 0;
+            size_t total = content_ref.size();
+            while (static_cast<size_t>(written) < total) {
+                ssize_t n = ::write(temp_fd, content_ref.data() + written,
+                                    total - static_cast<size_t>(written));
+                if (n < 0) {
+                    ::close(temp_fd);
+                    std::remove(temp_path);
+                    logger().log(SLOG_ERROR("Failed to write temp policy file").error_code(errno));
+                    return fail("Failed to write temp policy file");
+                }
+                written += n;
             }
-            temp_out << bundle.policy_content;
+            ::close(temp_fd);
         }
 
         auto apply_result = policy_apply(temp_path, false, bundle.policy_sha256, "", true, trace_id);
-        std::remove(temp_path.c_str());
+        std::remove(temp_path);
         if (!apply_result) {
             return fail(apply_result.error().to_string());
         }
@@ -334,13 +348,13 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
         return fail(bundle_result.error().to_string());
     }
 
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
-        logger().log(SLOG_ERROR("Failed to create output file").field("path", output_path));
-        return fail("Failed to create output file");
+    auto write_result = atomic_write_file(output_path, *bundle_result);
+    if (!write_result) {
+        logger().log(SLOG_ERROR("Failed to write output file")
+                         .field("path", output_path)
+                         .field("error", write_result.error().to_string()));
+        return fail(write_result.error().to_string());
     }
-
-    out << *bundle_result;
     logger().log(SLOG_INFO("Policy signed successfully")
                      .field("output", output_path)
                      .field("version", static_cast<int64_t>(version)));

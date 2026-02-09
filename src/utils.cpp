@@ -1,11 +1,13 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "utils.hpp"
 
+#include <fcntl.h>
 #include <limits.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include <zlib.h>
 
 #include <cctype>
 #include <cerrno>
@@ -16,6 +18,7 @@
 #include <sstream>
 
 #include "bpf_ops.hpp"
+#include "crypto.hpp"
 #include "logging.hpp"
 
 namespace aegis {
@@ -224,17 +227,53 @@ CgroupPathCache& CgroupPathCache::instance()
     return instance;
 }
 
-std::string CgroupPathCache::resolve(uint64_t cgid)
+std::string CgroupPathCache::try_open_by_handle(uint64_t cgid)
 {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = cache_.find(cgid);
-        if (it != cache_.end()) {
-            return it->second;
+    // Lazy-open mount fd for /sys/fs/cgroup
+    if (mount_fd_ < 0) {
+        mount_fd_ = ::open("/sys/fs/cgroup", O_RDONLY | O_DIRECTORY);
+        if (mount_fd_ < 0) {
+            return {};
         }
     }
 
-    std::string found;
+    // Construct a file handle from the cgroup inode number.
+    // cgroup2 uses FILEID_INO32_GEN (type 1) with 8-byte handle.
+    struct HandleBuf {
+        struct file_handle fh;
+        // NOLINTNEXTLINE(modernize-avoid-c-arrays)
+        unsigned char extra[8];
+    } hbuf{};
+    hbuf.fh.handle_bytes = 8;
+    hbuf.fh.handle_type = 1; // FILEID_INO32_GEN
+    auto ino32 = static_cast<uint32_t>(cgid);
+    memcpy(hbuf.fh.f_handle, &ino32, sizeof(ino32));
+    // generation = 0 for pseudo-filesystems
+
+    int fd = open_by_handle_at(mount_fd_, &hbuf.fh, O_RDONLY | O_DIRECTORY);
+    if (fd < 0) {
+        return {};
+    }
+
+    // Read path back via /proc/self/fd/<fd>
+    std::string fd_link = "/proc/self/fd/" + std::to_string(fd);
+    char pathbuf[PATH_MAX];
+    ssize_t len = readlink(fd_link.c_str(), pathbuf, sizeof(pathbuf) - 1);
+    ::close(fd);
+    if (len <= 0) {
+        return {};
+    }
+    pathbuf[len] = '\0';
+    return std::string(pathbuf, static_cast<size_t>(len));
+}
+
+void CgroupPathCache::rebuild_locked()
+{
+    // Batch-populate the entire cache in a single walk of /sys/fs/cgroup.
+    // This amortizes the cost so subsequent misses are also cache hits.
+    cache_.clear();
+    fully_populated_ = true;
+
     try {
         std::error_code ec;
         std::filesystem::recursive_directory_iterator dir(
@@ -247,9 +286,8 @@ std::string CgroupPathCache::resolve(uint64_t cgid)
                 if (!entry_ec && is_directory) {
                     struct stat st {};
                     const auto path = dir->path();
-                    if (stat(path.c_str(), &st) == 0 && static_cast<uint64_t>(st.st_ino) == cgid) {
-                        found = path.string();
-                        break;
+                    if (stat(path.c_str(), &st) == 0) {
+                        cache_[static_cast<uint64_t>(st.st_ino)] = path.string();
                     }
                 }
                 dir.increment(entry_ec);
@@ -259,14 +297,41 @@ std::string CgroupPathCache::resolve(uint64_t cgid)
             }
         }
     } catch (const std::exception&) {
-        found.clear();
+        // partial map is better than no map
     }
+}
 
+std::string CgroupPathCache::resolve(uint64_t cgid)
+{
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        cache_[cgid] = found;
+        auto it = cache_.find(cgid);
+        if (it != cache_.end()) {
+            return it->second;
+        }
     }
-    return found;
+
+    // Fast path: O(1) lookup via open_by_handle_at (no lock needed for the syscall)
+    std::string found = try_open_by_handle(cgid);
+    if (!found.empty()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cache_[cgid] = found;
+        return found;
+    }
+
+    // Slow path: batch-rebuild the entire cache if not yet done
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!fully_populated_) {
+            rebuild_locked();
+            auto it = cache_.find(cgid);
+            if (it != cache_.end()) {
+                return it->second;
+            }
+        }
+    }
+
+    return {};
 }
 
 std::string resolve_cgroup_path(uint64_t cgid)
@@ -415,14 +480,14 @@ std::string find_kernel_config_value_in_proc(const std::string& key)
     if (!std::filesystem::exists("/proc/config.gz")) {
         return {};
     }
-    PipeGuard fp(popen("zcat /proc/config.gz 2>/dev/null", "r"));
-    if (!fp) {
+    gzFile gz = gzopen("/proc/config.gz", "rb");
+    if (gz == nullptr) {
         return {};
     }
     std::string prefix = key + "=";
     char buf[4096];
     std::string value;
-    while (fgets(buf, sizeof(buf), fp.get())) {
+    while (gzgets(gz, buf, sizeof(buf)) != nullptr) {
         std::string line(buf);
         if (line.rfind(prefix, 0) == 0) {
             value = line.substr(prefix.size());
@@ -430,6 +495,7 @@ std::string find_kernel_config_value_in_proc(const std::string& key)
             break;
         }
     }
+    gzclose(gz);
     return value;
 }
 
@@ -444,6 +510,77 @@ std::string kernel_config_value(const std::string& key)
         }
     }
     return find_kernel_config_value_in_proc(key);
+}
+
+Result<void> atomic_write_file(const std::string& target_path, const std::string& content)
+{
+    return atomic_write_stream(target_path, [&](std::ostream& out) -> bool {
+        out << content;
+        return out.good();
+    });
+}
+
+Result<void> atomic_write_stream(const std::string& target_path,
+                                 const std::function<bool(std::ostream&)>& writer)
+{
+    // Build temp path in the same directory as target to ensure same filesystem for rename().
+    std::string dir;
+    auto slash = target_path.rfind('/');
+    if (slash != std::string::npos) {
+        dir = target_path.substr(0, slash + 1);
+    } else {
+        dir = "./";
+    }
+    std::string tmpl = dir + ".aegis_tmp_XXXXXX";
+    std::vector<char> tmpl_buf(tmpl.begin(), tmpl.end());
+    tmpl_buf.push_back('\0');
+
+    int fd = mkstemp(tmpl_buf.data());
+    if (fd < 0) {
+        return Error::system(errno, "mkstemp failed for atomic write to " + target_path);
+    }
+    std::string tmp_path(tmpl_buf.data());
+
+    // Write content through ofstream wrapping the fd.
+    // Close the fd first, then open via path (portable approach).
+    ::close(fd);
+
+    {
+        std::ofstream out(tmp_path, std::ios::trunc);
+        if (!out.is_open()) {
+            std::remove(tmp_path.c_str());
+            return Error(ErrorCode::IoError, "Failed to open temp file for atomic write", tmp_path);
+        }
+        if (!writer(out)) {
+            out.close();
+            std::remove(tmp_path.c_str());
+            return Error(ErrorCode::IoError, "Failed to write temp file for atomic write", tmp_path);
+        }
+        out.flush();
+        if (!out.good()) {
+            out.close();
+            std::remove(tmp_path.c_str());
+            return Error(ErrorCode::IoError, "Flush failed for atomic write", tmp_path);
+        }
+    }
+
+    // fsync the temp file to ensure data is on disk before rename.
+    {
+        int sync_fd = ::open(tmp_path.c_str(), O_RDONLY);
+        if (sync_fd >= 0) {
+            ::fsync(sync_fd);
+            ::close(sync_fd);
+        }
+    }
+
+    // Atomic rename
+    if (std::rename(tmp_path.c_str(), target_path.c_str()) != 0) {
+        int saved_errno = errno;
+        std::remove(tmp_path.c_str());
+        return Error::system(saved_errno, "rename failed for atomic write to " + target_path);
+    }
+
+    return {};
 }
 
 DenyEntries read_deny_db()
@@ -479,21 +616,16 @@ Result<void> write_deny_db(const DenyEntries& entries)
     if (!db_result) {
         return db_result.error();
     }
-    std::ofstream out(kDenyDbPath, std::ios::trunc);
-    if (!out.is_open()) {
-        return Error(ErrorCode::IoError, "Failed to open deny database for writing", kDenyDbPath);
-    }
-    for (const auto& kv : entries) {
-        out << kv.first.dev << " " << kv.first.ino;
-        if (!kv.second.empty()) {
-            out << " " << kv.second;
+    return atomic_write_stream(kDenyDbPath, [&](std::ostream& out) -> bool {
+        for (const auto& kv : entries) {
+            out << kv.first.dev << " " << kv.first.ino;
+            if (!kv.second.empty()) {
+                out << " " << kv.second;
+            }
+            out << "\n";
         }
-        out << "\n";
-    }
-    if (!out.good()) {
-        return Error(ErrorCode::IoError, "Failed to write deny database", kDenyDbPath);
-    }
-    return {};
+        return out.good();
+    });
 }
 
 std::string build_exec_id(uint32_t pid, uint64_t start_time)
@@ -523,11 +655,28 @@ bool detect_break_glass()
         return true;
     }
 
-    // Check 4: Signed token (for future signed break-glass)
-    // Token validation will be implemented in Phase 3 with crypto support
-    // For now, just check if the file exists
+    // Check 4: Signed break-glass token
     if (std::filesystem::exists(kBreakGlassTokenPath, ec) && !ec) {
-        return true;
+        // Validate token file permissions
+        auto perm = validate_file_permissions(kBreakGlassTokenPath, geteuid() == 0);
+        if (!perm) {
+            logger().log(SLOG_WARN("Break-glass token has bad permissions")
+                             .field("path", kBreakGlassTokenPath)
+                             .field("error", perm.error().to_string()));
+        } else {
+            // Read and validate token content
+            auto keys = load_trusted_keys();
+            if (keys && !keys->empty()) {
+                std::string token_content = read_file_first_line(kBreakGlassTokenPath);
+                if (validate_break_glass_token(token_content, *keys)) {
+                    return true;
+                }
+                logger().log(
+                    SLOG_WARN("Break-glass token failed validation").field("path", kBreakGlassTokenPath));
+            } else {
+                logger().log(SLOG_WARN("No trusted keys available to validate break-glass token"));
+            }
+        }
     }
 
     return false;

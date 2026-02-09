@@ -268,4 +268,25 @@ struct PolicyIssues {
     [[nodiscard]] bool has_warnings() const { return !warnings.empty(); }
 };
 
+// Compile-time struct layout assertions.
+// These catch silent mismatches between userspace types and BPF map layouts.
+// Sizes must match the corresponding BPF-side definitions in aegis.bpf.c.
+static_assert(sizeof(ExecEvent) == 40, "ExecEvent size changed — update BPF struct");
+static_assert(sizeof(BlockEvent) == 336, "BlockEvent size changed — update BPF struct");
+static_assert(sizeof(NetBlockEvent) == 104, "NetBlockEvent size changed — update BPF struct");
+static_assert(sizeof(InodeId) == 16, "InodeId size changed — update BPF struct");
+static_assert(sizeof(PathKey) == 256, "PathKey size changed — update BPF struct");
+static_assert(sizeof(AgentConfig) == 32, "AgentConfig size changed — update BPF struct");
+static_assert(sizeof(AgentMeta) == 4, "AgentMeta size changed — update BPF struct");
+static_assert(sizeof(BlockStats) == 16, "BlockStats size changed — update BPF struct");
+static_assert(sizeof(PortKey) == 4, "PortKey size changed — update BPF struct");
+static_assert(sizeof(Ipv4LpmKey) == 8, "Ipv4LpmKey size changed — update BPF struct");
+static_assert(sizeof(Ipv6LpmKey) == 20, "Ipv6LpmKey size changed — update BPF struct");
+static_assert(sizeof(NetBlockStats) == 24, "NetBlockStats size changed — update BPF struct");
+
+// Critical field offset assertions — ensure wire-compatible layout.
+static_assert(offsetof(BlockEvent, path) == 68, "BlockEvent::path offset changed");
+static_assert(offsetof(NetBlockEvent, remote_ipv4) == 56, "NetBlockEvent::remote_ipv4 offset changed");
+static_assert(offsetof(AgentConfig, deadman_deadline_ns) == 8, "AgentConfig::deadman_deadline_ns offset changed");
+
 } // namespace aegis

@@ -1,6 +1,9 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "crypto.hpp"
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -11,6 +14,7 @@
 
 #include "logging.hpp"
 #include "sha256.hpp"
+#include "utils.hpp"
 
 extern "C" {
 #include "tweetnacl.h"
@@ -366,8 +370,36 @@ Result<std::vector<PublicKey>> load_trusted_keys()
         return keys;
     }
 
+    // Validate key directory ownership and permissions (only enforced when running as root)
+    if (geteuid() == 0) {
+        auto perm_result = validate_config_directory_permissions(keys_dir);
+        if (!perm_result) {
+            return Error(ErrorCode::PermissionDenied, "Trusted keys directory failed permission check",
+                         perm_result.error().to_string());
+        }
+    }
+
     for (const auto& entry : std::filesystem::directory_iterator(keys_dir, ec)) {
         if (entry.path().extension() != ".pub") {
+            continue;
+        }
+
+        // Reject symlinks in key directory
+        struct stat lst {};
+        if (lstat(entry.path().c_str(), &lst) != 0) {
+            continue;
+        }
+        if (S_ISLNK(lst.st_mode)) {
+            logger().log(SLOG_WARN("Skipping symlinked key file").field("path", entry.path().string()));
+            continue;
+        }
+
+        // Validate individual key file permissions (root-owned check only when running as root)
+        auto file_perm = validate_file_permissions(entry.path().string(), geteuid() == 0);
+        if (!file_perm) {
+            logger().log(SLOG_WARN("Skipping key file with bad permissions")
+                             .field("path", entry.path().string())
+                             .field("error", file_perm.error().to_string()));
             continue;
         }
 
@@ -402,8 +434,8 @@ uint64_t read_version_counter()
 
 Result<void> write_version_counter(uint64_t version)
 {
-    const std::filesystem::path version_path = version_counter_path();
-    const std::filesystem::path version_parent = version_path.parent_path();
+    const std::filesystem::path version_path_val = version_counter_path();
+    const std::filesystem::path version_parent = version_path_val.parent_path();
 
     std::error_code ec;
     if (!version_parent.empty()) {
@@ -413,23 +445,67 @@ Result<void> write_version_counter(uint64_t version)
         }
     }
 
-    std::ofstream out(version_path, std::ios::trunc);
-    if (!out.is_open()) {
-        return Error(ErrorCode::IoError, "Failed to open version counter file");
-    }
-
-    out << version;
-    if (!out.good()) {
-        return Error(ErrorCode::IoError, "Failed to write version counter");
-    }
-
-    return {};
+    return atomic_write_file(version_path_val.string(), std::to_string(version));
 }
 
 bool check_version_acceptable(const SignedPolicyBundle& bundle)
 {
     uint64_t current = read_version_counter();
     return bundle.policy_version > current;
+}
+
+bool validate_break_glass_token(const std::string& token, const std::vector<PublicKey>& keys)
+{
+    if (token.empty() || keys.empty()) {
+        return false;
+    }
+
+    // Token format: "<unix_timestamp>:<signature_hex>"
+    size_t colon_pos = token.find(':');
+    if (colon_pos == std::string::npos || colon_pos == 0) {
+        return false;
+    }
+
+    std::string timestamp_str = trim_string(token.substr(0, colon_pos));
+    std::string sig_hex = trim_string(token.substr(colon_pos + 1));
+
+    // Parse and validate timestamp
+    uint64_t token_timestamp = 0;
+    try {
+        token_timestamp = std::stoull(timestamp_str);
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    // Reject expired tokens (older than 24 hours)
+    uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+    constexpr uint64_t kMaxTokenAge = 24 * 60 * 60; // 24 hours
+    if (token_timestamp + kMaxTokenAge < now) {
+        logger().log(SLOG_WARN("Break-glass token expired")
+                         .field("token_time", static_cast<int64_t>(token_timestamp))
+                         .field("now", static_cast<int64_t>(now)));
+        return false;
+    }
+    // Reject future timestamps (more than 5 minutes ahead)
+    if (token_timestamp > now + 300) {
+        return false;
+    }
+
+    // Decode signature
+    auto sig_result = decode_signature(sig_hex);
+    if (!sig_result) {
+        return false;
+    }
+    const Signature& sig = *sig_result;
+
+    // Verify signature over timestamp string with any trusted key
+    for (const auto& key : keys) {
+        if (verify_signature(timestamp_str, sig, key)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 } // namespace aegis

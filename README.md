@@ -71,7 +71,7 @@ AegisBPF has been independently validated on Google Cloud Platform with kernel 6
 
 | Test Category | Result | Details |
 |---------------|--------|---------|
-| **Unit Tests** |  165/165 PASS | All tests passed in 1.48s |
+| **Unit Tests** |  183/183 PASS | All tests passed including golden vectors |
 | **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
 | **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
 | **Performance Impact** |  ~27% overhead | Audit mode: 528 MB/s (baseline: 721 MB/s) |
@@ -80,14 +80,21 @@ AegisBPF has been independently validated on Google Cloud Platform with kernel 6
 **Security Hardening Applied:**
 - Compiler security flags (FORTIFY_SOURCE=2, stack-protector-strong, PIE, RELRO)
 - Timeout protection on BPF operations (prevents indefinite hangs)
-- Secure temporary file creation in test scripts
-- Named constants for BPF map sizes (improved maintainability)
+- Secure temporary file creation via `mkstemp()` (symlink-attack resistant)
+- Atomic file writes (write-rename pattern) for all persistent state
+- Trusted key directory permission validation with symlink rejection
+- Break-glass token cryptographic validation (Ed25519 + expiry)
+- Auto-revert to audit-only on deny-rate spikes (configurable threshold)
+- BPF map entry count verification after policy apply (crash-safe rollback)
+- Thread-safe time formatting (`localtime_r`/`gmtime_r`)
+- Seccomp allowlist hardened (removed `SYS_execve`, replaced `popen` with zlib)
+- O(1) cgroup path resolution via `open_by_handle_at`
+- BpfState move semantics fully correct (no dangling pointers)
+- Compile-time struct layout assertions (BPF/userspace size + offset checks)
 
 **Remaining Recommendations Before Production:**
-1. Audit Ed25519 signature verification for constant-time operations (timing attack prevention)
-2. Remove or secure debug BPF verifier bypass code path
-3. Run in audit mode for 1+ weeks before enabling enforcement
-4. Document recovery procedures for enforcement misconfiguration
+1. Run in audit mode for 1+ weeks before enabling enforcement
+2. Document recovery procedures for enforcement misconfiguration
 
 Full validation report available in CI artifacts and `docs/VALIDATION_2026-02-07.md`.
 
@@ -98,6 +105,8 @@ Public proof lives in the docs and CI artifacts:
 - Kernel/CI execution model: `docs/CI_EXECUTION_STRATEGY.md`
 - Kernel/distro compatibility: `docs/COMPATIBILITY.md`
 - Threat model + non-goals: `docs/THREAT_MODEL.md`
+- Enforcement guarantees + TOCTOU analysis: `docs/GUARANTEES.md`
+- Performance profile + tuning: `docs/PERFORMANCE.md`
 - Policy semantics contract: `docs/POLICY_SEMANTICS.md`
 - Enforcement semantics whitepaper: `docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md`
 - Edge-case compliance suite: `docs/EDGE_CASE_COMPLIANCE_SUITE.md`
@@ -553,7 +562,8 @@ sudo aegisbpf run --enforce --seccomp
 See [SECURITY.md](SECURITY.md) for vulnerability reporting, environment variables, and hardening details.
 
 Security boundaries, attacker model, and known blind spots are documented in
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).  Enforcement guarantees and
+TOCTOU analysis are in [docs/GUARANTEES.md](docs/GUARANTEES.md).
 
 ## Documentation
 
@@ -568,6 +578,7 @@ Security boundaries, attacker model, and known blind spots are documented in
 | [POLICY_SEMANTICS.md](docs/POLICY_SEMANTICS.md) | Precise runtime rule semantics and edge-case behavior |
 | [NETWORK_LAYER_DESIGN.md](docs/NETWORK_LAYER_DESIGN.md) | Network blocking architecture |
 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Threat model, coverage boundaries, and known bypass surface |
+| [GUARANTEES.md](docs/GUARANTEES.md) | Enforcement guarantees, TOCTOU analysis, and known bypass classes |
 | [BYPASS_CATALOG.md](docs/BYPASS_CATALOG.md) | Known bypasses, mitigations, and accepted gaps |
 | [REFERENCE_ENFORCEMENT_SLICE.md](docs/REFERENCE_ENFORCEMENT_SLICE.md) | Decision-grade enforcement reference slice |
 
@@ -596,6 +607,7 @@ Security boundaries, attacker model, and known blind spots are documented in
 | [SUPPORT_POLICY.md](docs/SUPPORT_POLICY.md) | Supported versions, compatibility, and deprecation guarantees |
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Kernel and version compatibility matrix |
 | [PERF.md](docs/PERF.md) | Performance tuning and benchmarking |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | Performance profile, memory formulas, and ring buffer sizing |
 | [BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | Protected-branch baseline and required checks |
 | [QUALITY_GATES.md](docs/QUALITY_GATES.md) | CI gate policy and coverage ratchet expectations |
 | [CI_EXECUTION_STRATEGY.md](docs/CI_EXECUTION_STRATEGY.md) | Privileged CI and kernel-matrix execution strategy |
@@ -635,14 +647,24 @@ sudo reboot
 
 BPF LSM overhead is minimal:
 - ~100-500ns per file open
-- O(1) hash map lookups
-- Lock-free ring buffer for events
-- ~10MB base memory usage
+- O(1) hash map lookups (deny rule count does not affect per-syscall latency)
+- Lock-free ring buffer for events (drops are counted, never blocks enforcement)
+- ~5-15MB base memory usage
 
-Run the benchmark:
+Run benchmarks:
 ```bash
+# Userspace hot-path benchmarks (no root required)
+./build/aegisbpf_bench
+
+# Syscall-level benchmarks with BPF attached (requires root)
+sudo scripts/bench_syscall.sh --json --out results.json
+
+# Quick A/B comparison
 ITERATIONS=200000 FILE=/etc/hosts scripts/perf_open_bench.sh
 ```
+
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for memory formulas, ring buffer
+sizing guidance, and capacity planning.
 
 ## Contributing
 
