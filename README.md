@@ -138,7 +138,7 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 +--------------------------------|-------------------------------------+
                           bpf() syscall
 +--------------------------------|-------------------------------------+
-|                                |            Kernel Space              |
+|                                |            Kernel Space             |
 |  +-----------------------------+-----------------------------+       |
 |  |                      BPF Subsystem                        |       |
 |  |                                                           |       |
@@ -150,9 +150,9 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  |  +------------------------+                               |       |
 |  |                                                           |       |
 |  |  +------------------------------------------------------+ |       |
-|  |  |                     BPF Maps                          | |       |
-|  |  | deny_* / allow_*    net_* / survival_*                | |       |
-|  |  | agent_meta / stats  events ring buffer                | |       |
+|  |  |                     BPF Maps                         | |       |
+|  |  | deny_* / allow_*    net_* / survival_*               | |       |
+|  |  | agent_meta / stats  events ring buffer               | |       |
 |  |  +------------------------------------------------------+ |       |
 |  +-----------------------------------------------------------+       |
 |                                                                      |
@@ -519,7 +519,7 @@ High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
 | Syscall allowlist (--seccomp)                            |
 +----------------------------------------------------------+
 | Layer 1: Capabilities                                    |
-| CAP_SYS_ADMIN, CAP_BPF, CAP_PERFMON                     |
+| CAP_SYS_ADMIN, CAP_BPF, CAP_PERFMON                      |
 +----------------------------------------------------------+
 ```
 
