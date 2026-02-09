@@ -120,51 +120,44 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 ## Architecture
 
 ```
-
-                                User Space                                    
-                                                                              
-   
-                           aegisbpf daemon                                  
-                                                                            
-                
-      CLI         Policy      Event      Metrics     Logging      
-     Dispatch    + Sign      Handler     + Health    (JSON)       
-                
-                                                                       
-                   
-                                                                           
-                                                           
-                                 libbpf                                   
-                                                           
-   
-                                                                             
-                              bpf() syscall                                   
-                                                                             
-
-                                Kernel Space                                  
-                                                                             
-     
-                            BPF Subsystem                                   
-                                                                            
-          
-       LSM Hooks                        Tracepoint Fallback             
-     file_open / inode_permission     openat / exec / fork / exit       
-     socket_connect / socket_bind     (audit path when no BPF LSM)      
-          
-                                         
-                                                                           
-                                                    
-                                 BPF Maps                                 
-                            deny_* / allow_*                              
-                            net_* / survival_*                            
-                            agent_meta / stats                            
-                            events ring buffer                            
-                                                    
-     
-                                                                             
-                                                                             
-                     file/network ops allowed, audited, or blocked            
-
++----------------------------- User Space -----------------------------+
+|                                                                      |
+|  +----------------------------------------------------------------+  |
+|  |                       aegisbpf daemon                          |  |
+|  |                                                                |  |
+|  |  +-----------+ +-----------+ +-----------+ +--------+ +------+ |  |
+|  |  |    CLI    | |  Policy   | |   Event   | |Metrics | | Log  | |  |
+|  |  | Dispatch  | |  + Sign   | |  Handler  | |+Health | |(JSON)| |  |
+|  |  +-----------+ +-----------+ +-----------+ +--------+ +------+ |  |
+|  +----------------------------------------------------------------+  |
+|                                |                                     |
+|                         +------+------+                              |
+|                         |   libbpf    |                              |
+|                         +------+------+                              |
+|                                |                                     |
++--------------------------------|-------------------------------------+
+                          bpf() syscall
++--------------------------------|-------------------------------------+
+|                                |            Kernel Space              |
+|  +-----------------------------+-----------------------------+       |
+|  |                      BPF Subsystem                        |       |
+|  |                                                           |       |
+|  |  +------------------------+ +---------------------------+ |       |
+|  |  |      LSM Hooks         | |   Tracepoint Fallback     | |       |
+|  |  | file_open              | | openat / exec / fork      | |       |
+|  |  | inode_permission       | | (audit when no BPF LSM)   | |       |
+|  |  | socket_connect / bind  | +---------------------------+ |       |
+|  |  +------------------------+                               |       |
+|  |                                                           |       |
+|  |  +------------------------------------------------------+ |       |
+|  |  |                     BPF Maps                          | |       |
+|  |  | deny_* / allow_*    net_* / survival_*                | |       |
+|  |  | agent_meta / stats  events ring buffer                | |       |
+|  |  +------------------------------------------------------+ |       |
+|  +-----------------------------------------------------------+       |
+|                                                                      |
+|              file/network ops: allowed, audited, or blocked          |
++----------------------------------------------------------------------+
 ```
 
 ## Quick Start
@@ -228,33 +221,31 @@ sudo ./build/aegisbpf run --audit --ringbuf-bytes=67108864 --event-sample-rate=1
 ## How It Works
 
 ```
+                    File Access Blocking Flow
 
-                         File Access Blocking Flow                           
-
-
-    User Process                    Kernel                      AegisBPF
-                                                                 
-           open("/etc/shadow")                                   
-                                      
-                                                                 
-                                       LSM: file_open / inode_permission
-                                      
-                                                                 
-                                         allow_cgroup? ---------- allow
-                                                 
-                                                 
-                                            deny_inode?
-                                                 
-                                                 
-                                          survival_allowlist? ---> allow
-                                                 
-                                                 
-                                        audit mode -> emit event, allow
-                                        enforce    -> optional signal + -EPERM
-                                                                 
-           Success / EPERM                                       
-                                      
-                                                                 
+  User Process              Kernel (BPF LSM)
+       |
+       |  open("/etc/shadow")
+       |----------------------->|
+       |                        |
+       |                 allow_cgroup? ----yes----> ALLOW
+       |                        |no
+       |                        v
+       |                   deny_inode? ----yes--+
+       |                        |no             |
+       |                        v               v
+       |                 survival_allowlist? -> ALLOW
+       |                        |no
+       |                        v
+       |                 audit mode?
+       |                  /          \
+       |                yes           no
+       |                 |             |
+       |            emit event     signal + -EPERM
+       |              ALLOW          DENY
+       |                        |
+       |<-----------------------|
+       |  Success / EPERM
 ```
 
 ## Usage
@@ -455,45 +446,40 @@ For production, set `AEGIS_POLICY` to a signed policy bundle path (for example
 ## Data Flow Diagram
 
 ```
-
-                              Data Flow                                      
-
-
-                    
-                          Policy bundle/rules        
-                     /etc/aegisbpf/policy.signed     
-                    
-                                    
-                                    
-                      
-    CLI                      aegisbpf                  journald    
-   Commands        daemon        / stdout    
-                                                                   
-                      
-                                    
-                                     bpf() syscall
-                                    
-                    
-                             BPF Maps               
-                       /sys/fs/bpf/aegis/           
-                                                    
-                        
-                       deny_* / allow_cgroup      
-                       deny_ipv4/deny_ipv6        
-                       deny_cidr_v4/v6 + port     
-                       net_* stats + block_stats  
-                       survival_allowlist/meta    
-                       events       (ring buf)    
-                        
-                    
-                                    
-                                    
-            
-             BPF hooks (kernel)                           
-             - file_open/inode_permission                 
-             - socket_connect/socket_bind                 
-             - openat/exec/fork/exit tracepoints fallback 
-            
++----------------------------+
+|    Policy bundle/rules     |
+| /etc/aegisbpf/policy.signed|
++-------------+--------------+
+              |
+              v
++-------+  +------------------+  +------------------+
+|  CLI  |->|    aegisbpf      |->| journald/stdout  |
+|  Cmds |  |     daemon       |  | (structured logs)|
++-------+  +--------+---------+  +------------------+
+                     |
+                  bpf() syscall
+                     |
+           +---------+---------+
+           |     BPF Maps      |
+           | /sys/fs/bpf/aegis/|
+           |                   |
+           | deny_* allow_*    |
+           | deny_ipv4/ipv6    |
+           | deny_cidr_v4/v6   |
+           | deny_port         |
+           | net_*/block_stats |
+           | survival/meta     |
+           | events (ring buf) |
+           +---------+---------+
+                     |
+           +---------+---------+
+           | BPF hooks (kernel)|
+           | - file_open       |
+           | - inode_permission|
+           | - socket_connect  |
+           | - socket_bind     |
+           | - tracepoints     |
+           +-------------------+
 ```
 
 ## Metrics
@@ -519,34 +505,22 @@ High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
 ## Security Hardening
 
 ```
-
-                           Security Layers                                   
-
-
-    
-                             Layer 5: Cryptographic                      
-         Constant-time comparisons, BPF integrity, policy signatures     
-    
-                                    
-    
-                             Layer 4: Code Signing                       
-                        Sigstore/Cosign + SBOM                           
-    
-                                    
-    
-                             Layer 3: MAC Policies                       
-                        AppArmor / SELinux                               
-    
-                                    
-    
-                             Layer 2: Seccomp                            
-                        Syscall allowlist (--seccomp)                    
-    
-                                    
-    
-                             Layer 1: Capabilities                       
-                  CAP_SYS_ADMIN, CAP_BPF, CAP_PERFMON                    
-    
++----------------------------------------------------------+
+| Layer 5: Cryptographic                                   |
+| Constant-time comparisons, BPF integrity, policy sigs    |
++----------------------------------------------------------+
+| Layer 4: Code Signing                                    |
+| Sigstore/Cosign + SBOM                                   |
++----------------------------------------------------------+
+| Layer 3: MAC Policies                                    |
+| AppArmor / SELinux                                       |
++----------------------------------------------------------+
+| Layer 2: Seccomp                                         |
+| Syscall allowlist (--seccomp)                            |
++----------------------------------------------------------+
+| Layer 1: Capabilities                                    |
+| CAP_SYS_ADMIN, CAP_BPF, CAP_PERFMON                     |
++----------------------------------------------------------+
 ```
 
 **Cryptographic protections:**
