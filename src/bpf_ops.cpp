@@ -1252,5 +1252,4 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
     }
     return entries;
 }
-
 } // namespace aegis
