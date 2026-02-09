@@ -479,7 +479,7 @@ bool validate_break_glass_token(const std::string& token, const std::vector<Publ
 
     // Reject expired tokens (older than 24 hours)
     uint64_t now = static_cast<uint64_t>(std::time(nullptr));
-    constexpr uint64_t kMaxTokenAge = 24 * 60 * 60; // 24 hours
+    constexpr uint64_t kMaxTokenAge = uint64_t{24} * 60 * 60; // 24 hours
     if (token_timestamp + kMaxTokenAge < now) {
         logger().log(SLOG_WARN("Break-glass token expired")
                          .field("token_time", static_cast<int64_t>(token_timestamp))

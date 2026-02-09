@@ -296,8 +296,9 @@ void CgroupPathCache::rebuild_locked()
                 }
             }
         }
-    } catch (const std::exception&) {
-        // partial map is better than no map
+    } catch (const std::exception&) { // NOLINT(bugprone-empty-catch)
+        // Partial map is better than no map — cgroup walk can fail
+        // on permission errors or race conditions.
     }
 }
 
@@ -520,8 +521,7 @@ Result<void> atomic_write_file(const std::string& target_path, const std::string
     });
 }
 
-Result<void> atomic_write_stream(const std::string& target_path,
-                                 const std::function<bool(std::ostream&)>& writer)
+Result<void> atomic_write_stream(const std::string& target_path, const std::function<bool(std::ostream&)>& writer)
 {
     // Build temp path in the same directory as target to ensure same filesystem for rename().
     std::string dir;
@@ -671,8 +671,7 @@ bool detect_break_glass()
                 if (validate_break_glass_token(token_content, *keys)) {
                     return true;
                 }
-                logger().log(
-                    SLOG_WARN("Break-glass token failed validation").field("path", kBreakGlassTokenPath));
+                logger().log(SLOG_WARN("Break-glass token failed validation").field("path", kBreakGlassTokenPath));
             } else {
                 logger().log(SLOG_WARN("No trusted keys available to validate break-glass token"));
             }

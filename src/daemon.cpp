@@ -119,8 +119,8 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                                              .field("rate", rate)
                                              .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
                         } else {
-                            logger().log(SLOG_ERROR("Auto-revert failed")
-                                             .field("error", revert_result.error().to_string()));
+                            logger().log(
+                                SLOG_ERROR("Auto-revert failed").field("error", revert_result.error().to_string()));
                         }
                         // Disable further rate checking after revert
                         deny_rate_threshold = 0;
@@ -614,11 +614,10 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     if (deadman_ttl > 0) {
         g_heartbeat_running.store(true);
         heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit);
-        logger().log(
-            SLOG_INFO("Deadman switch heartbeat started")
-                .field("ttl_seconds", static_cast<int64_t>(deadman_ttl))
-                .field("deny_rate_threshold", static_cast<int64_t>(deny_rate_threshold))
-                .field("deny_rate_breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
+        logger().log(SLOG_INFO("Deadman switch heartbeat started")
+                         .field("ttl_seconds", static_cast<int64_t>(deadman_ttl))
+                         .field("deny_rate_threshold", static_cast<int64_t>(deny_rate_threshold))
+                         .field("deny_rate_breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
     }
 
     int err = 0;

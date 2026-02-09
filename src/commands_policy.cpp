@@ -234,8 +234,7 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
             ssize_t written = 0;
             size_t total = content_ref.size();
             while (static_cast<size_t>(written) < total) {
-                ssize_t n = ::write(temp_fd, content_ref.data() + written,
-                                    total - static_cast<size_t>(written));
+                ssize_t n = ::write(temp_fd, content_ref.data() + written, total - static_cast<size_t>(written));
                 if (n < 0) {
                     ::close(temp_fd);
                     std::remove(temp_path);

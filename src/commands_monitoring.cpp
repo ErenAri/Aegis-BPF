@@ -1120,7 +1120,7 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
         deny_ports = MAX_DENY_PORT_ENTRIES;
     }
     if (ringbuf_bytes == 0) {
-        ringbuf_bytes = 256 * 1024; // default 256 KiB
+        ringbuf_bytes = uint64_t{256} * 1024; // default 256 KiB
     }
 
     // BPF map overhead per entry (hash map: ~64 bytes metadata per entry).
@@ -1142,13 +1142,13 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     // Stats maps: per-cpu arrays, small fixed size
     uint64_t stats_mem = 4096; // conservative estimate for all stats maps
 
-    uint64_t total_maps = deny_inode_mem + deny_path_mem + allow_cgroup_mem + deny_ip_mem + deny_cidr_mem +
-                          deny_port_mem + stats_mem;
+    uint64_t total_maps =
+        deny_inode_mem + deny_path_mem + allow_cgroup_mem + deny_ip_mem + deny_cidr_mem + deny_port_mem + stats_mem;
     uint64_t total = total_maps + ringbuf_bytes;
 
     auto fmt_kb = [](uint64_t bytes) -> std::string {
         std::ostringstream oss;
-        if (bytes >= 1024 * 1024) {
+        if (bytes >= uint64_t{1024} * 1024) {
             oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024.0 * 1024.0)) << " MiB";
         } else {
             oss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / 1024.0) << " KiB";

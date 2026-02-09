@@ -715,8 +715,7 @@ Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
         if (expected == 0) {
             return {};
         }
-        return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries",
-                     std::to_string(expected));
+        return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries", std::to_string(expected));
     }
     size_t actual = map_entry_count(map);
     if (actual != expected) {

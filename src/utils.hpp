@@ -50,8 +50,7 @@ std::string kernel_config_value(const std::string& key);
 
 // Atomic file writes (write-to-temp + fsync + rename)
 Result<void> atomic_write_file(const std::string& target_path, const std::string& content);
-Result<void> atomic_write_stream(const std::string& target_path,
-                                 const std::function<bool(std::ostream&)>& writer);
+Result<void> atomic_write_stream(const std::string& target_path, const std::function<bool(std::ostream&)>& writer);
 
 // Database operations
 DenyEntries read_deny_db();

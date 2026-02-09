@@ -127,10 +127,7 @@ class BpfBenchmark : public benchmark::Fixture {
         }
     }
 
-    void TearDown(const benchmark::State&) override
-    {
-        state_.cleanup();
-    }
+    void TearDown(const benchmark::State&) override { state_.cleanup(); }
 
     BpfState state_;
     bool skip_ = false;
@@ -279,9 +276,7 @@ BENCHMARK_DEFINE_F(NetBpfBenchmark, ConnectWithBpf)
     }
     st.SetItemsProcessed(st.iterations());
 }
-BENCHMARK_REGISTER_F(NetBpfBenchmark, ConnectWithBpf)
-    ->Unit(benchmark::kMicrosecond)
-    ->MinTime(1.0);
+BENCHMARK_REGISTER_F(NetBpfBenchmark, ConnectWithBpf)->Unit(benchmark::kMicrosecond)->MinTime(1.0);
 
 // ---------------------------------------------------------------------------
 // connect() baseline (no BPF loaded).
@@ -300,8 +295,7 @@ static void BM_ConnectBaseline(benchmark::State& state)
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = 0;
-    if (bind(listen_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0 ||
-        listen(listen_fd, 256) < 0) {
+    if (bind(listen_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0 || listen(listen_fd, 256) < 0) {
         close(listen_fd);
         state.SkipWithError("bind/listen failed");
         return;

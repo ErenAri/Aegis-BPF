@@ -282,7 +282,8 @@ TEST_F(PolicyTest, ApplyRejectsConflictingHashOptions)
 
 TEST_F(PolicyTest, GoldenDenyPathBasic)
 {
-    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_path_basic.conf").string();
+    std::string src =
+        (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_path_basic.conf").string();
     // If running from build dir, try relative path
     if (!std::filesystem::exists(src)) {
         src = "../tests/fixtures/golden/deny_path_basic.conf";
@@ -303,7 +304,8 @@ TEST_F(PolicyTest, GoldenDenyPathBasic)
 
 TEST_F(PolicyTest, GoldenDenyInodeBasic)
 {
-    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_inode_basic.conf").string();
+    std::string src =
+        (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/deny_inode_basic.conf").string();
     if (!std::filesystem::exists(src)) {
         src = "../tests/fixtures/golden/deny_inode_basic.conf";
     }
@@ -325,7 +327,8 @@ TEST_F(PolicyTest, GoldenDenyInodeBasic)
 
 TEST_F(PolicyTest, GoldenNetworkIpv4Deny)
 {
-    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_ipv4_deny.conf").string();
+    std::string src =
+        (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_ipv4_deny.conf").string();
     if (!std::filesystem::exists(src)) {
         src = "../tests/fixtures/golden/network_ipv4_deny.conf";
     }
@@ -343,7 +346,8 @@ TEST_F(PolicyTest, GoldenNetworkIpv4Deny)
 
 TEST_F(PolicyTest, GoldenNetworkCidrDeny)
 {
-    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_cidr_deny.conf").string();
+    std::string src =
+        (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/network_cidr_deny.conf").string();
     if (!std::filesystem::exists(src)) {
         src = "../tests/fixtures/golden/network_cidr_deny.conf";
     }
@@ -361,7 +365,8 @@ TEST_F(PolicyTest, GoldenNetworkCidrDeny)
 
 TEST_F(PolicyTest, GoldenAllowCgroup)
 {
-    std::string src = (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/allow_cgroup.conf").string();
+    std::string src =
+        (std::filesystem::current_path().parent_path() / "tests/fixtures/golden/allow_cgroup.conf").string();
     if (!std::filesystem::exists(src)) {
         src = "../tests/fixtures/golden/allow_cgroup.conf";
     }
