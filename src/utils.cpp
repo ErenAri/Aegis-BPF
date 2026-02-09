@@ -242,7 +242,8 @@ std::string CgroupPathCache::try_open_by_handle(uint64_t cgid)
     struct HandleBuf {
         struct file_handle fh;
         // NOLINTNEXTLINE(modernize-avoid-c-arrays)
-        unsigned char extra[8];
+        // cppcheck-suppress unusedStructMember
+        unsigned char extra[8]; // backing storage for fh.f_handle flexible array
     } hbuf{};
     hbuf.fh.handle_bytes = 8;
     hbuf.fh.handle_type = 1; // FILEID_INO32_GEN
