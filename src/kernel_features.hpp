@@ -20,6 +20,7 @@ struct KernelFeatures {
     bool btf = false;           // BTF (BPF Type Format) available
     bool bpf_syscall = false;   // BPF syscall available
     bool tracepoints = false;   // Tracepoints available
+    bool sk_storage = false;    // BPF_MAP_TYPE_SK_STORAGE support (kernel 5.2+)
     std::string kernel_version; // Kernel version string (e.g., "6.1.0")
     int kernel_major = 0;       // Major version number
     int kernel_minor = 0;       // Minor version number

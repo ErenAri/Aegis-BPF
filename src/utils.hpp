@@ -3,6 +3,7 @@
 
 #include <sys/types.h>
 
+#include <functional>
 #include <mutex>
 #include <string>
 #include <system_error>
@@ -47,6 +48,10 @@ std::string find_kernel_config_value_in_file(const std::string& path, const std:
 std::string find_kernel_config_value_in_proc(const std::string& key);
 std::string kernel_config_value(const std::string& key);
 
+// Atomic file writes (write-to-temp + fsync + rename)
+Result<void> atomic_write_file(const std::string& target_path, const std::string& content);
+Result<void> atomic_write_stream(const std::string& target_path, const std::function<bool(std::ostream&)>& writer);
+
 // Database operations
 DenyEntries read_deny_db();
 Result<void> write_deny_db(const DenyEntries& entries);
@@ -65,39 +70,7 @@ Result<void> validate_file_permissions(const std::string& path, bool require_roo
 Result<std::pair<InodeId, std::string>> canonicalize_path(const std::string& path);
 Result<InodeId> resolve_to_inode(const std::string& path, bool follow_symlinks = true);
 
-// RAII wrapper for popen/pclose
-class PipeGuard {
-  public:
-    explicit PipeGuard(FILE* fp) : fp_(fp) {}
-    ~PipeGuard()
-    {
-        if (fp_)
-            pclose(fp_);
-    }
-
-    PipeGuard(const PipeGuard&) = delete;
-    PipeGuard& operator=(const PipeGuard&) = delete;
-
-    PipeGuard(PipeGuard&& other) noexcept : fp_(other.fp_) { other.fp_ = nullptr; }
-    PipeGuard& operator=(PipeGuard&& other) noexcept
-    {
-        if (this != &other) {
-            if (fp_)
-                pclose(fp_);
-            fp_ = other.fp_;
-            other.fp_ = nullptr;
-        }
-        return *this;
-    }
-
-    [[nodiscard]] FILE* get() const { return fp_; }
-    [[nodiscard]] explicit operator bool() const { return fp_ != nullptr; }
-
-  private:
-    FILE* fp_;
-};
-
-// Thread-safe cgroup path cache
+// Thread-safe cgroup path cache with batch-rebuild on miss
 class CgroupPathCache {
   public:
     static CgroupPathCache& instance();
@@ -105,8 +78,13 @@ class CgroupPathCache {
 
   private:
     CgroupPathCache() = default;
+    void rebuild_locked();
+    std::string try_open_by_handle(uint64_t cgid);
+
     std::mutex mutex_;
     std::unordered_map<uint64_t, std::string> cache_;
+    bool fully_populated_ = false;
+    int mount_fd_ = -1;
 };
 
 // Thread-safe CWD cache for relative path resolution

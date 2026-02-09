@@ -17,6 +17,7 @@
 #include <numeric>
 #include <set>
 
+#include "kernel_features.hpp"
 #include "logging.hpp"
 #include "sha256.hpp"
 #include "tracing.hpp"
@@ -35,12 +36,7 @@ std::atomic<uint32_t> g_ringbuf_bytes{0};
 
 bool kernel_bpf_lsm_enabled()
 {
-    std::ifstream lsm("/sys/kernel/security/lsm");
-    std::string line;
-    if (!lsm.is_open() || !std::getline(lsm, line)) {
-        return false;
-    }
-    return line.find("bpf") != std::string::npos;
+    return check_bpf_lsm_enabled();
 }
 
 Result<void> bump_memlock_rlimit()
@@ -273,6 +269,29 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
     }
 
+    // Store kernel features for later reference
+    KernelFeatures kernel_features;
+    {
+        ScopedSpan span("bpf.check_kernel_features", trace_id, root_span.span_id());
+        auto features_result = detect_kernel_features();
+        if (!features_result) {
+            cleanup_bpf(state);
+            Error error(ErrorCode::BpfLoadFailed, "Failed to detect kernel features",
+                        features_result.error().to_string());
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        kernel_features = features_result.value();
+
+        // Warn if socket storage is not supported
+        if (!kernel_features.sk_storage) {
+            logger().log(SLOG_WARN("Socket caching not available (kernel < 5.2)")
+                             .field("kernel_version", kernel_features.kernel_version)
+                             .field("impact",
+                                    "BPF program load may fail. Kernel 5.2+ required for optimal network performance"));
+        }
+    }
+
     {
         ScopedSpan span("bpf.find_maps", trace_id, root_span.span_id());
 
@@ -413,7 +432,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         int err = bpf_object__load(state.obj);
         if (err) {
             cleanup_bpf(state);
-            Error error = Error::bpf_error(err, "Failed to load BPF object");
+
+            // Provide helpful error message for SK_STORAGE compatibility issues
+            std::string error_msg = "Failed to load BPF object";
+            if (!kernel_features.sk_storage && (err == -EINVAL || err == -ENOENT || err == -EOPNOTSUPP)) {
+                error_msg += " - BPF_MAP_TYPE_SK_STORAGE not supported on kernel " + kernel_features.kernel_version +
+                             ". Kernel 5.2+ required for network socket caching. "
+                             "See docs/COMPATIBILITY.md for supported kernel versions.";
+            }
+
+            Error error = Error::bpf_error(err, error_msg);
             span.fail(error.to_string());
             return fail(error);
         }
@@ -679,6 +707,22 @@ size_t map_entry_count(bpf_map* map)
         key.swap(next_key);
     }
     return count;
+}
+
+Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
+{
+    if (!map) {
+        if (expected == 0) {
+            return {};
+        }
+        return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries", std::to_string(expected));
+    }
+    size_t actual = map_entry_count(map);
+    if (actual != expected) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Map entry count mismatch",
+                     "expected=" + std::to_string(expected) + " actual=" + std::to_string(actual));
+    }
+    return {};
 }
 
 Result<void> clear_map_entries(bpf_map* map)
@@ -1127,9 +1171,15 @@ Result<void> populate_survival_allowlist(BpfState& state)
 
     if (proc_result) {
         for (const auto& [pid, exe_path] : proc_result.value()) {
+            // Stat through /proc/[pid]/exe to handle mount namespace differences
+            // The exe_path from readlink might not be accessible from host namespace
+            std::string proc_exe_path = "/proc/" + std::to_string(pid) + "/exe";
             struct stat st {};
-            if (stat(exe_path.c_str(), &st) != 0) {
-                continue;
+            if (stat(proc_exe_path.c_str(), &st) != 0) {
+                // Fallback: try the resolved path (for same-namespace binaries)
+                if (stat(exe_path.c_str(), &st) != 0) {
+                    continue;
+                }
             }
 
             InodeId id{};
@@ -1201,5 +1251,4 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
     }
     return entries;
 }
-
 } // namespace aegis

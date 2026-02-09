@@ -110,6 +110,12 @@ static bool check_ringbuf_support()
     return kernel_version_at_least(5, 8, 0);
 }
 
+static bool check_sk_storage_support()
+{
+    // BPF_MAP_TYPE_SK_STORAGE was added in kernel 5.2
+    return kernel_version_at_least(5, 2, 0);
+}
+
 static bool check_bpf_syscall()
 {
     // BPF syscall check - if we can read /proc/sys/kernel/unprivileged_bpf_disabled
@@ -143,6 +149,7 @@ Result<KernelFeatures> detect_kernel_features()
     features.bpf_syscall = check_bpf_syscall();
     features.ringbuf = check_ringbuf_support();
     features.tracepoints = check_tracepoints_available();
+    features.sk_storage = check_sk_storage_support();
 
     return features;
 }

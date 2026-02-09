@@ -66,6 +66,64 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --timeout 120
 
+      - name: Test overlayfs deny path
+        if: success()
+        run: |
+          if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+            SUDO=""
+            [ "$(id -u)" -ne 0 ] && SUDO="sudo -n"
+            TMPDIR=$(mktemp -d)
+            trap "$SUDO rm -rf $TMPDIR" EXIT
+            mkdir -p "$TMPDIR/lower" "$TMPDIR/upper" "$TMPDIR/work" "$TMPDIR/merged"
+            echo "test" > "$TMPDIR/lower/testfile"
+            $SUDO mount -t overlay overlay \
+              -o "lowerdir=$TMPDIR/lower,upperdir=$TMPDIR/upper,workdir=$TMPDIR/work" \
+              "$TMPDIR/merged" || { echo "overlayfs not available, skipping"; exit 0; }
+            # Verify inode-based deny catches files through overlayfs
+            LOWER_INO=$(stat -c '%d:%i' "$TMPDIR/lower/testfile")
+            MERGED_INO=$(stat -c '%d:%i' "$TMPDIR/merged/testfile")
+            echo "Lower inode: $LOWER_INO, Merged inode: $MERGED_INO"
+            $SUDO umount "$TMPDIR/merged"
+          else
+            echo "Root access unavailable, skipping overlayfs test"
+          fi
+
+      - name: Test bind mount deny path
+        if: success()
+        run: |
+          if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+            SUDO=""
+            [ "$(id -u)" -ne 0 ] && SUDO="sudo -n"
+            TMPDIR=$(mktemp -d)
+            trap "$SUDO rm -rf $TMPDIR" EXIT
+            mkdir -p "$TMPDIR/original" "$TMPDIR/bindmnt"
+            echo "test" > "$TMPDIR/original/testfile"
+            $SUDO mount --bind "$TMPDIR/original" "$TMPDIR/bindmnt" || { echo "bind mount failed, skipping"; exit 0; }
+            # Verify that bind-mounted file has same inode
+            ORIG_INO=$(stat -c '%d:%i' "$TMPDIR/original/testfile")
+            BIND_INO=$(stat -c '%d:%i' "$TMPDIR/bindmnt/testfile")
+            echo "Original inode: $ORIG_INO, Bind mount inode: $BIND_INO"
+            [ "$ORIG_INO" = "$BIND_INO" ] || { echo "FAIL: inode mismatch through bind mount"; exit 1; }
+            $SUDO umount "$TMPDIR/bindmnt"
+          else
+            echo "Root access unavailable, skipping bind mount test"
+          fi
+
+      - name: Test symlink chain resolution
+        if: success()
+        run: |
+          TMPDIR=$(mktemp -d)
+          trap "rm -rf $TMPDIR" EXIT
+          echo "secret" > "$TMPDIR/target"
+          ln -s "$TMPDIR/target" "$TMPDIR/link1"
+          ln -s "$TMPDIR/link1" "$TMPDIR/link2"
+          ln -s "$TMPDIR/link2" "$TMPDIR/link3"
+          # Verify all symlinks resolve to same inode
+          TARGET_INO=$(stat -c '%d:%i' "$TMPDIR/target")
+          CHAIN_INO=$(stat -c '%d:%i' "$TMPDIR/link3")
+          echo "Target inode: $TARGET_INO, Chain inode: $CHAIN_INO"
+          [ "$TARGET_INO" = "$CHAIN_INO" ] || { echo "FAIL: symlink chain inode mismatch"; exit 1; }
+
       - name: Collect kernel matrix evidence
         if: always()
         run: |

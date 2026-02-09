@@ -203,4 +203,17 @@ Result<void> write_version_counter(uint64_t version);
  */
 bool check_version_acceptable(const SignedPolicyBundle& bundle);
 
+/**
+ * Validate a break-glass token.
+ *
+ * Token format: "<unix_timestamp>:<signature_hex>"
+ * The signature is verified over the timestamp string using any trusted key.
+ * The token is rejected if the timestamp is older than 24 hours.
+ *
+ * @param token Token content (first line of break_glass.token file)
+ * @param keys Trusted public keys
+ * @return true if token is valid and not expired
+ */
+bool validate_break_glass_token(const std::string& token, const std::vector<PublicKey>& keys);
+
 } // namespace aegis

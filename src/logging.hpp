@@ -98,9 +98,11 @@ class LogEntry {
         std::ostringstream oss;
 
         // Timestamp
-        auto time_t = std::chrono::system_clock::to_time_t(timestamp_);
+        auto time_t_val = std::chrono::system_clock::to_time_t(timestamp_);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp_.time_since_epoch()) % 1000;
-        oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+        struct tm tm_buf {};
+        localtime_r(&time_t_val, &tm_buf);
+        oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
         oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
 
         // Level
@@ -131,9 +133,11 @@ class LogEntry {
         oss << "{";
 
         // Timestamp as ISO8601
-        auto time_t = std::chrono::system_clock::to_time_t(timestamp_);
+        auto time_t_val = std::chrono::system_clock::to_time_t(timestamp_);
+        struct tm tm_buf {};
+        gmtime_r(&time_t_val, &tm_buf);
         oss << "\"timestamp\":\"";
-        oss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%S");
+        oss << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%S");
         oss << "Z\"";
 
         // Level
