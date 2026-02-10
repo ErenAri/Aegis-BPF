@@ -43,7 +43,7 @@ jobs:
             --output ratchet-report.json
 
       - name: Update ratchet tracker / propose threshold bump
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
