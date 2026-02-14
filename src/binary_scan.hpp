@@ -10,9 +10,9 @@
 namespace aegis {
 
 struct BinaryScanResult {
-    std::string hash;          // SHA-256 hex digest
-    std::string path;          // Filesystem path where found
-    InodeId inode;             // Device + inode
+    std::string hash; // SHA-256 hex digest
+    std::string path; // Filesystem path where found
+    InodeId inode;    // Device + inode
 };
 
 /**
@@ -26,9 +26,8 @@ struct BinaryScanResult {
  * @param extra_scan_paths Additional directories to scan beyond defaults
  * @return Vector of matches (hash, path, inode)
  */
-Result<std::vector<BinaryScanResult>> scan_for_binary_hashes(
-    const std::vector<std::string>& target_hashes,
-    const std::vector<std::string>& extra_scan_paths = {});
+Result<std::vector<BinaryScanResult>> scan_for_binary_hashes(const std::vector<std::string>& target_hashes,
+                                                             const std::vector<std::string>& extra_scan_paths = {});
 
 /**
  * Compute SHA-256 hash of a file.

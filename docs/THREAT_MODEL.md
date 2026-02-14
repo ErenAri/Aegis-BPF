@@ -9,6 +9,31 @@ non-goals, and residual risks.  For a dispositioned list of known bypass
 surfaces, see `docs/BYPASS_CATALOG.md`.  For enforcement guarantees and TOCTOU
 analysis, see `docs/GUARANTEES.md`.
 
+## Attacker model
+
+### In scope
+- Unprivileged and limited-privileged users attempting file and network access
+  that should be denied.
+- Compromised workloads attempting lateral movement, data exfiltration, or
+  policy bypass from user space.
+- Supply-chain tampering of policy bundles and shipped BPF artifacts before
+  runtime load.
+
+### Out of scope
+- Kernel compromise, malicious kernel modules, or verifier-level bypasses after
+  host kernel integrity is lost.
+- Physical attacks against host hardware or firmware.
+- Post-root compromise scenarios where an attacker controls all capabilities
+  needed to rewrite maps, binaries, and policies.
+
+## Known blind spots
+- TOCTOU windows around pathname resolution still depend on inode/path map
+  freshness and canonicalization timing.
+- Enforcement does not currently cover every network operation family (for
+  example `accept` and `sendmsg` paths remain outside current enforcement).
+- Strong guarantees depend on operators enabling signed-policy enforcement in
+  production (`--require-signature`).
+
 ---
 
 ## 1. Assets

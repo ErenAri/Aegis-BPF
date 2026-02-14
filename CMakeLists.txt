@@ -247,6 +247,7 @@ target_compile_definitions(aegisbpf PRIVATE
 
 # Build library for testing (without main)
 set(AEGIS_LIB_SOURCES
+    src/binary_scan.cpp
     src/commands_block_allow.cpp
     src/commands_network.cpp
     src/commands_policy.cpp

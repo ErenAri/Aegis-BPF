@@ -139,12 +139,12 @@ TEST_F(CrashPolicyTest, CrashOnBothApplyAndRollbackReturnsOriginalError)
     // Both calls will fail: apply at call 0, rollback at call 1
     g_crash_at_call = -1; // Don't use single-call crash
 
-    set_apply_policy_internal_for_test([](const std::string& path, const std::string& computed_hash, bool reset,
-                                          bool record) -> Result<void> {
-        g_crash_apply_calls.push_back(ApplyCall{path, computed_hash, reset, record});
-        // All calls fail
-        return Error(ErrorCode::BpfMapOperationFailed, "Total failure");
-    });
+    set_apply_policy_internal_for_test(
+        [](const std::string& path, const std::string& computed_hash, bool reset, bool record) -> Result<void> {
+            g_crash_apply_calls.push_back(ApplyCall{path, computed_hash, reset, record});
+            // All calls fail
+            return Error(ErrorCode::BpfMapOperationFailed, "Total failure");
+        });
 
     auto result = policy_apply(policy_path, false, "", "", true);
     ASSERT_FALSE(result);

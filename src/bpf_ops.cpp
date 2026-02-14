@@ -838,17 +838,24 @@ Result<ShadowMap> create_shadow_map(bpf_map* live_map)
         return Error(ErrorCode::InvalidArgument, "Cannot create shadow for null map");
     }
 
-    LIBBPF_OPTS(bpf_map_create_opts, opts);
-    auto type = bpf_map__type(live_map);
-    auto key_size = bpf_map__key_size(live_map);
-    auto value_size = bpf_map__value_size(live_map);
-    auto max_entries = bpf_map__max_entries(live_map);
-    auto flags = bpf_map__map_flags(live_map);
-    opts.map_flags = flags;
+    const auto type = static_cast<enum bpf_map_type>(bpf_map__type(live_map));
+    const auto key_size = bpf_map__key_size(live_map);
+    const auto value_size = bpf_map__value_size(live_map);
+    const auto max_entries = bpf_map__max_entries(live_map);
+    const auto flags = bpf_map__map_flags(live_map);
 
-    int fd = bpf_map_create(static_cast<enum bpf_map_type>(type), "shadow", key_size, value_size, max_entries, &opts);
+    int fd = -1;
+#ifdef bpf_map_create_opts__last_field
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    opts.map_flags = flags;
+    fd = bpf_map_create(type, "shadow", key_size, value_size, max_entries, &opts);
+#else
+    fd = bpf_create_map_name(type, "shadow", static_cast<int>(key_size), static_cast<int>(value_size),
+                             static_cast<int>(max_entries), flags);
+#endif
     if (fd < 0) {
-        return Error::system(errno, "bpf_map_create failed for shadow map");
+        return Error::system(errno, "Failed to create shadow map");
     }
     return ShadowMap(fd);
 }
@@ -947,10 +954,8 @@ Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
     std::vector<uint8_t> val(val_sz);
 
     // Phase 1: Upsert all shadow entries into live map
-    std::set<std::vector<uint8_t>> shadow_keys;
     int rc = bpf_map_get_next_key(shadow_fd, nullptr, key.data());
     while (!rc) {
-        shadow_keys.insert(key);
         if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) == 0) {
             if (bpf_map_update_elem(live_fd, key.data(), val.data(), BPF_ANY)) {
                 return Error::system(errno, "sync_from_shadow: upsert failed");
@@ -964,7 +969,10 @@ Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
     std::vector<std::vector<uint8_t>> stale_keys;
     rc = bpf_map_get_next_key(live_fd, nullptr, key.data());
     while (!rc) {
-        if (shadow_keys.find(key) == shadow_keys.end()) {
+        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) != 0) {
+            if (errno != ENOENT) {
+                return Error::system(errno, "sync_from_shadow: shadow lookup failed");
+            }
             stale_keys.push_back(key);
         }
         rc = bpf_map_get_next_key(live_fd, key.data(), next_key.data());

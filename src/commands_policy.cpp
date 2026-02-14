@@ -498,8 +498,8 @@ int cmd_policy_canary(const std::string& path, bool reset, const std::string& sh
         uint64_t delta = current_blocks - prev_blocks;
         double rate = static_cast<double>(delta) / static_cast<double>(sleep_time);
 
-        std::cout << "[canary] t=" << elapsed << "s: " << delta << " denies in " << sleep_time
-                  << "s (rate=" << rate << "/s)\n";
+        std::cout << "[canary] t=" << elapsed << "s: " << delta << " denies in " << sleep_time << "s (rate=" << rate
+                  << "/s)\n";
 
         if (rate > static_cast<double>(canary_threshold)) {
             threshold_breached = true;
@@ -522,8 +522,7 @@ int cmd_policy_canary(const std::string& path, bool reset, const std::string& sh
             if (rollback_result) {
                 std::cout << "[canary] Policy rolled back successfully\n";
             } else {
-                logger().log(
-                    SLOG_ERROR("Canary: rollback failed").field("error", rollback_result.error().to_string()));
+                logger().log(SLOG_ERROR("Canary: rollback failed").field("error", rollback_result.error().to_string()));
                 std::cout << "[canary] WARNING: Rollback failed. Manual intervention required.\n";
             }
         }

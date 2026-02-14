@@ -65,26 +65,24 @@ TEST_P(PolicyGoldenTest, MatchesExpectedEntries)
     EXPECT_EQ(policy.network.deny_ports.size(), tc.expected_deny_ports);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    GoldenVectors, PolicyGoldenTest,
-    ::testing::Values(
-        GoldenTestCase{"deny_path_basic.conf", 1, 3, 0, 0, 0, false, 0, 0, 0},
-        GoldenTestCase{"deny_inode_basic.conf", 1, 0, 3, 0, 0, false, 0, 0, 0},
-        GoldenTestCase{"network_ipv4_deny.conf", 2, 0, 0, 0, 0, true, 2, 0, 0},
-        GoldenTestCase{"network_cidr_deny.conf", 2, 0, 0, 0, 0, true, 0, 2, 0},
-        GoldenTestCase{"allow_cgroup.conf", 1, 0, 0, 2, 1, false, 0, 0, 0},
-        GoldenTestCase{"network_mixed.conf", 2, 0, 0, 0, 0, true, 3, 2, 3},
-        GoldenTestCase{"version_2_full.conf", 2, 2, 2, 1, 1, true, 2, 2, 2}),
-    [](const ::testing::TestParamInfo<GoldenTestCase>& info) {
-        // Generate readable test name from fixture name
-        std::string name = info.param.fixture_name;
-        // Remove .conf extension
-        auto pos = name.rfind('.');
-        if (pos != std::string::npos) {
-            name = name.substr(0, pos);
-        }
-        return name;
-    });
+INSTANTIATE_TEST_SUITE_P(GoldenVectors, PolicyGoldenTest,
+                         ::testing::Values(GoldenTestCase{"deny_path_basic.conf", 1, 3, 0, 0, 0, false, 0, 0, 0},
+                                           GoldenTestCase{"deny_inode_basic.conf", 1, 0, 3, 0, 0, false, 0, 0, 0},
+                                           GoldenTestCase{"network_ipv4_deny.conf", 2, 0, 0, 0, 0, true, 2, 0, 0},
+                                           GoldenTestCase{"network_cidr_deny.conf", 2, 0, 0, 0, 0, true, 0, 2, 0},
+                                           GoldenTestCase{"allow_cgroup.conf", 1, 0, 0, 2, 1, false, 0, 0, 0},
+                                           GoldenTestCase{"network_mixed.conf", 2, 0, 0, 0, 0, true, 3, 2, 3},
+                                           GoldenTestCase{"version_2_full.conf", 2, 2, 2, 1, 1, true, 2, 2, 2}),
+                         [](const ::testing::TestParamInfo<GoldenTestCase>& info) {
+                             // Generate readable test name from fixture name
+                             std::string name = info.param.fixture_name;
+                             // Remove .conf extension
+                             auto pos = name.rfind('.');
+                             if (pos != std::string::npos) {
+                                 name = name.substr(0, pos);
+                             }
+                             return name;
+                         });
 
 } // namespace
 } // namespace aegis
