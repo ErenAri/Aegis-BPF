@@ -75,7 +75,6 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     LsmHookMode lsm_hook = LsmHookMode::FileOpen;
     uint32_t deny_rate_threshold = 0;
     uint32_t deny_rate_breach_limit = 3;
-    uint32_t auto_revert_cooldown = 0;
     uint32_t max_deny_inodes = 0;
     uint32_t max_deny_paths = 0;
     uint32_t max_network_entries = 0;
@@ -207,15 +206,6 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
                 return usage(prog);
             if (!parse_u32_option(argv[++i], max_network_entries, "Invalid max network entries", true))
                 return 1;
-        } else if (arg.rfind("--auto-revert-cooldown=", 0) == 0) {
-            std::string value = arg.substr(std::strlen("--auto-revert-cooldown="));
-            if (!parse_u32_option(value, auto_revert_cooldown, "Invalid auto-revert cooldown", false))
-                return 1;
-        } else if (arg == "--auto-revert-cooldown") {
-            if (i + 1 >= argc)
-                return usage(prog);
-            if (!parse_u32_option(argv[++i], auto_revert_cooldown, "Invalid auto-revert cooldown", false))
-                return 1;
         } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
@@ -247,7 +237,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
 
     return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
                       event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
-                      deny_rate_threshold, deny_rate_breach_limit, auto_revert_cooldown);
+                      deny_rate_threshold, deny_rate_breach_limit);
 }
 
 } // namespace aegis

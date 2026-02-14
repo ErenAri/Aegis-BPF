@@ -158,8 +158,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     std::unordered_set<std::string> deny_hash_seen;
 
     // Valid sections
-    static const std::unordered_set<std::string> valid_sections = {"deny_path",        "deny_inode",  "allow_cgroup",
-                                                                   "deny_ip",          "deny_cidr",   "deny_port",
+    static const std::unordered_set<std::string> valid_sections = {"deny_path",        "deny_inode", "allow_cgroup",
+                                                                   "deny_ip",          "deny_cidr",  "deny_port",
                                                                    "deny_binary_hash", "scan_paths"};
 
     while (std::getline(in, line)) {
@@ -302,8 +302,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             std::string hash = trimmed.substr(7);
             if (hash.size() != 64) {
-                issues.errors.push_back("line " + std::to_string(line_no) +
-                                        ": sha256 hash must be 64 hex characters");
+                issues.errors.push_back("line " + std::to_string(line_no) + ": sha256 hash must be 64 hex characters");
                 continue;
             }
             bool valid_hex = true;
@@ -329,8 +328,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
         if (section == "scan_paths") {
             if (trimmed.empty() || trimmed.front() != '/') {
-                issues.warnings.push_back("line " + std::to_string(line_no) +
-                                          ": scan_paths entry should be absolute");
+                issues.warnings.push_back("line " + std::to_string(line_no) + ": scan_paths entry should be absolute");
             }
             policy.scan_paths.push_back(trimmed);
             continue;
@@ -555,8 +553,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                         }
                     }
                 } else {
-                    logger().log(SLOG_WARN("Binary hash scan failed")
-                                     .field("error", scan_result.error().to_string()));
+                    logger().log(SLOG_WARN("Binary hash scan failed").field("error", scan_result.error().to_string()));
                 }
             }
 
@@ -695,8 +692,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                         }
                     }
                 } else {
-                    logger().log(SLOG_WARN("Binary hash scan failed")
-                                     .field("error", scan_result.error().to_string()));
+                    logger().log(SLOG_WARN("Binary hash scan failed").field("error", scan_result.error().to_string()));
                 }
             }
 

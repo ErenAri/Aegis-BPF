@@ -747,9 +747,9 @@ std::string build_health_json(const HealthReport& report)
                 if (i > 0) {
                     out << ",";
                 }
-                out << "{\"name\":\"" << json_escape(m.name) << "\""
-                    << ",\"entries\":" << m.entry_count << ",\"max\":" << m.max_entries << ",\"utilization\":"
-                    << std::fixed << std::setprecision(6) << m.utilization << "}";
+                out << "{\"name\":\"" << json_escape(m.name) << "\"" << ",\"entries\":" << m.entry_count
+                    << ",\"max\":" << m.max_entries << ",\"utilization\":" << std::fixed << std::setprecision(6)
+                    << m.utilization << "}";
             }
             out << "]";
         }
@@ -802,10 +802,11 @@ std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
             auto pressure = check_map_pressure(pressure_state);
             for (const auto& m : pressure.maps) {
                 if (m.utilization >= 1.0) {
-                    advice.push_back({"map_full_" + m.name,
-                                      "Map '" + m.name + "' is at capacity (" + std::to_string(m.entry_count) + "/" +
-                                          std::to_string(m.max_entries) + "). New entries will be rejected.",
-                                      "Increase --max-deny-inodes/--max-deny-paths/--max-network-entries or reduce policy size."});
+                    advice.push_back(
+                        {"map_full_" + m.name,
+                         "Map '" + m.name + "' is at capacity (" + std::to_string(m.entry_count) + "/" +
+                             std::to_string(m.max_entries) + "). New entries will be rejected.",
+                         "Increase --max-deny-inodes/--max-deny-paths/--max-network-entries or reduce policy size."});
                 } else if (m.utilization >= 0.80) {
                     advice.push_back({"map_pressure_" + m.name,
                                       "Map '" + m.name + "' utilization is " +
@@ -1273,7 +1274,8 @@ int cmd_probe()
 {
     auto features_result = detect_kernel_features();
     if (!features_result) {
-        logger().log(SLOG_ERROR("Failed to detect kernel features").field("error", features_result.error().to_string()));
+        logger().log(
+            SLOG_ERROR("Failed to detect kernel features").field("error", features_result.error().to_string()));
         return 1;
     }
     const auto& features = *features_result;
