@@ -54,9 +54,9 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: false
-          alert-threshold: '200%'
-          fail-on-alert: false
-          comment-on-alert: false
+          alert-threshold: '105%'
+          fail-on-alert: true
+          comment-on-alert: true
           summary-always: true
 
       - name: Store benchmark result (main advisory)
@@ -67,9 +67,9 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.ref == 'refs/heads/main' }}
-          alert-threshold: '200%'
+          alert-threshold: '105%'
           fail-on-alert: false
-          comment-on-alert: false
+          comment-on-alert: true
           summary-always: true
 
       - name: Perf gate policy note

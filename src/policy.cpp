@@ -9,6 +9,7 @@
 #include <limits>
 #include <unordered_set>
 
+#include "binary_scan.hpp"
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
@@ -154,9 +155,12 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     std::string line;
     size_t line_no = 0;
 
+    std::unordered_set<std::string> deny_hash_seen;
+
     // Valid sections
-    static const std::unordered_set<std::string> valid_sections = {"deny_path", "deny_inode", "allow_cgroup",
-                                                                   "deny_ip",   "deny_cidr",  "deny_port"};
+    static const std::unordered_set<std::string> valid_sections = {"deny_path",        "deny_inode",  "allow_cgroup",
+                                                                   "deny_ip",          "deny_cidr",   "deny_port",
+                                                                   "deny_binary_hash", "scan_paths"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -288,14 +292,62 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             continue;
         }
+
+        if (section == "deny_binary_hash") {
+            // Format: sha256:<hex_digest>
+            if (trimmed.rfind("sha256:", 0) != 0) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": deny_binary_hash entry must start with 'sha256:'");
+                continue;
+            }
+            std::string hash = trimmed.substr(7);
+            if (hash.size() != 64) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": sha256 hash must be 64 hex characters");
+                continue;
+            }
+            bool valid_hex = true;
+            for (char c : hash) {
+                if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                    valid_hex = false;
+                    break;
+                }
+            }
+            if (!valid_hex) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": sha256 hash contains non-hex characters");
+                continue;
+            }
+            // Normalize to lowercase
+            std::transform(hash.begin(), hash.end(), hash.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (deny_hash_seen.insert(hash).second) {
+                policy.deny_binary_hashes.push_back(hash);
+            }
+            continue;
+        }
+
+        if (section == "scan_paths") {
+            if (trimmed.empty() || trimmed.front() != '/') {
+                issues.warnings.push_back("line " + std::to_string(line_no) +
+                                          ": scan_paths entry should be absolute");
+            }
+            policy.scan_paths.push_back(trimmed);
+            continue;
+        }
     }
 
     if (policy.version == 0) {
         issues.errors.push_back("missing header key: version");
     }
-    // Accept version 1 or 2 (2 adds network support)
-    if (policy.version != 1 && policy.version != 2) {
+    // Accept version 1, 2, or 3 (2 adds network, 3 adds binary hash)
+    if (policy.version < 1 || policy.version > 3) {
         issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
+    }
+
+    // deny_binary_hash requires version >= 3
+    if (!policy.deny_binary_hashes.empty() && policy.version < 3) {
+        issues.errors.push_back("[deny_binary_hash] requires version=3 or higher");
     }
 
     if (!issues.errors.empty()) {
@@ -447,93 +499,351 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         }
     }
 
-    if (reset) {
-        ScopedSpan span("policy.reset_maps", root_span.trace_id(), root_span.span_id());
-        auto reset_result = reset_policy_maps(state);
-        if (!reset_result) {
-            span.fail(reset_result.error().to_string());
-            return fail(reset_result.error());
-        }
-    }
-
     DenyEntries entries;
     {
         ScopedSpan span("policy.prepare_entries", root_span.trace_id(), root_span.span_id());
         entries = reset ? DenyEntries{} : read_deny_db();
     }
 
+    // --- Shadow-then-sync path: populate shadow maps, verify, then sync to live ---
+    // Attempt to create shadow maps. If creation fails (old kernel, insufficient memory),
+    // fall back to the direct-mutation approach.
+    bool use_shadow = false;
+    ShadowMapSet shadows;
     {
-        ScopedSpan span("policy.apply_file_rules", root_span.trace_id(), root_span.span_id());
-        for (const auto& deny_path : policy.deny_paths) {
-            auto result = add_deny_path(state, deny_path, entries);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
-        }
-        for (const auto& id : policy.deny_inodes) {
-            auto result = add_deny_inode(state, id, entries);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
-        }
-        for (const auto& cgid : policy.allow_cgroup_ids) {
-            auto result = add_allow_cgroup(state, cgid);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
-        }
-        for (const auto& cgpath : policy.allow_cgroup_paths) {
-            auto result = add_allow_cgroup_path(state, cgpath);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
+        ScopedSpan span("policy.create_shadows", root_span.trace_id(), root_span.span_id());
+        auto shadow_result = create_shadow_map_set(state);
+        if (shadow_result) {
+            shadows = std::move(*shadow_result);
+            use_shadow = true;
+            logger().log(SLOG_INFO("Shadow maps created for crash-safe policy apply"));
+        } else {
+            logger().log(SLOG_WARN("Shadow map creation failed; falling back to direct apply")
+                             .field("error", shadow_result.error().to_string()));
         }
     }
 
-    // Apply network rules if enabled
-    if (policy.network.enabled) {
-        ScopedSpan span("policy.apply_network_rules", root_span.trace_id(), root_span.span_id());
-        for (const auto& ip : policy.network.deny_ips) {
-            auto result = add_deny_ip(state, ip);
-            if (!result) {
-                logger().log(
-                    SLOG_WARN("Failed to add deny IP").field("ip", ip).field("error", result.error().message()));
+    if (use_shadow) {
+        // Populate shadow maps (live maps untouched)
+        {
+            ScopedSpan span("policy.populate_shadows", root_span.trace_id(), root_span.span_id());
+            for (const auto& deny_path : policy.deny_paths) {
+                auto result = add_deny_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), deny_path, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            for (const auto& id : policy.deny_inodes) {
+                auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            // Scan for binaries matching deny_binary_hash entries and add their inodes
+            if (!policy.deny_binary_hashes.empty()) {
+                auto scan_result = scan_for_binary_hashes(policy.deny_binary_hashes, policy.scan_paths);
+                if (scan_result) {
+                    for (const auto& match : *scan_result) {
+                        auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), match.inode, entries);
+                        if (!result) {
+                            logger().log(SLOG_WARN("Failed to add binary hash match to shadow")
+                                             .field("path", match.path)
+                                             .field("hash", match.hash)
+                                             .field("error", result.error().message()));
+                        }
+                    }
+                } else {
+                    logger().log(SLOG_WARN("Binary hash scan failed")
+                                     .field("error", scan_result.error().to_string()));
+                }
+            }
+
+            for (const auto& cgid : policy.allow_cgroup_ids) {
+                auto result = add_allow_cgroup_to_fd(shadows.allow_cgroup.fd(), cgid);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            for (const auto& cgpath : policy.allow_cgroup_paths) {
+                auto result = add_allow_cgroup_path_to_fd(shadows.allow_cgroup.fd(), cgpath);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
             }
         }
-        for (const auto& cidr : policy.network.deny_cidrs) {
-            auto result = add_deny_cidr(state, cidr);
-            if (!result) {
-                logger().log(
-                    SLOG_WARN("Failed to add deny CIDR").field("cidr", cidr).field("error", result.error().message()));
+
+        // Populate shadow network maps
+        if (policy.network.enabled) {
+            ScopedSpan span("policy.populate_shadow_network", root_span.trace_id(), root_span.span_id());
+            for (const auto& ip : policy.network.deny_ips) {
+                auto result = add_deny_ip_to_fds(shadows.deny_ipv4.fd(), shadows.deny_ipv6.fd(), ip);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny IP to shadow")
+                                     .field("ip", ip)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& cidr : policy.network.deny_cidrs) {
+                auto result = add_deny_cidr_to_fds(shadows.deny_cidr_v4.fd(), shadows.deny_cidr_v6.fd(), cidr);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny CIDR to shadow")
+                                     .field("cidr", cidr)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& port_rule : policy.network.deny_ports) {
+                auto result = add_deny_port_to_fd(shadows.deny_port.fd(), port_rule.port, port_rule.protocol,
+                                                  port_rule.direction);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny port to shadow")
+                                     .field("port", static_cast<int64_t>(port_rule.port))
+                                     .field("error", result.error().message()));
+                }
             }
         }
-        for (const auto& port_rule : policy.network.deny_ports) {
-            auto result = add_deny_port(state, port_rule.port, port_rule.protocol, port_rule.direction);
-            if (!result) {
-                logger().log(SLOG_WARN("Failed to add deny port")
-                                 .field("port", static_cast<int64_t>(port_rule.port))
-                                 .field("error", result.error().message()));
+
+        // Verify shadow map entry counts before touching live maps
+        {
+            ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
+            size_t shadow_inode_count =
+                map_fd_entry_count(shadows.deny_inode.fd(), bpf_map__key_size(state.deny_inode));
+            if (shadow_inode_count != entries.size()) {
+                Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_inode",
+                          "expected=" + std::to_string(entries.size()) +
+                              " actual=" + std::to_string(shadow_inode_count));
+                span.fail(err.to_string());
+                logger().log(SLOG_ERROR("Shadow verify failed for deny_inode")
+                                 .field("expected", static_cast<int64_t>(entries.size()))
+                                 .field("actual", static_cast<int64_t>(shadow_inode_count)));
+                return fail(err);
+            }
+
+            size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), bpf_map__key_size(state.deny_path));
+            if (shadow_path_count < policy.deny_paths.size()) {
+                Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_path",
+                          "expected>=" + std::to_string(policy.deny_paths.size()) +
+                              " actual=" + std::to_string(shadow_path_count));
+                span.fail(err.to_string());
+                return fail(err);
             }
         }
-        logger().log(SLOG_INFO("Network policy applied")
-                         .field("deny_ips", static_cast<int64_t>(policy.network.deny_ips.size()))
-                         .field("deny_cidrs", static_cast<int64_t>(policy.network.deny_cidrs.size()))
-                         .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size())));
+
+        // Sync shadow maps into live maps
+        {
+            ScopedSpan span("policy.sync_shadows_to_live", root_span.trace_id(), root_span.span_id());
+
+            if (reset) {
+                TRY(reset_policy_maps(state));
+            }
+
+            TRY(sync_from_shadow(state.deny_inode, shadows.deny_inode.fd()));
+            TRY(sync_from_shadow(state.deny_path, shadows.deny_path.fd()));
+            TRY(sync_from_shadow(state.allow_cgroup, shadows.allow_cgroup.fd()));
+
+            if (policy.network.enabled) {
+                TRY(sync_from_shadow(state.deny_ipv4, shadows.deny_ipv4.fd()));
+                TRY(sync_from_shadow(state.deny_ipv6, shadows.deny_ipv6.fd()));
+                TRY(sync_from_shadow(state.deny_port, shadows.deny_port.fd()));
+                TRY(sync_from_shadow(state.deny_cidr_v4, shadows.deny_cidr_v4.fd()));
+                TRY(sync_from_shadow(state.deny_cidr_v6, shadows.deny_cidr_v6.fd()));
+            }
+
+            logger().log(SLOG_INFO("Shadow maps synced to live maps"));
+        }
+    } else {
+        // Fallback: direct-mutation path (original behavior)
+        if (reset) {
+            ScopedSpan span("policy.reset_maps", root_span.trace_id(), root_span.span_id());
+            auto reset_result = reset_policy_maps(state);
+            if (!reset_result) {
+                span.fail(reset_result.error().to_string());
+                return fail(reset_result.error());
+            }
+        }
+
+        {
+            ScopedSpan span("policy.apply_file_rules", root_span.trace_id(), root_span.span_id());
+            for (const auto& deny_path : policy.deny_paths) {
+                auto result = add_deny_path(state, deny_path, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            for (const auto& id : policy.deny_inodes) {
+                auto result = add_deny_inode(state, id, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            // Scan for binaries matching deny_binary_hash entries and add their inodes
+            if (!policy.deny_binary_hashes.empty()) {
+                auto scan_result = scan_for_binary_hashes(policy.deny_binary_hashes, policy.scan_paths);
+                if (scan_result) {
+                    for (const auto& match : *scan_result) {
+                        auto result = add_deny_inode(state, match.inode, entries);
+                        if (!result) {
+                            logger().log(SLOG_WARN("Failed to add binary hash match")
+                                             .field("path", match.path)
+                                             .field("hash", match.hash)
+                                             .field("error", result.error().message()));
+                        }
+                    }
+                } else {
+                    logger().log(SLOG_WARN("Binary hash scan failed")
+                                     .field("error", scan_result.error().to_string()));
+                }
+            }
+
+            for (const auto& cgid : policy.allow_cgroup_ids) {
+                auto result = add_allow_cgroup(state, cgid);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            for (const auto& cgpath : policy.allow_cgroup_paths) {
+                auto result = add_allow_cgroup_path(state, cgpath);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+        }
+
+        if (policy.network.enabled) {
+            ScopedSpan span("policy.apply_network_rules", root_span.trace_id(), root_span.span_id());
+            for (const auto& ip : policy.network.deny_ips) {
+                auto result = add_deny_ip(state, ip);
+                if (!result) {
+                    logger().log(
+                        SLOG_WARN("Failed to add deny IP").field("ip", ip).field("error", result.error().message()));
+                }
+            }
+            for (const auto& cidr : policy.network.deny_cidrs) {
+                auto result = add_deny_cidr(state, cidr);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny CIDR")
+                                     .field("cidr", cidr)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& port_rule : policy.network.deny_ports) {
+                auto result = add_deny_port(state, port_rule.port, port_rule.protocol, port_rule.direction);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny port")
+                                     .field("port", static_cast<int64_t>(port_rule.port))
+                                     .field("error", result.error().message()));
+                }
+            }
+            logger().log(SLOG_INFO("Network policy applied")
+                             .field("deny_ips", static_cast<int64_t>(policy.network.deny_ips.size()))
+                             .field("deny_cidrs", static_cast<int64_t>(policy.network.deny_cidrs.size()))
+                             .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size())));
+        }
     }
 
-    // Verify phase: confirm map entry counts match expectations
+    // Verify phase: confirm live map entry counts match expectations
     {
         ScopedSpan span("policy.verify_maps", root_span.trace_id(), root_span.span_id());
+
         auto verify_deny_inode = verify_map_entry_count(state.deny_inode, entries.size());
         if (!verify_deny_inode) {
             span.fail(verify_deny_inode.error().to_string());
             logger().log(SLOG_ERROR("Post-apply verification failed for deny_inode map")
                              .field("error", verify_deny_inode.error().to_string()));
             return fail(verify_deny_inode.error());
+        }
+
+        size_t deny_path_actual = map_entry_count(state.deny_path);
+        if (deny_path_actual < policy.deny_paths.size()) {
+            Error err(ErrorCode::BpfMapOperationFailed, "Post-apply verification failed for deny_path map",
+                      "expected>=" + std::to_string(policy.deny_paths.size()) +
+                          " actual=" + std::to_string(deny_path_actual));
+            span.fail(err.to_string());
+            logger().log(SLOG_ERROR("Post-apply verification failed for deny_path map")
+                             .field("expected_min", static_cast<int64_t>(policy.deny_paths.size()))
+                             .field("actual", static_cast<int64_t>(deny_path_actual)));
+            return fail(err);
+        }
+
+        size_t expected_cgroup = policy.allow_cgroup_ids.size() + policy.allow_cgroup_paths.size();
+        if (expected_cgroup > 0) {
+            size_t cgroup_actual = map_entry_count(state.allow_cgroup);
+            if (cgroup_actual < expected_cgroup) {
+                Error err(ErrorCode::BpfMapOperationFailed, "Post-apply verification failed for allow_cgroup map",
+                          "expected>=" + std::to_string(expected_cgroup) + " actual=" + std::to_string(cgroup_actual));
+                span.fail(err.to_string());
+                return fail(err);
+            }
+        }
+
+        if (policy.network.enabled) {
+            size_t expected_ipv4 = 0;
+            size_t expected_ipv6 = 0;
+            for (const auto& ip : policy.network.deny_ips) {
+                uint32_t ip_be;
+                Ipv6Key ipv6{};
+                if (parse_ipv4(ip, ip_be)) {
+                    ++expected_ipv4;
+                } else if (parse_ipv6(ip, ipv6)) {
+                    ++expected_ipv6;
+                }
+            }
+
+            if (expected_ipv4 > 0 && state.deny_ipv4) {
+                auto v = verify_map_entry_count(state.deny_ipv4, expected_ipv4);
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+            if (expected_ipv6 > 0 && state.deny_ipv6) {
+                auto v = verify_map_entry_count(state.deny_ipv6, expected_ipv6);
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+            if (!policy.network.deny_ports.empty() && state.deny_port) {
+                auto v = verify_map_entry_count(state.deny_port, policy.network.deny_ports.size());
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+
+            size_t expected_cidr_v4 = 0;
+            size_t expected_cidr_v6 = 0;
+            for (const auto& cidr : policy.network.deny_cidrs) {
+                uint32_t ip_be;
+                uint8_t prefix_len;
+                Ipv6Key ipv6{};
+                if (parse_cidr_v4(cidr, ip_be, prefix_len)) {
+                    ++expected_cidr_v4;
+                } else if (parse_cidr_v6(cidr, ipv6, prefix_len)) {
+                    ++expected_cidr_v6;
+                }
+            }
+            if (expected_cidr_v4 > 0 && state.deny_cidr_v4) {
+                auto v = verify_map_entry_count(state.deny_cidr_v4, expected_cidr_v4);
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+            if (expected_cidr_v6 > 0 && state.deny_cidr_v6) {
+                auto v = verify_map_entry_count(state.deny_cidr_v6, expected_cidr_v6);
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
         }
     }
 
@@ -657,6 +967,9 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
         }
     }
 
+    // Snapshot current deny entries in memory before applying, for rollback fallback
+    DenyEntries pre_apply_snapshot = read_deny_db();
+
     Result<void> result;
     {
         ScopedSpan span("policy.apply_internal_call", trace_id, root_span.span_id());
@@ -668,16 +981,87 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
 
     if (!result && rollback_on_failure) {
         std::error_code ec;
+        bool file_rollback_succeeded = false;
+
         if (std::filesystem::exists(applied_path, ec)) {
-            logger().log(SLOG_WARN("Apply failed; rolling back to last applied policy"));
-            ScopedSpan span("policy.rollback_last_applied", trace_id, root_span.span_id());
-            auto rollback_result = apply_policy_internal(applied_path, std::string(), true, false);
-            if (!rollback_result) {
-                span.fail(rollback_result.error().to_string());
-                logger().log(SLOG_ERROR("Rollback failed; maps may be inconsistent")
-                                 .field("error", rollback_result.error().to_string()));
+            // Verify integrity of the rollback policy file before replaying
+            std::string rollback_hash;
+            std::string stored_hash = read_file_first_line(policy_applied_hash_path());
+            bool hash_ok = true;
+            if (!stored_hash.empty()) {
+                std::string actual_hash;
+                if (sha256_file_hex(applied_path, actual_hash) && actual_hash == stored_hash) {
+                    rollback_hash = stored_hash;
+                } else {
+                    logger().log(SLOG_WARN("Rollback policy hash mismatch; skipping file-based rollback")
+                                     .field("stored_hash", stored_hash)
+                                     .field("actual_hash", actual_hash));
+                    hash_ok = false;
+                }
+            }
+
+            if (hash_ok) {
+                logger().log(SLOG_WARN("Apply failed; rolling back to last applied policy"));
+                ScopedSpan span("policy.rollback_last_applied", trace_id, root_span.span_id());
+                auto rollback_result = apply_policy_internal(applied_path, rollback_hash, true, false);
+                if (rollback_result) {
+                    file_rollback_succeeded = true;
+                } else {
+                    span.fail(rollback_result.error().to_string());
+                    logger().log(SLOG_ERROR("File-based rollback failed; attempting in-memory snapshot restore")
+                                     .field("error", rollback_result.error().to_string()));
+                }
             }
         }
+
+        // Fallback: restore from in-memory snapshot if file-based rollback failed
+        if (!file_rollback_succeeded && !pre_apply_snapshot.empty()) {
+            ScopedSpan span("policy.rollback_inmemory", trace_id, root_span.span_id());
+            logger().log(SLOG_WARN("Restoring maps from in-memory snapshot")
+                             .field("snapshot_entries", static_cast<int64_t>(pre_apply_snapshot.size())));
+            BpfState rollback_state;
+            auto load_result = load_bpf(true, false, rollback_state);
+            if (load_result) {
+                auto reset_result = reset_policy_maps(rollback_state);
+                if (reset_result) {
+                    bool snapshot_ok = true;
+                    for (const auto& [inode_id, path_str] : pre_apply_snapshot) {
+                        uint8_t one = 1;
+                        if (bpf_map_update_elem(bpf_map__fd(rollback_state.deny_inode), &inode_id, &one, BPF_ANY)) {
+                            snapshot_ok = false;
+                            break;
+                        }
+                        if (!path_str.empty() && path_str.size() < kDenyPathMax) {
+                            PathKey pk{};
+                            fill_path_key(path_str, pk);
+                            bpf_map_update_elem(bpf_map__fd(rollback_state.deny_path), &pk, &one, BPF_ANY);
+                        }
+                    }
+                    if (snapshot_ok) {
+                        auto db_result = write_deny_db(pre_apply_snapshot);
+                        if (db_result) {
+                            logger().log(SLOG_INFO("In-memory snapshot restore succeeded")
+                                             .field("entries", static_cast<int64_t>(pre_apply_snapshot.size())));
+                        } else {
+                            logger().log(SLOG_ERROR("In-memory snapshot: deny.db write failed")
+                                             .field("error", db_result.error().to_string()));
+                        }
+                    } else {
+                        span.fail("In-memory snapshot restore failed: map update error");
+                        logger().log(SLOG_ERROR("In-memory snapshot restore failed: map update error"));
+                    }
+                } else {
+                    span.fail(reset_result.error().to_string());
+                    logger().log(SLOG_ERROR("In-memory snapshot: map reset failed")
+                                     .field("error", reset_result.error().to_string()));
+                }
+            } else {
+                span.fail(load_result.error().to_string());
+                logger().log(
+                    SLOG_ERROR("In-memory snapshot: BPF load failed").field("error", load_result.error().to_string()));
+            }
+        }
+
         return fail(result.error());
     }
 

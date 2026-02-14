@@ -12,12 +12,18 @@ jobs:
         runner:
           - label: kernel-6.8
             runs_on: '["self-hosted","kernel-6.8"]'
-          - label: kernel-6.1
-            runs_on: '["self-hosted","kernel-6.1"]'
+          - label: kernel-6.6
+            runs_on: '["self-hosted","kernel-6.6"]'
           - label: kernel-6.5
             runs_on: '["self-hosted","kernel-6.5"]'
+          - label: kernel-6.1
+            runs_on: '["self-hosted","kernel-6.1"]'
+          - label: kernel-5.15
+            runs_on: '["self-hosted","kernel-5.15"]'
           - label: kernel-5.14
             runs_on: '["self-hosted","kernel-5.14"]'
+          - label: kernel-latest
+            runs_on: '["self-hosted","kernel-latest"]'
     runs-on: ${{ fromJSON(matrix.runner.runs_on) }}
     steps:
       - uses: actions/checkout@v4
@@ -123,6 +129,24 @@ jobs:
           CHAIN_INO=$(stat -c '%d:%i' "$TMPDIR/link3")
           echo "Target inode: $TARGET_INO, Chain inode: $CHAIN_INO"
           [ "$TARGET_INO" = "$CHAIN_INO" ] || { echo "FAIL: symlink chain inode mismatch"; exit 1; }
+
+      - name: Run e2e filesystem matrix
+        if: success()
+        run: |
+          if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+            sudo scripts/e2e_fs_matrix.sh
+          else
+            echo "Root access unavailable, skipping e2e fs matrix"
+          fi
+
+      - name: Run e2e namespace matrix
+        if: success()
+        run: |
+          if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+            sudo scripts/e2e_namespace_matrix.sh
+          else
+            echo "Root access unavailable, skipping e2e namespace matrix"
+          fi
 
       - name: Collect kernel matrix evidence
         if: always()

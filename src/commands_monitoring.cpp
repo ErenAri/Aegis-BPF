@@ -735,6 +735,25 @@ std::string build_health_json(const HealthReport& report)
     if (!report.error.empty()) {
         out << ",\"error\":\"" << json_escape(report.error) << "\"";
     }
+    // Include map pressure when BPF is loaded and maps are available
+    if (report.bpf_load_ok && report.required_maps_ok) {
+        BpfState pressure_state;
+        auto pressure_load = load_bpf(true, false, pressure_state);
+        if (pressure_load) {
+            auto pressure = check_map_pressure(pressure_state);
+            out << ",\"map_pressure\":[";
+            for (size_t i = 0; i < pressure.maps.size(); ++i) {
+                const auto& m = pressure.maps[i];
+                if (i > 0) {
+                    out << ",";
+                }
+                out << "{\"name\":\"" << json_escape(m.name) << "\""
+                    << ",\"entries\":" << m.entry_count << ",\"max\":" << m.max_entries << ",\"utilization\":"
+                    << std::fixed << std::setprecision(6) << m.utilization << "}";
+            }
+            out << "]";
+        }
+    }
     out << "}";
     return out.str();
 }
@@ -774,6 +793,28 @@ std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
     if (report.network_maps_present && !report.network_pins_ok) {
         advice.push_back(
             {"network_pins", "Network pinned map access failed.", "Verify bpffs permissions and pinned network maps."});
+    }
+    // Check map pressure when BPF is loaded
+    if (report.bpf_load_ok && report.required_maps_ok) {
+        BpfState pressure_state;
+        auto pressure_load = load_bpf(true, false, pressure_state);
+        if (pressure_load) {
+            auto pressure = check_map_pressure(pressure_state);
+            for (const auto& m : pressure.maps) {
+                if (m.utilization >= 1.0) {
+                    advice.push_back({"map_full_" + m.name,
+                                      "Map '" + m.name + "' is at capacity (" + std::to_string(m.entry_count) + "/" +
+                                          std::to_string(m.max_entries) + "). New entries will be rejected.",
+                                      "Increase --max-deny-inodes/--max-deny-paths/--max-network-entries or reduce policy size."});
+                } else if (m.utilization >= 0.80) {
+                    advice.push_back({"map_pressure_" + m.name,
+                                      "Map '" + m.name + "' utilization is " +
+                                          std::to_string(static_cast<int>(m.utilization * 100)) + "% (" +
+                                          std::to_string(m.entry_count) + "/" + std::to_string(m.max_entries) + ").",
+                                      "Consider increasing map capacity before it fills."});
+                }
+            }
+        }
     }
     return advice;
 }
@@ -1172,6 +1213,89 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     std::cout << "\n";
     std::cout << "  Recommended RLIMIT_MEMLOCK:         " << fmt_kb(total * 2) << " (2x headroom)\n";
 
+    return 0;
+}
+
+int cmd_emergency_disable()
+{
+    auto rlimit_result = bump_memlock_rlimit();
+    if (!rlimit_result) {
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
+        return 1;
+    }
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        logger().log(SLOG_ERROR("Failed to load BPF state").field("error", load_result.error().to_string()));
+        return 1;
+    }
+
+    auto result = set_emergency_disable(state, true);
+    if (!result) {
+        logger().log(SLOG_ERROR("Failed to set emergency disable").field("error", result.error().to_string()));
+        return 1;
+    }
+
+    logger().log(SLOG_WARN("Emergency disable ACTIVATED - all enforcement bypassed"));
+    std::cout << "Emergency disable activated. All enforcement is bypassed.\n";
+    std::cout << "Run 'aegisbpf emergency-enable' to re-enable enforcement.\n";
+    return 0;
+}
+
+int cmd_emergency_enable()
+{
+    auto rlimit_result = bump_memlock_rlimit();
+    if (!rlimit_result) {
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
+        return 1;
+    }
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        logger().log(SLOG_ERROR("Failed to load BPF state").field("error", load_result.error().to_string()));
+        return 1;
+    }
+
+    auto result = set_emergency_disable(state, false);
+    if (!result) {
+        logger().log(SLOG_ERROR("Failed to clear emergency disable").field("error", result.error().to_string()));
+        return 1;
+    }
+
+    logger().log(SLOG_INFO("Emergency disable DEACTIVATED - enforcement resumed"));
+    std::cout << "Emergency disable deactivated. Enforcement resumed.\n";
+    return 0;
+}
+
+int cmd_probe()
+{
+    auto features_result = detect_kernel_features();
+    if (!features_result) {
+        logger().log(SLOG_ERROR("Failed to detect kernel features").field("error", features_result.error().to_string()));
+        return 1;
+    }
+    const auto& features = *features_result;
+    auto cap = determine_capability(features);
+
+    std::ostringstream out;
+    out << "{\n";
+    out << "  \"kernel_release\": \"" << json_escape(features.kernel_version) << "\",\n";
+    out << "  \"bpf_lsm_enabled\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
+    out << "  \"cgroup_v2\": " << (features.cgroup_v2 ? "true" : "false") << ",\n";
+    out << "  \"btf_available\": " << (features.btf ? "true" : "false") << ",\n";
+    out << "  \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
+    out << "  \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
+    out << "  \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
+    out << "  \"sk_storage\": " << (features.sk_storage ? "true" : "false") << ",\n";
+    out << "  \"bpffs_mounted\": " << (check_bpffs_mounted() ? "true" : "false") << ",\n";
+    out << "  \"capability\": \"" << json_escape(capability_name(cap)) << "\",\n";
+    out << "  \"can_enforce_files\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
+    out << "  \"can_enforce_network\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
+    out << "  \"can_use_shadow_maps\": " << (features.bpf_syscall ? "true" : "false") << "\n";
+    out << "}\n";
+    std::cout << out.str();
     return 0;
 }
 

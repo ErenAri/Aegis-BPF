@@ -62,6 +62,9 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
         bool reset = false;
         bool rollback_on_failure = true;
         bool require_signature = false;
+        bool dry_run = false;
+        uint32_t canary_seconds = 0;
+        uint32_t canary_threshold = 10;
         std::string sha256;
         std::string sha256_file;
 
@@ -73,6 +76,12 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
                 rollback_on_failure = false;
             } else if (arg == "--require-signature") {
                 require_signature = true;
+            } else if (arg == "--dry-run") {
+                dry_run = true;
+            } else if (arg.rfind("--canary=", 0) == 0) {
+                canary_seconds = static_cast<uint32_t>(std::stoul(arg.substr(9)));
+            } else if (arg.rfind("--canary-threshold=", 0) == 0) {
+                canary_threshold = static_cast<uint32_t>(std::stoul(arg.substr(19)));
             } else if (arg == "--sha256") {
                 if (i + 1 >= argc)
                     return usage(prog);
@@ -84,6 +93,15 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
             } else {
                 return usage(prog);
             }
+        }
+
+        if (dry_run) {
+            return cmd_policy_dry_run(argv[3], sha256, sha256_file);
+        }
+
+        if (canary_seconds > 0) {
+            return cmd_policy_canary(argv[3], reset, sha256, sha256_file, rollback_on_failure, canary_seconds,
+                                     canary_threshold);
         }
 
         std::ifstream check_file(argv[3]);

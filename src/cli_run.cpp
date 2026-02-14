@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 
+#include "bpf_ops.hpp"
 #include "cli_common.hpp"
 #include "daemon.hpp"
 #include "events.hpp"
@@ -72,6 +73,12 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
     uint32_t sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
     LsmHookMode lsm_hook = LsmHookMode::FileOpen;
+    uint32_t deny_rate_threshold = 0;
+    uint32_t deny_rate_breach_limit = 3;
+    uint32_t auto_revert_cooldown = 0;
+    uint32_t max_deny_inodes = 0;
+    uint32_t max_deny_paths = 0;
+    uint32_t max_network_entries = 0;
 
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
@@ -155,6 +162,60 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
                                   "Invalid SIGKILL escalation window seconds", true)) {
                 return 1;
             }
+        } else if (arg.rfind("--auto-revert-threshold=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--auto-revert-threshold="));
+            if (!parse_u32_option(value, deny_rate_threshold, "Invalid auto-revert threshold", false))
+                return 1;
+        } else if (arg == "--auto-revert-threshold") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], deny_rate_threshold, "Invalid auto-revert threshold", false))
+                return 1;
+        } else if (arg.rfind("--auto-revert-breaches=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--auto-revert-breaches="));
+            if (!parse_u32_option(value, deny_rate_breach_limit, "Invalid auto-revert breach limit", true))
+                return 1;
+        } else if (arg == "--auto-revert-breaches") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], deny_rate_breach_limit, "Invalid auto-revert breach limit", true))
+                return 1;
+        } else if (arg.rfind("--max-deny-inodes=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--max-deny-inodes="));
+            if (!parse_u32_option(value, max_deny_inodes, "Invalid max deny inodes", true))
+                return 1;
+        } else if (arg == "--max-deny-inodes") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], max_deny_inodes, "Invalid max deny inodes", true))
+                return 1;
+        } else if (arg.rfind("--max-deny-paths=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--max-deny-paths="));
+            if (!parse_u32_option(value, max_deny_paths, "Invalid max deny paths", true))
+                return 1;
+        } else if (arg == "--max-deny-paths") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], max_deny_paths, "Invalid max deny paths", true))
+                return 1;
+        } else if (arg.rfind("--max-network-entries=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--max-network-entries="));
+            if (!parse_u32_option(value, max_network_entries, "Invalid max network entries", true))
+                return 1;
+        } else if (arg == "--max-network-entries") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], max_network_entries, "Invalid max network entries", true))
+                return 1;
+        } else if (arg.rfind("--auto-revert-cooldown=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--auto-revert-cooldown="));
+            if (!parse_u32_option(value, auto_revert_cooldown, "Invalid auto-revert cooldown", false))
+                return 1;
+        } else if (arg == "--auto-revert-cooldown") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], auto_revert_cooldown, "Invalid auto-revert cooldown", false))
+                return 1;
         } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
@@ -174,8 +235,19 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         }
     }
 
+    if (max_deny_inodes > 0) {
+        set_max_deny_inodes(max_deny_inodes);
+    }
+    if (max_deny_paths > 0) {
+        set_max_deny_paths(max_deny_paths);
+    }
+    if (max_network_entries > 0) {
+        set_max_network_entries(max_network_entries);
+    }
+
     return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
-                      event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds);
+                      event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
+                      deny_rate_threshold, deny_rate_breach_limit, auto_revert_cooldown);
 }
 
 } // namespace aegis

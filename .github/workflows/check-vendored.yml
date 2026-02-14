@@ -1,6 +1,11 @@
 name: Check Vendored Dependencies
 
 on:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/crypto.cpp'
+      - 'docs/VENDORED_DEPENDENCIES.md'
   schedule:
     - cron: "0 0 1 * *"
   workflow_dispatch:

@@ -142,6 +142,8 @@ struct agent_config {
     __u8 deadman_enabled;
     __u8 break_glass_active;
     __u8 enforce_signal;  /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
+    __u8 emergency_disable;  /* skip ALL processing when set */
+    __u8 _pad[3];            /* maintain alignment */
     __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
     __u32 deadman_ttl_seconds;
     __u32 event_sample_rate;
@@ -643,6 +645,15 @@ static __always_inline int is_cgroup_allowed(__u64 cgid)
     return bpf_map_lookup_elem(&allow_cgroup_map, &cgid) != NULL;
 }
 
+static __always_inline int check_emergency_disable(void)
+{
+    __u32 zero = 0;
+    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
+    if (cfg && cfg->emergency_disable)
+        return 1;  /* Caller returns 0 (allow) */
+    return 0;
+}
+
 /* ============================================================================
  * Network Helper Functions
  * ============================================================================ */
@@ -815,6 +826,9 @@ int BPF_PROG(handle_file_open, struct file *file)
     if (!file)
         return 0;
 
+    if (check_emergency_disable())
+        return 0;
+
     /* Get inode info early for survival check */
     const struct inode *inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
@@ -919,6 +933,9 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     if (!inode)
         return 0;
     (void)mask;
+
+    if (check_emergency_disable())
+        return 0;
 
     struct inode_id key = {};
     key.ino = BPF_CORE_READ(inode, i_ino);
@@ -1120,6 +1137,9 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (!sock || !address)
         return 0;
     (void)addrlen;
+
+    if (check_emergency_disable())
+        return 0;
 
     /* Fast path: check socket storage cache to avoid repeated lookups */
     struct sock *sk = BPF_CORE_READ(sock, sk);
@@ -1329,6 +1349,9 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (!sock || !address)
         return 0;
     (void)addrlen;
+
+    if (check_emergency_disable())
+        return 0;
 
     /* Fast path: check socket storage cache to avoid repeated lookups */
     struct sock *sk = BPF_CORE_READ(sock, sk);

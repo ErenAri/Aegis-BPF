@@ -208,6 +208,12 @@ int dispatch_cli(int argc, char** argv)
         }
         return cmd_stats(detailed);
     }
+    if (cmd == "emergency-disable")
+        return cmd_emergency_disable();
+    if (cmd == "emergency-enable")
+        return cmd_emergency_enable();
+    if (cmd == "probe")
+        return cmd_probe();
 
     return usage(argv[0]);
 }
