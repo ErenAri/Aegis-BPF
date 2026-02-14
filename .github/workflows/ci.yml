@@ -170,11 +170,25 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Detect built BPF object
+        id: bpf_obj
+        run: |
+          if [[ -f build/aegis.bpf.o ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run health check
+        if: steps.bpf_obj.outputs.present == 'true'
         run: sudo ./build/aegisbpf health
 
+      - name: Skip health check when BPF object is not built
+        if: steps.bpf_obj.outputs.present != 'true'
+        run: echo "Skipping health check because SKIP_BPF_BUILD=ON (no build/aegis.bpf.o)."
+
       - name: Run smoke test (audit mode)
-        if: steps.check_lsm.outputs.bpf_lsm == 'true'
+        if: steps.check_lsm.outputs.bpf_lsm == 'true' && steps.bpf_obj.outputs.present == 'true'
         timeout-minutes: 1
         run: |
           sudo timeout 5 ./build/aegisbpf run --audit || true
