@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770721393888,
+  "lastUpdate": 1771111801881,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -29310,6 +29310,966 @@ window.BENCHMARK_DATA = {
             "value": 0.0030587828709460634,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 0.0030516600702940686 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0722dd84dfd79177a44dad70ad0ede82b5657dde",
+          "message": "feat: production hardening and 9-phase security roadmap (#43)\n\n* fix(docs): restore ASCII diagram box-drawing characters\n\nThe emoji removal script accidentally removed Unicode box-drawing\ncharacters (┌ ─ │ ┐ └ ┘ ├ ┤ ┬ ┴ ┼) used in the architecture diagram.\nThese characters are in the U+2500-U+257F range and were incorrectly\nclassified as emojis.\n\nRestored the complete ASCII box diagram showing AegisBPF architecture.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\n\n* fix(security,perf): resolve PID reuse, hardcoded paths, and network overhead\n\nThis commit addresses three critical architectural issues:\n\n1. PID Reuse Race Condition (CRITICAL)\n   - Changed enforce_signal_state map key from PID to (PID, start_time)\n   - Uses task->start_time to uniquely identify process lifecycle\n   - Prevents violation tracking contamination across PID reuse\n\n2. Hardcoded Survival Binary Paths (HIGH)\n   - Replaced static path array with dynamic /proc scanning\n   - Matches binaries by name (init, systemd, kubelet, sshd, etc.)\n   - Works across all distros and custom installation paths\n\n3. Network Performance Overhead (HIGH)\n   - Implemented per-socket caching using BPF_MAP_TYPE_SK_STORAGE\n   - First check: full validation, subsequent checks: near-zero overhead\n   - Optimizes long-lived connections (HTTP keep-alive, DB pools)\n\nAll 178 tests pass. No breaking changes to existing functionality.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\n\n* style: apply clang-format to bpf_ops.cpp\n\nFix formatting violations in survival binary scanning code:\n- Consistent spacing in kSurvivalBinaryNames array\n- Comment formatting alignment\n\nAll clang-format checks now pass.\n\n* docs: add roadmap to world-class eBPF project status\n\nAdd comprehensive strategic roadmap with three phases:\n- Phase 1: Quick Wins (30 days, /bin/bash) - badges, blog, benchmarks, talks\n- Phase 2: Industry Recognition (6-12mo, 5-40k) - CNCF, research, audit\n- Phase 3: Market Leadership (12-18mo, 0k) - compliance, enterprise\n\nKey deliverables:\n- EXCELLENCE_SUMMARY.md: One-page executive overview\n- QUICK_WINS_30_DAYS.md: Day-by-day action plan (21 days)\n- ROADMAP_TO_EXCELLENCE.md: 18-month comprehensive strategy\n\nTarget: CNCF Sandbox, 5k+ stars, 50+ production users, industry standard\n\n* ci: suppress constVariablePointer cppcheck warning\n\nThe constVariablePointer warning for readdir() entry is a false positive.\nWhile we only read from the dirent pointer, readdir() returns non-const\nstruct dirent*, so declaring it const would require a cast.\n\nThis is a common pattern with C APIs that return non-const pointers even\nwhen the caller shouldn't modify them. Suppressing the warning keeps the\ncode clean without unsafe casts.\n\n* fix(compat): add kernel version checks and mount namespace support\n\nThis commit addresses two critical compatibility and reliability issues:\n\n## Fix 1: Kernel Compatibility for SK_STORAGE (P0 - Critical)\n\n**Problem:** BPF_MAP_TYPE_SK_STORAGE (used for socket caching) was\nintroduced in kernel 5.2. On older kernels (RHEL 8 = 4.18), the BPF\nprogram fails to load entirely, leaving systems without any enforcement.\n\n**Solution:**\n- Added sk_storage field to KernelFeatures detection\n- Check kernel version >= 5.2 before BPF load\n- Provide helpful error message if SK_STORAGE fails:\n  \"BPF_MAP_TYPE_SK_STORAGE not supported on kernel X.Y.Z.\n   Kernel 5.2+ required. See docs/COMPATIBILITY.md\"\n\n**Impact:**\n- RHEL 8 users get clear error instead of cryptic verifier failure\n- Documents 60% of enterprise Linux deployments are affected\n- Sets expectation: socket caching = 5.2+, full enforcement = 5.7+\n\n## Fix 2: Mount Namespace Support for Survival Binaries (P1 - High)\n\n**Problem:** Survival binary discovery stat()s paths like /opt/bin/kubelet\nfrom host namespace. In containerized environments (Bottlerocket, GKE),\nkubelet may be in different mount namespace, causing stat() to fail and\nleaving survival allowlist empty.\n\n**Solution:**\n- stat() via /proc/[pid]/exe instead of resolved path\n- Fallback to resolved path if /proc stat fails (same-namespace case)\n- Handles cross-namespace binaries gracefully\n\n**Example:** GKE kubelet at /home/kubernetes/bin/kubelet in container\nnamespace is now correctly protected even if path doesn't exist in host.\n\n## Documentation Updates\n\nUpdated docs/COMPATIBILITY.md:\n- Kernel version feature matrix (4.18 - 6.8+)\n- Per-kernel performance characteristics\n- Distribution compatibility table with SK_STORAGE column\n- Clear RHEL 8 \"Not Supported\" status\n\n## Testing\n\n- All 178 tests pass\n- clang-format compliant\n- cppcheck compliant (with constVariablePointer suppression)\n\n## Follow-up Work\n\nFuture enhancement: Compile two BPF programs:\n- aegis-modern.bpf.o (5.2+) with socket caching\n- aegis-compat.bpf.o (4.18+) without SK_STORAGE\nLoad appropriate version based on kernel detection.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\n\n* fix(security,perf): comprehensive hardening for production readiness\n\nImplement 21-step hardening plan across security, correctness, operator\nsafety, and performance domains:\n\nSecurity (Phase 1):\n- Secure temp files via mkstemp() (symlink-attack resistant)\n- Atomic file writes (write-rename) for all persistent state\n- Trusted key directory permission validation with symlink rejection\n- Atomic policy apply with BPF map verification and crash-safe rollback\n- Break-glass token cryptographic validation (Ed25519 + expiry)\n\nCorrectness (Phase 2):\n- Compile-time struct size/offset assertions (BPF ↔ userspace)\n- Thread-safe time formatting (localtime_r/gmtime_r)\n- BpfState move operator nullifies all pointers and resets reuse flags\n- Deduplicate kernel_bpf_lsm_enabled() → delegates to kernel_features\n- Kernel matrix tests for overlayfs, bind mounts, symlink chains\n- Golden test vectors for policy parsing\n\nOperator Safety (Phase 3):\n- Auto-revert to audit-only on deny-rate spikes (configurable threshold)\n- Break-glass token validation with permission checks and signature\n- Capacity planning footprint subcommand\n\nPerformance (Phase 4):\n- O(1) cgroup path resolution via open_by_handle_at\n- Replace popen(zcat) with zlib; remove SYS_execve from seccomp\n- Syscall-level LSM hook microbenchmarks (bench_syscall.cpp)\n\nArchitecture (Phase 5):\n- Consolidate test hooks into DaemonDeps struct\n- Add GUARANTEES.md, PERFORMANCE.md docs\n- Update THREAT_MODEL.md cross-references\n- Update README with new test count, docs, and hardening summary\n\nAll 183 tests pass. Build verified with SKIP_BPF_BUILD=ON.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* fix(ci): add missing cstddef include and remove TOCTOU access() check\n\n- Add #include <cstddef> to types.hpp for offsetof macro (required by\n  GCC 11/12 on Ubuntu 22.04; GCC 13+ implicitly provides it)\n- Remove access() pre-check in bench_syscall.cpp to resolve CodeQL\n  TOCTOU alert (open() already handles the failure path)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* fix(ci): resolve clang-tidy errors and clang-format violations\n\n- Fix implicit widening conversions: use uint64_t{} literals for\n  integer multiplications assigned to uint64_t (commands_monitoring.cpp,\n  crypto.cpp)\n- Suppress bugprone-empty-catch on intentional catch in cgroup path\n  cache rebuild (utils.cpp)\n- Run clang-format on all modified source files\n\n* fix(lint): suppress cppcheck unusedStructMember on file_handle backing storage\n\n* fix(docs): redraw broken ASCII diagrams in README\n\n* feat: implement 9-phase production roadmap\n\nPhase 1 - Kill Switch: emergency-disable/enable commands with BPF-level\nbypass that skips all hook processing instantly via pinned config map.\n\nPhase 2 - Binary Identity: policy v3 with [deny_binary_hash] sections\nthat scan filesystem for binaries by SHA-256 and deny matching inodes.\n\nPhase 3 - Enforcement Proofs: claims matrix (docs/ENFORCEMENT_CLAIMS.md)\nand e2e_enforcement_proofs.sh covering 9 enforcement guarantees in CI.\n\nPhase 4 - Feature Probe: `aegisbpf probe` command outputs JSON kernel\ncapability report (LSM hooks, map types, BTF, ringbuf, etc.).\n\nPhase 5 - Map Pressure: MapPressureReport in heartbeat thread warns at\n80%, errors at 95%, alerts at 100% utilization; health --json enriched.\n\nPhase 6 - Threat Model: docs/THREAT_MODEL.md covering assets, actors,\ntrust boundaries, attack surface, and residual risks.\n\nPhase 7 - Supply Chain: check-vendored.yml now triggers on PRs touching\ndependency files (FetchContent pins, Cosign signing already in place).\n\nPhase 8 - Observability: NetBlockEvent added to event-schema.json with\nfull field definitions and example.\n\nPhase 9 - Future Architecture: docs/ARCHITECTURE_CONTROL_PLANE.md with\ncontrol plane, multi-tenant, and canary rollout design documents.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* fix(build): remove auto_revert_cooldown from cli_run.cpp and fix formatting\n\nThe cli_run.cpp call site still passed auto_revert_cooldown to\ndaemon_run() after the merge removed that parameter. Also fix\nclang-format violations in commands_monitoring.cpp and policy.cpp.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* fix(ci): resolve failing workflows across build, fuzz, and readiness\n\n* fix(ci): avoid virtual bpftool install and skip bpf build in generic jobs\n\n* fix(ci): skip smoke health checks when bpf object is not built\n\n* fix(benchmark): make PR benchmark advisory and allow PR comment permission",
+          "timestamp": "2026-02-15T02:23:53+03:00",
+          "tree_id": "c3898f2b7e5ce38f5f569d96e76aa57e964ec0a7",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/0722dd84dfd79177a44dad70ad0ede82b5657dde"
+        },
+        "date": 1771111800789,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "PolicyBenchmark/ParsePolicy_mean",
+            "value": 30800.30656336338,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 30797.348586375112 ns\nthreads: 1"
+          },
+          {
+            "name": "PolicyBenchmark/ParsePolicy_median",
+            "value": 30821.554619996623,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 30818.35234085699 ns\nthreads: 1"
+          },
+          {
+            "name": "PolicyBenchmark/ParsePolicy_stddev",
+            "value": 135.89602809894782,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 135.94326668091915 ns\nthreads: 1"
+          },
+          {
+            "name": "PolicyBenchmark/ParsePolicy_cv",
+            "value": 0.004412164788664624,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.004414122413806137 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Short_mean",
+            "value": 1224.6089795286623,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1224.5304853141931 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Short_median",
+            "value": 1222.567066294732,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1222.4504788205284 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Short_stddev",
+            "value": 5.919616781611527,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5.91996018073636 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Short_cv",
+            "value": 0.004833883207266632,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.004834473499626595 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1555.4485870001292,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1555.331539003806 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/64_median",
+            "value": 1553.329741718517,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1553.2557210533416 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/64_stddev",
+            "value": 3.953584663495144,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3.9375626581607697 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/64_cv",
+            "value": 0.0025417649265541526,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0025316548654846856 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3804.4347588136443,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3804.16900214565 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_median",
+            "value": 3803.500225619562,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3803.1565527514776 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_stddev",
+            "value": 3.811412671670082,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3.771686058197263 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_cv",
+            "value": 0.0010018341523245398,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0009914612247957262 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21916.818309207505,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21915.377363199572 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_median",
+            "value": 21869.113308791286,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21867.997566606453 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_stddev",
+            "value": 120.26052414828916,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 120.36007476217715 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_cv",
+            "value": 0.005487134238721427,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.005492037520845363 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166215.047805457,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166204.12591933552 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_median",
+            "value": 166102.83985765322,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166092.1436536179 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_stddev",
+            "value": 380.0125851210089,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 379.19437000457265 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_cv",
+            "value": 0.0022862706484059548,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.002281497934585622 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1328037.3038752405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1327927.6553245126 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_median",
+            "value": 1323666.1606805392,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1323601.8591682403 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_stddev",
+            "value": 10710.971710916472,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 10701.12176098744 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_cv",
+            "value": 0.008065264190743463,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.008058512614056787 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5299787.717171694,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5299222.923611114 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_median",
+            "value": 5296797.261363521,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5296259.295454503 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_stddev",
+            "value": 11190.538016066253,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 11159.50536284255 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_cv",
+            "value": 0.0021115068401340122,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.002105875809285259 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Trim_mean",
+            "value": 29.875049738810418,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29.87271954983086 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Trim_median",
+            "value": 29.876466858099462,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29.874266557605775 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Trim_stddev",
+            "value": 0.013137569707598462,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.013034753244137371 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Trim_cv",
+            "value": 0.0004397505551440659,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0004363430394207672 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_JsonEscape_mean",
+            "value": 69.52316533066154,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.5172228792505 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_JsonEscape_median",
+            "value": 69.80358031516722,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.79656207872533 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_JsonEscape_stddev",
+            "value": 0.5400319073375676,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.540948636208085 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_JsonEscape_cv",
+            "value": 0.007767654202295063,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.007781505270250768 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseInodeId_mean",
+            "value": 82.80618976899792,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 82.79950342270558 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseInodeId_median",
+            "value": 82.88586457266508,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 82.87867488732263 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseInodeId_stddev",
+            "value": 0.27454624401547545,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.2740389569028156 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseInodeId_cv",
+            "value": 0.0033155280394058613,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0033096690870692783 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHash_mean",
+            "value": 0.15569757349999705,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.15568423891666686 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHash_median",
+            "value": 0.15568488149999382,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.1556759750000012 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHash_stddev",
+            "value": 0.0002106722456940365,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.00020435142349042984 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHash_cv",
+            "value": 0.001353086248926291,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0013126018723052186 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHashVarying_mean",
+            "value": 0.3114209650833289,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.3113981135833335 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHashVarying_median",
+            "value": 0.31139865150001356,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.3113798210000027 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHashVarying_stddev",
+            "value": 0.00031443317946724627,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0003206230712860295 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdHashVarying_cv",
+            "value": 0.001009672484262938,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0010296243210870554 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyShort_mean",
+            "value": 26.22082619886143,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26.217888336170247 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyShort_median",
+            "value": 26.145662393031532,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26.14411452581213 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyShort_stddev",
+            "value": 0.15562864208190244,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.1543807479425034 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyShort_cv",
+            "value": 0.005935306572782982,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.005888374607558285 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyLong_mean",
+            "value": 33.325461493661926,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33.32303849029502 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyLong_median",
+            "value": 33.30976508650827,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33.307686324705465 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyLong_stddev",
+            "value": 0.045433249161825,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.04575435884148702 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FillPathKeyLong_cv",
+            "value": 0.0013633194298139223,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0013730548267623462 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_EncodeDev_mean",
+            "value": 1.5558013634982786,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1.5556963176040934 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_EncodeDev_median",
+            "value": 1.5558339459119912,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1.5557272446149906 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_EncodeDev_stddev",
+            "value": 0.00060237689707374,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0006088524171058649 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_EncodeDev_cv",
+            "value": 0.0003871811088526576,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0003913697102809565 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5046.423364012563,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5056.830567395131 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_median",
+            "value": 5049.584704290252,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5060.256091738958 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_stddev",
+            "value": 10.778744983598266,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 10.911312524427032 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_cv",
+            "value": 0.0021359176997444306,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0021577374165509472 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33245.89780104876,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33255.41989793719 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_median",
+            "value": 33231.37560519714,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33240.87119128656 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_stddev",
+            "value": 55.286259002547325,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.30592517890158 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_cv",
+            "value": 0.0016629497970965695,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0016329947222308305 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269478.4508275297,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269455.1357775543 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_median",
+            "value": 269589.26404889586,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269565.7378754294 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_stddev",
+            "value": 508.17840318379376,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 505.7038964345611 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_cv",
+            "value": 0.0018857849361358977,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.001876764734787016 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 814141.0598412775,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 814118.0983176731 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_median",
+            "value": 814520.4901400394,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 814590.5643855619 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_stddev",
+            "value": 2019.9284004875383,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1822.412774486109 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_cv",
+            "value": 0.0024810545741070196,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0022385115602417105 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/100_mean",
+            "value": 4.507240031871044,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.506906699413469 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/100_median",
+            "value": 4.506872411424888,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.506713578142517 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/100_stddev",
+            "value": 0.0028747700256007472,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0029160169869818 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/100_cv",
+            "value": 0.0006378116109355226,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0006470107285250196 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/512_mean",
+            "value": 4.668031564137235,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.667749791900037 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/512_median",
+            "value": 4.664009061335051,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.663774389899991 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/512_stddev",
+            "value": 0.011333914166460115,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.011329645704026857 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/512_cv",
+            "value": 0.002427985760322273,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0024272178692369573 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/4096_mean",
+            "value": 4.539097950259498,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.538723008791176 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/4096_median",
+            "value": 4.532568770233368,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.532191140157568 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/4096_stddev",
+            "value": 0.012364695607984777,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.012333456134264136 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/4096_cv",
+            "value": 0.002724042473522277,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0027173846278733317 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/10000_mean",
+            "value": 4.426392262022714,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.425961361751404 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/10000_median",
+            "value": 4.425776424010047,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4.425366760952035 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/10000_stddev",
+            "value": 0.0034458765254326315,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.003415257937930434 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesLookup/10000_cv",
+            "value": 0.0007784842195296041,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0007716420589308933 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_PortKeyHash_mean",
+            "value": 0.1555926202499999,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.15558116133333755 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_PortKeyHash_median",
+            "value": 0.15552197049998998,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.15551242950000696 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_PortKeyHash_stddev",
+            "value": 0.00021556287631849407,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.00022007810036595414 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_PortKeyHash_cv",
+            "value": 0.0013854312368551695,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0014145549401988963 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv4_mean",
+            "value": 21.30610919713354,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21.304300803618457 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv4_median",
+            "value": 21.306519631809635,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21.30440432491668 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv4_stddev",
+            "value": 0.02436737716555071,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.024279686646560314 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv4_cv",
+            "value": 0.0011436802909481484,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.001139661276395257 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 48.683846106687014,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 48.679688794817054 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_median",
+            "value": 48.679137085331185,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 48.67439992199627 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_stddev",
+            "value": 0.09956250670088389,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.09985930014967535 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_cv",
+            "value": 0.002045083013422976,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0020513545304403713 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 69.55035802665834,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.53848157610004 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_median",
+            "value": 69.18002465388446,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.17460252912797 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_stddev",
+            "value": 0.7649920288770561,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.7473712854495406 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_cv",
+            "value": 0.010999109862005859,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.010747592822136163 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV4_mean",
+            "value": 36.608929605010985,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 36.60586161760549 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV4_median",
+            "value": 36.84851517255089,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 36.84590887683261 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV4_stddev",
+            "value": 0.8944099053284659,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.894247611097625 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV4_cv",
+            "value": 0.024431468359731562,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.024429082436009067 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.37149669701001,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.36752789399824 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_median",
+            "value": 53.362344559287926,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.35742616513884 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_stddev",
+            "value": 0.11144664450203252,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.11166739316756476 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_cv",
+            "value": 0.002088130395419022,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.002092422069640647 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv4LpmKeyConstruction_mean",
+            "value": 0.15584111025000405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.1558307988333283 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv4LpmKeyConstruction_median",
+            "value": 0.1557693385000221,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.15576146349999928 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv4LpmKeyConstruction_stddev",
+            "value": 0.00033683469833258473,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.00033972884337206947 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv4LpmKeyConstruction_cv",
+            "value": 0.0021613982202271687,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0021801135970266872 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv6LpmKeyConstruction_mean",
+            "value": 0.6235107150000042,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.6234551653333231 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv6LpmKeyConstruction_median",
+            "value": 0.6230500445000189,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.6230014169999832 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv6LpmKeyConstruction_stddev",
+            "value": 0.0013363824666938302,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.001337130392983582 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Ipv6LpmKeyConstruction_cv",
+            "value": 0.0021433191676486604,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0021447097840126173 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv4_mean",
+            "value": 140.8394102398312,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 140.82821553372642 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv4_median",
+            "value": 140.80217855070816,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 140.78964349889154 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv4_stddev",
+            "value": 0.08307281393398751,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.08486049768719577 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv4_cv",
+            "value": 0.0005898406830341401,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0006025816443500475 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv6_mean",
+            "value": 234.2794790794633,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 234.2605015100745 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv6_median",
+            "value": 234.25345463452302,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 234.22712603317117 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv6_stddev",
+            "value": 0.1991617374485417,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.1999739267615485 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_FormatIpv6_cv",
+            "value": 0.0008501032110498662,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0008536391131773808 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeToString_mean",
+            "value": 219.46372188421347,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 219.44506457049349 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeToString_median",
+            "value": 219.44463170341348,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 219.42865886865852 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeToString_stddev",
+            "value": 0.1638406209674482,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.16466609632817053 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeToString_cv",
+            "value": 0.0007465499061110821,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.000750375027346646 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_BuildExecId_mean",
+            "value": 72.85738452309964,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.85095791573414 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_BuildExecId_median",
+            "value": 72.67424539605851,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.66690591493878 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_BuildExecId_stddev",
+            "value": 0.5364498763240323,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.5364602755390766 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_BuildExecId_cv",
+            "value": 0.007363013095178422,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.007363805375896278 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdComparison_mean",
+            "value": 0.6231338182499969,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.6230879040000019 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdComparison_median",
+            "value": 0.6228985179999994,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.6228353400000232 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdComparison_stddev",
+            "value": 0.0012169079952873939,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0012246946832876794 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_InodeIdComparison_cv",
+            "value": 0.0019528838905019583,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0019655247284140437 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ProtocolName_mean",
+            "value": 9.714395003537872,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 9.713787137918581 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ProtocolName_median",
+            "value": 9.714809431432647,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 9.713988107551966 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ProtocolName_stddev",
+            "value": 0.012815381097399263,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.012796106133795117 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ProtocolName_cv",
+            "value": 0.0013192155654296583,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0013173138295201512 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DirectionName_mean",
+            "value": 6.073980482966097,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6.073598084748394 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DirectionName_median",
+            "value": 6.0731667039396156,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6.072902572229793 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DirectionName_stddev",
+            "value": 0.0038083534474750453,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.003828074868813541 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DirectionName_cv",
+            "value": 0.0006269946797088353,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 0.0006302812295772983 ns\nthreads: 1"
           }
         ]
       }
