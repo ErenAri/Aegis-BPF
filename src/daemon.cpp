@@ -61,7 +61,7 @@ void handle_signal(int)
 }
 
 void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_threshold,
-                      uint32_t deny_rate_breach_limit, uint32_t auto_revert_cooldown)
+                      uint32_t deny_rate_breach_limit)
 {
     uint32_t sleep_interval = ttl_seconds / 2;
     if (sleep_interval < 1) {
@@ -70,7 +70,6 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
 
     uint64_t last_block_count = 0;
     uint32_t rate_breach_count = 0;
-    uint32_t cooldown_remaining = 0;
 
     // Seed initial block count
     if (deny_rate_threshold > 0 && state->block_stats) {
@@ -118,17 +117,10 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                         if (revert_result) {
                             logger().log(SLOG_ERROR("Auto-revert: deny rate exceeded threshold, switched to audit-only")
                                              .field("rate", rate)
-                                             .field("threshold", static_cast<int64_t>(deny_rate_threshold))
-                                             .field("cooldown_seconds", static_cast<int64_t>(auto_revert_cooldown)));
+                                             .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
                         } else {
                             logger().log(
                                 SLOG_ERROR("Auto-revert failed").field("error", revert_result.error().to_string()));
-                        }
-                        // Activate cooldown period if configured
-                        if (auto_revert_cooldown > 0) {
-                            cooldown_remaining = auto_revert_cooldown;
-                            logger().log(SLOG_WARN("Auto-revert cooldown active: enforce mode blocked")
-                                             .field("cooldown_seconds", static_cast<int64_t>(auto_revert_cooldown)));
                         }
                         // Disable further rate checking after revert
                         deny_rate_threshold = 0;
@@ -176,12 +168,6 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
         // Sleep for TTL/2, but check exit flags more frequently.
         for (uint32_t i = 0; i < sleep_interval && g_heartbeat_running.load() && !g_exiting; ++i) {
             sleep(1);
-            if (cooldown_remaining > 0) {
-                --cooldown_remaining;
-                if (cooldown_remaining == 0) {
-                    logger().log(SLOG_INFO("Auto-revert cooldown expired: enforce mode may be re-enabled via policy apply"));
-                }
-            }
         }
     }
 }
@@ -425,8 +411,7 @@ void reset_attach_all_for_test()
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit,
-               uint32_t auto_revert_cooldown)
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -661,13 +646,11 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     std::thread heartbeat;
     if (deadman_ttl > 0) {
         g_heartbeat_running.store(true);
-        heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit,
-                                auto_revert_cooldown);
+        heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit);
         logger().log(SLOG_INFO("Deadman switch heartbeat started")
                          .field("ttl_seconds", static_cast<int64_t>(deadman_ttl))
                          .field("deny_rate_threshold", static_cast<int64_t>(deny_rate_threshold))
-                         .field("deny_rate_breach_limit", static_cast<int64_t>(deny_rate_breach_limit))
-                         .field("auto_revert_cooldown", static_cast<int64_t>(auto_revert_cooldown)));
+                         .field("deny_rate_breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
     }
 
     int err = 0;
