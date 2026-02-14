@@ -2,17 +2,36 @@ name: Perf Regression
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bpf/**'
+      - 'scripts/perf_*.sh'
+      - 'scripts/validate_perf_artifacts.py'
+      - '.github/workflows/perf.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'bpf/**'
       - 'scripts/perf_*.sh'
+      - 'scripts/validate_perf_artifacts.py'
+      - '.github/workflows/perf.yml'
   schedule:
     - cron: "0 4 * * 0"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   perf:
     runs-on: [self-hosted, perf]
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +39,7 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
-            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build libelf-dev zlib1g-dev git"
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build libelf-dev zlib1g-dev git python3"
             for attempt in 1 2 3; do
               if sudo apt-get -o DPkg::Lock::Timeout=120 update && \
                  sudo apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
@@ -53,8 +72,8 @@ jobs:
             if ! command -v bpftool >/dev/null 2>&1; then
               sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-common || true
               sudo apt-get -o DPkg::Lock::Timeout=120 install -y "linux-tools-$(uname -r)" || \
-                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-gcp || \
-                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-generic || true
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-generic || \
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-gcp || true
             fi
             if ! command -v bpftool >/dev/null 2>&1; then
               echo "bpftool is required but was not installed" >&2
@@ -75,22 +94,36 @@ jobs:
         run: mkdir -p artifacts/perf
 
       - name: Perf regression (open/close microbench)
-        run: sudo OUT_JSON=artifacts/perf/open_compare.json MAX_PCT=10 ITERATIONS=200000 FILE=/etc/hosts scripts/perf_compare.sh
+        run: |
+          sudo OUT_JSON=artifacts/perf/open_compare.json \
+            MAX_PCT=10 \
+            ITERATIONS=200000 \
+            FILE=/etc/hosts \
+            scripts/perf_compare.sh
 
       - name: Perf workload suite (realistic file workloads)
         run: |
           sudo BIN=./build/aegisbpf \
             FILE=/etc/hosts \
             OPEN_ITERATIONS=200000 \
+            CONNECT_ITERATIONS=50000 \
             READ_ITERATIONS=50000 \
             STAT_SAMPLE=400 \
             STAT_ITERATIONS=50 \
             MAX_OPEN_PCT=10 \
+            MAX_CONNECT_PCT=15 \
             MAX_READ_PCT=15 \
             MAX_STAT_PCT=15 \
             FORMAT=json \
             OUT=artifacts/perf/workload_suite.json \
             scripts/perf_workload_suite.sh
+
+      - name: Capture percentile profiles (open/connect)
+        run: |
+          sudo FORMAT=json OUT=artifacts/perf/open_baseline.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/open_with_agent.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo FORMAT=json OUT=artifacts/perf/connect_baseline.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+          sudo WITH_AGENT=1 BIN=./build/aegisbpf FORMAT=json OUT=artifacts/perf/connect_with_agent.json ITERATIONS=50000 scripts/perf_connect_bench.sh
 
       - name: Capture perf environment
         run: |
@@ -100,12 +133,28 @@ jobs:
           stat -f -c '%T' /tmp > artifacts/perf/fs.txt || true
 
       - name: SLO gate check
+        id: slo_gate
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           OPEN_JSON=artifacts/perf/open_compare.json \
           WORKLOAD_JSON=artifacts/perf/workload_suite.json \
           MAX_OPEN_P95_OVERHEAD=10 \
           MAX_CONNECT_P95_OVERHEAD=10 \
           scripts/perf_slo_check.sh
+
+      - name: Validate perf artifact schema and KPI ratios
+        id: schema_gate
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python3 scripts/validate_perf_artifacts.py \
+            --open-baseline artifacts/perf/open_baseline.json \
+            --open-with-agent artifacts/perf/open_with_agent.json \
+            --connect-baseline artifacts/perf/connect_baseline.json \
+            --connect-with-agent artifacts/perf/connect_with_agent.json \
+            --workload artifacts/perf/workload_suite.json \
+            --report artifacts/perf/perf-evidence-report.md \
+            --max-open-p95-ratio 1.05 \
+            --max-connect-p95-ratio 1.05
 
       - name: Upload perf evidence
         if: always()
@@ -116,26 +165,55 @@ jobs:
           if-no-files-found: warn
 
       - name: Post perf results to PR
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
+        env:
+          SLO_OUTCOME: ${{ steps.slo_gate.outcome }}
+          SCHEMA_OUTCOME: ${{ steps.schema_gate.outcome }}
         with:
           script: |
             const fs = require('fs');
-            let body = '## Performance SLO Results\n\n';
-            try {
-              const openJson = JSON.parse(fs.readFileSync('artifacts/perf/open_compare.json', 'utf8'));
-              const overhead = openJson.overhead_pct || openJson.overhead || 'N/A';
-              const status = overhead <= 10 ? ':white_check_mark:' : ':x:';
-              body += `| Metric | Value | Threshold | Status |\n`;
-              body += `|--------|-------|-----------|--------|\n`;
-              body += `| open() overhead | ${overhead}% | 10% | ${status} |\n`;
-            } catch (e) {
-              body += '*Performance data not available*\n';
+
+            function readJsonIfExists(path, fallback) {
+              try {
+                return JSON.parse(fs.readFileSync(path, 'utf8'));
+              } catch (e) {
+                return fallback;
+              }
             }
-            body += '\n---\nGenerated by perf.yml SLO gate';
+
+            const open = readJsonIfExists('artifacts/perf/open_compare.json', {});
+            const workload = readJsonIfExists('artifacts/perf/workload_suite.json', { benchmarks: [] });
+            let report = '';
+            try {
+              report = fs.readFileSync('artifacts/perf/perf-evidence-report.md', 'utf8');
+            } catch (e) {
+              report = '_report unavailable_';
+            }
+
+            const failedRows = (workload.benchmarks || [])
+              .filter((row) => !row.pass)
+              .map((row) => row.name);
+            const status = process.env.SLO_OUTCOME === 'success' && process.env.SCHEMA_OUTCOME === 'success'
+              ? ':white_check_mark:'
+              : ':warning:';
+
+            let body = '## Performance Gate (PR Advisory)\n\n';
+            body += '| Check | Outcome |\n';
+            body += '|---|---|\n';
+            body += `| SLO gate | ${process.env.SLO_OUTCOME} |\n`;
+            body += `| Artifact/KPI gate | ${process.env.SCHEMA_OUTCOME} |\n`;
+            body += `| open delta_pct | ${open.delta_pct !== undefined ? `${open.delta_pct}%` : 'N/A'} |\n`;
+            body += `| workload failing rows | ${failedRows.length ? failedRows.join(', ') : 'none'} |\n`;
+            body += `\nOverall: ${status}\n\n`;
+            body += '<details><summary>Perf Evidence Report</summary>\n\n';
+            body += report;
+            body += '\n</details>\n';
+            body += '\n---\n`main`/scheduled runs enforce this gate strictly; PR result is advisory.\n';
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              body
             });

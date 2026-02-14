@@ -96,6 +96,39 @@ TEST(BpfIntegrityTest, VerifiesMatchingHashWhenRequired)
     EXPECT_TRUE(result->reason.empty());
 }
 
+TEST(BpfIntegrityTest, UsesObjectAdjacentHashWhenConfiguredPathsAreMissing)
+{
+    TempDir temp_dir;
+    const auto obj_path = temp_dir.path() / "aegis.bpf.o";
+    const auto adjacent_hash_path = temp_dir.path() / "aegis.bpf.sha256";
+
+    {
+        std::ofstream out(obj_path, std::ios::binary);
+        ASSERT_TRUE(out.is_open());
+        out << "dummy-bpf-object";
+    }
+
+    std::string obj_hash;
+    ASSERT_TRUE(sha256_file_hex(obj_path.string(), obj_hash));
+    {
+        std::ofstream out(adjacent_hash_path);
+        ASSERT_TRUE(out.is_open());
+        out << obj_hash << "\n";
+    }
+
+    ScopedEnvVar env_obj("AEGIS_BPF_OBJ", obj_path.string());
+    ScopedEnvVar env_hash("AEGIS_BPF_OBJ_HASH_PATH", (temp_dir.path() / "missing.sha256").string());
+    ScopedEnvVar env_hash_install("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", (temp_dir.path() / "missing2.sha256").string());
+
+    auto result = evaluate_bpf_integrity(true, false);
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(result->object_exists);
+    EXPECT_TRUE(result->hash_exists);
+    EXPECT_TRUE(result->hash_verified);
+    EXPECT_EQ(result->hash_path, adjacent_hash_path.string());
+    EXPECT_TRUE(result->reason.empty());
+}
+
 TEST(BpfIntegrityTest, FailsWhenHashIsMissingAndRequired)
 {
     TempDir temp_dir;

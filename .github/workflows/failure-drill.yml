@@ -1,0 +1,166 @@
+name: Failure Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: failure-drill
+  cancel-in-progress: false
+
+jobs:
+  failure-drill:
+    runs-on: [self-hosted, bpf-lsm]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (if apt-get is available)
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema git"
+            for attempt in 1 2 3; do
+              if sudo apt-get -o DPkg::Lock::Timeout=120 update && \
+                 sudo apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
+                break
+              fi
+              echo "apt-get attempt ${attempt} failed; retrying in 10s..."
+              sleep 10
+            done
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-common || true
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-generic || \
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-gcp || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Verify environment
+        run: scripts/verify_env.sh --strict
+
+      - name: Require BPF LSM
+        run: grep -qw bpf /sys/kernel/security/lsm
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DBUILD_BENCHMARKS=OFF -DSKIP_BPF_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts/failure-drill
+
+      - name: Failure-mode regression tests (targeted)
+        run: |
+          set -o pipefail
+          ctest --test-dir build --output-on-failure --timeout 180 -R '^PolicyRollbackTest\.' \
+            | tee artifacts/failure-drill/ctest_policy_rollback.log
+          ctest --test-dir build --output-on-failure --timeout 180 -R '^BpfIntegrityTest\.' \
+            | tee artifacts/failure-drill/ctest_bpf_integrity.log
+          ctest --test-dir build --output-on-failure --timeout 180 \
+            -R '^TracingTest\.DaemonRun(MarksLoadSpanErrorWhenLoadBpfFails|SurfacesVerifierRejectError|RejectsSilentPartialAttachContract)$' \
+            | tee artifacts/failure-drill/ctest_tracing_failure_modes.log
+
+      - name: Prepare unsigned BPF object drill input
+        run: |
+          cp build/aegis.bpf.o artifacts/failure-drill/unsigned-aegis.bpf.o
+          ls -l artifacts/failure-drill/unsigned-aegis.bpf.o
+
+      - name: Drill fail-closed behavior (missing hash in enforce mode)
+        run: |
+          set +e
+          sudo env \
+            AEGIS_BPF_OBJ=artifacts/failure-drill/unsigned-aegis.bpf.o \
+            AEGIS_BPF_OBJ_HASH_PATH=/tmp/aegis-missing-hash-1 \
+            AEGIS_BPF_OBJ_HASH_INSTALL_PATH=/tmp/aegis-missing-hash-2 \
+            timeout 15 ./build/aegisbpf run --enforce --enforce-signal=none \
+            > artifacts/failure-drill/enforce_missing_hash.log 2>&1
+          rc=$?
+          set -e
+
+          if [[ "${rc}" -eq 0 || "${rc}" -eq 124 ]]; then
+            echo "expected enforce startup to fail fast when hash is missing (rc=${rc})" >&2
+            cat artifacts/failure-drill/enforce_missing_hash.log >&2 || true
+            exit 1
+          fi
+
+          if ! grep -Eq "hash file is required but not found|BPF object hash file is required but not found" \
+              artifacts/failure-drill/enforce_missing_hash.log; then
+            echo "expected explicit missing-hash failure message in enforce drill" >&2
+            cat artifacts/failure-drill/enforce_missing_hash.log >&2 || true
+            exit 1
+          fi
+
+      - name: Drill break-glass behavior (allow unsigned enforce startup)
+        run: |
+          set +e
+          sudo env \
+            AEGIS_BPF_OBJ=artifacts/failure-drill/unsigned-aegis.bpf.o \
+            AEGIS_BPF_OBJ_HASH_PATH=/tmp/aegis-missing-hash-1 \
+            AEGIS_BPF_OBJ_HASH_INSTALL_PATH=/tmp/aegis-missing-hash-2 \
+            timeout 15 ./build/aegisbpf run --enforce --allow-unsigned-bpf --enforce-signal=none \
+            > artifacts/failure-drill/enforce_allow_unsigned.log 2>&1
+          rc=$?
+          set -e
+
+          if [[ "${rc}" -ne 124 ]]; then
+            echo "expected allow-unsigned drill to keep daemon running until timeout (rc=${rc})" >&2
+            cat artifacts/failure-drill/enforce_allow_unsigned.log >&2 || true
+            exit 1
+          fi
+
+          if ! grep -q "Break-glass enabled: accepting unsigned or mismatched BPF object" \
+              artifacts/failure-drill/enforce_allow_unsigned.log; then
+            echo "expected break-glass marker in allow-unsigned drill log" >&2
+            cat artifacts/failure-drill/enforce_allow_unsigned.log >&2 || true
+            exit 1
+          fi
+
+      - name: Chaos ring buffer overflow drill
+        run: |
+          set -o pipefail
+          sudo AEGIS_BIN=./build/aegisbpf \
+            RINGBUF_BYTES=4096 \
+            EVENT_SAMPLE_RATE=1 \
+            WORKERS=12 \
+            DURATION_SECONDS=15 \
+            TARGET_DROPS=1 \
+            OUT_JSON=artifacts/failure-drill/chaos_ringbuf.json \
+            scripts/chaos_ringbuf_overflow.sh \
+            | tee artifacts/failure-drill/chaos_ringbuf.log
+
+      - name: Short soak reliability gate
+        run: |
+          set -o pipefail
+          sudo AEGIS_BIN=./build/aegisbpf \
+            DURATION_SECONDS=120 \
+            WORKERS=6 \
+            MAX_RINGBUF_DROPS=300 \
+            MAX_RSS_GROWTH_KB=65536 \
+            MAX_EVENT_DROP_RATIO_PCT=0.1 \
+            MIN_TOTAL_DECISIONS=100 \
+            OUT_JSON=artifacts/failure-drill/soak_summary.json \
+            scripts/soak_reliability.sh \
+            | tee artifacts/failure-drill/soak.log
+
+      - name: Collect incident evidence bundle
+        run: |
+          sudo AEGIS_BIN=./build/aegisbpf \
+            scripts/collect_incident_bundle.sh artifacts/failure-drill/incident
+
+      - name: Upload failure drill artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-drill-artifacts
+          path: artifacts/failure-drill/
+          if-no-files-found: warn

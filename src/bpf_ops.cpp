@@ -64,6 +64,16 @@ std::string configured_hash_paths_text()
     const std::string secondary = env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
     return primary + ", " + secondary;
 }
+
+std::string adjacent_hash_path_for_object(const std::string& object_path)
+{
+    if (object_path.empty()) {
+        return {};
+    }
+    std::filesystem::path obj(object_path);
+    std::filesystem::path parent = obj.has_parent_path() ? obj.parent_path() : std::filesystem::path(".");
+    return (parent / "aegis.bpf.sha256").string();
+}
 } // namespace
 
 bool kernel_bpf_lsm_enabled()
@@ -164,12 +174,16 @@ Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_
     const std::string hash_path_primary = env_path_or_default("AEGIS_BPF_OBJ_HASH_PATH", kBpfObjHashPath);
     const std::string hash_path_secondary =
         env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
+    const std::string hash_path_adjacent = adjacent_hash_path_for_object(status.object_path);
 
     if (std::filesystem::exists(hash_path_primary, ec)) {
         status.hash_path = hash_path_primary;
         status.hash_exists = true;
     } else if (std::filesystem::exists(hash_path_secondary, ec)) {
         status.hash_path = hash_path_secondary;
+        status.hash_exists = true;
+    } else if (!hash_path_adjacent.empty() && std::filesystem::exists(hash_path_adjacent, ec)) {
+        status.hash_path = hash_path_adjacent;
         status.hash_exists = true;
     }
 
@@ -307,8 +321,13 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
     const auto& status = *integrity_result;
 
     if (status.reason == "bpf_hash_missing") {
+        std::string checked_paths = configured_hash_paths_text();
+        const std::string adjacent_hash = adjacent_hash_path_for_object(obj_path);
+        if (!adjacent_hash.empty()) {
+            checked_paths += ", " + adjacent_hash;
+        }
         logger().log(SLOG_WARN("BPF object hash file not found")
-                         .field("checked", configured_hash_paths_text())
+                         .field("checked", checked_paths)
                          .field("require_hash", require_hash)
                          .field("allow_unsigned_bpf", allow_unsigned));
         return {};
