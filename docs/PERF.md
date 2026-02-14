@@ -18,9 +18,24 @@ This document defines the reproducible performance harness used for Phase 5.
 - Perf gate compares baseline vs with-agent on the same host and run
 - Hosted `benchmark.yml` is advisory only; strict gating runs in
   `.github/workflows/perf.yml` on deterministic runners
+- Hosted benchmark runs pin execution to one CPU (`taskset -c 0`) when available
+- Hosted benchmark comparison filters out unstable rows:
+  - only `mean` aggregates are kept
+  - rows below `10ns` are excluded from alerting
+- Hosted benchmark alert threshold is intentionally looser (`15%`) than strict
+  perf SLO gating to account for shared-runner variance
 - Use stable thresholds in `scripts/perf_workload_suite.sh`
 - Strict KPI gate: `p95_with_agent / p95_baseline <= 1.05` for both open and
   connect profiles (validated by `scripts/validate_perf_artifacts.py`)
+
+## Hosted benchmark alert interpretation
+
+Treat `Benchmark` workflow alerts as early signals, not release blockers:
+
+- If hosted alert is present but `perf.yml` passes on self-hosted perf runners,
+  treat the result as noise or non-critical drift.
+- If both hosted alert and `perf.yml` gate fail, treat it as a real regression
+  and require mitigation before promotion.
 
 ## Benchmarks
 

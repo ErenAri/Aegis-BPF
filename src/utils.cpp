@@ -11,6 +11,7 @@
 
 #include <cctype>
 #include <cerrno>
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -215,9 +216,28 @@ void fill_path_key(const std::string& path, PathKey& key)
 
 std::string inode_to_string(const InodeId& id)
 {
-    std::ostringstream oss;
-    oss << id.dev << ":" << id.ino;
-    return oss.str();
+    // Max length: uint32 (10 digits) + ':' + uint64 (20 digits) = 31.
+    char buf[32];
+    char* out = buf;
+    char* const end = buf + sizeof(buf);
+
+    const auto [dev_end, dev_ec] = std::to_chars(out, end, id.dev);
+    if (dev_ec != std::errc{}) {
+        return std::to_string(id.dev) + ":" + std::to_string(id.ino);
+    }
+
+    out = dev_end;
+    if (out == end) {
+        return std::to_string(id.dev) + ":" + std::to_string(id.ino);
+    }
+    *out++ = ':';
+
+    const auto [ino_end, ino_ec] = std::to_chars(out, end, id.ino);
+    if (ino_ec != std::errc{}) {
+        return std::to_string(id.dev) + ":" + std::to_string(id.ino);
+    }
+
+    return std::string(buf, static_cast<size_t>(ino_end - buf));
 }
 
 // Thread-safe cgroup path cache implementation
