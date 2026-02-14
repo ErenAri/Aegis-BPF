@@ -188,6 +188,17 @@ class BpfState {
     uint8_t file_hooks_attached = 0;
 };
 
+struct BpfIntegrityStatus {
+    std::string object_path;
+    std::string hash_path;
+    bool object_exists = false;
+    bool hash_exists = false;
+    bool hash_verified = false;
+    bool allow_unsigned = false;
+    bool require_hash = false;
+    std::string reason; // empty, bpf_hash_missing, bpf_hash_mismatch
+};
+
 // BPF loading and lifecycle
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
 Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open);
@@ -295,6 +306,9 @@ Result<bool> check_prereqs();
 
 // BPF object path resolution
 std::string resolve_bpf_obj_path();
+bool allow_unsigned_bpf_enabled();
+bool require_bpf_hash_enabled();
+Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned);
 
 // RAII wrapper for ring_buffer
 class RingBufferGuard {

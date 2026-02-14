@@ -322,6 +322,7 @@ if(BUILD_TESTING)
         tests/test_policy.cpp
         tests/test_network.cpp
         tests/test_metrics.cpp
+        tests/test_bpf_integrity.cpp
         tests/test_tracing.cpp
     )
 

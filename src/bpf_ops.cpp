@@ -35,6 +35,35 @@ std::atomic<uint32_t> g_ringbuf_bytes{0};
 std::atomic<uint32_t> g_max_deny_inodes{0};
 std::atomic<uint32_t> g_max_deny_paths{0};
 std::atomic<uint32_t> g_max_network_entries{0};
+
+std::string env_path_or_default(const char* env_name, const char* fallback)
+{
+    const char* value = std::getenv(env_name);
+    if (value != nullptr && *value != '\0') {
+        return std::string(value);
+    }
+    return std::string(fallback);
+}
+
+bool env_flag_enabled(const char* env_name)
+{
+    const char* value = std::getenv(env_name);
+    if (value == nullptr || *value == '\0') {
+        return false;
+    }
+
+    std::string normalized(value);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+}
+
+std::string configured_hash_paths_text()
+{
+    const std::string primary = env_path_or_default("AEGIS_BPF_OBJ_HASH_PATH", kBpfObjHashPath);
+    const std::string secondary = env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
+    return primary + ", " + secondary;
+}
 } // namespace
 
 bool kernel_bpf_lsm_enabled()
@@ -107,6 +136,74 @@ std::string resolve_bpf_obj_path()
         }
     }
     return kBpfObjPath;
+}
+
+bool allow_unsigned_bpf_enabled()
+{
+    return env_flag_enabled("AEGIS_ALLOW_UNSIGNED_BPF");
+}
+
+bool require_bpf_hash_enabled()
+{
+    return env_flag_enabled("AEGIS_REQUIRE_BPF_HASH");
+}
+
+Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned)
+{
+    BpfIntegrityStatus status{};
+    status.require_hash = require_hash;
+    status.allow_unsigned = allow_unsigned;
+    status.object_path = resolve_bpf_obj_path();
+
+    std::error_code ec;
+    status.object_exists = std::filesystem::exists(status.object_path, ec);
+    if (!status.object_exists) {
+        return Error(ErrorCode::ResourceNotFound, "BPF object file not found", status.object_path);
+    }
+
+    const std::string hash_path_primary = env_path_or_default("AEGIS_BPF_OBJ_HASH_PATH", kBpfObjHashPath);
+    const std::string hash_path_secondary =
+        env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
+
+    if (std::filesystem::exists(hash_path_primary, ec)) {
+        status.hash_path = hash_path_primary;
+        status.hash_exists = true;
+    } else if (std::filesystem::exists(hash_path_secondary, ec)) {
+        status.hash_path = hash_path_secondary;
+        status.hash_exists = true;
+    }
+
+    if (!status.hash_exists) {
+        status.reason = "bpf_hash_missing";
+        if (require_hash && !allow_unsigned) {
+            return Error(ErrorCode::BpfLoadFailed, "BPF object hash file is required but not found",
+                         configured_hash_paths_text());
+        }
+        return status;
+    }
+
+    std::string expected_hash;
+    if (!read_sha256_file(status.hash_path, expected_hash)) {
+        return Error(ErrorCode::InvalidArgument, "Failed to read BPF hash file", status.hash_path);
+    }
+
+    std::string actual_hash;
+    if (!sha256_file_hex(status.object_path, actual_hash)) {
+        return Error(ErrorCode::IoError, "Failed to compute hash of BPF object", status.object_path);
+    }
+
+    if (!constant_time_hex_compare(expected_hash, actual_hash)) {
+        status.reason = "bpf_hash_mismatch";
+        if (!allow_unsigned) {
+            return Error(ErrorCode::BpfLoadFailed,
+                         "BPF object integrity verification failed - file may have been tampered with",
+                         "expected=" + expected_hash + " actual=" + actual_hash);
+        }
+        return status;
+    }
+
+    status.hash_verified = true;
+    return status;
 }
 
 Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused)
@@ -200,47 +297,32 @@ static Result<void> verify_bpf_integrity(const std::string& obj_path)
     }
 #endif
 
-    // Find the expected hash file
-    std::string hash_path;
-    std::error_code ec;
+    const bool allow_unsigned = allow_unsigned_bpf_enabled();
+    const bool require_hash = require_bpf_hash_enabled();
 
-    // Try /etc/aegisbpf first (admin override), then installed path
-    if (std::filesystem::exists(kBpfObjHashPath, ec)) {
-        hash_path = kBpfObjHashPath;
-    } else if (std::filesystem::exists(kBpfObjHashInstallPath, ec)) {
-        hash_path = kBpfObjHashInstallPath;
-    } else {
-        // No hash file found - in production this should be an error
-        // For development/testing, warn and continue
-        logger().log(SLOG_WARN("BPF object hash file not found, verification skipped")
-                         .field("checked", std::string(kBpfObjHashPath) + ", " + kBpfObjHashInstallPath));
+    auto integrity_result = evaluate_bpf_integrity(require_hash, allow_unsigned);
+    if (!integrity_result) {
+        return integrity_result.error();
+    }
+    const auto& status = *integrity_result;
+
+    if (status.reason == "bpf_hash_missing") {
+        logger().log(SLOG_WARN("BPF object hash file not found")
+                         .field("checked", configured_hash_paths_text())
+                         .field("require_hash", require_hash)
+                         .field("allow_unsigned_bpf", allow_unsigned));
         return {};
     }
 
-    // Read expected hash
-    std::string expected_hash;
-    if (!read_sha256_file(hash_path, expected_hash)) {
-        return Error(ErrorCode::InvalidArgument, "Failed to read BPF hash file", hash_path);
-    }
-
-    // Compute actual hash
-    std::string actual_hash;
-    if (!sha256_file_hex(obj_path, actual_hash)) {
-        return Error(ErrorCode::IoError, "Failed to compute hash of BPF object", obj_path);
-    }
-
-    // Constant-time comparison to prevent timing side-channel attacks
-    if (!constant_time_hex_compare(expected_hash, actual_hash)) {
-        logger().log(SLOG_ERROR("BPF object integrity verification failed")
+    if (status.reason == "bpf_hash_mismatch") {
+        logger().log(SLOG_WARN("BPF object hash mismatch accepted by break-glass")
                          .field("path", obj_path)
-                         .field("expected", expected_hash)
-                         .field("actual", actual_hash));
-        return Error(ErrorCode::BpfLoadFailed,
-                     "BPF object integrity verification failed - file may have been tampered with",
-                     "expected=" + expected_hash + " actual=" + actual_hash);
+                         .field("allow_unsigned_bpf", allow_unsigned));
+        return {};
     }
 
-    logger().log(SLOG_INFO("BPF object integrity verified").field("path", obj_path).field("hash", actual_hash));
+    logger().log(
+        SLOG_INFO("BPF object integrity verified").field("path", obj_path).field("hash_path", status.hash_path));
     return {};
 }
 

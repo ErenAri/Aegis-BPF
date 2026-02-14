@@ -34,6 +34,7 @@ Start the security agent.
 
 **aegisbpf run** [**--audit**|**--enforce**] [**--enforce-signal**=*SIG*]
 [**--allow-sigkill**]
+[**--allow-unsigned-bpf**]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -56,6 +57,11 @@ Start the security agent.
 **--allow-sigkill**
 :   Runtime acknowledgement for using `--enforce-signal=kill`. Has no effect
     for other enforce signals.
+
+**--allow-unsigned-bpf**
+:   Break-glass override for BPF object integrity checks. Allows startup when
+    the BPF hash file is missing or mismatched. Intended only for emergency
+    recovery.
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`
@@ -184,6 +190,7 @@ Check agent prerequisites and status.
 Checks:
 - Kernel capability summary (full vs audit-only)
 - Cgroup v2, BPF syscall, bpffs, and BTF prerequisites
+- BPF object presence and hash verification status
 - Required pinned map accessibility
 - Optional network pinned map accessibility (when network maps are present)
 - BPF object load and pinned map layout compatibility
@@ -258,6 +265,18 @@ cgid:123456
 
 **AEGIS_VERSION_COUNTER_PATH**
 :   Override signed-policy version counter file (default: `/var/lib/aegisbpf/version_counter`).
+
+**AEGIS_REQUIRE_BPF_HASH**
+:   When set to `1/true/yes/on`, require a BPF object hash file during load.
+
+**AEGIS_ALLOW_UNSIGNED_BPF**
+:   Break-glass override that allows missing/mismatched BPF hash verification.
+
+**AEGIS_BPF_OBJ_HASH_PATH**
+:   Override primary BPF hash file path (default: `/etc/aegisbpf/aegis.bpf.sha256`).
+
+**AEGIS_BPF_OBJ_HASH_INSTALL_PATH**
+:   Override fallback installed hash file path (default: `/usr/lib/aegisbpf/aegis.bpf.sha256`).
 
 **AEGIS_POLICY_APPLIED_PATH**
 :   Override applied policy snapshot path.

@@ -14,9 +14,11 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <thread>
 
 #include "bpf_ops.hpp"
@@ -59,6 +61,36 @@ void handle_signal(int)
 {
     g_exiting = 1;
 }
+
+class ScopedEnvOverride {
+  public:
+    ScopedEnvOverride(const char* key, const char* value) : key_(key)
+    {
+        const char* existing = std::getenv(key_);
+        if (existing != nullptr) {
+            had_previous_ = true;
+            previous_ = existing;
+        }
+        ::setenv(key_, value, 1);
+    }
+
+    ~ScopedEnvOverride()
+    {
+        if (had_previous_) {
+            ::setenv(key_, previous_.c_str(), 1);
+        } else {
+            ::unsetenv(key_);
+        }
+    }
+
+    ScopedEnvOverride(const ScopedEnvOverride&) = delete;
+    ScopedEnvOverride& operator=(const ScopedEnvOverride&) = delete;
+
+  private:
+    const char* key_;
+    bool had_previous_ = false;
+    std::string previous_;
+};
 
 void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_threshold,
                       uint32_t deny_rate_breach_limit)
@@ -411,7 +443,7 @@ void reset_attach_all_for_test()
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit)
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -527,6 +559,19 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
 
     if (ringbuf_bytes > 0) {
         set_ringbuf_bytes(ringbuf_bytes);
+    }
+
+    // Enforce BPF hash verification in enforce mode. Allowing unsigned BPF is a
+    // break-glass option and must be explicitly requested.
+    std::unique_ptr<ScopedEnvOverride> require_hash_override;
+    std::unique_ptr<ScopedEnvOverride> allow_unsigned_override;
+    if (!audit_only) {
+        require_hash_override = std::make_unique<ScopedEnvOverride>("AEGIS_REQUIRE_BPF_HASH", "1");
+    }
+    if (allow_unsigned_bpf) {
+        allow_unsigned_override = std::make_unique<ScopedEnvOverride>("AEGIS_ALLOW_UNSIGNED_BPF", "1");
+        logger().log(SLOG_WARN("Break-glass enabled: accepting unsigned or mismatched BPF object")
+                         .field("flag", "--allow-unsigned-bpf"));
     }
 
     std::signal(SIGINT, handle_signal);
