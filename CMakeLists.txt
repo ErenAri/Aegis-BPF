@@ -152,6 +152,7 @@ endif()
 # Userspace source files
 set(AEGIS_SOURCES
     src/main.cpp
+    src/binary_scan.cpp
     src/cli_common.cpp
     src/cli_dispatch.cpp
     src/cli_network.cpp
@@ -176,6 +177,7 @@ set(AEGIS_SOURCES
 )
 
 set(AEGIS_HEADERS
+    src/binary_scan.hpp
     src/cli_common.hpp
     src/cli_dispatch.hpp
     src/cli_network.hpp
@@ -245,6 +247,7 @@ target_compile_definitions(aegisbpf PRIVATE
 
 # Build library for testing (without main)
 set(AEGIS_LIB_SOURCES
+    src/binary_scan.cpp
     src/commands_block_allow.cpp
     src/commands_network.cpp
     src/commands_policy.cpp
@@ -309,7 +312,9 @@ if(BUILD_TESTING)
     set(TEST_SOURCES
         tests/test_main.cpp
         tests/test_commands.cpp
+        tests/test_crash_policy.cpp
         tests/test_crypto_safe.cpp
+        tests/test_policy_golden.cpp
         tests/test_kernel_features.cpp
         tests/test_utils.cpp
         tests/test_result.cpp

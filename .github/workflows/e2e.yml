@@ -105,6 +105,12 @@ jobs:
             OUT_JSON=artifacts/e2e/soak_summary.json \
             scripts/soak_reliability.sh
 
+      - name: Enforcement claims proofs
+        run: |
+          mkdir -p artifacts/e2e
+          sudo BIN=./build/aegisbpf \
+            scripts/e2e_enforcement_proofs.sh 2>&1 | tee artifacts/e2e/enforcement_proofs.log
+
       - name: Chaos ringbuf overflow
         run: |
           mkdir -p artifacts/e2e

@@ -64,6 +64,11 @@ Result<void> reset_net_block_stats(BpfState& state);
 // Clear all network rules
 Result<void> clear_network_maps(BpfState& state);
 
+// FD-accepting overloads for shadow map population
+Result<void> add_deny_ip_to_fds(int ipv4_fd, int ipv6_fd, const std::string& ip);
+Result<void> add_deny_cidr_to_fds(int cidr_v4_fd, int cidr_v6_fd, const std::string& cidr);
+Result<void> add_deny_port_to_fd(int port_fd, uint16_t port, uint8_t protocol, uint8_t direction);
+
 // Utility functions
 bool parse_ipv4(const std::string& ip_str, uint32_t& ip_be);
 bool parse_ipv6(const std::string& ip_str, Ipv6Key& ip);

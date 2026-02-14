@@ -218,7 +218,9 @@ struct AgentConfig {
     uint8_t audit_only;
     uint8_t deadman_enabled;
     uint8_t break_glass_active;
-    uint8_t enforce_signal; /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
+    uint8_t enforce_signal;    /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
+    uint8_t emergency_disable; /* skip ALL processing when set */
+    uint8_t _pad[3];           /* maintain alignment */
     uint64_t deadman_deadline_ns;
     uint32_t deadman_ttl_seconds;
     uint32_t event_sample_rate;
@@ -257,6 +259,8 @@ struct Policy {
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;
+    std::vector<std::string> deny_binary_hashes; // sha256:... entries (v3+)
+    std::vector<std::string> scan_paths;         // Extra paths for binary hash scan (v3+)
 };
 
 struct PolicyIssues {

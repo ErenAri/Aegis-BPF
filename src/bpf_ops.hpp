@@ -192,6 +192,9 @@ class BpfState {
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
 Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open);
 void set_ringbuf_bytes(uint32_t bytes);
+void set_max_deny_inodes(uint32_t count);
+void set_max_deny_paths(uint32_t count);
+void set_max_network_entries(uint32_t count);
 void cleanup_bpf(BpfState& state);
 
 // Map operations
@@ -213,6 +216,7 @@ Result<void> reset_block_stats_map(bpf_map* map);
 Result<void> set_agent_config(BpfState& state, bool audit_only);
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns);
+Result<void> set_emergency_disable(BpfState& state, bool disable);
 Result<void> ensure_layout_version(BpfState& state);
 
 // Survival allowlist operations
@@ -225,6 +229,62 @@ Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& ent
 Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries);
 Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid);
 Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path);
+
+// FD-accepting overloads for shadow map population
+Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries);
+Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& path, DenyEntries& entries);
+Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
+Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
+
+// Shadow map support for crash-safe policy application
+class ShadowMap {
+  public:
+    ShadowMap() = default;
+    explicit ShadowMap(int fd) : fd_(fd) {}
+    ~ShadowMap();
+    ShadowMap(ShadowMap&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    ShadowMap& operator=(ShadowMap&& o) noexcept;
+    ShadowMap(const ShadowMap&) = delete;
+    ShadowMap& operator=(const ShadowMap&) = delete;
+    [[nodiscard]] int fd() const { return fd_; }
+    [[nodiscard]] explicit operator bool() const { return fd_ >= 0; }
+
+  private:
+    int fd_ = -1;
+};
+
+struct ShadowMapSet {
+    ShadowMap deny_inode;
+    ShadowMap deny_path;
+    ShadowMap allow_cgroup;
+    ShadowMap deny_ipv4;
+    ShadowMap deny_ipv6;
+    ShadowMap deny_port;
+    ShadowMap deny_cidr_v4;
+    ShadowMap deny_cidr_v6;
+};
+
+Result<ShadowMap> create_shadow_map(bpf_map* live_map);
+Result<ShadowMapSet> create_shadow_map_set(const BpfState& state);
+size_t map_fd_entry_count(int fd, size_t key_size);
+Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
+
+// Map pressure monitoring
+struct MapPressure {
+    std::string name;
+    size_t entry_count;
+    size_t max_entries;
+    double utilization; // entry_count / max_entries
+};
+
+struct MapPressureReport {
+    std::vector<MapPressure> maps;
+    bool any_warning;  // >= 80%
+    bool any_critical; // >= 95%
+    bool any_full;     // == 100%
+};
+
+MapPressureReport check_map_pressure(const BpfState& state);
 
 // System checks
 bool kernel_bpf_lsm_enabled();

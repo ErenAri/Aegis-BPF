@@ -6,7 +6,8 @@
   "type": "object",
   "oneOf": [
     { "$ref": "#/$defs/ExecEvent" },
-    { "$ref": "#/$defs/BlockEvent" }
+    { "$ref": "#/$defs/BlockEvent" },
+    { "$ref": "#/$defs/NetBlockEvent" }
   ],
   "$defs": {
     "ExecEvent": {
@@ -156,6 +157,120 @@
         }
       },
       "additionalProperties": false
+    },
+    "NetBlockEvent": {
+      "type": "object",
+      "description": "Network block or audit event emitted on denied connect/bind attempts",
+      "required": [
+        "type",
+        "pid",
+        "ppid",
+        "start_time",
+        "parent_start_time",
+        "cgid",
+        "cgroup_path",
+        "family",
+        "protocol",
+        "direction",
+        "action",
+        "rule_type",
+        "comm"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["net_connect_block", "net_bind_block"],
+          "description": "Event type identifier"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process ID that attempted the network operation"
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Parent process ID"
+        },
+        "start_time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process start time"
+        },
+        "exec_id": {
+          "type": "string",
+          "description": "Stable execution identifier (pid:start_time)"
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Correlation identifier for cross-signal tracing"
+        },
+        "parent_start_time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Parent process start time"
+        },
+        "parent_exec_id": {
+          "type": "string",
+          "description": "Stable parent execution identifier (ppid:parent_start_time)"
+        },
+        "cgid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cgroup ID (inode number of cgroup directory)"
+        },
+        "cgroup_path": {
+          "type": "string",
+          "description": "Full path of the cgroup"
+        },
+        "family": {
+          "type": "integer",
+          "enum": [2, 10],
+          "description": "Address family (2=AF_INET, 10=AF_INET6)"
+        },
+        "protocol": {
+          "type": "integer",
+          "enum": [6, 17],
+          "description": "IP protocol (6=TCP, 17=UDP)"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["egress", "bind"],
+          "description": "Network direction (egress for connect, bind for listen)"
+        },
+        "remote_ip": {
+          "type": "string",
+          "description": "Remote IP address (for connect events)"
+        },
+        "remote_port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Remote port (for connect events)"
+        },
+        "local_port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Local port (for bind events)"
+        },
+        "rule_type": {
+          "type": "string",
+          "enum": ["ip", "cidr", "port"],
+          "description": "Type of deny rule that matched"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["AUDIT", "INT", "TERM", "KILL", "BLOCK"],
+          "description": "Action taken"
+        },
+        "comm": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Command name (truncated to 16 characters)"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": [
@@ -188,6 +303,26 @@
       "resolved_path": "/etc/shadow",
       "action": "KILL",
       "comm": "cat"
+    },
+    {
+      "type": "net_connect_block",
+      "pid": 12347,
+      "ppid": 12345,
+      "start_time": 323456789,
+      "exec_id": "12347:323456789",
+      "trace_id": "12347:323456789",
+      "parent_start_time": 123456789,
+      "parent_exec_id": "12345:123456789",
+      "cgid": 5678,
+      "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "family": 2,
+      "protocol": 6,
+      "direction": "egress",
+      "remote_ip": "10.0.0.1",
+      "remote_port": 443,
+      "rule_type": "ip",
+      "action": "TERM",
+      "comm": "curl"
     }
   ]
 }

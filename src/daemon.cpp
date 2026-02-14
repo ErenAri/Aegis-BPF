@@ -132,6 +132,39 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
             }
         }
 
+        // Check map pressure and log warnings
+        auto pressure = check_map_pressure(*state);
+        if (pressure.any_full) {
+            for (const auto& m : pressure.maps) {
+                if (m.utilization >= 1.0) {
+                    logger().log(SLOG_ERROR("Map at capacity - new entries will be rejected")
+                                     .field("map", m.name)
+                                     .field("entries", static_cast<int64_t>(m.entry_count))
+                                     .field("max_entries", static_cast<int64_t>(m.max_entries)));
+                }
+            }
+        } else if (pressure.any_critical) {
+            for (const auto& m : pressure.maps) {
+                if (m.utilization >= 0.95) {
+                    logger().log(SLOG_ERROR("Map near capacity")
+                                     .field("map", m.name)
+                                     .field("entries", static_cast<int64_t>(m.entry_count))
+                                     .field("max_entries", static_cast<int64_t>(m.max_entries))
+                                     .field("utilization_pct", static_cast<int64_t>(m.utilization * 100)));
+                }
+            }
+        } else if (pressure.any_warning) {
+            for (const auto& m : pressure.maps) {
+                if (m.utilization >= 0.80) {
+                    logger().log(SLOG_WARN("Map utilization high")
+                                     .field("map", m.name)
+                                     .field("entries", static_cast<int64_t>(m.entry_count))
+                                     .field("max_entries", static_cast<int64_t>(m.max_entries))
+                                     .field("utilization_pct", static_cast<int64_t>(m.utilization * 100)));
+                }
+            }
+        }
+
         // Sleep for TTL/2, but check exit flags more frequently.
         for (uint32_t i = 0; i < sleep_interval && g_heartbeat_running.load() && !g_exiting; ++i) {
             sleep(1);

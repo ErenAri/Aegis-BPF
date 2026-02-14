@@ -52,3 +52,66 @@ jobs:
           name: soak-evidence
           path: artifacts/soak/
           if-no-files-found: warn
+
+  soak-asan:
+    runs-on: [self-hosted, bpf-lsm]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (if apt-get is available)
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+          fi
+
+      - name: Verify environment
+        run: scripts/verify_env.sh --strict
+
+      - name: Configure (ASAN)
+        run: |
+          cmake -S . -B build-asan -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -DBUILD_TESTING=OFF
+
+      - name: Build (ASAN)
+        run: cmake --build build-asan
+
+      - name: ASAN soak (5 minutes)
+        run: |
+          mkdir -p artifacts/soak-asan
+          sudo ASAN_OPTIONS=detect_leaks=1:halt_on_error=0:log_path=artifacts/soak-asan/asan \
+            AEGIS_BIN=./build-asan/aegisbpf \
+            DURATION_SECONDS=300 \
+            MAX_RINGBUF_DROPS=500 \
+            MAX_RSS_GROWTH_KB=524288 \
+            OUT_JSON=artifacts/soak-asan/soak_asan_summary.json \
+            scripts/soak_reliability.sh || true
+
+      - name: Check ASAN reports
+        run: |
+          ASAN_ERRORS=0
+          for f in artifacts/soak-asan/asan.*; do
+            if [ -f "$f" ] && [ -s "$f" ]; then
+              echo "=== ASAN report: $f ==="
+              cat "$f"
+              ASAN_ERRORS=$((ASAN_ERRORS + 1))
+            fi
+          done
+          if [ "$ASAN_ERRORS" -gt 0 ]; then
+            echo "FAIL: $ASAN_ERRORS ASAN error reports found"
+            exit 1
+          fi
+          echo "PASS: No ASAN errors detected"
+
+      - name: Upload ASAN soak evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-asan-evidence
+          path: artifacts/soak-asan/
+          if-no-files-found: warn

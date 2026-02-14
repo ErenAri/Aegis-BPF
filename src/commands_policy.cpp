@@ -7,14 +7,18 @@
 
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <thread>
 
+#include "bpf_ops.hpp"
 #include "crypto.hpp"
 #include "logging.hpp"
 #include "policy.hpp"
+#include "sha256.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
 
@@ -357,6 +361,177 @@ int cmd_policy_sign(const std::string& policy_path, const std::string& key_path,
     logger().log(SLOG_INFO("Policy signed successfully")
                      .field("output", output_path)
                      .field("version", static_cast<int64_t>(version)));
+    return 0;
+}
+
+int cmd_policy_dry_run(const std::string& path, const std::string& sha256, const std::string& sha256_file)
+{
+    const std::string trace_id = make_span_id("trace-policy-dry-run");
+    ScopedSpan span("cli.policy_dry_run", trace_id);
+    auto fail = [&](const std::string& message) -> int {
+        span.fail(message);
+        return 1;
+    };
+
+    // Validate file permissions
+    auto perms_result = validate_file_permissions(path, false);
+    if (!perms_result) {
+        logger().log(SLOG_ERROR("Policy file permission check failed")
+                         .field("path", path)
+                         .field("error", perms_result.error().to_string()));
+        return fail(perms_result.error().to_string());
+    }
+
+    // Verify hash if provided
+    std::string expected_hash = sha256;
+    if (expected_hash.empty() && !sha256_file.empty()) {
+        auto hash_perms = validate_file_permissions(sha256_file, false);
+        if (!hash_perms) {
+            return fail(hash_perms.error().to_string());
+        }
+        std::string hash_content;
+        if (!read_sha256_file(sha256_file, hash_content)) {
+            return fail("Failed to read sha256 file");
+        }
+        expected_hash = hash_content;
+    }
+    if (!expected_hash.empty()) {
+        std::string computed;
+        if (!verify_policy_hash(path, expected_hash, computed)) {
+            logger().log(SLOG_ERROR("Policy sha256 mismatch (dry-run)"));
+            return fail("Policy sha256 mismatch");
+        }
+        std::cout << "SHA-256: " << computed << " (verified)\n";
+    } else {
+        std::string computed;
+        if (sha256_file_hex(path, computed)) {
+            std::cout << "SHA-256: " << computed << "\n";
+        }
+    }
+
+    // Parse and validate
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    report_policy_issues(issues);
+    if (!result) {
+        return fail(result.error().to_string());
+    }
+
+    const Policy& policy = *result;
+
+    std::cout << "\n[dry-run] Policy summary:\n";
+    std::cout << "  Version: " << policy.version << "\n";
+    std::cout << "  Deny paths: " << policy.deny_paths.size() << "\n";
+    std::cout << "  Deny inodes: " << policy.deny_inodes.size() << "\n";
+    std::cout << "  Allow cgroup IDs: " << policy.allow_cgroup_ids.size() << "\n";
+    std::cout << "  Allow cgroup paths: " << policy.allow_cgroup_paths.size() << "\n";
+
+    if (policy.network.enabled) {
+        std::cout << "  Network deny IPs: " << policy.network.deny_ips.size() << "\n";
+        std::cout << "  Network deny CIDRs: " << policy.network.deny_cidrs.size() << "\n";
+        std::cout << "  Network deny ports: " << policy.network.deny_ports.size() << "\n";
+    }
+
+    if (!issues.warnings.empty()) {
+        std::cout << "  Warnings: " << issues.warnings.size() << "\n";
+    }
+
+    std::cout << "\n[dry-run] No maps were modified.\n";
+    return 0;
+}
+
+int cmd_policy_canary(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
+                      bool rollback_on_failure, uint32_t canary_seconds, uint32_t canary_threshold)
+{
+    const std::string trace_id = make_span_id("trace-policy-canary");
+    ScopedSpan span("cli.policy_canary", trace_id);
+    auto fail = [&](const std::string& message) -> int {
+        span.fail(message);
+        return 1;
+    };
+
+    std::cout << "[canary] Applying policy in canary mode (" << canary_seconds << "s observation window)\n";
+    std::cout << "[canary] Deny rate threshold: " << canary_threshold << " denies/second\n";
+
+    // Apply the policy
+    auto apply_result = policy_apply(path, reset, sha256, sha256_file, rollback_on_failure, trace_id);
+    if (!apply_result) {
+        logger().log(SLOG_ERROR("Canary: policy apply failed").field("error", apply_result.error().to_string()));
+        return fail(apply_result.error().to_string());
+    }
+    std::cout << "[canary] Policy applied successfully. Starting observation...\n";
+
+    // Read initial block stats
+    auto rlimit = bump_memlock_rlimit();
+    if (!rlimit) {
+        return fail("Failed to raise memlock rlimit");
+    }
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        std::cout << "[canary] Warning: Cannot read block stats (daemon may not be running)\n";
+        std::cout << "[canary] Policy is applied. Monitor deny rate manually.\n";
+        return 0;
+    }
+
+    auto initial_stats = read_block_stats_map(state.block_stats);
+    uint64_t initial_blocks = initial_stats ? initial_stats->blocks : 0;
+
+    // Observation loop: check every 5 seconds
+    uint32_t elapsed = 0;
+    uint32_t check_interval = (canary_seconds > 30) ? 5 : 1;
+    bool threshold_breached = false;
+    uint64_t prev_blocks = initial_blocks;
+
+    while (elapsed < canary_seconds) {
+        uint32_t sleep_time = std::min(check_interval, canary_seconds - elapsed);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        elapsed += sleep_time;
+
+        auto stats = read_block_stats_map(state.block_stats);
+        if (!stats) {
+            continue;
+        }
+
+        uint64_t current_blocks = stats->blocks;
+        uint64_t delta = current_blocks - prev_blocks;
+        double rate = static_cast<double>(delta) / static_cast<double>(sleep_time);
+
+        std::cout << "[canary] t=" << elapsed << "s: " << delta << " denies in " << sleep_time << "s (rate=" << rate
+                  << "/s)\n";
+
+        if (rate > static_cast<double>(canary_threshold)) {
+            threshold_breached = true;
+            std::cout << "[canary] THRESHOLD BREACHED: deny rate " << rate << "/s > " << canary_threshold << "/s\n";
+            break;
+        }
+        prev_blocks = current_blocks;
+    }
+
+    auto final_stats = read_block_stats_map(state.block_stats);
+    uint64_t total_blocks = final_stats ? (final_stats->blocks - initial_blocks) : 0;
+
+    if (threshold_breached) {
+        std::cout << "[canary] FAIL: deny rate exceeded threshold during canary window\n";
+        std::cout << "[canary] Total denies during canary: " << total_blocks << "\n";
+
+        if (rollback_on_failure) {
+            std::cout << "[canary] Rolling back policy...\n";
+            auto rollback_result = policy_rollback();
+            if (rollback_result) {
+                std::cout << "[canary] Policy rolled back successfully\n";
+            } else {
+                logger().log(SLOG_ERROR("Canary: rollback failed").field("error", rollback_result.error().to_string()));
+                std::cout << "[canary] WARNING: Rollback failed. Manual intervention required.\n";
+            }
+        }
+        return 1;
+    }
+
+    std::cout << "[canary] PASS: canary observation completed\n";
+    std::cout << "[canary] Total denies during canary: " << total_blocks << "\n";
+    std::cout << "[canary] Policy is active.\n";
     return 0;
 }
 

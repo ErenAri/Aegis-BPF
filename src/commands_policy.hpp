@@ -1,6 +1,7 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace aegis {
@@ -13,6 +14,9 @@ int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha
                      bool rollback_on_failure);
 int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signature);
 int cmd_policy_sign(const std::string& policy_path, const std::string& key_path, const std::string& output_path);
+int cmd_policy_dry_run(const std::string& path, const std::string& sha256, const std::string& sha256_file);
+int cmd_policy_canary(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
+                      bool rollback_on_failure, uint32_t canary_seconds, uint32_t canary_threshold);
 int cmd_policy_export(const std::string& path);
 int cmd_policy_show();
 int cmd_policy_rollback();

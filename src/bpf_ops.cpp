@@ -32,6 +32,9 @@ namespace aegis {
 namespace {
 constexpr const char* kBpfObjPath = AEGIS_BPF_OBJ_PATH;
 std::atomic<uint32_t> g_ringbuf_bytes{0};
+std::atomic<uint32_t> g_max_deny_inodes{0};
+std::atomic<uint32_t> g_max_deny_paths{0};
+std::atomic<uint32_t> g_max_network_entries{0};
 } // namespace
 
 bool kernel_bpf_lsm_enabled()
@@ -167,6 +170,21 @@ static Result<void> attach_prog(bpf_program* prog, BpfState& state)
 void set_ringbuf_bytes(uint32_t bytes)
 {
     g_ringbuf_bytes.store(bytes, std::memory_order_relaxed);
+}
+
+void set_max_deny_inodes(uint32_t count)
+{
+    g_max_deny_inodes.store(count, std::memory_order_relaxed);
+}
+
+void set_max_deny_paths(uint32_t count)
+{
+    g_max_deny_paths.store(count, std::memory_order_relaxed);
+}
+
+void set_max_network_entries(uint32_t count)
+{
+    g_max_network_entries.store(count, std::memory_order_relaxed);
 }
 
 // Verify BPF object file integrity before loading
@@ -338,6 +356,54 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 span.fail(error.to_string());
                 return fail(error);
             }
+        }
+    }
+
+    // Configure map sizes if overridden at runtime
+    {
+        ScopedSpan span("bpf.configure_map_sizes", trace_id, root_span.span_id());
+        auto try_set_max = [&](bpf_map* map, uint32_t max_entries, const char* name) -> Result<void> {
+            if (max_entries > 0 && map) {
+                int err = bpf_map__set_max_entries(map, max_entries);
+                if (err) {
+                    cleanup_bpf(state);
+                    return Error::bpf_error(err, std::string("Failed to set max entries for ") + name);
+                }
+                logger().log(SLOG_INFO("Configured map size")
+                                 .field("map", name)
+                                 .field("max_entries", static_cast<int64_t>(max_entries)));
+            }
+            return {};
+        };
+
+        uint32_t max_inodes = g_max_deny_inodes.load(std::memory_order_relaxed);
+        uint32_t max_paths = g_max_deny_paths.load(std::memory_order_relaxed);
+        uint32_t max_net = g_max_network_entries.load(std::memory_order_relaxed);
+
+        auto r = try_set_max(state.deny_inode, max_inodes, "deny_inode");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_path, max_paths, "deny_path");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_ipv4, max_net, "deny_ipv4");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_ipv6, max_net, "deny_ipv6");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_port, max_net, "deny_port");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
         }
     }
 
@@ -745,6 +811,279 @@ Result<void> clear_map_entries(bpf_map* map)
     return {};
 }
 
+// --- Shadow map support ---
+
+ShadowMap::~ShadowMap()
+{
+    if (fd_ >= 0) {
+        close(fd_);
+    }
+}
+
+ShadowMap& ShadowMap::operator=(ShadowMap&& o) noexcept
+{
+    if (this != &o) {
+        if (fd_ >= 0) {
+            close(fd_);
+        }
+        fd_ = o.fd_;
+        o.fd_ = -1;
+    }
+    return *this;
+}
+
+Result<ShadowMap> create_shadow_map(bpf_map* live_map)
+{
+    if (!live_map) {
+        return Error(ErrorCode::InvalidArgument, "Cannot create shadow for null map");
+    }
+
+    const auto type = static_cast<enum bpf_map_type>(bpf_map__type(live_map));
+    const auto key_size = bpf_map__key_size(live_map);
+    const auto value_size = bpf_map__value_size(live_map);
+    const auto max_entries = bpf_map__max_entries(live_map);
+    const auto flags = bpf_map__map_flags(live_map);
+
+    int fd = -1;
+#ifdef bpf_map_create_opts__last_field
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    opts.map_flags = flags;
+    fd = bpf_map_create(type, "shadow", key_size, value_size, max_entries, &opts);
+#else
+    fd = bpf_create_map_name(type, "shadow", static_cast<int>(key_size), static_cast<int>(value_size),
+                             static_cast<int>(max_entries), flags);
+#endif
+    if (fd < 0) {
+        return Error::system(errno, "Failed to create shadow map");
+    }
+    return ShadowMap(fd);
+}
+
+Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
+{
+    ShadowMapSet set;
+
+    auto mk = [](bpf_map* m) -> Result<ShadowMap> {
+        if (!m) {
+            return ShadowMap();
+        }
+        return create_shadow_map(m);
+    };
+
+    auto r = mk(state.deny_inode);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_inode = std::move(*r);
+
+    r = mk(state.deny_path);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_path = std::move(*r);
+
+    r = mk(state.allow_cgroup);
+    if (!r) {
+        return r.error();
+    }
+    set.allow_cgroup = std::move(*r);
+
+    r = mk(state.deny_ipv4);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_ipv4 = std::move(*r);
+
+    r = mk(state.deny_ipv6);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_ipv6 = std::move(*r);
+
+    r = mk(state.deny_port);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_port = std::move(*r);
+
+    r = mk(state.deny_cidr_v4);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_cidr_v4 = std::move(*r);
+
+    r = mk(state.deny_cidr_v6);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_cidr_v6 = std::move(*r);
+
+    return set;
+}
+
+size_t map_fd_entry_count(int fd, size_t key_size)
+{
+    if (fd < 0) {
+        return 0;
+    }
+    std::vector<uint8_t> key(key_size);
+    std::vector<uint8_t> next_key(key_size);
+    size_t count = 0;
+    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
+    while (!rc) {
+        ++count;
+        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
+        key.swap(next_key);
+    }
+    return count;
+}
+
+Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
+{
+    if (!live_map || shadow_fd < 0) {
+        return {};
+    }
+
+    int live_fd = bpf_map__fd(live_map);
+    size_t key_sz = bpf_map__key_size(live_map);
+    size_t val_sz = bpf_map__value_size(live_map);
+
+    std::vector<uint8_t> key(key_sz);
+    std::vector<uint8_t> next_key(key_sz);
+    std::vector<uint8_t> val(val_sz);
+
+    // Phase 1: Upsert all shadow entries into live map
+    int rc = bpf_map_get_next_key(shadow_fd, nullptr, key.data());
+    while (!rc) {
+        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) == 0) {
+            if (bpf_map_update_elem(live_fd, key.data(), val.data(), BPF_ANY)) {
+                return Error::system(errno, "sync_from_shadow: upsert failed");
+            }
+        }
+        rc = bpf_map_get_next_key(shadow_fd, key.data(), next_key.data());
+        key.swap(next_key);
+    }
+
+    // Phase 2: Delete stale entries from live map (present in live but not in shadow)
+    std::vector<std::vector<uint8_t>> stale_keys;
+    rc = bpf_map_get_next_key(live_fd, nullptr, key.data());
+    while (!rc) {
+        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) != 0) {
+            if (errno != ENOENT) {
+                return Error::system(errno, "sync_from_shadow: shadow lookup failed");
+            }
+            stale_keys.push_back(key);
+        }
+        rc = bpf_map_get_next_key(live_fd, key.data(), next_key.data());
+        key.swap(next_key);
+    }
+    for (const auto& sk : stale_keys) {
+        bpf_map_delete_elem(live_fd, sk.data());
+    }
+
+    return {};
+}
+
+// --- FD-accepting overloads for shadow population ---
+
+Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries)
+{
+    uint8_t one = 1;
+    if (bpf_map_update_elem(inode_fd, &id, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow deny_inode_map");
+    }
+    entries.try_emplace(id, "");
+    return {};
+}
+
+Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& path, DenyEntries& entries)
+{
+    if (path.empty()) {
+        return Error(ErrorCode::InvalidArgument, "Path is empty");
+    }
+    if (path.find('\0') != std::string::npos) {
+        return Error(ErrorCode::InvalidArgument, "Path contains null bytes", path);
+    }
+
+    struct stat lstat_buf {};
+    bool is_symlink = (lstat(path.c_str(), &lstat_buf) == 0) && S_ISLNK(lstat_buf.st_mode);
+    if (is_symlink) {
+        logger().log(SLOG_INFO("Deny path is symlink, will resolve to target").field("symlink", path));
+    }
+
+    std::error_code ec;
+    std::filesystem::path resolved = std::filesystem::canonical(path, ec);
+    if (ec) {
+        return Error(ErrorCode::PathResolutionFailed, "Failed to resolve path", path + ": " + ec.message());
+    }
+    std::string resolved_str = resolved.string();
+
+    if (resolved_str.size() >= kDenyPathMax) {
+        return Error(ErrorCode::PathTooLong, "Resolved path exceeds maximum length",
+                     resolved_str + " (" + std::to_string(resolved_str.size()) + " >= " + std::to_string(kDenyPathMax) +
+                         ")");
+    }
+
+    struct stat st {};
+    if (stat(resolved_str.c_str(), &st) != 0) {
+        return Error::system(errno, "stat failed for " + resolved_str);
+    }
+
+    InodeId id{};
+    id.ino = st.st_ino;
+    id.dev = encode_dev(st.st_dev);
+    id.pad = 0;
+
+    TRY(add_deny_inode_to_fd(inode_fd, id, entries));
+
+    uint8_t one = 1;
+    PathKey path_key{};
+    fill_path_key(resolved_str, path_key);
+    if (bpf_map_update_elem(path_fd, &path_key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow deny_path_map");
+    }
+
+    if (path != resolved_str && path.size() < kDenyPathMax) {
+        PathKey raw_key{};
+        fill_path_key(path, raw_key);
+        if (bpf_map_update_elem(path_fd, &raw_key, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_path_map (raw path)");
+        }
+    }
+
+    if (is_symlink) {
+        logger().log(SLOG_INFO("Deny rule added for symlink target")
+                         .field("original", path)
+                         .field("resolved", resolved_str)
+                         .field("dev", static_cast<int64_t>(id.dev))
+                         .field("ino", static_cast<int64_t>(id.ino)));
+    }
+
+    entries[id] = resolved_str;
+    return {};
+}
+
+Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid)
+{
+    uint8_t one = 1;
+    if (bpf_map_update_elem(cgroup_fd, &cgid, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow allow_cgroup_map");
+    }
+    return {};
+}
+
+Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path)
+{
+    auto cgid_result = path_to_cgid(path);
+    if (!cgid_result) {
+        return cgid_result.error();
+    }
+    return add_allow_cgroup_to_fd(cgroup_fd, *cgid_result);
+}
+
+// --- End shadow map support ---
+
 Result<BlockStats> read_block_stats_map(bpf_map* map)
 {
     int fd = bpf_map__fd(map);
@@ -1053,6 +1392,37 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
     return {};
 }
 
+Result<void> set_emergency_disable(BpfState& state, bool disable)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
+    }
+
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    int fd = bpf_map__fd(state.config_map);
+
+    // Read current config
+    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
+        if (errno != ENOENT) {
+            return Error::system(errno, "Failed to read agent config");
+        }
+        cfg.enforce_signal = kEnforceSignalTerm;
+        cfg.event_sample_rate = 1;
+        cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
+        cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
+    }
+
+    // Update emergency disable flag
+    cfg.emergency_disable = disable ? 1 : 0;
+
+    // Write back
+    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
+        return Error::system(errno, "Failed to set emergency disable");
+    }
+    return {};
+}
+
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
 {
     if (!state.config_map) {
@@ -1251,4 +1621,52 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
     }
     return entries;
 }
+
+MapPressureReport check_map_pressure(const BpfState& state)
+{
+    // Map capacities must match bpf/aegis.bpf.c definitions
+    static constexpr size_t kMaxDenyInodes = 65536;
+    static constexpr size_t kMaxDenyPaths = 16384;
+    static constexpr size_t kMaxAllowCgroups = 1024;
+    static constexpr size_t kMaxDenyIpv4 = 65536;
+    static constexpr size_t kMaxDenyIpv6 = 65536;
+    static constexpr size_t kMaxDenyPorts = 4096;
+    static constexpr size_t kMaxDenyCidrV4 = 16384;
+    static constexpr size_t kMaxDenyCidrV6 = 16384;
+
+    MapPressureReport report{};
+    report.any_warning = false;
+    report.any_critical = false;
+    report.any_full = false;
+
+    auto add_map = [&](const char* name, bpf_map* map, size_t max_entries) {
+        if (!map) {
+            return;
+        }
+        size_t count = map_entry_count(map);
+        double util = max_entries > 0 ? static_cast<double>(count) / static_cast<double>(max_entries) : 0.0;
+        report.maps.push_back({name, count, max_entries, util});
+        if (util >= 1.0) {
+            report.any_full = true;
+        }
+        if (util >= 0.95) {
+            report.any_critical = true;
+        }
+        if (util >= 0.80) {
+            report.any_warning = true;
+        }
+    };
+
+    add_map("deny_inode", state.deny_inode, kMaxDenyInodes);
+    add_map("deny_path", state.deny_path, kMaxDenyPaths);
+    add_map("allow_cgroup", state.allow_cgroup, kMaxAllowCgroups);
+    add_map("deny_ipv4", state.deny_ipv4, kMaxDenyIpv4);
+    add_map("deny_ipv6", state.deny_ipv6, kMaxDenyIpv6);
+    add_map("deny_port", state.deny_port, kMaxDenyPorts);
+    add_map("deny_cidr_v4", state.deny_cidr_v4, kMaxDenyCidrV4);
+    add_map("deny_cidr_v6", state.deny_cidr_v6, kMaxDenyCidrV6);
+
+    return report;
+}
+
 } // namespace aegis

@@ -821,4 +821,77 @@ Result<void> clear_network_maps(BpfState& state)
     return {};
 }
 
+// --- FD-accepting overloads for shadow map population ---
+
+Result<void> add_deny_ip_to_fds(int ipv4_fd, int ipv6_fd, const std::string& ip)
+{
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    bool is_ipv6 = false;
+    if (!parse_ip_auto(ip, ipv4_be, ipv6, is_ipv6)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid IP address", ip);
+    }
+    uint8_t one = 1;
+    if (is_ipv6) {
+        if (ipv6_fd < 0) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ipv6 shadow not available");
+        }
+        if (bpf_map_update_elem(ipv6_fd, &ipv6, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_ipv6 map");
+        }
+    } else {
+        if (ipv4_fd < 0) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ipv4 shadow not available");
+        }
+        if (bpf_map_update_elem(ipv4_fd, &ipv4_be, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_ipv4 map");
+        }
+    }
+    return {};
+}
+
+Result<void> add_deny_cidr_to_fds(int cidr_v4_fd, int cidr_v6_fd, const std::string& cidr)
+{
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    uint8_t prefix_len = 0;
+    bool is_ipv6 = false;
+    if (!parse_cidr_auto(cidr, ipv4_be, ipv6, prefix_len, is_ipv6)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid CIDR notation", cidr);
+    }
+    uint8_t one = 1;
+    if (is_ipv6) {
+        if (cidr_v6_fd < 0) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_cidr_v6 shadow not available");
+        }
+        Ipv6LpmKey key = {.prefixlen = prefix_len, .addr = {0}};
+        std::memcpy(key.addr, ipv6.addr, sizeof(key.addr));
+        if (bpf_map_update_elem(cidr_v6_fd, &key, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_cidr_v6 map");
+        }
+    } else {
+        if (cidr_v4_fd < 0) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_cidr_v4 shadow not available");
+        }
+        Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ipv4_be};
+        if (bpf_map_update_elem(cidr_v4_fd, &key, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_cidr_v4 map");
+        }
+    }
+    return {};
+}
+
+Result<void> add_deny_port_to_fd(int port_fd, uint16_t port, uint8_t protocol, uint8_t direction)
+{
+    if (port_fd < 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Network deny_port shadow not available");
+    }
+    PortKey key = {.port = port, .protocol = protocol, .direction = direction};
+    uint8_t one = 1;
+    if (bpf_map_update_elem(port_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow deny_port map");
+    }
+    return {};
+}
+
 } // namespace aegis

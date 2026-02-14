@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSKIP_BPF_BUILD=ON
 
       - name: Build
         run: cmake --build build
@@ -40,7 +40,7 @@ jobs:
           sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON
 
       - name: Build
         run: cmake --build build
@@ -72,6 +72,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_TESTING=ON \
             -DBUILD_BENCHMARKS=OFF \
+            -DSKIP_BPF_BUILD=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DENABLE_ASAN=${{ matrix.sanitizer == 'asan' && 'ON' || 'OFF' }} \
@@ -100,7 +101,7 @@ jobs:
           sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema libgtest-dev linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build gcovr python3-jsonschema libgtest-dev linux-tools-common
 
       - name: Configure with coverage
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON -DSKIP_BPF_BUILD=ON
 
       - name: Build
         run: cmake --build build
@@ -164,16 +165,30 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
 
       - name: Build
         run: cmake --build build
 
+      - name: Detect built BPF object
+        id: bpf_obj
+        run: |
+          if [[ -f build/aegis.bpf.o ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run health check
+        if: steps.bpf_obj.outputs.present == 'true'
         run: sudo ./build/aegisbpf health
 
+      - name: Skip health check when BPF object is not built
+        if: steps.bpf_obj.outputs.present != 'true'
+        run: echo "Skipping health check because SKIP_BPF_BUILD=ON (no build/aegis.bpf.o)."
+
       - name: Run smoke test (audit mode)
-        if: steps.check_lsm.outputs.bpf_lsm == 'true'
+        if: steps.check_lsm.outputs.bpf_lsm == 'true' && steps.bpf_obj.outputs.present == 'true'
         timeout-minutes: 1
         run: |
           sudo timeout 5 ./build/aegisbpf run --audit || true

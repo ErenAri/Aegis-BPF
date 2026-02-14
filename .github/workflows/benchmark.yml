@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   benchmark:
@@ -54,9 +55,9 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: false
-          alert-threshold: '200%'
+          alert-threshold: '105%'
           fail-on-alert: false
-          comment-on-alert: false
+          comment-on-alert: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           summary-always: true
 
       - name: Store benchmark result (main advisory)
@@ -67,9 +68,9 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.ref == 'refs/heads/main' }}
-          alert-threshold: '200%'
+          alert-threshold: '105%'
           fail-on-alert: false
-          comment-on-alert: false
+          comment-on-alert: true
           summary-always: true
 
       - name: Perf gate policy note
