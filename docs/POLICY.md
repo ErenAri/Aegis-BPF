@@ -1,4 +1,4 @@
-# Policy Format (v1-v3)
+# Policy Format (v1-v4)
 
 Policy files are line-oriented and ASCII-only. Lines starting with `#` are
 comments. Blank lines are ignored.
@@ -11,15 +11,16 @@ edge cases), see `docs/POLICY_SEMANTICS.md`.
 The header is a set of `key=value` pairs before any section.
 
 Required:
-- `version=<1|2|3>`
+- `version=<1|2|3|4>`
 
 Notes:
 - `version=1` and `version=2` remain valid for file/network rules.
 - `version=3` is required when using binary hash sections.
+- `version=4` is required when using exec-identity protected-resource sections.
 
 Example:
 ```
-version=3
+version=4
 ```
 
 ## Sections
@@ -62,6 +63,29 @@ stored in the kernel exec allowlist map. Runtime enforcement occurs at
 Audit-only mode can fall back to userspace exec-event validation when kernel
 exec-identity enforcement is unavailable.
 
+### [protect_connect] (version 4+)
+When present, all IPv4/IPv6 `connect()` attempts are treated as a *protected
+resource*:
+- Processes with `VERIFIED_EXEC` identity are allowed (subject to other deny
+  rules).
+- Processes without `VERIFIED_EXEC` are denied in enforce mode (and audited in
+  audit mode).
+
+`VERIFIED_EXEC` is defined in `docs/VERIFIED_EXEC_CONTRACT.md`.
+
+This is a fail-closed policy: if `--enforce` is requested but the required
+kernel hooks are not available, startup fails closed by default (or falls back
+to audit when `--enforce-gate-mode=audit-fallback` is configured).
+
+### [protect_path] (version 4+)
+One path per line. These are inode-resolved at policy apply time and treated as
+protected resources:
+- `VERIFIED_EXEC` processes may access them.
+- non-`VERIFIED_EXEC` processes are denied (or audited) when a match occurs.
+
+This section is distinct from `[deny_path]` which always denies regardless of
+exec identity.
+
 ### [scan_paths] (version 3+)
 Optional additional absolute directories to include during
 `[deny_binary_hash]` and `[allow_binary_hash]` scans.
@@ -86,7 +110,7 @@ Environment variables:
 
 ## Example
 ```
-version=3
+version=4
 
 [deny_path]
 /etc/shadow
@@ -101,4 +125,9 @@ cgid:10243
 
 [allow_binary_hash]
 sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+[protect_connect]
+
+[protect_path]
+/etc/shadow
 ```

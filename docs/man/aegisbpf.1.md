@@ -67,9 +67,10 @@ Start the security agent.
     recovery.
 
 **--allow-unknown-binary-identity**
-:   Break-glass override for `version=3` exec identity policies (`[allow_binary_hash]`).
+:   Break-glass override for `version=3` exec allowlist policies (`[allow_binary_hash]`).
     When enabled, processes with unreadable/unknown executable hashes are logged
-    but not signaled.
+    but not signaled. This flag does not bypass `VERIFIED_EXEC` protected-resource
+    policies (`version=4` `[protect_connect]` / `[protect_path]`).
 
 **--strict-degrade**
 :   Enforce fail-closed runtime posture in enforce mode. If startup or runtime
@@ -294,7 +295,7 @@ Notes:
 Policy files use INI-style syntax:
 
 ```
-version=3
+version=4
 
 # Block these paths
 [deny_path]
@@ -313,6 +314,12 @@ cgid:123456
 # Enforce exec identity allowlist (version 3+)
 [allow_binary_hash]
 sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Protected resources (require VERIFIED_EXEC, version 4+)
+[protect_connect]
+
+[protect_path]
+/etc/shadow
 ```
 
 ## ENVIRONMENT

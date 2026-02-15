@@ -147,6 +147,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     std::string section;
     std::unordered_set<std::string> deny_path_seen;
     std::unordered_set<std::string> deny_inode_seen;
+    std::unordered_set<std::string> protect_path_seen;
     std::unordered_set<std::string> allow_path_seen;
     std::unordered_set<uint64_t> allow_id_seen;
     std::unordered_set<std::string> deny_ip_seen;
@@ -160,8 +161,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     // Valid sections
     static const std::unordered_set<std::string> valid_sections = {
-        "deny_path", "deny_inode",       "allow_cgroup",      "deny_ip",   "deny_cidr",
-        "deny_port", "deny_binary_hash", "allow_binary_hash", "scan_paths"};
+        "deny_path", "deny_inode", "protect_path",     "protect_connect",   "allow_cgroup", "deny_ip",
+        "deny_cidr", "deny_port",  "deny_binary_hash", "allow_binary_hash", "scan_paths"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -175,6 +176,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             if (valid_sections.find(section) == valid_sections.end()) {
                 issues.errors.push_back("line " + std::to_string(line_no) + ": unknown section '" + section + "'");
                 section.clear();
+            }
+            if (section == "protect_connect") {
+                policy.protect_connect = true;
             }
             continue;
         }
@@ -211,6 +215,27 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             if (deny_path_seen.insert(trimmed).second) {
                 policy.deny_paths.push_back(trimmed);
             }
+            continue;
+        }
+
+        if (section == "protect_path") {
+            if (trimmed.size() >= kDenyPathMax) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": protect_path is too long");
+                continue;
+            }
+            if (!trimmed.empty() && trimmed.front() != '/') {
+                issues.warnings.push_back("line " + std::to_string(line_no) + ": protect_path is relative");
+            }
+            if (protect_path_seen.insert(trimmed).second) {
+                policy.protect_paths.push_back(trimmed);
+            }
+            continue;
+        }
+
+        if (section == "protect_connect") {
+            // Presence of the section enables connect protection. Entries are not used.
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [protect_connect] does not take entries; ignoring '" + trimmed + "'");
             continue;
         }
 
@@ -372,8 +397,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     if (policy.version == 0) {
         issues.errors.push_back("missing header key: version");
     }
-    // Accept version 1, 2, or 3 (2 adds network, 3 adds binary hash sections)
-    if (policy.version < 1 || policy.version > 3) {
+    // Accept version 1..4 (2 adds network, 3 adds binary hash sections, 4 adds exec-identity protected resources)
+    if (policy.version < 1 || policy.version > 4) {
         issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
     }
 
@@ -383,6 +408,10 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     }
     if (!policy.allow_binary_hashes.empty() && policy.version < 3) {
         issues.errors.push_back("[allow_binary_hash] requires version=3 or higher");
+    }
+
+    if ((!policy.protect_paths.empty() || policy.protect_connect) && policy.version < 4) {
+        issues.errors.push_back("[protect_path]/[protect_connect] requires version=4 or higher");
     }
 
     if (!issues.errors.empty()) {
@@ -448,6 +477,7 @@ Result<void> reset_policy_maps(BpfState& state)
     TRY(clear_map_entries(state.deny_inode_stats));
     TRY(clear_map_entries(state.deny_path_stats));
     TRY(set_exec_identity_mode(state, false));
+    TRY(set_exec_identity_flags(state, 0));
 
     if (state.block_stats) {
         TRY(reset_block_stats_map(state.block_stats));
@@ -590,6 +620,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     return fail(result.error());
                 }
             }
+            for (const auto& protect_path : policy.protect_paths) {
+                auto result = add_rule_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), protect_path,
+                                                   kRuleFlagProtectByVerifiedExec, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
             for (const auto& id : policy.deny_inodes) {
                 auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
                 if (!result) {
@@ -691,9 +729,10 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
 
             size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), bpf_map__key_size(state.deny_path));
-            if (shadow_path_count < policy.deny_paths.size()) {
+            const size_t expected_min_path_rules = policy.deny_paths.size() + policy.protect_paths.size();
+            if (shadow_path_count < expected_min_path_rules) {
                 Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_path",
-                          "expected>=" + std::to_string(policy.deny_paths.size()) +
+                          "expected>=" + std::to_string(expected_min_path_rules) +
                               " actual=" + std::to_string(shadow_path_count));
                 span.fail(err.to_string());
                 return fail(err);
@@ -756,6 +795,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
             for (const auto& deny_path : policy.deny_paths) {
                 auto result = add_deny_path(state, deny_path, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            for (const auto& protect_path : policy.protect_paths) {
+                auto result = add_rule_path_to_fds(bpf_map__fd(state.deny_inode), bpf_map__fd(state.deny_path),
+                                                   protect_path, kRuleFlagProtectByVerifiedExec, entries);
                 if (!result) {
                     span.fail(result.error().to_string());
                     return fail(result.error());
@@ -860,13 +907,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         }
 
         size_t deny_path_actual = map_entry_count(state.deny_path);
-        if (deny_path_actual < policy.deny_paths.size()) {
+        const size_t expected_min_path_rules = policy.deny_paths.size() + policy.protect_paths.size();
+        if (deny_path_actual < expected_min_path_rules) {
             Error err(ErrorCode::BpfMapOperationFailed, "Post-apply verification failed for deny_path map",
-                      "expected>=" + std::to_string(policy.deny_paths.size()) +
+                      "expected>=" + std::to_string(expected_min_path_rules) +
                           " actual=" + std::to_string(deny_path_actual));
             span.fail(err.to_string());
             logger().log(SLOG_ERROR("Post-apply verification failed for deny_path map")
-                             .field("expected_min", static_cast<int64_t>(policy.deny_paths.size()))
+                             .field("expected_min", static_cast<int64_t>(expected_min_path_rules))
                              .field("actual", static_cast<int64_t>(deny_path_actual)));
             return fail(err);
         }
@@ -972,15 +1020,33 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     {
         ScopedSpan span("policy.set_exec_identity_mode", root_span.trace_id(), root_span.span_id());
         size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
-        bool exec_identity_enabled = allow_exec_count > 0;
+        bool exec_identity_enabled = allow_exec_count > 0 || policy.protect_connect || !policy.protect_paths.empty();
         auto mode_result = set_exec_identity_mode(state, exec_identity_enabled);
         if (!mode_result) {
             span.fail(mode_result.error().to_string());
             return fail(mode_result.error());
         }
+        uint8_t exec_flags = 0;
+        if (allow_exec_count > 0) {
+            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagAllowlistEnforce);
+        }
+        if (policy.protect_connect) {
+            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagProtectConnect);
+        }
+        if (!policy.protect_paths.empty()) {
+            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagProtectFiles);
+        }
+        auto flags_result = set_exec_identity_flags(state, exec_flags);
+        if (!flags_result) {
+            span.fail(flags_result.error().to_string());
+            return fail(flags_result.error());
+        }
         logger().log(SLOG_INFO("Exec identity kernel mode updated")
                          .field("enabled", exec_identity_enabled)
-                         .field("allow_exec_inode_entries", static_cast<int64_t>(allow_exec_count)));
+                         .field("allow_exec_inode_entries", static_cast<int64_t>(allow_exec_count))
+                         .field("exec_identity_flags", static_cast<int64_t>(exec_flags))
+                         .field("protect_connect", policy.protect_connect)
+                         .field("protect_paths", static_cast<int64_t>(policy.protect_paths.size())));
     }
 
     // Commit phase: persist state to disk atomically

@@ -269,6 +269,14 @@ Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid);
 Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path);
 Result<void> add_allow_exec_inode(BpfState& state, const InodeId& id);
 Result<void> set_exec_identity_mode(BpfState& state, bool enabled);
+Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags);
+
+// Access-control rules share the deny maps; the value is a bitmask.
+// - kRuleFlagDenyAlways: unconditional deny
+// - kRuleFlagProtectByVerifiedExec: deny only when process is not VERIFIED_EXEC
+Result<void> add_rule_inode_to_fd(int inode_fd, const InodeId& id, uint8_t flags, DenyEntries& entries);
+Result<void> add_rule_path_to_fds(int inode_fd, int path_fd, const std::string& path, uint8_t flags,
+                                  DenyEntries& entries);
 
 // FD-accepting overloads for shadow map population
 Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries);

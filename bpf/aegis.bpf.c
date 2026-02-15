@@ -36,6 +36,24 @@
 #endif
 #define SIGKILL_ESCALATION_THRESHOLD_DEFAULT 5
 #define SIGKILL_ESCALATION_WINDOW_NS_DEFAULT (30ULL * 1000000000ULL)
+#define RULE_FLAG_DENY_ALWAYS 1
+#define RULE_FLAG_PROTECT_VERIFIED_EXEC 2
+#define EXEC_IDENTITY_FLAG_ALLOWLIST_ENFORCE (1U << 0)
+#define EXEC_IDENTITY_FLAG_PROTECT_CONNECT (1U << 1)
+#define EXEC_IDENTITY_FLAG_PROTECT_FILES (1U << 2)
+
+#ifndef FS_VERITY_FL
+#define FS_VERITY_FL 0x00100000
+#endif
+#ifndef OVERLAYFS_SUPER_MAGIC
+#define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#endif
+#ifndef S_IWGRP
+#define S_IWGRP 00020
+#endif
+#ifndef S_IWOTH
+#define S_IWOTH 00002
+#endif
 
 /* BPF Map Size Constants */
 #define MAX_PROCESS_TREE_ENTRIES 65536
@@ -76,6 +94,12 @@ struct process_info {
     __u32 ppid;
     __u64 start_time;
     __u64 parent_start_time;
+    __u8 verified_exec;            /* 1 if exec identity is VERIFIED_EXEC */
+    __u8 exec_identity_known;      /* 1 if verified_exec has been computed for current image */
+    __u8 pending_untrusted_args;   /* set on execve() entry for interpreter -c/-e style exec */
+    __u8 env_shebang_active;       /* set when a script uses #!/usr/bin/env ... */
+    __u8 env_shebang_script_ok;    /* script VERIFIED_EXEC result carried to next exec */
+    __u8 _pad;
 };
 
 struct exec_event {
@@ -145,7 +169,7 @@ struct agent_config {
     __u8 emergency_disable;  /* bypass enforcement (force AUDIT) when set */
     __u8 file_policy_empty;  /* optimization hint: no file deny rules loaded */
     __u8 net_policy_empty;   /* optimization hint: no network deny rules loaded */
-    __u8 _pad;               /* maintain alignment */
+    __u8 exec_identity_flags;  /* exec-identity policy + enforcement flags */
     __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
     __u32 deadman_ttl_seconds;
     __u32 event_sample_rate;
@@ -165,7 +189,7 @@ volatile struct agent_config agent_cfg = {
     .emergency_disable = 0,
     .file_policy_empty = 0,
     .net_policy_empty = 0,
-    ._pad = 0,
+    .exec_identity_flags = 0,
     .deadman_deadline_ns = 0,
     .deadman_ttl_seconds = 0,
     .event_sample_rate = 1,
@@ -474,14 +498,22 @@ static __always_inline struct process_info *get_or_create_process_info(
     __u32 pid, struct task_struct *task)
 {
     struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
-    if (!pi && task) {
-        struct process_info info = {};
-        info.pid = pid;
-        info.ppid = BPF_CORE_READ(task, real_parent, tgid);
-        info.start_time = BPF_CORE_READ(task, start_time);
-        info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
-        bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
-        pi = bpf_map_lookup_elem(&process_tree, &pid);
+    if (task) {
+        if (!pi) {
+            struct process_info info = {};
+            info.pid = pid;
+            info.ppid = BPF_CORE_READ(task, real_parent, tgid);
+            info.start_time = BPF_CORE_READ(task, start_time);
+            info.parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
+            bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
+            pi = bpf_map_lookup_elem(&process_tree, &pid);
+        } else if (pi->start_time == 0) {
+            /* Ensure start_time is populated even for forked processes. */
+            pi->start_time = BPF_CORE_READ(task, start_time);
+            pi->parent_start_time = BPF_CORE_READ(task, real_parent, start_time);
+            pi->ppid = BPF_CORE_READ(task, real_parent, tgid);
+            pi->pid = pid;
+        }
     }
     return pi;
 }
@@ -500,6 +532,66 @@ static __always_inline void fill_block_event_process_info(
         block->start_time = pi->start_time;
         block->parent_start_time = pi->parent_start_time;
     }
+}
+
+static __always_inline __u8 current_verified_exec(__u32 pid, struct task_struct *task)
+{
+    struct process_info *pi = get_or_create_process_info(pid, task);
+    if (!pi)
+        return 0;
+    if (!pi->exec_identity_known)
+        return 0;
+    return pi->verified_exec ? 1 : 0;
+}
+
+static __always_inline __u8 path_is_trusted_root(const char *path)
+{
+    if (!path)
+        return 0;
+    if (__builtin_memcmp(path, "/usr/", 5) == 0)
+        return 1;
+    if (__builtin_memcmp(path, "/bin/", 5) == 0)
+        return 1;
+    if (__builtin_memcmp(path, "/sbin/", 6) == 0)
+        return 1;
+    if (__builtin_memcmp(path, "/lib/", 5) == 0)
+        return 1;
+    if (__builtin_memcmp(path, "/lib64/", 7) == 0)
+        return 1;
+    return 0;
+}
+
+static __always_inline __u8 file_is_verified_exec_identity(const struct file *file)
+{
+    if (!file)
+        return 0;
+
+    const struct inode *inode = BPF_CORE_READ(file, f_inode);
+    if (!inode)
+        return 0;
+
+    __u32 magic = BPF_CORE_READ(inode, i_sb, s_magic);
+    if (magic == OVERLAYFS_SUPER_MAGIC)
+        return 0;
+
+    __u32 uid = BPF_CORE_READ(inode, i_uid.val);
+    if (uid != 0)
+        return 0;
+
+    __u16 mode = BPF_CORE_READ(inode, i_mode);
+    if (mode & (S_IWGRP | S_IWOTH))
+        return 0;
+
+    __u32 iflags = BPF_CORE_READ(inode, i_flags);
+    if (!(iflags & FS_VERITY_FL))
+        return 0;
+
+    char path[128] = {};
+    long len = bpf_d_path((struct path *)&file->f_path, path, sizeof(path));
+    if (len < 0)
+        return 0;
+
+    return path_is_trusted_root(path);
 }
 
 static __always_inline __u8 get_effective_audit_mode(void)
@@ -805,6 +897,51 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
             info.parent_start_time = parent_start_time;
     }
 
+    /* Track interpreter "-c"/"-e" execs as untrusted code execution. */
+    info.pending_untrusted_args = 0;
+    const char *filename_ptr = (const char *)ctx->args[0];
+    const char *const *argv = (const char *const *)ctx->args[1];
+    if (filename_ptr && argv) {
+        char filename[64] = {};
+        long fn_len = bpf_probe_read_user_str(filename, sizeof(filename), filename_ptr);
+        if (fn_len > 0) {
+            int base_off = 0;
+#pragma unroll
+            for (int i = 0; i < (int)sizeof(filename); ++i) {
+                if (filename[i] == '\0')
+                    break;
+                if (filename[i] == '/')
+                    base_off = i + 1;
+            }
+            char *base = &filename[base_off];
+            int rem = (int)sizeof(filename) - base_off;
+            __u8 is_bash = (rem >= 5) && (__builtin_memcmp(base, "bash", 4) == 0) && (base[4] == '\0');
+            __u8 is_dash = (rem >= 5) && (__builtin_memcmp(base, "dash", 4) == 0) && (base[4] == '\0');
+            __u8 is_sh = (rem >= 3) && (__builtin_memcmp(base, "sh", 2) == 0) && (base[2] == '\0');
+            __u8 is_shell = is_bash || is_dash || is_sh;
+            __u8 is_python = (rem >= 6) && (__builtin_memcmp(base, "python", 6) == 0);
+            __u8 is_node = (rem >= 5) && (__builtin_memcmp(base, "node", 4) == 0) && (base[4] == '\0');
+            __u8 is_perl = (rem >= 5) && (__builtin_memcmp(base, "perl", 4) == 0) && (base[4] == '\0');
+            __u8 is_ruby = (rem >= 5) && (__builtin_memcmp(base, "ruby", 4) == 0) && (base[4] == '\0');
+
+            const char *arg1_ptr = NULL;
+            bpf_probe_read_user(&arg1_ptr, sizeof(arg1_ptr), &argv[1]);
+            if (arg1_ptr) {
+                char arg1[4] = {};
+                long a1_len = bpf_probe_read_user_str(arg1, sizeof(arg1), arg1_ptr);
+                if (a1_len > 0) {
+                    if ((is_shell || is_python) &&
+                        arg1[0] == '-' && arg1[1] == 'c' && arg1[2] == '\0') {
+                        info.pending_untrusted_args = 1;
+                    } else if ((is_node || is_perl || is_ruby) &&
+                               arg1[0] == '-' && arg1[1] == 'e' && arg1[2] == '\0') {
+                        info.pending_untrusted_args = 1;
+                    }
+                }
+            }
+        }
+    }
+
     bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
 
     /* Send exec event */
@@ -820,6 +957,174 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     bpf_get_current_comm(e->exec.comm, sizeof(e->exec.comm));
     bpf_ringbuf_submit(e, 0);
     return 0;
+}
+
+static __always_inline __u8 exec_identity_mode_enabled(void)
+{
+    __u32 key = 0;
+    __u8 *v = bpf_map_lookup_elem(&exec_identity_mode_map, &key);
+    if (!v)
+        return 0;
+    return *v ? 1 : 0;
+}
+
+SEC("lsm/bprm_check_security")
+int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
+{
+    if (!bprm)
+        return 0;
+
+    if (!exec_identity_mode_enabled())
+        return 0;
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __u64 cgid = bpf_get_current_cgroup_id();
+    struct task_struct *task = bpf_get_current_task_btf();
+    struct process_info *pi = get_or_create_process_info(pid, task);
+
+    struct file *file = BPF_CORE_READ(bprm, file);
+    struct file *executable = BPF_CORE_READ(bprm, executable);
+    struct file *interpreter = BPF_CORE_READ(bprm, interpreter);
+
+    __u8 verified = 0;
+    if (interpreter) {
+        /* Script: require both the script file and interpreter binary to be VERIFIED_EXEC. */
+        __u8 script_ok = file_is_verified_exec_identity(executable);
+        __u8 interp_ok = file_is_verified_exec_identity(interpreter);
+        verified = (script_ok && interp_ok) ? 1 : 0;
+
+        /* Env shebangs: kernel can't attest the PATH-resolved final interpreter.
+         * We carry the script VERIFIED_EXEC result to the next exec and require
+         * both that script_ok and the final interpreter binary are VERIFIED_EXEC.
+         */
+        const char *interp = BPF_CORE_READ(bprm, interp);
+        if (interp) {
+            char interp_path[32] = {};
+            long n = bpf_probe_read_kernel_str(interp_path, sizeof(interp_path), interp);
+            if (n > 0 && __builtin_memcmp(interp_path, "/usr/bin/env", 12) == 0 &&
+                interp_path[12] == '\0') {
+                verified = 0;
+                if (pi) {
+                    pi->env_shebang_active = 1;
+                    pi->env_shebang_script_ok = script_ok ? 1 : 0;
+                }
+            } else if (pi) {
+                pi->env_shebang_active = 0;
+                pi->env_shebang_script_ok = 0;
+            }
+        } else if (pi) {
+            pi->env_shebang_active = 0;
+            pi->env_shebang_script_ok = 0;
+        }
+    } else {
+        verified = file_is_verified_exec_identity(file);
+        if (pi && pi->env_shebang_active) {
+            verified = verified && pi->env_shebang_script_ok;
+            pi->env_shebang_active = 0;
+            pi->env_shebang_script_ok = 0;
+        }
+    }
+
+    if (pi) {
+        if (pi->pending_untrusted_args)
+            verified = 0;
+        pi->verified_exec = verified ? 1 : 0;
+        pi->exec_identity_known = 1;
+        pi->pending_untrusted_args = 0;
+    }
+
+    /* Optional exec allowlist enforcement (version 3+ [allow_binary_hash]). */
+    if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_ALLOWLIST_ENFORCE))
+        return 0;
+
+    if (!file)
+        return 0;
+
+    const struct inode *inode = BPF_CORE_READ(file, f_inode);
+    if (!inode)
+        return 0;
+
+    struct inode_id key = {};
+    key.ino = BPF_CORE_READ(inode, i_ino);
+    key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
+
+    /* Survival allowlist - never block critical binaries. */
+    if (bpf_map_lookup_elem(&survival_allowlist, &key))
+        return 0;
+
+    /* Skip allowed cgroups */
+    if (is_cgroup_allowed(cgid))
+        return 0;
+
+    if (bpf_map_lookup_elem(&allow_exec_inode_map, &key))
+        return 0;
+
+    __u8 audit = get_effective_audit_mode();
+    if (audit) {
+        __u8 enforce_signal = 0;
+        __u32 sample_rate = get_event_sample_rate();
+
+        increment_block_stats();
+        increment_cgroup_stat(cgid);
+        increment_inode_stat(&key);
+
+        if (!should_emit_event(sample_rate))
+            return 0;
+
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (e) {
+            e->type = EVENT_BLOCK;
+            fill_block_event_process_info(&e->block, pid, task);
+            e->block.cgid = cgid;
+            bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
+            e->block.ino = key.ino;
+            e->block.dev = key.dev;
+            __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+            set_action_string(e->block.action, 1, enforce_signal);
+            bpf_ringbuf_submit(e, 0);
+        } else {
+            increment_ringbuf_drops();
+        }
+        return 0;
+    }
+
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+    __u8 enforce_signal = 0;
+    __u8 configured_signal = get_effective_enforce_signal();
+    if (configured_signal == SIGKILL) {
+        __u32 kill_threshold = get_sigkill_escalation_threshold();
+        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
+    } else {
+        enforce_signal = configured_signal;
+    }
+    __u32 sample_rate = get_event_sample_rate();
+
+    increment_block_stats();
+    increment_cgroup_stat(cgid);
+    increment_inode_stat(&key);
+
+    maybe_send_enforce_signal(enforce_signal);
+
+    if (!should_emit_event(sample_rate))
+        return -EPERM;
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (e) {
+        e->type = EVENT_BLOCK;
+        fill_block_event_process_info(&e->block, pid, task);
+        e->block.cgid = cgid;
+        bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
+        e->block.ino = key.ino;
+        e->block.dev = key.dev;
+        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+        set_action_string(e->block.action, 0, enforce_signal);
+        bpf_ringbuf_submit(e, 0);
+    } else {
+        increment_ringbuf_drops();
+    }
+
+    return -EPERM;
 }
 
 SEC("lsm/file_open")
@@ -841,8 +1146,12 @@ int BPF_PROG(handle_file_open, struct file *file)
     key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
 
     /* Check if inode is in deny list */
-    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    if (!rule)
         return 0;
+    const __u8 rule_flags = *rule;
+    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) &&
+                              !(rule_flags & RULE_FLAG_DENY_ALWAYS);
 
     /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
@@ -853,11 +1162,18 @@ int BPF_PROG(handle_file_open, struct file *file)
     if (is_cgroup_allowed(cgid))
         return 0;
 
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    if (protect_only) {
+        if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_PROTECT_FILES))
+            return 0;
+        if (current_verified_exec(pid, task))
+            return 0;
+    }
+
     __u8 audit = get_effective_audit_mode();
     if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         /* Update statistics */
@@ -886,8 +1202,6 @@ int BPF_PROG(handle_file_open, struct file *file)
         return 0;
     }
 
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -944,8 +1258,12 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
 
     /* Check if inode is in deny list */
-    if (!bpf_map_lookup_elem(&deny_inode_map, &key))
+    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    if (!rule)
         return 0;
+    const __u8 rule_flags = *rule;
+    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) &&
+                              !(rule_flags & RULE_FLAG_DENY_ALWAYS);
 
     /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
@@ -956,11 +1274,18 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     if (is_cgroup_allowed(cgid))
         return 0;
 
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    if (protect_only) {
+        if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_PROTECT_FILES))
+            return 0;
+        if (current_verified_exec(pid, task))
+            return 0;
+    }
+
     __u8 audit = get_effective_audit_mode();
     if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         /* Update statistics */
@@ -989,8 +1314,6 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         return 0;
     }
 
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -1101,12 +1424,20 @@ int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
     __u32 parent_pid = ctx->parent_pid;
     struct task_struct *task = bpf_get_current_task_btf();
 
-    struct process_info info = {
-        .pid = child_pid,
-        .ppid = parent_pid,
-        .start_time = 0,
-        .parent_start_time = task ? BPF_CORE_READ(task, start_time) : 0,
-    };
+    struct process_info info = {};
+    info.pid = child_pid;
+    info.ppid = parent_pid;
+    info.start_time = 0;
+    info.parent_start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
+    /* Inherit exec identity status from parent; fork preserves the image. */
+    struct process_info *parent = bpf_map_lookup_elem(&process_tree, &parent_pid);
+    if (parent) {
+        info.verified_exec = parent->verified_exec;
+        info.exec_identity_known = parent->exec_identity_known;
+        info.env_shebang_active = parent->env_shebang_active;
+        info.env_shebang_script_ok = parent->env_shebang_script_ok;
+    }
 
     bpf_map_update_elem(&process_tree, &child_pid, &info, BPF_ANY);
     return 0;
@@ -1143,7 +1474,8 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         return 0;
     (void)addrlen;
 
-    if (agent_cfg.net_policy_empty)
+    __u8 exec_flags = agent_cfg.exec_identity_flags;
+    if (agent_cfg.net_policy_empty && !(exec_flags & EXEC_IDENTITY_FLAG_PROTECT_CONNECT))
         return 0;
 
     __u64 cgid = bpf_get_current_cgroup_id();
@@ -1182,9 +1514,20 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     int matched = 0;
     char rule_type[16] = {};
 
+    if ((exec_flags & EXEC_IDENTITY_FLAG_PROTECT_CONNECT)) {
+        __u32 pid = bpf_get_current_pid_tgid() >> 32;
+        struct task_struct *task = bpf_get_current_task_btf();
+        struct process_info *pi = get_or_create_process_info(pid, task);
+        __u8 verified = (pi && pi->exec_identity_known && pi->verified_exec) ? 1 : 0;
+        if (!verified) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "identity", sizeof("identity"));
+        }
+    }
+
     if (family == AF_INET) {
         /* Check 1: Exact IPv4 match */
-        if (bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -1204,7 +1547,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
     } else {
         /* Check 1: Exact IPv6 match */
-        if (bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);

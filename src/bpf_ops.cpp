@@ -1168,17 +1168,22 @@ Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
 
 // --- FD-accepting overloads for shadow population ---
 
-Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries)
+Result<void> add_rule_inode_to_fd(int inode_fd, const InodeId& id, uint8_t flags, DenyEntries& entries)
 {
-    uint8_t one = 1;
-    if (bpf_map_update_elem(inode_fd, &id, &one, BPF_ANY)) {
-        return Error::system(errno, "Failed to update shadow deny_inode_map");
+    uint8_t merged = flags;
+    uint8_t existing = 0;
+    if (bpf_map_lookup_elem(inode_fd, &id, &existing) == 0) {
+        merged = static_cast<uint8_t>(merged | existing);
+    }
+    if (bpf_map_update_elem(inode_fd, &id, &merged, BPF_ANY)) {
+        return Error::system(errno, "Failed to update rule inode map");
     }
     entries.try_emplace(id, "");
     return {};
 }
 
-Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& path, DenyEntries& entries)
+Result<void> add_rule_path_to_fds(int inode_fd, int path_fd, const std::string& path, uint8_t flags,
+                                  DenyEntries& entries)
 {
     if (path.empty()) {
         return Error(ErrorCode::InvalidArgument, "Path is empty");
@@ -1216,20 +1221,29 @@ Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& 
     id.dev = encode_dev(st.st_dev);
     id.pad = 0;
 
-    TRY(add_deny_inode_to_fd(inode_fd, id, entries));
+    TRY(add_rule_inode_to_fd(inode_fd, id, flags, entries));
 
-    uint8_t one = 1;
+    uint8_t merged = flags;
     PathKey path_key{};
     fill_path_key(resolved_str, path_key);
-    if (bpf_map_update_elem(path_fd, &path_key, &one, BPF_ANY)) {
-        return Error::system(errno, "Failed to update shadow deny_path_map");
+    uint8_t existing = 0;
+    if (bpf_map_lookup_elem(path_fd, &path_key, &existing) == 0) {
+        merged = static_cast<uint8_t>(merged | existing);
+    }
+    if (bpf_map_update_elem(path_fd, &path_key, &merged, BPF_ANY)) {
+        return Error::system(errno, "Failed to update rule path map");
     }
 
     if (path != resolved_str && path.size() < kDenyPathMax) {
+        merged = flags;
         PathKey raw_key{};
         fill_path_key(path, raw_key);
-        if (bpf_map_update_elem(path_fd, &raw_key, &one, BPF_ANY)) {
-            return Error::system(errno, "Failed to update shadow deny_path_map (raw path)");
+        existing = 0;
+        if (bpf_map_lookup_elem(path_fd, &raw_key, &existing) == 0) {
+            merged = static_cast<uint8_t>(merged | existing);
+        }
+        if (bpf_map_update_elem(path_fd, &raw_key, &merged, BPF_ANY)) {
+            return Error::system(errno, "Failed to update rule path map (raw path)");
         }
     }
 
@@ -1243,6 +1257,16 @@ Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& 
 
     entries[id] = resolved_str;
     return {};
+}
+
+Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries)
+{
+    return add_rule_inode_to_fd(inode_fd, id, kRuleFlagDenyAlways, entries);
+}
+
+Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& path, DenyEntries& entries)
+{
+    return add_rule_path_to_fds(inode_fd, path_fd, path, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid)
@@ -1458,86 +1482,13 @@ Result<bool> check_prereqs()
 
 Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& entries)
 {
-    uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_inode), &id, &one, BPF_ANY)) {
-        return Error::system(errno, "Failed to update deny_inode_map");
-    }
-    entries.try_emplace(id, "");
-    return {};
+    return add_rule_inode_to_fd(bpf_map__fd(state.deny_inode), id, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries)
 {
-    if (path.empty()) {
-        return Error(ErrorCode::InvalidArgument, "Path is empty");
-    }
-
-    // Check for null bytes (potential injection attack)
-    if (path.find('\0') != std::string::npos) {
-        return Error(ErrorCode::InvalidArgument, "Path contains null bytes", path);
-    }
-
-    // Check if the input path is a symlink (for audit logging)
-    struct stat lstat_buf {};
-    bool is_symlink = (lstat(path.c_str(), &lstat_buf) == 0) && S_ISLNK(lstat_buf.st_mode);
-    if (is_symlink) {
-        logger().log(SLOG_INFO("Deny path is symlink, will resolve to target").field("symlink", path));
-    }
-
-    // Canonicalize path - resolves symlinks, removes . and .., normalizes slashes
-    std::error_code ec;
-    std::filesystem::path resolved = std::filesystem::canonical(path, ec);
-    if (ec) {
-        return Error(ErrorCode::PathResolutionFailed, "Failed to resolve path", path + ": " + ec.message());
-    }
-
-    std::string resolved_str = resolved.string();
-
-    // Check length AFTER canonicalization (resolved path might be longer)
-    if (resolved_str.size() >= kDenyPathMax) {
-        return Error(ErrorCode::PathTooLong, "Resolved path exceeds maximum length",
-                     resolved_str + " (" + std::to_string(resolved_str.size()) + " >= " + std::to_string(kDenyPathMax) +
-                         ")");
-    }
-
-    struct stat st {};
-    if (stat(resolved_str.c_str(), &st) != 0) {
-        return Error::system(errno, "stat failed for " + resolved_str);
-    }
-
-    InodeId id{};
-    id.ino = st.st_ino;
-    id.dev = encode_dev(st.st_dev);
-    id.pad = 0;
-
-    TRY(add_deny_inode(state, id, entries));
-
-    uint8_t one = 1;
-    PathKey path_key{};
-    fill_path_key(resolved_str, path_key);
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &path_key, &one, BPF_ANY)) {
-        return Error::system(errno, "Failed to update deny_path_map");
-    }
-
-    // Also add the raw path if different (for direct path matching)
-    if (path != resolved_str && path.size() < kDenyPathMax) {
-        PathKey raw_key{};
-        fill_path_key(path, raw_key);
-        if (bpf_map_update_elem(bpf_map__fd(state.deny_path), &raw_key, &one, BPF_ANY)) {
-            return Error::system(errno, "Failed to update deny_path_map (raw path)");
-        }
-    }
-
-    if (is_symlink) {
-        logger().log(SLOG_INFO("Deny rule added for symlink target")
-                         .field("original", path)
-                         .field("resolved", resolved_str)
-                         .field("dev", static_cast<int64_t>(id.dev))
-                         .field("ino", static_cast<int64_t>(id.ino)));
-    }
-
-    entries[id] = resolved_str;
-    return {};
+    return add_rule_path_to_fds(bpf_map__fd(state.deny_inode), bpf_map__fd(state.deny_path), path, kRuleFlagDenyAlways,
+                                entries);
 }
 
 Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid)
@@ -1583,6 +1534,33 @@ Result<void> set_exec_identity_mode(BpfState& state, bool enabled)
     return {};
 }
 
+Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
+    }
+
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    int fd = bpf_map__fd(state.config_map);
+    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
+        if (errno != ENOENT) {
+            return Error::system(errno, "Failed to read agent config");
+        }
+        cfg.enforce_signal = kEnforceSignalTerm;
+        cfg.event_sample_rate = 1;
+        cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
+        cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
+    }
+
+    cfg.exec_identity_flags = flags;
+
+    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
+        return Error::system(errno, "Failed to set exec identity flags");
+    }
+    return {};
+}
+
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 {
     if (!state.config_map) {
@@ -1606,6 +1584,7 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
     int fd = bpf_map__fd(state.config_map);
     if (bpf_map_lookup_elem(fd, &key, &existing) == 0) {
         normalized.emergency_disable = existing.emergency_disable;
+        normalized.exec_identity_flags = existing.exec_identity_flags;
     } else if (errno != ENOENT) {
         return Error::system(errno, "Failed to read agent config");
     }
@@ -1617,6 +1596,9 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
          map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6))
             ? 1
             : 0;
+    if (normalized.exec_identity_flags & kExecIdentityFlagProtectConnect) {
+        normalized.net_policy_empty = 0;
+    }
 
     if (bpf_map_update_elem(fd, &key, &normalized, BPF_ANY)) {
         return Error::system(errno, "Failed to configure BPF agent config");
@@ -1693,6 +1675,9 @@ Result<void> refresh_policy_empty_hints(BpfState& state)
 
     cfg.file_policy_empty = file_empty ? 1 : 0;
     cfg.net_policy_empty = net_empty ? 1 : 0;
+    if (cfg.exec_identity_flags & kExecIdentityFlagProtectConnect) {
+        cfg.net_policy_empty = 0;
+    }
 
     if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
         return Error::system(errno, "Failed to update policy empty hints");

@@ -161,6 +161,45 @@ sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     EXPECT_TRUE(issues.has_errors());
 }
 
+TEST_F(PolicyTest, ParsePolicyWithProtectConnectAndPaths)
+{
+    std::string content = R"(
+version=4
+
+[protect_connect]
+
+[protect_path]
+/etc/shadow
+/etc/ssh/ssh_host_rsa_key
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    EXPECT_TRUE(result->protect_connect);
+    ASSERT_EQ(result->protect_paths.size(), 2u);
+    EXPECT_EQ(result->protect_paths[0], "/etc/shadow");
+    EXPECT_EQ(result->protect_paths[1], "/etc/ssh/ssh_host_rsa_key");
+}
+
+TEST_F(PolicyTest, ProtectRulesRequireVersion4)
+{
+    std::string content = R"(
+version=3
+
+[protect_path]
+/etc/shadow
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_FALSE(result);
+    EXPECT_TRUE(issues.has_errors());
+}
+
 TEST_F(PolicyTest, MissingVersion)
 {
     std::string content = R"(
