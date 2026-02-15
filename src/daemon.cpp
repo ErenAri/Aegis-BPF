@@ -397,6 +397,10 @@ struct AppliedPolicyRequirements {
     bool network_connect_required = false;
     bool network_bind_required = false;
     bool exec_identity_required = false;
+    bool exec_allowlist_required = false; // [allow_binary_hash]
+    bool verified_exec_required = false;  // [protect_connect]/[protect_path]
+    bool protect_connect = false;
+    size_t protect_path_count = 0;
     size_t network_rule_count = 0;
     std::vector<std::string> allow_binary_hashes;
 };
@@ -426,7 +430,11 @@ Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::st
 
     req.parse_ok = true;
     req.allow_binary_hashes = parsed->allow_binary_hashes;
-    req.exec_identity_required = !req.allow_binary_hashes.empty();
+    req.exec_allowlist_required = !req.allow_binary_hashes.empty();
+    req.protect_connect = parsed->protect_connect;
+    req.protect_path_count = parsed->protect_paths.size();
+    req.verified_exec_required = req.protect_connect || req.protect_path_count > 0;
+    req.exec_identity_required = req.exec_allowlist_required || req.verified_exec_required;
     req.network_rule_count =
         parsed->network.deny_ips.size() + parsed->network.deny_cidrs.size() + parsed->network.deny_ports.size();
 
@@ -440,6 +448,9 @@ Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::st
         if (port_rule.direction == 1 || port_rule.direction == 2) {
             req.network_bind_required = true;
         }
+    }
+    if (parsed->protect_connect) {
+        req.network_connect_required = true;
     }
     req.network_required = req.network_connect_required || req.network_bind_required;
     return req;
@@ -471,7 +482,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         (!policy_req.network_bind_required || state.socket_bind_hook_attached);
     const bool network_enforce_ready = !policy_req.network_required || network_requirements_met;
     const bool exec_identity_requirements_met =
-        !policy_req.exec_identity_required || kernel_exec_identity_enabled || (audit_only && policy_req.parse_ok);
+        !policy_req.exec_identity_required || kernel_exec_identity_enabled || audit_only;
     const bool exec_identity_enforce_ready = !policy_req.exec_identity_required || kernel_exec_identity_enabled;
 
     std::vector<std::string> enforce_blockers;
@@ -535,6 +546,8 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"snapshot_present\": " << (policy_req.snapshot_present ? "true" : "false") << ",\n";
         out << "    \"parse_ok\": " << (policy_req.parse_ok ? "true" : "false") << ",\n";
         out << "    \"network_rule_count\": " << static_cast<int64_t>(policy_req.network_rule_count) << ",\n";
+        out << "    \"protect_path_count\": " << static_cast<int64_t>(policy_req.protect_path_count) << ",\n";
+        out << "    \"protect_connect\": " << (policy_req.protect_connect ? "true" : "false") << ",\n";
         out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
             << "\n";
         out << "  },\n";
@@ -543,7 +556,9 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"network_connect_required\": " << (policy_req.network_connect_required ? "true" : "false")
             << ",\n";
         out << "    \"network_bind_required\": " << (policy_req.network_bind_required ? "true" : "false") << ",\n";
-        out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << "\n";
+        out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << ",\n";
+        out << "    \"exec_allowlist_required\": " << (policy_req.exec_allowlist_required ? "true" : "false") << ",\n";
+        out << "    \"verified_exec_required\": " << (policy_req.verified_exec_required ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"requirements_met\": {\n";
         out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
@@ -1098,6 +1113,10 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             policy_req.network_connect_required = false;
             policy_req.network_bind_required = false;
             policy_req.exec_identity_required = false;
+            policy_req.exec_allowlist_required = false;
+            policy_req.verified_exec_required = false;
+            policy_req.protect_connect = false;
+            policy_req.protect_path_count = 0;
             policy_req.network_rule_count = 0;
             policy_req.allow_binary_hashes.clear();
         } else {
@@ -1171,70 +1190,119 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                 return fail(exec_mode_result.error().to_string());
             }
 
-            bool kernel_exec_identity_ready =
-                lsm_enabled && state.exec_identity_hook_attached && state.allow_exec_inode != nullptr &&
-                state.exec_identity_mode != nullptr && *exec_mode_result && kernel_exec_identity_entries > 0;
+            const bool kernel_hook_ready = lsm_enabled && state.exec_identity_hook_attached &&
+                                           state.exec_identity_mode != nullptr && *exec_mode_result;
+            kernel_exec_identity_enabled = kernel_hook_ready;
 
-            if (kernel_exec_identity_ready) {
-                kernel_exec_identity_enabled = true;
-                logger().log(SLOG_INFO("Kernel exec identity enforcement enabled")
-                                 .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                                 .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
-                                 .field("policy", applied_policy_path));
-            } else if (!audit_only && enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                audit_only = true;
-                config.audit_only = 1;
-                auto update_result = g_deps.set_agent_config_full(state, config);
-                if (!update_result) {
-                    logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                     .field("error", update_result.error().to_string()));
-                    return fail(update_result.error().to_string());
-                }
+            if (policy_req.verified_exec_required && !kernel_hook_ready) {
+                const std::string detail = "bprm_check_security_hook_attached=" +
+                                           std::string(state.exec_identity_hook_attached ? "true" : "false") +
+                                           ",exec_mode_enabled=" + std::string(*exec_mode_result ? "true" : "false");
+                if (!audit_only) {
+                    if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
+                        audit_only = true;
+                        config.audit_only = 1;
+                        auto update_result = g_deps.set_agent_config_full(state, config);
+                        if (!update_result) {
+                            logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
+                                             .field("error", update_result.error().to_string()));
+                            return fail(update_result.error().to_string());
+                        }
 
-                emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                          "enforce requested; userspace audit fallback enabled");
-                exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
-                    policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
-                event_callbacks.on_exec = on_exec_identity_event;
-                event_callbacks.user_ctx = exec_identity_enforcer.get();
-                logger().log(
-                    SLOG_WARN("Falling back to userspace exec identity checks in audit mode")
-                        .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                        .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                        .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
-                        .field("kernel_hook_attached", state.exec_identity_hook_attached)
-                        .field("exec_mode_enabled", *exec_mode_result)
-                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                if (g_forced_exit_code.load() != 0) {
-                    return fail("Strict degrade mode triggered failure");
+                        emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                                  "enforce requested; falling back to audit-only mode");
+                        logger().log(SLOG_WARN("Verified-exec enforcement unavailable; falling back to audit-only mode")
+                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                         .field("policy", applied_policy_path)
+                                         .field("detail", detail));
+                        if (g_forced_exit_code.load() != 0) {
+                            return fail("Strict degrade mode triggered failure");
+                        }
+                    } else {
+                        emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE", detail);
+                        logger().log(SLOG_ERROR("Verified-exec enforcement requires kernel exec identity hook")
+                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                         .field("policy", applied_policy_path)
+                                         .field("lsm_enabled", lsm_enabled)
+                                         .field("hook_attached", state.exec_identity_hook_attached)
+                                         .field("exec_mode_enabled", *exec_mode_result));
+                        return fail("Verified-exec policy is active but kernel exec identity is unavailable");
+                    }
+                } else {
+                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                              "audit mode fallback for missing exec identity hook");
+                    logger().log(SLOG_WARN("Verified-exec enforcement unavailable; running in audit-only fallback")
+                                     .field("policy", applied_policy_path)
+                                     .field("detail", detail));
+                    if (g_forced_exit_code.load() != 0) {
+                        return fail("Strict degrade mode triggered failure");
+                    }
                 }
-            } else if (!audit_only) {
-                emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE",
-                                          "kernel hook and allowlist prerequisites not satisfied");
-                logger().log(
-                    SLOG_ERROR("Exec identity policy requires kernel hook and populated allowlist")
-                        .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                        .field("policy", applied_policy_path)
-                        .field("lsm_enabled", lsm_enabled)
-                        .field("hook_attached", state.exec_identity_hook_attached)
-                        .field("exec_mode_enabled", *exec_mode_result)
-                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                return fail("Exec identity policy is active but kernel enforcement is unavailable");
-            } else {
-                emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                          "userspace audit fallback enabled");
-                exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
-                    policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
-                event_callbacks.on_exec = on_exec_identity_event;
-                event_callbacks.user_ctx = exec_identity_enforcer.get();
-                logger().log(
-                    SLOG_WARN("Falling back to userspace exec identity checks in audit mode")
-                        .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                        .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
-                        .field("kernel_hook_attached", state.exec_identity_hook_attached)
-                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                if (g_forced_exit_code.load() != 0) {
-                    return fail("Strict degrade mode triggered failure");
+            }
+
+            if (policy_req.exec_allowlist_required) {
+                const bool allowlist_ready = kernel_hook_ready && kernel_exec_identity_entries > 0;
+                if (allowlist_ready) {
+                    logger().log(
+                        SLOG_INFO("Kernel exec allowlist enforcement enabled")
+                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
+                            .field("policy", applied_policy_path));
+                } else if (!audit_only && enforce_gate_mode == EnforceGateMode::AuditFallback) {
+                    audit_only = true;
+                    config.audit_only = 1;
+                    auto update_result = g_deps.set_agent_config_full(state, config);
+                    if (!update_result) {
+                        logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
+                                         .field("error", update_result.error().to_string()));
+                        return fail(update_result.error().to_string());
+                    }
+
+                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                              "enforce requested; userspace audit fallback enabled");
+                    exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
+                        policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
+                    event_callbacks.on_exec = on_exec_identity_event;
+                    event_callbacks.user_ctx = exec_identity_enforcer.get();
+                    logger().log(
+                        SLOG_WARN("Falling back to userspace exec allowlist checks in audit mode")
+                            .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+                            .field("kernel_hook_attached", state.exec_identity_hook_attached)
+                            .field("exec_mode_enabled", *exec_mode_result)
+                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                    if (g_forced_exit_code.load() != 0) {
+                        return fail("Strict degrade mode triggered failure");
+                    }
+                } else if (!audit_only) {
+                    emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE",
+                                              "kernel hook and allowlist prerequisites not satisfied");
+                    logger().log(
+                        SLOG_ERROR("Exec allowlist policy requires kernel hook and populated allowlist")
+                            .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                            .field("policy", applied_policy_path)
+                            .field("lsm_enabled", lsm_enabled)
+                            .field("hook_attached", state.exec_identity_hook_attached)
+                            .field("exec_mode_enabled", *exec_mode_result)
+                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                    return fail("Exec allowlist policy is active but kernel enforcement is unavailable");
+                } else {
+                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                              "userspace audit fallback enabled");
+                    exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
+                        policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
+                    event_callbacks.on_exec = on_exec_identity_event;
+                    event_callbacks.user_ctx = exec_identity_enforcer.get();
+                    logger().log(
+                        SLOG_WARN("Falling back to userspace exec allowlist checks in audit mode")
+                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+                            .field("kernel_hook_attached", state.exec_identity_hook_attached)
+                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                    if (g_forced_exit_code.load() != 0) {
+                        return fail("Strict degrade mode triggered failure");
+                    }
                 }
             }
         }

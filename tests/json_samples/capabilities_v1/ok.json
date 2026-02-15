@@ -30,13 +30,17 @@
     "snapshot_present": true,
     "parse_ok": true,
     "network_rule_count": 0,
+    "protect_path_count": 0,
+    "protect_connect": false,
     "allow_binary_hash_count": 0
   },
   "requirements": {
     "network_enforcement_required": false,
     "network_connect_required": false,
     "network_bind_required": false,
-    "exec_identity_required": false
+    "exec_identity_required": false,
+    "exec_allowlist_required": false,
+    "verified_exec_required": false
   },
   "requirements_met": {
     "network": true,
@@ -54,4 +58,3 @@
     "enforce_requested": true
   }
 }
-

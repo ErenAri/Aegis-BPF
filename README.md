@@ -343,7 +343,7 @@ sudo aegisbpf allow del /sys/fs/cgroup/system.slice
 
 ```ini
 # /etc/aegisbpf/policy.conf
-version=3
+version=4
 
 [deny_path]
 /usr/bin/dangerous
@@ -358,6 +358,12 @@ cgid:123456
 
 [allow_binary_hash]
 sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Protected resources (require VERIFIED_EXEC, see docs/VERIFIED_EXEC_CONTRACT.md)
+[protect_connect]
+
+[protect_path]
+/etc/shadow
 ```
 
 ```bash

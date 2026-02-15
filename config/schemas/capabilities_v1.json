@@ -84,6 +84,8 @@
         "snapshot_present",
         "parse_ok",
         "network_rule_count",
+        "protect_path_count",
+        "protect_connect",
         "allow_binary_hash_count"
       ],
       "properties": {
@@ -91,6 +93,8 @@
         "snapshot_present": { "type": "boolean" },
         "parse_ok": { "type": "boolean" },
         "network_rule_count": { "type": "integer", "minimum": 0 },
+        "protect_path_count": { "type": "integer", "minimum": 0 },
+        "protect_connect": { "type": "boolean" },
         "allow_binary_hash_count": { "type": "integer", "minimum": 0 }
       }
     },
@@ -101,13 +105,17 @@
         "network_enforcement_required",
         "network_connect_required",
         "network_bind_required",
-        "exec_identity_required"
+        "exec_identity_required",
+        "exec_allowlist_required",
+        "verified_exec_required"
       ],
       "properties": {
         "network_enforcement_required": { "type": "boolean" },
         "network_connect_required": { "type": "boolean" },
         "network_bind_required": { "type": "boolean" },
-        "exec_identity_required": { "type": "boolean" }
+        "exec_identity_required": { "type": "boolean" },
+        "exec_allowlist_required": { "type": "boolean" },
+        "verified_exec_required": { "type": "boolean" }
       }
     },
     "requirements_met": {
@@ -146,4 +154,3 @@
     }
   }
 }
-

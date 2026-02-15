@@ -32,7 +32,7 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
-            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev git libgtest-dev"
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev git libgtest-dev fsverity e2fsprogs"
             for attempt in 1 2 3; do
               if sudo apt-get -o DPkg::Lock::Timeout=120 update && \
                  sudo apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
@@ -126,6 +126,11 @@ jobs:
 
       - name: Enforce smoke test
         run: sudo env ENFORCE_SIGNAL=none scripts/smoke_enforce.sh
+
+      - name: VERIFIED_EXEC (fs-verity) enforcement
+        run: |
+          mkdir -p artifacts/e2e
+          sudo BIN=./build/aegisbpf scripts/e2e_verified_exec_fsverity.sh 2>&1 | tee artifacts/e2e/verified_exec_fsverity.log
 
       - name: Audit fallback smoke test
         run: sudo scripts/smoke_audit_fallback.sh

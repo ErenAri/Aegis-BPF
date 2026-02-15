@@ -1,7 +1,7 @@
 # Policy Semantics
 
 Version: 1.0 (2026-02-05)
-Status: Canonical semantics reference for the v1-v3 contract.
+Status: Canonical semantics reference for the v1-v4 contract.
 
 This document defines how policy rules are interpreted at runtime, including
 edge cases that matter for production correctness.
@@ -11,6 +11,8 @@ edge cases that matter for production correctness.
 Policy sections:
 - `[deny_path]` -> canonicalized path + inode-derived deny entries
 - `[deny_inode]` -> explicit `dev:ino` deny entries
+- `[protect_path]` -> inode-derived protected entries (deny only for non-`VERIFIED_EXEC`)
+- `[protect_connect]` -> protect all IPv4/IPv6 connect() attempts for non-`VERIFIED_EXEC`
 - `[allow_cgroup]` -> cgroup exemptions (`/sys/fs/cgroup/...` or `cgid:<id>`)
 - `[deny_ip]`, `[deny_cidr]`, `[deny_port]` -> network deny rules
 - `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
@@ -20,6 +22,7 @@ Supported versions:
 - `version=1` and `version=2` are accepted by parser.
 - Use `version=2` for network-aware policies.
 - Use `version=3` for binary hash policy sections.
+- Use `version=4` for protected-resource and verified-exec policies.
 
 ## File decision semantics
 
@@ -27,7 +30,8 @@ In enforce-capable mode (BPF LSM enabled), file decisions are inode-driven:
 1. If inode is not in `deny_inode_map` -> allow
 2. If inode is in survival allowlist -> allow
 3. If cgroup is in `allow_cgroup_map` -> allow
-4. Otherwise -> audit or deny (`-EPERM`) based on mode
+4. If rule is `protect` and process is `VERIFIED_EXEC` -> allow
+5. Otherwise -> audit or deny (`-EPERM`) based on mode
 
 In fallback tracepoint mode:
 - `deny_path_map` is checked on `openat` events for audit only.
@@ -43,6 +47,7 @@ File-path precedence (highest to lowest):
 
 Network-path precedence:
 1. `allow_cgroup` match -> allow (intentional bypass control)
+2. If `protect_connect` is enabled and process is not `VERIFIED_EXEC` -> deny
 2. Exact IP deny -> deny
 3. CIDR deny -> deny
 4. Port deny -> deny
@@ -59,6 +64,23 @@ Exec-identity precedence (`[allow_binary_hash]`, version 3+):
 3. Executable inode in `allow_exec_inode_map` -> allow
 4. Audit mode -> emit block/audit event only
 5. Enforce mode -> deny with `-EPERM` and optional signal per `--enforce-signal`
+
+Verified exec identity (`VERIFIED_EXEC`, version 4+):
+- Computed at `lsm/bprm_check_security` on successful exec.
+- For ELF executables:
+  - `fs-verity` enabled (`FS_VERITY_FL`)
+  - root-owned (`uid=0`)
+  - not group/other writable (`mode & 022 == 0`)
+  - path under trusted roots (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`)
+  - overlayfs executables are treated as unverified (fail-closed)
+- For `#!` scripts:
+  - both the script file and interpreter binary must satisfy the above
+  - `#!/usr/bin/env ...` shebangs carry the script verification to the next
+    exec and require both the script and the PATH-resolved final interpreter to
+    be `VERIFIED_EXEC` (otherwise treated as unverified for protected resources)
+- For interpreter inline-code execution:
+  - `bash|sh|dash -c`, `python* -c`, and `node|perl|ruby -e` are treated as
+    unverified for protected resources.
 
 Conflict handling:
 - Duplicate deny entries are de-duplicated by map key identity.

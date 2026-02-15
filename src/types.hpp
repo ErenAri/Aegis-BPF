@@ -64,6 +64,11 @@ inline constexpr uint8_t kEnforceSignalTerm = 15;
 inline constexpr uint32_t kSigkillEscalationThresholdDefault = 5;
 inline constexpr uint32_t kSigkillEscalationWindowSecondsDefault = 30;
 inline constexpr bool kSigkillEnforcementCompiledIn = (AEGIS_ENABLE_SIGKILL_ENFORCEMENT != 0);
+inline constexpr uint8_t kRuleFlagDenyAlways = 1;
+inline constexpr uint8_t kRuleFlagProtectByVerifiedExec = 2;
+inline constexpr uint8_t kExecIdentityFlagAllowlistEnforce = 1u << 0;
+inline constexpr uint8_t kExecIdentityFlagProtectConnect = 1u << 1;
+inline constexpr uint8_t kExecIdentityFlagProtectFiles = 1u << 2;
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
@@ -225,11 +230,11 @@ struct AgentConfig {
     uint8_t audit_only;
     uint8_t deadman_enabled;
     uint8_t break_glass_active;
-    uint8_t enforce_signal;    /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
-    uint8_t emergency_disable; /* bypass enforcement (force AUDIT) when set */
-    uint8_t file_policy_empty; /* optimization hint: no file deny rules loaded */
-    uint8_t net_policy_empty;  /* optimization hint: no network deny rules loaded */
-    uint8_t _pad;              /* maintain alignment */
+    uint8_t enforce_signal;      /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
+    uint8_t emergency_disable;   /* bypass enforcement (force AUDIT) when set */
+    uint8_t file_policy_empty;   /* optimization hint: no file deny rules loaded */
+    uint8_t net_policy_empty;    /* optimization hint: no network deny rules loaded */
+    uint8_t exec_identity_flags; /* bitmask; see kRuleFlag* and exec-identity contract */
     uint64_t deadman_deadline_ns;
     uint32_t deadman_ttl_seconds;
     uint32_t event_sample_rate;
@@ -265,6 +270,10 @@ struct Policy {
     int version = 0;
     std::vector<std::string> deny_paths;
     std::vector<InodeId> deny_inodes;
+    // "Protected" resources are allowed for VERIFIED_EXEC processes and denied otherwise.
+    // This is distinct from deny rules, which always deny regardless of exec identity.
+    std::vector<std::string> protect_paths;
+    bool protect_connect = false; // when true, all connect() attempts are protected
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;
