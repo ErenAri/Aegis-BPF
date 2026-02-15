@@ -234,6 +234,8 @@ jobs:
             --suppress=syntaxError:tests/test_metrics.cpp \
             --suppress=syntaxError:tests/test_tracing.cpp \
             --suppress=syntaxError:tests/test_crypto_safe.cpp \
+            --suppress=syntaxError:tests/test_bpf_integrity.cpp \
+            --suppress=syntaxError:tests/test_exec_identity.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
             --suppress=constVariablePointer \
