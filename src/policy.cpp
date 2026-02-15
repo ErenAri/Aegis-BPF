@@ -1022,24 +1022,24 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
         bool exec_identity_enabled = allow_exec_count > 0 || policy.protect_connect || !policy.protect_paths.empty();
         auto mode_result = set_exec_identity_mode(state, exec_identity_enabled);
-        if (!mode_result) {
-            span.fail(mode_result.error().to_string());
-            return fail(mode_result.error());
-        }
-        uint8_t exec_flags = 0;
-        if (allow_exec_count > 0) {
-            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagAllowlistEnforce);
-        }
-        if (policy.protect_connect) {
-            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagProtectConnect);
-        }
-        if (!policy.protect_paths.empty()) {
-            exec_flags = static_cast<uint8_t>(exec_flags | kExecIdentityFlagProtectFiles);
-        }
-        auto flags_result = set_exec_identity_flags(state, exec_flags);
-        if (!flags_result) {
-            span.fail(flags_result.error().to_string());
-            return fail(flags_result.error());
+	        if (!mode_result) {
+	            span.fail(mode_result.error().to_string());
+	            return fail(mode_result.error());
+	        }
+	        uint8_t exec_flags = 0;
+	        if (allow_exec_count > 0) {
+	            exec_flags |= kExecIdentityFlagAllowlistEnforce;
+	        }
+	        if (policy.protect_connect) {
+	            exec_flags |= kExecIdentityFlagProtectConnect;
+	        }
+	        if (!policy.protect_paths.empty()) {
+	            exec_flags |= kExecIdentityFlagProtectFiles;
+	        }
+	        auto flags_result = set_exec_identity_flags(state, exec_flags);
+	        if (!flags_result) {
+	            span.fail(flags_result.error().to_string());
+	            return fail(flags_result.error());
         }
         logger().log(SLOG_INFO("Exec identity kernel mode updated")
                          .field("enabled", exec_identity_enabled)
