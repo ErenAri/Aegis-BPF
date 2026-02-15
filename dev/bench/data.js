@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771181672204,
+  "lastUpdate": 1771185073854,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30648,6 +30648,102 @@ window.BENCHMARK_DATA = {
             "value": 55.18503867017612,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.17675771204631 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8506763108b9f5fcca2799736c2dc6240c7c6f6a",
+          "message": "Merge pull request #48 from ErenAri/feat/industrial-v1-contracts\n\nfeat(industrial): helm + json schema contracts",
+          "timestamp": "2026-02-15T22:40:23+03:00",
+          "tree_id": "3cc48cb03871a50c2437097ba02c1994a5cfdb3e",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/8506763108b9f5fcca2799736c2dc6240c7c6f6a"
+        },
+        "date": 1771185073109,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1506.418585499843,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1506.2715112286614 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3623.4825922961422,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3622.7814267332888 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20703.60677993725,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20701.734211747742 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157019.32689937207,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157005.0017929179 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1246490.2291666693,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1246364.6084667856 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4982273.813167254,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4981358.768979844 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5125.9953444900075,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5129.303715923219 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32799.89716132394,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32803.63558684147 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 266673.4598541042,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 266631.2853771701 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 806157.2327339664,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 806220.2490489656 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.45930478849327,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.45321259426139 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.8255917520134,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.816488935906754 ns\nthreads: 1"
           }
         ]
       }
