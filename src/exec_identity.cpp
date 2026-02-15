@@ -36,8 +36,6 @@ const char* signal_name(uint8_t sig)
             return "sigint";
         case kEnforceSignalKill:
             return "sigkill";
-        case kEnforceSignalTerm:
-            return "sigterm";
         default:
             return "sigterm";
     }
