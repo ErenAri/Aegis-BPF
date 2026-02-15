@@ -586,11 +586,8 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     if (!(iflags & FS_VERITY_FL))
         return 0;
 
-    struct path fpath = {};
-    BPF_CORE_READ_INTO(&fpath, file, f_path);
-
     char path[128] = {};
-    long len = bpf_d_path(&fpath, path, sizeof(path));
+    long len = bpf_d_path((struct path *)&file->f_path, path, sizeof(path));
     if (len < 0)
         return 0;
 
@@ -985,9 +982,12 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     struct task_struct *task = bpf_get_current_task_btf();
     struct process_info *pi = get_or_create_process_info(pid, task);
 
-    struct file *file = BPF_CORE_READ(bprm, file);
-    struct file *executable = BPF_CORE_READ(bprm, executable);
-    struct file *interpreter = BPF_CORE_READ(bprm, interpreter);
+    /* Direct field reads from the trusted bprm pointer preserve pointer typing
+     * for verifier-sensitive helpers (e.g., bpf_d_path()).
+     */
+    struct file *file = bprm->file;
+    struct file *executable = bprm->executable;
+    struct file *interpreter = bprm->interpreter;
 
     __u8 verified = 0;
     if (interpreter) {
@@ -1000,7 +1000,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
          * We carry the script VERIFIED_EXEC result to the next exec and require
          * both that script_ok and the final interpreter binary are VERIFIED_EXEC.
          */
-        const char *interp = BPF_CORE_READ(bprm, interp);
+        const char *interp = bprm->interp;
         if (interp) {
             char interp_path[32] = {};
             long n = bpf_probe_read_kernel_str(interp_path, sizeof(interp_path), interp);
