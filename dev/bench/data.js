@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771185073854,
+  "lastUpdate": 1771193500108,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30744,6 +30744,102 @@ window.BENCHMARK_DATA = {
             "value": 53.8255917520134,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.816488935906754 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f417b7cc94304597370006342551d3fad81e867",
+          "message": "Merge pull request #49 from ErenAri/feat/fsverity-verified-exec\n\nfeat: VERIFIED_EXEC protected resources (policy v4)",
+          "timestamp": "2026-02-16T01:00:50+03:00",
+          "tree_id": "c52e2353325eab6f3f5c861407140f24a5cc751e",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/4f417b7cc94304597370006342551d3fad81e867"
+        },
+        "date": 1771193499307,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1512.0437852182038,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1511.821214248617 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3627.6162037492722,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3627.4092867083514 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20727.71930506416,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20726.598194676804 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157144.0177320908,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157121.61968692677 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1246721.3234727173,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1246643.2326512465 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4985349.615658351,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4985050.80604981 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5163.255252626135,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5167.341059077038 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32953.95214508456,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32959.81486670684 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267212.5875838757,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267203.6898531868 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 803503.5798688615,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 803613.4715645268 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.53583261051192,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.53185118283905 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.638866512835364,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.63622148123929 ns\nthreads: 1"
           }
         ]
       }
