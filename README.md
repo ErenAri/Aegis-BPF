@@ -39,6 +39,8 @@
 - **Dual-stack network policy** - Deny IPv4 and IPv6 IP/CIDR/port rules in kernel hooks
 - **Cgroup allowlisting** - Exempt trusted workloads from deny rules
 - **Audit mode** - Monitor without blocking (works without BPF LSM)
+- **Emergency kill switch** - Single-command enforcement bypass that preserves audit/telemetry and emits an auditable trail
+- **Capability reporting + enforce gating** - `capabilities.json` + explicit fail-closed vs audit-fallback enforcement posture
 - **Prometheus metrics** - Export block counts and statistics
 - **Structured logging** - JSON or text output to stdout/journald
 - **Policy files and signed bundles** - Declarative configuration with SHA256 verification and signature enforcement
@@ -106,6 +108,8 @@ Public proof lives in the docs and CI artifacts:
 - Kernel/distro compatibility: `docs/COMPATIBILITY.md`
 - Threat model + non-goals: `docs/THREAT_MODEL.md`
 - Enforcement guarantees + TOCTOU analysis: `docs/GUARANTEES.md`
+- Emergency control contract: `docs/EMERGENCY_CONTROL_CONTRACT.md`
+- Kubernetes RBAC guidance: `docs/KUBERNETES_RBAC.md`
 - Performance profile + tuning: `docs/PERFORMANCE.md`
 - Policy semantics contract: `docs/POLICY_SEMANTICS.md`
 - Enforcement semantics whitepaper: `docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md`

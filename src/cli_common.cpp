@@ -11,6 +11,7 @@ int usage(const char* prog)
         << "Usage: " << prog
         << " run [--audit|--enforce] [--enforce-signal=none|term|kill|int] [--allow-sigkill] "
            "[--allow-unsigned-bpf] [--allow-unknown-binary-identity] [--strict-degrade] "
+           "[--enforce-gate-mode=fail-closed|audit-fallback] "
            "[--kill-escalation-threshold=<n>] [--kill-escalation-window-seconds=<seconds>] [--seccomp] "
            "[--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] "
            "[--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"
@@ -22,7 +23,11 @@ int usage(const char* prog)
            "<hex>|--sha256-file <path>] [--no-rollback] [--require-signature] [--verbose]"
         << " | policy sign <policy.conf> --key <private.key> --output <policy.signed>" << " | policy {show|rollback}"
         << " | keys {list|add <pubkey.pub>}" << " | stats [--detailed]" << " | metrics [--out <path>] [--detailed]"
-        << " | health [--json]" << " | doctor [--json]" << " | explain <event.json> [--policy <path>] [--json]" << '\n';
+        << " | capabilities [--json]" << " | health [--json]" << " | doctor [--json]"
+        << " | emergency-disable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
+        << " | emergency-enable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
+        << " | emergency-status [--json] [--log=stdout|journald|both]" << " | probe"
+        << " | explain <event.json> [--policy <path>] [--json]" << '\n';
     return 1;
 }
 

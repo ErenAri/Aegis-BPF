@@ -30,6 +30,9 @@ void print_block_event(const BlockEvent& ev);
 void print_net_block_event(const NetBlockEvent& ev);
 void emit_state_change_event(const std::string& state, const std::string& reason_code, const std::string& detail,
                              bool strict_mode, uint64_t transition_id, uint64_t degradation_count);
+void emit_control_change_event(const std::string& payload, const std::string& action, bool enabled, bool prev_enabled,
+                               uint32_t uid, uint32_t pid, const std::string& node_name,
+                               const std::string& reason_sha256, const std::string& reason);
 
 // Journald integration (only available when HAVE_SYSTEMD is defined)
 #ifdef HAVE_SYSTEMD

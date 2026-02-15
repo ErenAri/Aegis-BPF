@@ -12,13 +12,26 @@
 4. Start an audit log record before action.
 
 ## Resolution Procedures
-1. Enable break-glass marker:
-   - `touch /etc/aegisbpf/break_glass`
-2. Restart/reload service if required by deployment policy.
-3. Keep strict timebox (for example, 15-30 minutes) and monitor continuously.
-4. Remove break-glass marker immediately after mitigation:
-   - `rm -f /etc/aegisbpf/break_glass`
-5. Re-apply corrected signed policy and confirm health.
+1. Ensure approval is recorded (IC + security lead) and create an incident
+   ticket ID (required for `--reason`).
+2. Disable enforcement (preferred, immediate, auditable):
+   - `aegisbpf emergency-disable --reason "TICKET=INC-1234 <short reason>"`
+   - Kubernetes example:
+     - `kubectl -n <ns> exec ds/<aegisbpf-enforce-ds> -- aegisbpf emergency-disable --reason "TICKET=INC-1234 ..."`
+3. Verify posture:
+   - `aegisbpf emergency-status --json`
+   - `aegisbpf health`
+4. Keep a strict timebox (for example, 15-30 minutes) and monitor continuously.
+5. Re-enable enforcement:
+   - `aegisbpf emergency-enable --reason "TICKET=INC-1234 mitigation complete"`
+6. Verify enforcement resumed:
+   - `aegisbpf emergency-status --json`
+   - run a quick deny probe relevant to your deployment (for example a known
+     denied path should return `EACCES` when enforcement is active).
+7. If the CLI path is unavailable, fall back to the marker-file break-glass:
+   - enable: `touch /etc/aegisbpf/break_glass`
+   - disable: `rm -f /etc/aegisbpf/break_glass`
+8. Re-apply corrected signed policy and confirm health.
 
 ## Escalation Path
 1. Incident commander + security lead approval required.

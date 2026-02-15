@@ -16,12 +16,20 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
 int cmd_footprint(uint64_t deny_inodes = 0, uint64_t deny_paths = 0, uint64_t deny_ips = 0, uint64_t deny_cidrs = 0,
                   uint64_t deny_ports = 0, uint64_t ringbuf_bytes = 0);
 
-// Emergency disable/enable commands
-int cmd_emergency_disable();
-int cmd_emergency_enable();
+struct EmergencyToggleOptions {
+    std::string reason;
+    std::string reason_pattern; // optional regex (std::regex) applied to raw --reason
+    bool json_output = false;
+};
+
+// Emergency disable/enable/status commands
+int cmd_emergency_disable(const EmergencyToggleOptions& options);
+int cmd_emergency_enable(const EmergencyToggleOptions& options);
+int cmd_emergency_status(bool json_output = false);
 
 // Feature probe command
 int cmd_probe();
+int cmd_capabilities(bool json_output = false);
 
 // Test helpers (metrics formatting).
 std::string build_block_metrics_output(const BlockStats& stats);

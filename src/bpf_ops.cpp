@@ -1602,6 +1602,24 @@ Result<void> set_emergency_disable(BpfState& state, bool disable)
     return {};
 }
 
+Result<bool> read_emergency_disable(BpfState& state)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
+    }
+
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    int fd = bpf_map__fd(state.config_map);
+    if (bpf_map_lookup_elem(fd, &key, &cfg) == 0) {
+        return cfg.emergency_disable != 0;
+    }
+    if (errno == ENOENT) {
+        return false;
+    }
+    return Error::system(errno, "Failed to read agent config");
+}
+
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
 {
     if (!state.config_map) {

@@ -14,7 +14,8 @@
 ## Resolution Procedures
 1. Apply targeted exception (prefer scoped cgroup allow over broad deny removal).
 2. Re-run policy lint/sign/apply flow and verify with impacted service owner.
-3. If immediate unblocking is required, follow break-glass runbook and record approval.
+3. If immediate unblocking is required, follow the break-glass runbook (uses
+   `aegisbpf emergency-disable`) and record approval + ticket ID.
 4. Backport corrected policy to active release branches as needed.
 
 ## Escalation Path

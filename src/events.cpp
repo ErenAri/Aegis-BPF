@@ -137,6 +137,20 @@ void journal_send_state_change(const std::string& payload, const std::string& st
                         "PRIORITY=%i", priority, static_cast<const char*>(nullptr));
     journal_report_error(rc);
 }
+
+void journal_send_control_change(const std::string& payload, const std::string& action, bool enabled, bool prev_enabled,
+                                 uint32_t uid, uint32_t pid, const std::string& node_name,
+                                 const std::string& reason_sha256, const std::string& reason)
+{
+    int priority = enabled ? LOG_WARNING : LOG_INFO;
+    int rc = sd_journal_send("MESSAGE=%s", payload.c_str(), "SYSLOG_IDENTIFIER=aegisbpf", "AEGIS_TYPE=control_change",
+                             "AEGIS_EVENT_VERSION=%d", 1, "AEGIS_CONTROL=%s", "emergency_disable", "AEGIS_ACTION=%s",
+                             action.c_str(), "AEGIS_ENABLED=%d", enabled ? 1 : 0, "AEGIS_PREV_ENABLED=%d",
+                             prev_enabled ? 1 : 0, "AEGIS_UID=%u", uid, "AEGIS_PID=%u", pid, "AEGIS_NODE_NAME=%s",
+                             node_name.c_str(), "AEGIS_REASON_SHA256=%s", reason_sha256.c_str(), "AEGIS_REASON=%s",
+                             reason.c_str(), "PRIORITY=%i", priority, static_cast<const char*>(nullptr));
+    journal_report_error(rc);
+}
 #endif
 
 void print_exec_event(const ExecEvent& ev)
@@ -341,6 +355,20 @@ void emit_state_change_event(const std::string& state, const std::string& reason
 #ifdef HAVE_SYSTEMD
     if (sink_wants_journald(g_event_sink)) {
         journal_send_state_change(payload, state, reason_code, detail, strict_mode, transition_id, degradation_count);
+    }
+#endif
+}
+
+void emit_control_change_event(const std::string& payload, const std::string& action, bool enabled, bool prev_enabled,
+                               uint32_t uid, uint32_t pid, const std::string& node_name,
+                               const std::string& reason_sha256, const std::string& reason)
+{
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << payload << '\n';
+    }
+#ifdef HAVE_SYSTEMD
+    if (sink_wants_journald(g_event_sink)) {
+        journal_send_control_change(payload, action, enabled, prev_enabled, uid, pid, node_name, reason_sha256, reason);
     }
 #endif
 }

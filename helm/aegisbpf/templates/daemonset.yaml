@@ -1,95 +1,124 @@
+{{- define "aegisbpf.daemonset" -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "aegisbpf.fullname" . }}
+  name: {{ include "aegisbpf.fullname" .ctx }}{{ .nameSuffix }}
   labels:
-    {{- include "aegisbpf.labels" . | nindent 4 }}
+    {{- include "aegisbpf.labels" .ctx | nindent 4 }}
+    aegisbpf.io/mode: {{ .mode | quote }}
 spec:
   selector:
     matchLabels:
-      {{- include "aegisbpf.selectorLabels" . | nindent 6 }}
+      {{- include "aegisbpf.selectorLabels" .ctx | nindent 6 }}
+      aegisbpf.io/mode: {{ .mode | quote }}
   updateStrategy:
-    {{- toYaml .Values.updateStrategy | nindent 4 }}
+    {{- toYaml .ctx.Values.updateStrategy | nindent 4 }}
   template:
     metadata:
       annotations:
-        {{- with .Values.podAnnotations }}
+        {{- with .ctx.Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "aegisbpf.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{- include "aegisbpf.labels" .ctx | nindent 8 }}
+        aegisbpf.io/mode: {{ .mode | quote }}
+        {{- with .ctx.Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .ctx.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "aegisbpf.serviceAccountName" . }}
-      {{- if .Values.priorityClassName }}
-      priorityClassName: {{ .Values.priorityClassName }}
+      serviceAccountName: {{ include "aegisbpf.serviceAccountName" .ctx }}
+      {{- if .ctx.Values.priorityClassName }}
+      priorityClassName: {{ .ctx.Values.priorityClassName }}
       {{- end }}
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      {{- with .Values.podSecurityContext }}
+      {{- with .ctx.Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: aegisbpf
-          image: {{ include "aegisbpf.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "aegisbpf.image" .ctx }}
+          imagePullPolicy: {{ .ctx.Values.image.pullPolicy }}
           args:
             - run
-            {{- if .Values.agent.auditMode }}
+            {{- if eq .mode "audit" }}
             - --audit
             {{- else }}
             - --enforce
             {{- end }}
-            {{- if .Values.agent.seccomp }}
+            - --enforce-gate-mode={{ .ctx.Values.agent.enforceGateMode }}
+            {{- if .ctx.Values.agent.seccomp }}
             - --seccomp
             {{- end }}
-            - --log={{ .Values.agent.logSink }}
-            - --log-level={{ .Values.agent.logLevel }}
-            - --log-format={{ .Values.agent.logFormat }}
+            - --log={{ .ctx.Values.agent.logSink }}
+            - --log-level={{ .ctx.Values.agent.logLevel }}
+            - --log-format={{ .ctx.Values.agent.logFormat }}
+          env:
+            - name: AEGIS_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .ctx.Values.securityContext | nindent 12 }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml .ctx.Values.resources | nindent 12 }}
           volumeMounts:
-            {{- toYaml .Values.volumeMounts | nindent 12 }}
-            {{- if .Values.policy.enabled }}
+            {{- toYaml .ctx.Values.volumeMounts | nindent 12 }}
+            {{- if .ctx.Values.policy.enabled }}
             - name: policy
               mountPath: /etc/aegisbpf/policy.conf
               subPath: policy.conf
               readOnly: true
             {{- end }}
-          {{- with .Values.livenessProbe }}
+          {{- with .ctx.Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.readinessProbe }}
+          {{- with .ctx.Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
-        {{- toYaml .Values.volumes | nindent 8 }}
-        {{- if .Values.policy.enabled }}
+        {{- toYaml .ctx.Values.volumes | nindent 8 }}
+        {{- if .ctx.Values.policy.enabled }}
         - name: policy
           configMap:
-            name: {{ include "aegisbpf.fullname" . }}-policy
+            name: {{ include "aegisbpf.fullname" .ctx }}-policy
         {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- if .nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .nodeSelector | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .ctx.Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .ctx.Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end -}}
+
+{{- $mode := .Values.deployment.mode | default "auto" -}}
+{{- if eq $mode "auto" -}}
+{{- if .Values.agent.auditMode -}}
+{{- $mode = "audit" -}}
+{{- else -}}
+{{- $mode = "enforce" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $mode "both" -}}
+{{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "audit" "nameSuffix" "-audit" "nodeSelector" .Values.nodeSelector) }}
+---
+{{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "enforce" "nameSuffix" "-enforce" "nodeSelector" .Values.enforceNodeSelector) }}
+{{- else if eq $mode "enforce" -}}
+{{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "enforce" "nameSuffix" "" "nodeSelector" .Values.enforceNodeSelector) }}
+{{- else -}}
+{{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "audit" "nameSuffix" "" "nodeSelector" .Values.nodeSelector) }}
+{{- end -}}

@@ -8,7 +8,8 @@
     { "$ref": "#/$defs/ExecEvent" },
     { "$ref": "#/$defs/BlockEvent" },
     { "$ref": "#/$defs/NetBlockEvent" },
-    { "$ref": "#/$defs/StateChangeEvent" }
+    { "$ref": "#/$defs/StateChangeEvent" },
+    { "$ref": "#/$defs/ControlChangeEvent" }
   ],
   "$defs": {
     "ExecEvent": {
@@ -326,6 +327,111 @@
         }
       },
       "additionalProperties": false
+    },
+    "ControlChangeEvent": {
+      "type": "object",
+      "description": "Control-plane event emitted when emergency controls are toggled",
+      "required": [
+        "type",
+        "event_version",
+        "control",
+        "action",
+        "enabled",
+        "prev_enabled",
+        "changed_at_unix",
+        "uid",
+        "pid",
+        "node_name",
+        "reason",
+        "reason_sha256",
+        "storm_active",
+        "storm_transitions_in_window",
+        "storm_threshold",
+        "storm_window_seconds"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "control_change",
+          "description": "Event type identifier"
+        },
+        "event_version": {
+          "type": "integer",
+          "const": 1,
+          "description": "Version of the control-change event schema"
+        },
+        "control": {
+          "type": "string",
+          "enum": ["emergency_disable"],
+          "description": "Control surface that changed"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["disable", "enable"],
+          "description": "Control action performed"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether emergency disable is enabled after the action"
+        },
+        "prev_enabled": {
+          "type": "boolean",
+          "description": "Whether emergency disable was enabled before the action"
+        },
+        "changed_at_unix": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp when the action was applied"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix UID of the caller"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process ID of the caller"
+        },
+        "node_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Kubernetes node name or host name"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Sanitized human-readable reason (single-line, length-capped)"
+        },
+        "reason_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA256 of the raw reason bytes before sanitization/truncation"
+        },
+        "policy_hash": {
+          "type": "string",
+          "description": "Best-effort applied policy hash snapshot (when available)"
+        },
+        "storm_active": {
+          "type": "boolean",
+          "description": "Whether a toggle storm was active at the time of this action"
+        },
+        "storm_transitions_in_window": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of transitions observed in the storm window"
+        },
+        "storm_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Configured transition threshold for storm activation"
+        },
+        "storm_window_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Configured window size for storm detection"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": [
@@ -388,6 +494,24 @@
       "strict_mode": false,
       "transition_id": 2,
       "degradation_count": 1
+    },
+    {
+      "type": "control_change",
+      "event_version": 1,
+      "control": "emergency_disable",
+      "action": "disable",
+      "enabled": true,
+      "prev_enabled": false,
+      "changed_at_unix": 1704672000,
+      "uid": 0,
+      "pid": 1234,
+      "node_name": "node-1",
+      "reason": "TICKET=INC-1234 mitigation",
+      "reason_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "storm_active": false,
+      "storm_transitions_in_window": 1,
+      "storm_threshold": 10,
+      "storm_window_seconds": 60
     }
   ]
 }

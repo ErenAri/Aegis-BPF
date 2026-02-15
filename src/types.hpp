@@ -49,6 +49,9 @@ inline constexpr const char* kPolicyAppliedPath = "/var/lib/aegisbpf/policy.appl
 inline constexpr const char* kPolicyAppliedPrevPath = "/var/lib/aegisbpf/policy.applied.prev";
 inline constexpr const char* kPolicyAppliedHashPath = "/var/lib/aegisbpf/policy.applied.sha256";
 inline constexpr const char* kCapabilitiesReportPath = "/var/lib/aegisbpf/capabilities.json";
+inline constexpr const char* kControlStatePath = "/var/lib/aegisbpf/control_state.json";
+inline constexpr const char* kControlLogPath = "/var/lib/aegisbpf/control_log.jsonl";
+inline constexpr const char* kControlLockPath = "/var/lib/aegisbpf/control.lock";
 inline constexpr const char* kBpfObjHashPath = "/etc/aegisbpf/aegis.bpf.sha256";
 inline constexpr const char* kBpfObjHashInstallPath = "/usr/lib/aegisbpf/aegis.bpf.sha256";
 inline constexpr uint32_t kLayoutVersion = 1;
@@ -222,7 +225,7 @@ struct AgentConfig {
     uint8_t deadman_enabled;
     uint8_t break_glass_active;
     uint8_t enforce_signal;    /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
-    uint8_t emergency_disable; /* skip ALL processing when set */
+    uint8_t emergency_disable; /* bypass enforcement (force AUDIT) when set */
     uint8_t _pad[3];           /* maintain alignment */
     uint64_t deadman_deadline_ns;
     uint32_t deadman_ttl_seconds;

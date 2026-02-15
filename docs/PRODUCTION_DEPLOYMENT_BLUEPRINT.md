@@ -52,7 +52,10 @@ mode=enforce
 
 ### Rollback
 - `aegisbpf policy rollback` is the primary rollback lever.
-- Break-glass: create `/etc/aegisbpf/break_glass` to force audit-only.
+- Emergency kill switch (preferred, immediate, auditable):
+  - `aegisbpf emergency-disable --reason "TICKET=INC-1234 <short reason>"`
+- Break-glass marker file (fallback if CLI path is unavailable):
+  - create `/etc/aegisbpf/break_glass` to force audit-only.
 
 ## 3) Kubernetes deployment guidance (reference)
 
@@ -60,13 +63,27 @@ If deploying in Kubernetes, use a DaemonSet with host mounts for bpffs and
 cgroup v2, and explicitly scoped capabilities. Ensure all required kernel
 features are enabled on the host.
 
+This repository includes a reference Helm chart at `helm/aegisbpf/`.
+
 Recommended guidance:
-- Verify kernel features on nodes with `aegisbpf doctor`.
-- Mount `/sys/fs/bpf` into the container.
-- Provide only the capabilities listed in `SECURITY.md`.
+- Verify kernel features on nodes with `aegisbpf doctor` and/or the daemon
+  capability report (`/var/lib/aegisbpf/capabilities.json`).
+- Mount:
+  - `/sys/fs/bpf` (bpffs pins)
+  - `/sys/fs/cgroup` (cgroup v2)
+  - `/var/lib/aegisbpf` (policy snapshots, capability report, emergency control audit trail)
+- Provide only the capabilities listed in `SECURITY.md` (drop network caps if
+  network enforcement is not used).
 - Start in audit-only mode and promote to enforce in stages.
 
-Note: A hardened Helm chart is planned but not yet included in this repository.
+Node capability fragmentation handling:
+- Default recommendation: deploy `deployment.mode=both` and schedule enforce
+  pods only on labeled nodes (`enforceNodeSelector`).
+- For strict fleets, use `agent.enforceGateMode=fail-closed` to prevent silent
+  enforcement downgrades.
+
+Minimal RBAC for emergency control:
+- See `docs/KUBERNETES_RBAC.md`.
 
 ## 4) Observability integration
 

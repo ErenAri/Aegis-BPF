@@ -249,6 +249,7 @@ Result<void> set_agent_config(BpfState& state, bool audit_only);
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns);
 Result<void> set_emergency_disable(BpfState& state, bool disable);
+Result<bool> read_emergency_disable(BpfState& state);
 Result<void> ensure_layout_version(BpfState& state);
 
 // Survival allowlist operations
