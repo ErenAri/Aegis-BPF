@@ -1072,12 +1072,37 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     {
         auto req_result = load_applied_policy_requirements(applied_policy_path);
         if (!req_result) {
-            logger().log(SLOG_ERROR("Failed to evaluate applied policy requirements")
+            // In audit-only mode we can continue without evaluating policy requirements. This keeps
+            // the daemon able to emit a capability report even if the applied policy snapshot exists
+            // but is unreadable (e.g., root-owned on a shared host).
+            //
+            // In enforce mode we must fail closed because we cannot safely gate enforcement without
+            // knowing what policy requirements are active.
+            if (!audit_only) {
+                logger().log(SLOG_ERROR("Failed to evaluate applied policy requirements")
+                                 .field("path", applied_policy_path)
+                                 .field("error", req_result.error().to_string()));
+                return fail(req_result.error().to_string());
+            }
+
+            logger().log(SLOG_WARN("Failed to evaluate applied policy requirements; continuing in audit-only mode")
                              .field("path", applied_policy_path)
                              .field("error", req_result.error().to_string()));
-            return fail(req_result.error().to_string());
+            std::error_code ec;
+            policy_req.snapshot_present = std::filesystem::exists(applied_policy_path, ec);
+            if (ec) {
+                policy_req.snapshot_present = false;
+            }
+            policy_req.parse_ok = false;
+            policy_req.network_required = false;
+            policy_req.network_connect_required = false;
+            policy_req.network_bind_required = false;
+            policy_req.exec_identity_required = false;
+            policy_req.network_rule_count = 0;
+            policy_req.allow_binary_hashes.clear();
+        } else {
+            policy_req = *req_result;
         }
-        policy_req = *req_result;
 
         if (policy_req.network_required) {
             const bool connect_ok = !policy_req.network_connect_required || state.socket_connect_hook_attached;
