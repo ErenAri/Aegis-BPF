@@ -1,6 +1,7 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "cli_dispatch.hpp"
 
+#include <cstring>
 #include <string>
 
 #include "cli_common.hpp"
@@ -9,6 +10,7 @@
 #include "cli_run.hpp"
 #include "commands.hpp"
 #include "daemon.hpp"
+#include "events.hpp"
 
 namespace aegis {
 
@@ -165,6 +167,101 @@ int dispatch_metrics_command(int argc, char** argv, const char* prog)
     return cmd_metrics(out_path, detailed);
 }
 
+int dispatch_capabilities_command(int argc, char** argv, const char* prog)
+{
+    bool json_output = false;
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--json") {
+            json_output = true;
+        } else {
+            return usage(prog);
+        }
+    }
+    return cmd_capabilities(json_output);
+}
+
+int dispatch_emergency_toggle_command(int argc, char** argv, const char* prog, bool disable)
+{
+    EmergencyToggleOptions options{};
+
+#ifdef HAVE_SYSTEMD
+    // Default to journald to avoid emitting JSON payloads to stdout unexpectedly.
+    set_event_log_sink("journald");
+#endif
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--reason") {
+            if (i + 1 >= argc) {
+                return usage(prog);
+            }
+            options.reason = argv[++i];
+        } else if (arg.rfind("--reason=", 0) == 0) {
+            options.reason = arg.substr(std::strlen("--reason="));
+        } else if (arg == "--reason-pattern") {
+            if (i + 1 >= argc) {
+                return usage(prog);
+            }
+            options.reason_pattern = argv[++i];
+        } else if (arg.rfind("--reason-pattern=", 0) == 0) {
+            options.reason_pattern = arg.substr(std::strlen("--reason-pattern="));
+        } else if (arg == "--json") {
+            options.json_output = true;
+        } else if (arg == "--log") {
+            if (i + 1 >= argc) {
+                return usage(prog);
+            }
+            if (!set_event_log_sink(argv[++i])) {
+                return usage(prog);
+            }
+        } else if (arg.rfind("--log=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--log="));
+            if (!set_event_log_sink(value)) {
+                return usage(prog);
+            }
+        } else {
+            return usage(prog);
+        }
+    }
+
+    if (disable) {
+        return cmd_emergency_disable(options);
+    }
+    return cmd_emergency_enable(options);
+}
+
+int dispatch_emergency_status_command(int argc, char** argv, const char* prog)
+{
+    bool json_output = false;
+#ifdef HAVE_SYSTEMD
+    // Default to journald for consistency with toggle commands.
+    set_event_log_sink("journald");
+#endif
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--json") {
+            json_output = true;
+        } else if (arg == "--log") {
+            if (i + 1 >= argc) {
+                return usage(prog);
+            }
+            if (!set_event_log_sink(argv[++i])) {
+                return usage(prog);
+            }
+        } else if (arg.rfind("--log=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--log="));
+            if (!set_event_log_sink(value)) {
+                return usage(prog);
+            }
+        } else {
+            return usage(prog);
+        }
+    }
+    return cmd_emergency_status(json_output);
+}
+
 } // namespace
 
 int dispatch_cli(int argc, char** argv)
@@ -199,6 +296,8 @@ int dispatch_cli(int argc, char** argv)
         return dispatch_explain_command(argc, argv, argv[0]);
     if (cmd == "metrics")
         return dispatch_metrics_command(argc, argv, argv[0]);
+    if (cmd == "capabilities")
+        return dispatch_capabilities_command(argc, argv, argv[0]);
     if (cmd == "stats") {
         bool detailed = false;
         if (argc == 3 && std::string(argv[2]) == "--detailed") {
@@ -209,9 +308,11 @@ int dispatch_cli(int argc, char** argv)
         return cmd_stats(detailed);
     }
     if (cmd == "emergency-disable")
-        return cmd_emergency_disable();
+        return dispatch_emergency_toggle_command(argc, argv, argv[0], true);
     if (cmd == "emergency-enable")
-        return cmd_emergency_enable();
+        return dispatch_emergency_toggle_command(argc, argv, argv[0], false);
+    if (cmd == "emergency-status")
+        return dispatch_emergency_status_command(argc, argv, argv[0]);
     if (cmd == "probe")
         return cmd_probe();
 

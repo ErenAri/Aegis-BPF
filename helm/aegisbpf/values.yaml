@@ -14,6 +14,11 @@ agent:
   # Run in audit mode (true) or enforce mode (false)
   auditMode: true
 
+  # Enforce gating behavior when enforce is requested but requirements are missing:
+  # - fail-closed: exit non-zero (default)
+  # - audit-fallback: continue in audit-only mode
+  enforceGateMode: fail-closed
+
   # Enable seccomp filter for additional security hardening
   seccomp: false
 
@@ -54,6 +59,18 @@ resources:
 
 # Node selector
 nodeSelector: {}
+
+# Kubernetes deployment mode:
+# - audit: one DaemonSet in audit mode (default)
+# - enforce: one DaemonSet in enforce mode
+# - both: deploy audit DaemonSet everywhere + enforce DaemonSet on labeled nodes
+deployment:
+  # Use "auto" to preserve legacy behavior via agent.auditMode.
+  mode: auto
+
+# Default scheduling selector for enforce mode.
+enforceNodeSelector:
+  aegisbpf.io/enforce-capable: "true"
 
 # Tolerations (deploy on all nodes by default)
 tolerations:
@@ -102,6 +119,12 @@ volumes:
       path: /sys/kernel/debug
       type: DirectoryOrCreate
 
+  # Persistent state for policy snapshots, capabilities report, and emergency control audit trail.
+  - name: varlib
+    hostPath:
+      path: /var/lib/aegisbpf
+      type: DirectoryOrCreate
+
 volumeMounts:
   - name: bpffs
     mountPath: /sys/fs/bpf
@@ -114,12 +137,21 @@ volumeMounts:
   - name: debugfs
     mountPath: /sys/kernel/debug
     readOnly: true
+  - name: varlib
+    mountPath: /var/lib/aegisbpf
 
 # Service account
 serviceAccount:
   create: true
   name: ""
   annotations: {}
+
+# Optional RBAC for break-glass / emergency control procedures (kubectl exec).
+rbac:
+  breakglass:
+    enabled: false
+    subjectKind: Group
+    subjectName: aegisbpf-breakglass-operators
 
 # Pod annotations
 podAnnotations: {}

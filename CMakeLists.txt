@@ -163,6 +163,7 @@ set(AEGIS_SOURCES
     src/commands_policy.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
+    src/control.cpp
     src/daemon.cpp
     src/bpf_ops.cpp
     src/crypto.cpp
@@ -190,6 +191,7 @@ set(AEGIS_HEADERS
     src/commands_network.hpp
     src/commands_policy.hpp
     src/commands.hpp
+    src/control.hpp
     src/daemon.hpp
     src/daemon_test_hooks.hpp
     src/bpf_ops.hpp
@@ -255,6 +257,7 @@ set(AEGIS_LIB_SOURCES
     src/commands_policy.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
+    src/control.cpp
     src/daemon.cpp
     src/bpf_ops.cpp
     src/crypto.cpp

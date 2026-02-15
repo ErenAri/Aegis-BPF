@@ -2,6 +2,7 @@
 #include "cli_run.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -81,6 +82,17 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t max_deny_inodes = 0;
     uint32_t max_deny_paths = 0;
     uint32_t max_network_entries = 0;
+    EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
+
+    const char* env_gate = std::getenv("AEGIS_ENFORCE_GATE_MODE");
+    if (env_gate != nullptr && std::strlen(env_gate) > 0) {
+        EnforceGateMode parsed{};
+        if (parse_enforce_gate_mode(env_gate, parsed)) {
+            enforce_gate_mode = parsed;
+        } else {
+            logger().log(SLOG_WARN("Invalid AEGIS_ENFORCE_GATE_MODE; using default").field("value", env_gate));
+        }
+    }
 
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
@@ -98,6 +110,20 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             allow_unknown_binary_identity = true;
         } else if (arg == "--strict-degrade") {
             strict_degrade = true;
+        } else if (arg.rfind("--enforce-gate-mode=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--enforce-gate-mode="));
+            if (!parse_enforce_gate_mode(value, enforce_gate_mode)) {
+                logger().log(SLOG_ERROR("Invalid enforce gate mode").field("value", value));
+                return 1;
+            }
+        } else if (arg == "--enforce-gate-mode") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            std::string value = argv[++i];
+            if (!parse_enforce_gate_mode(value, enforce_gate_mode)) {
+                logger().log(SLOG_ERROR("Invalid enforce gate mode").field("value", value));
+                return 1;
+            }
         } else if (arg.rfind("--deadman-ttl=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--deadman-ttl="));
             if (!parse_u32_option(value, deadman_ttl, "Invalid deadman TTL value", false))
@@ -247,7 +273,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
                       event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
                       deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity,
-                      strict_degrade);
+                      strict_degrade, enforce_gate_mode);
 }
 
 } // namespace aegis

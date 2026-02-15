@@ -37,6 +37,7 @@ Start the security agent.
 [**--allow-unsigned-bpf**]
 [**--allow-unknown-binary-identity**]
 [**--strict-degrade**]
+[**--enforce-gate-mode**=*MODE*]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -74,6 +75,12 @@ Start the security agent.
 :   Enforce fail-closed runtime posture in enforce mode. If startup or runtime
     transitions to `AUDIT_FALLBACK` or `DEGRADED`, the daemon exits non-zero.
     Use this for production nodes that must not silently downgrade enforcement.
+
+**--enforce-gate-mode**=*MODE*
+:   Enforcement gating behavior when `--enforce` is requested but required
+    kernel capabilities/hooks are missing. Valid values:
+    - `fail-closed` (default): refuse to start in enforce mode
+    - `audit-fallback`: continue in audit-only mode (explicitly reported)
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`
@@ -177,6 +184,8 @@ Output Prometheus-format metrics.
 Exported metrics:
 - `aegisbpf_blocks_total`
 - `aegisbpf_ringbuf_drops_total`
+- `aegisbpf_emergency_toggle_transitions_total`
+- `aegisbpf_emergency_toggle_storm_active`
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`
@@ -193,6 +202,40 @@ High-cardinality metrics (only with **--detailed**):
 - `aegisbpf_blocks_by_path_total{path}`
 - `aegisbpf_net_blocks_by_ip_total{ip}`
 - `aegisbpf_net_blocks_by_port_total{port}`
+
+### capabilities
+
+Print the daemon capability report (as written at startup).
+
+**aegisbpf capabilities** [**--json**]
+
+Outputs the contents of the capability report (default:
+`/var/lib/aegisbpf/capabilities.json`).
+
+### emergency-disable
+
+Emergency enforcement bypass ("kill switch"). This forces audit behavior in
+kernel hooks while preserving audit/telemetry.
+
+**aegisbpf emergency-disable** **--reason** *TEXT* [**--reason-pattern** *REGEX*] [**--json**] [**--log**=*SINK*]
+
+**--reason** *TEXT*
+:   Required operator-supplied reason (recommended format: `TICKET=<id> ...`).
+
+**--reason-pattern** *REGEX*
+:   Optional regex that must match `--reason` (hardening for strict environments).
+
+### emergency-enable
+
+Re-enable enforcement after `emergency-disable`.
+
+**aegisbpf emergency-enable** **--reason** *TEXT* [**--reason-pattern** *REGEX*] [**--json**] [**--log**=*SINK*]
+
+### emergency-status
+
+Show emergency control state.
+
+**aegisbpf emergency-status** [**--json**] [**--log**=*SINK*]
 
 ### health
 
@@ -309,6 +352,45 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     Report includes hook/capability probes and runtime posture fields
     (`runtime_state`, `state_transitions`).
 
+**AEGIS_ENFORCE_GATE_MODE**
+:   Default `--enforce-gate-mode` when not passed on the command line. Valid
+    values: `fail-closed` (default), `audit-fallback`.
+
+**AEGIS_NODE_NAME**
+:   Optional node name label included in capability reports and emergency
+    control audit trails (best-effort). In Kubernetes, set via the downward API
+    (`spec.nodeName`).
+
+**AEGIS_CONTROL_STATE_PATH**
+:   Override emergency control state snapshot path (default:
+    `/var/lib/aegisbpf/control_state.json`).
+
+**AEGIS_CONTROL_LOG_PATH**
+:   Override emergency control append-only log path (default:
+    `/var/lib/aegisbpf/control_log.jsonl`).
+
+**AEGIS_CONTROL_LOCK_PATH**
+:   Override emergency control lock path (default: `/var/lib/aegisbpf/control.lock`).
+
+**AEGIS_CONTROL_LOG_MAX_BYTES**
+:   Override emergency control log rotation size cap (bytes).
+
+**AEGIS_CONTROL_LOG_MAX_FILES**
+:   Override emergency control log rotated file retention count.
+
+**AEGIS_CONTROL_REASON_MAX_BYTES**
+:   Override maximum stored reason size (bytes). Reasons are sanitized and
+    truncated.
+
+**AEGIS_CONTROL_STORM_THRESHOLD**
+:   Number of transitions in the storm window required to declare a toggle storm.
+
+**AEGIS_CONTROL_STORM_WINDOW_SECONDS**
+:   Toggle storm detection window (seconds).
+
+**AEGIS_CONTROL_LOCK_TIMEOUT_SECONDS**
+:   Emergency control lock acquisition timeout (seconds).
+
 **AEGIS_POLICY_SHA256**
 :   Expected policy SHA256 for `policy apply` when hash flags are not passed.
 
@@ -332,6 +414,12 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 */var/lib/aegisbpf/capabilities.json*
 :   Startup capability and hook-attach report emitted by daemon.
+
+*/var/lib/aegisbpf/control_state.json*
+:   Emergency control state snapshot.
+
+*/var/lib/aegisbpf/control_log.jsonl*
+:   Emergency control append-only audit trail (JSONL) with bounded rotation.
 
 */etc/aegisbpf/policy.conf*
 :   Default policy file location.
@@ -370,6 +458,16 @@ sudo aegisbpf policy apply /etc/aegisbpf/policy.conf \
 Export Prometheus metrics:
 ```
 sudo aegisbpf metrics --out /var/lib/prometheus/aegisbpf.prom
+```
+
+Emergency disable enforcement (kill switch):
+```
+sudo aegisbpf emergency-disable --reason "TICKET=INC-1234 immediate mitigation"
+```
+
+Show capability report:
+```
+aegisbpf capabilities --json
 ```
 
 ## REQUIREMENTS
