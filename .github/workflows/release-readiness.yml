@@ -16,6 +16,9 @@ jobs:
           - ubuntu-22.04
           - ubuntu-24.04
     runs-on: ${{ matrix.os }}
+    env:
+      # PRs are advisory; `main`/manual runs enforce industrial contracts strictly.
+      AEGIS_INDUSTRIAL_STRICT: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
 

@@ -1,0 +1,62 @@
+name: Helm
+
+on:
+  pull_request:
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm.yml'
+  workflow_dispatch:
+
+jobs:
+  helm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Helm lint
+        run: helm lint helm/aegisbpf
+
+      - name: Helm template (default)
+        run: |
+          helm template aegisbpf helm/aegisbpf \
+            --namespace aegisbpf \
+            > /tmp/aegisbpf-default.yaml
+          test -s /tmp/aegisbpf-default.yaml
+
+      - name: Helm template (enforce)
+        run: |
+          helm template aegisbpf helm/aegisbpf \
+            --namespace aegisbpf \
+            --set deployment.mode=enforce \
+            --set agent.auditMode=false \
+            > /tmp/aegisbpf-enforce.yaml
+          test -s /tmp/aegisbpf-enforce.yaml
+
+      - name: Helm template (both)
+        run: |
+          helm template aegisbpf helm/aegisbpf \
+            --namespace aegisbpf \
+            --set deployment.mode=both \
+            --set agent.auditMode=true \
+            > /tmp/aegisbpf-both.yaml
+          test -s /tmp/aegisbpf-both.yaml
+
+      - name: Helm template (policy + break-glass RBAC)
+        run: |
+          helm template aegisbpf helm/aegisbpf \
+            --namespace aegisbpf \
+            --set policy.enabled=true \
+            --set rbac.breakglass.enabled=true \
+            > /tmp/aegisbpf-policy-breakglass.yaml
+          test -s /tmp/aegisbpf-policy-breakglass.yaml

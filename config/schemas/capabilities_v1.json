@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aegisbpf/aegisbpf/blob/main/config/schemas/capabilities_v1.json",
+  "title": "AegisBPF Capabilities Report (v1)",
+  "description": "Schema for the node capability report written by the daemon.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at_unix",
+    "kernel_version",
+    "capability",
+    "audit_only",
+    "enforce_capable",
+    "enforce_blockers",
+    "runtime_state",
+    "lsm_enabled",
+    "core_supported",
+    "features",
+    "hooks",
+    "policy",
+    "requirements",
+    "requirements_met",
+    "exec_identity",
+    "state_transitions"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "generated_at_unix": { "type": "integer", "minimum": 0 },
+    "kernel_version": { "type": "string" },
+    "capability": {
+      "type": "string",
+      "enum": ["Full", "AuditOnly", "Disabled", "Unknown"]
+    },
+    "audit_only": { "type": "boolean" },
+    "enforce_capable": { "type": "boolean" },
+    "enforce_blockers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "runtime_state": {
+      "type": "string",
+      "enum": ["ENFORCE", "AUDIT_FALLBACK", "DEGRADED"]
+    },
+    "lsm_enabled": { "type": "boolean" },
+    "core_supported": { "type": "boolean" },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bpf_lsm", "cgroup_v2", "btf", "bpf_syscall", "ringbuf", "tracepoints", "bpffs"],
+      "properties": {
+        "bpf_lsm": { "type": "boolean" },
+        "cgroup_v2": { "type": "boolean" },
+        "btf": { "type": "boolean" },
+        "bpf_syscall": { "type": "boolean" },
+        "ringbuf": { "type": "boolean" },
+        "tracepoints": { "type": "boolean" },
+        "bpffs": { "type": "boolean" }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lsm_file_open",
+        "lsm_inode_permission",
+        "lsm_bprm_check_security",
+        "lsm_socket_connect",
+        "lsm_socket_bind"
+      ],
+      "properties": {
+        "lsm_file_open": { "type": "boolean" },
+        "lsm_inode_permission": { "type": "boolean" },
+        "lsm_bprm_check_security": { "type": "boolean" },
+        "lsm_socket_connect": { "type": "boolean" },
+        "lsm_socket_bind": { "type": "boolean" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applied_path",
+        "snapshot_present",
+        "parse_ok",
+        "network_rule_count",
+        "allow_binary_hash_count"
+      ],
+      "properties": {
+        "applied_path": { "type": "string" },
+        "snapshot_present": { "type": "boolean" },
+        "parse_ok": { "type": "boolean" },
+        "network_rule_count": { "type": "integer", "minimum": 0 },
+        "allow_binary_hash_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "network_enforcement_required",
+        "network_connect_required",
+        "network_bind_required",
+        "exec_identity_required"
+      ],
+      "properties": {
+        "network_enforcement_required": { "type": "boolean" },
+        "network_connect_required": { "type": "boolean" },
+        "network_bind_required": { "type": "boolean" },
+        "exec_identity_required": { "type": "boolean" }
+      }
+    },
+    "requirements_met": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "exec_identity"],
+      "properties": {
+        "network": { "type": "boolean" },
+        "exec_identity": { "type": "boolean" }
+      }
+    },
+    "exec_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernel_enabled",
+        "kernel_allow_exec_inode_entries",
+        "userspace_fallback_allowlist_entries"
+      ],
+      "properties": {
+        "kernel_enabled": { "type": "boolean" },
+        "kernel_allow_exec_inode_entries": { "type": "integer", "minimum": 0 },
+        "userspace_fallback_allowlist_entries": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "state_transitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "degradation_total", "strict_mode", "enforce_requested"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "degradation_total": { "type": "integer", "minimum": 0 },
+        "strict_mode": { "type": "boolean" },
+        "enforce_requested": { "type": "boolean" }
+      }
+    }
+  }
+}
+

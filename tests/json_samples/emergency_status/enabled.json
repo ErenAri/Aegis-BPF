@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "enabled": true,
+  "kernel_state_known": true,
+  "kernel_enabled": true,
+  "state_present": true,
+  "changed_at_unix": 1700000000,
+  "uid": 0,
+  "pid": 1234,
+  "node_name": "node-01",
+  "reason": "TICKET=INC-123 break-glass",
+  "reason_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "transitions_total": 3,
+  "storm_active": false,
+  "storm_transitions_in_window": 0,
+  "storm_threshold": 10,
+  "storm_window_seconds": 60
+}
+

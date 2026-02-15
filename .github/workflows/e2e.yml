@@ -97,6 +97,28 @@ jobs:
       - name: Health check
         run: sudo ./build/aegisbpf health
 
+      - name: Pinned map mismatch recovery
+        run: |
+          # Ensure layout mismatch is detected and the recovery path works.
+          sudo bpftool map update pinned /sys/fs/bpf/aegisbpf/agent_meta \
+            key hex 00 00 00 00 \
+            value hex 02 00 00 00
+
+          set +e
+          out="$(sudo ./build/aegisbpf health 2>&1)"
+          rc="$?"
+          set -e
+          echo "$out"
+          if [[ "$rc" -eq 0 ]]; then
+            echo "expected health to fail due to pinned map layout mismatch" >&2
+            exit 1
+          fi
+          echo "$out" | grep -qi "Pinned maps layout version mismatch"
+
+          sudo ./build/aegisbpf block clear
+          sudo ./build/aegisbpf network deny clear
+          sudo ./build/aegisbpf health
+
       - name: Reset pinned policy state
         run: |
           sudo ./build/aegisbpf block clear

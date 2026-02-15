@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "generated_at_unix": 1700000000,
+  "kernel_version": "6.14.0-37-generic",
+  "capability": "Full",
+  "audit_only": false,
+  "enforce_capable": true,
+  "enforce_blockers": [],
+  "runtime_state": "ENFORCE",
+  "lsm_enabled": true,
+  "core_supported": true,
+  "features": {
+    "bpf_lsm": true,
+    "cgroup_v2": true,
+    "btf": true,
+    "bpf_syscall": true,
+    "ringbuf": true,
+    "tracepoints": true,
+    "bpffs": true
+  },
+  "hooks": {
+    "lsm_file_open": true,
+    "lsm_inode_permission": true,
+    "lsm_bprm_check_security": true,
+    "lsm_socket_connect": true,
+    "lsm_socket_bind": true
+  },
+  "policy": {
+    "applied_path": "/etc/aegisbpf/policy.applied",
+    "snapshot_present": true,
+    "parse_ok": true,
+    "network_rule_count": 0,
+    "allow_binary_hash_count": 0
+  },
+  "requirements": {
+    "network_enforcement_required": false,
+    "network_connect_required": false,
+    "network_bind_required": false,
+    "exec_identity_required": false
+  },
+  "requirements_met": {
+    "network": true,
+    "exec_identity": true
+  },
+  "exec_identity": {
+    "kernel_enabled": true,
+    "kernel_allow_exec_inode_entries": 0,
+    "userspace_fallback_allowlist_entries": 0
+  },
+  "state_transitions": {
+    "total": 1,
+    "degradation_total": 0,
+    "strict_mode": false,
+    "enforce_requested": true
+  }
+}
+

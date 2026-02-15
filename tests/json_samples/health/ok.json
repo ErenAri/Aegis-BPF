@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "capability": "Full",
+  "capability_tier": "Full",
+  "mode": "enforce",
+  "engine_mode": "bpf_lsm",
+  "kernel_version": "6.14.0-37-generic",
+  "features": {
+    "bpf_lsm": true,
+    "cgroup_v2": true,
+    "btf": true,
+    "bpf_syscall": true,
+    "ringbuf": true,
+    "tracepoints": true,
+    "bpffs": true
+  },
+  "checks": {
+    "prereqs": true,
+    "bpf_load": true,
+    "required_maps": true,
+    "layout_version": true,
+    "required_pins": true,
+    "network_pins": true,
+    "bpf_object": true,
+    "bpf_hash_verified": true
+  },
+  "bpf_object_path": "/usr/lib/aegisbpf/aegis.bpf.o",
+  "bpf_object_found": true,
+  "bpf_hash_found": true,
+  "bpf_hash_verified": true,
+  "allow_unsigned_bpf": false,
+  "network_maps_present": true,
+  "map_pressure": [
+    {
+      "name": "deny_inode_map",
+      "entries": 0,
+      "max": 65536,
+      "utilization": 0.0
+    }
+  ]
+}
+

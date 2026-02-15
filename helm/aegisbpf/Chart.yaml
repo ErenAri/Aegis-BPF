@@ -19,7 +19,7 @@ sources:
 
 maintainers:
   - name: AegisBPF Team
-    email: aegisbpf@localhost
+    email: aegisbpf@users.noreply.github.com
 
 annotations:
   artifacthub.io/license: Apache-2.0

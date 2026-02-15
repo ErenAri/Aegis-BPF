@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aegisbpf/aegisbpf/blob/main/config/schemas/doctor.json",
+  "title": "AegisBPF Doctor Output",
+  "description": "Schema for `aegisbpf doctor --json` output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "report", "advice"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "report": {
+      "$ref": "#/$defs/Health"
+    },
+    "advice": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "remediation": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "capability",
+        "capability_tier",
+        "mode",
+        "engine_mode",
+        "kernel_version",
+        "features",
+        "checks",
+        "bpf_object_path",
+        "bpf_object_found",
+        "bpf_hash_found",
+        "bpf_hash_verified",
+        "allow_unsigned_bpf",
+        "network_maps_present"
+      ],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "capability": {
+          "type": "string",
+          "enum": ["Full", "AuditOnly", "Disabled", "Unknown"]
+        },
+        "capability_tier": { "type": "string" },
+        "mode": {
+          "type": "string",
+          "enum": ["enforce", "audit-only", "disabled"]
+        },
+        "engine_mode": { "type": "string" },
+        "kernel_version": { "type": "string" },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bpf_lsm", "cgroup_v2", "btf", "bpf_syscall", "ringbuf", "tracepoints", "bpffs"],
+          "properties": {
+            "bpf_lsm": { "type": "boolean" },
+            "cgroup_v2": { "type": "boolean" },
+            "btf": { "type": "boolean" },
+            "bpf_syscall": { "type": "boolean" },
+            "ringbuf": { "type": "boolean" },
+            "tracepoints": { "type": "boolean" },
+            "bpffs": { "type": "boolean" }
+          }
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prereqs",
+            "bpf_load",
+            "required_maps",
+            "layout_version",
+            "required_pins",
+            "network_pins",
+            "bpf_object",
+            "bpf_hash_verified"
+          ],
+          "properties": {
+            "prereqs": { "type": "boolean" },
+            "bpf_load": { "type": "boolean" },
+            "required_maps": { "type": "boolean" },
+            "layout_version": { "type": "boolean" },
+            "required_pins": { "type": "boolean" },
+            "network_pins": { "type": "boolean" },
+            "bpf_object": { "type": "boolean" },
+            "bpf_hash_verified": { "type": "boolean" }
+          }
+        },
+        "bpf_object_path": { "type": "string" },
+        "bpf_object_found": { "type": "boolean" },
+        "bpf_hash_found": { "type": "boolean" },
+        "bpf_hash_verified": { "type": "boolean" },
+        "allow_unsigned_bpf": { "type": "boolean" },
+        "network_maps_present": { "type": "boolean" },
+        "degradation_reason": { "type": "string" },
+        "error": { "type": "string" },
+        "map_pressure": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "entries", "max", "utilization"],
+            "properties": {
+              "name": { "type": "string" },
+              "entries": { "type": "integer", "minimum": 0 },
+              "max": { "type": "integer", "minimum": 0 },
+              "utilization": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
