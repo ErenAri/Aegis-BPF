@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aegisbpf/aegisbpf/blob/main/config/schemas/emergency_status.json",
+  "title": "AegisBPF Emergency Status Output",
+  "description": "Schema for `aegisbpf emergency-status --json` output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "enabled",
+    "kernel_state_known",
+    "state_present",
+    "storm_active",
+    "storm_transitions_in_window",
+    "storm_threshold",
+    "storm_window_seconds"
+  ],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "enabled": { "type": "boolean" },
+    "kernel_state_known": { "type": "boolean" },
+    "kernel_enabled": { "type": "boolean" },
+    "state_present": { "type": "boolean" },
+    "changed_at_unix": { "type": "integer" },
+    "uid": { "type": "integer", "minimum": 0 },
+    "pid": { "type": "integer", "minimum": 0 },
+    "node_name": { "type": "string" },
+    "reason": { "type": "string" },
+    "reason_sha256": { "type": "string" },
+    "transitions_total": { "type": "integer", "minimum": 0 },
+    "storm_active": { "type": "boolean" },
+    "storm_transitions_in_window": { "type": "integer", "minimum": 0 },
+    "storm_threshold": { "type": "integer", "minimum": 0 },
+    "storm_window_seconds": { "type": "integer", "minimum": 0 }
+  }
+}
+

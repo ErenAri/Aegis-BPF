@@ -22,6 +22,7 @@ echo "[4/7] Contract checks"
 python3 "${ROOT_DIR}/scripts/validate_event_schema.py" \
   --schema "${ROOT_DIR}/config/event-schema.json" \
   --samples "${ROOT_DIR}/tests/event_samples"
+python3 "${ROOT_DIR}/scripts/validate_json_samples.py"
 python3 "${ROOT_DIR}/tests/check_systemd_policy_prestart.py" \
   "${ROOT_DIR}/packaging/systemd/aegisbpf.service"
 python3 "${ROOT_DIR}/tests/check_metrics_contract.py" \
@@ -39,6 +40,13 @@ python3 "${ROOT_DIR}/tests/check_upgrade_compat.py" \
   "${ROOT_DIR}/${BUILD_DIR}/aegisbpf" \
   "${ROOT_DIR}/tests/fixtures/upgrade/policy_v1.conf" \
   "${ROOT_DIR}/tests/fixtures/upgrade/policy_v2.conf"
+strict_flag=""
+if [[ "${AEGIS_INDUSTRIAL_STRICT:-0}" == "1" ]]; then
+  strict_flag="--strict"
+fi
+python3 "${ROOT_DIR}/tests/check_perf_baseline_doc.py" \
+  "${ROOT_DIR}/docs/PERF_BASELINE.md" \
+  ${strict_flag}
 
 echo "[5/7] CLI parser sanity"
 if "${ROOT_DIR}/${BUILD_DIR}/aegisbpf" metrics --invalid >/dev/null 2>&1; then

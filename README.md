@@ -293,18 +293,18 @@ sudo aegisbpf run --enforce --strict-degrade
 
 ### Performance and Soak (Sample Results)
 
-Results vary by host and workload. The following example was measured on February 2, 2026:
+Results vary by host and workload. The latest self-hosted baseline is tracked in `docs/PERF_BASELINE.md`.
+The following example was measured on February 15, 2026:
 
 ```text
-# perf_compare.sh (1,000,000 ops)
-baseline_us_per_op=1.94
-with_agent_us_per_op=1.98
-delta_pct=2.06
+# perf_compare.sh (200,000 ops, FILE=/etc/hosts)
+baseline_us_per_op=1.53
+with_agent_us_per_op=1.46
+delta_pct=-4.58
 
-# perf_compare.sh with both hooks (LSM_HOOK=both)
-baseline_us_per_op=1.93
-with_agent_us_per_op=1.97
-delta_pct=2.07
+# KPI ratios (p95)
+open_p95_ratio=1.029851
+connect_p95_ratio=1.005848
 
 # Soak (200,000 denied opens, audit mode)
 ringbuf_drops_delta=0
