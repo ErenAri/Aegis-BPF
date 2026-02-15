@@ -81,7 +81,12 @@ jobs:
         run: grep -qw bpf /sys/kernel/security/lsm
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: |
+          rm -rf build
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DSKIP_BPF_BUILD=OFF
 
       - name: Build
         run: cmake --build build
@@ -91,6 +96,11 @@ jobs:
 
       - name: Health check
         run: sudo ./build/aegisbpf health
+
+      - name: Reset pinned policy state
+        run: |
+          sudo ./build/aegisbpf block clear
+          sudo ./build/aegisbpf network deny clear
 
       - name: Enforce smoke test
         run: sudo env ENFORCE_SIGNAL=none scripts/smoke_enforce.sh
@@ -118,7 +128,7 @@ jobs:
             SUMMARY_OUT=artifacts/e2e/matrix_summary.json \
             scripts/e2e_file_enforcement_matrix.sh
           python3 scripts/validate_e2e_matrix_summary.py \
-            --summary artifacts/e2e/matrix_summary.json \
+            artifacts/e2e/matrix_summary.json \
             --min-total-checks 100 \
             --max-failed-checks 0
 

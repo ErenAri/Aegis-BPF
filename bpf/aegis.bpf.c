@@ -190,6 +190,22 @@ struct {
     __type(value, __u8);
 } allow_cgroup_map SEC(".maps");
 
+/* Exec identity enforcement allowlist keyed by inode identity */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_DENY_INODE_ENTRIES);
+    __type(key, struct inode_id);
+    __type(value, __u8);
+} allow_exec_inode_map SEC(".maps");
+
+/* Exec identity mode toggle: key=0, value=0/1 */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u8);
+} exec_identity_mode_map SEC(".maps");
+
 /* Survival allowlist - critical binaries that can NEVER be blocked */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -382,19 +398,6 @@ struct {
     __type(key, struct process_key);
     __type(value, struct signal_escalation_state);
 } enforce_signal_state SEC(".maps");
-
-/* Socket storage for network policy caching - avoids repeated map lookups */
-struct socket_check_cache {
-    __u8 checked;  /* 1 if socket passed initial checks */
-    __u8 _pad[7];
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_SK_STORAGE);
-    __uint(map_flags, BPF_F_NO_PREALLOC);
-    __type(key, int);
-    __type(value, struct socket_check_cache);
-} socket_check_storage SEC(".maps");
 
 /* ============================================================================
  * Helper Functions
@@ -1141,16 +1144,6 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (check_emergency_disable())
         return 0;
 
-    /* Fast path: check socket storage cache to avoid repeated lookups */
-    struct sock *sk = BPF_CORE_READ(sock, sk);
-    if (sk) {
-        struct socket_check_cache *cache = bpf_sk_storage_get(&socket_check_storage, sk, 0, 0);
-        if (cache && cache->checked) {
-            /* Socket already passed checks, skip expensive lookups */
-            return 0;
-        }
-    }
-
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
@@ -1181,8 +1174,8 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
     }
 
-    /* Get socket protocol (sk already declared at function start for cache check) */
-    __u8 protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
+    /* Get socket protocol */
+    __u8 protocol = BPF_CORE_READ(sock, sk, sk_protocol);
 
     int matched = 0;
     char rule_type[16] = {};
@@ -1239,14 +1232,8 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
     }
 
-    if (!matched) {
-        /* No deny rule matched - cache this socket as checked to skip future lookups */
-        if (sk) {
-            struct socket_check_cache new_cache = {.checked = 1};
-            bpf_sk_storage_get(&socket_check_storage, sk, &new_cache, BPF_SK_STORAGE_GET_F_CREATE);
-        }
+    if (!matched)
         return 0;
-    }
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();
@@ -1353,16 +1340,6 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (check_emergency_disable())
         return 0;
 
-    /* Fast path: check socket storage cache to avoid repeated lookups */
-    struct sock *sk = BPF_CORE_READ(sock, sk);
-    if (sk) {
-        struct socket_check_cache *cache = bpf_sk_storage_get(&socket_check_storage, sk, 0, 0);
-        if (cache && cache->checked) {
-            /* Socket already passed checks, skip expensive lookups */
-            return 0;
-        }
-    }
-
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
@@ -1391,18 +1368,12 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     }
 
     /* Get socket protocol */
-    __u8 protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
+    __u8 protocol = BPF_CORE_READ(sock, sk, sk_protocol);
 
     int matched = port_rule_matches(bind_port, protocol, 1);
 
-    if (!matched) {
-        /* No deny rule matched - cache this socket as checked to skip future lookups */
-        if (sk) {
-            struct socket_check_cache new_cache = {.checked = 1};
-            bpf_sk_storage_get(&socket_check_storage, sk, &new_cache, BPF_SK_STORAGE_GET_F_CREATE);
-        }
+    if (!matched)
         return 0;
-    }
 
     /* Rule matched - process denial */
     __u8 audit = get_effective_audit_mode();

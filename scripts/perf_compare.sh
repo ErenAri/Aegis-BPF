@@ -4,6 +4,8 @@ set -euo pipefail
 FILE="${FILE:-/etc/hosts}"
 ITERATIONS="${ITERATIONS:-200000}"
 MAX_PCT="${MAX_PCT:-10}"
+REPEATS="${REPEATS:-3}"
+BIN="${BIN:-./build/aegisbpf}"
 OUT_JSON="${OUT_JSON:-}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -18,8 +20,44 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 fi
 
-baseline=$(ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
-with_agent=$(WITH_AGENT=1 ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
+# Keep self-hosted runs isolated from stale pinned rules.
+"$BIN" block clear >/dev/null 2>&1 || true
+"$BIN" network deny clear >/dev/null 2>&1 || true
+
+if ! [[ "$REPEATS" =~ ^[0-9]+$ ]] || [[ "$REPEATS" -lt 1 ]]; then
+    echo "REPEATS must be a positive integer (got: $REPEATS)" >&2
+    exit 1
+fi
+
+collect_median() {
+    local with_agent_flag="$1"
+    local samples=()
+    local value
+    for ((i = 0; i < REPEATS; ++i)); do
+        if [[ "$with_agent_flag" -eq 1 ]]; then
+            value=$(WITH_AGENT=1 BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
+        else
+            value=$(BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
+        fi
+        samples+=("$value")
+    done
+
+    printf '%s\n' "${samples[@]}" | sort -n | awk '
+        { a[NR] = $1 }
+        END {
+            n = NR
+            if (n == 0) exit 1
+            if (n % 2 == 1) {
+                print a[(n + 1) / 2]
+            } else {
+                print (a[n / 2] + a[(n / 2) + 1]) / 2
+            }
+        }
+    '
+}
+
+baseline=$(collect_median 0)
+with_agent=$(collect_median 1)
 
 python3 - <<PY
 import os
@@ -34,6 +72,7 @@ print(f"baseline_us_per_op={baseline:.2f}")
 print(f"with_agent_us_per_op={with_agent:.2f}")
 print(f"delta_us_per_op={delta:.2f}")
 print(f"delta_pct={pct:.2f}")
+print(f"repeats={int('$REPEATS')}")
 
 max_pct = float("$MAX_PCT" or 0)
 passed = (max_pct <= 0) or (pct <= max_pct)

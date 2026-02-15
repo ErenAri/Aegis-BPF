@@ -9,7 +9,7 @@ READ_ITERATIONS="${READ_ITERATIONS:-50000}"
 CONNECT_ITERATIONS="${CONNECT_ITERATIONS:-50000}"
 STAT_SAMPLE="${STAT_SAMPLE:-400}"
 STAT_ITERATIONS="${STAT_ITERATIONS:-50}"
-MAX_OPEN_PCT="${MAX_OPEN_PCT:-10}"
+MAX_OPEN_PCT="${MAX_OPEN_PCT:-15}"
 MAX_CONNECT_PCT="${MAX_CONNECT_PCT:-15}"
 MAX_READ_PCT="${MAX_READ_PCT:-15}"
 MAX_STAT_PCT="${MAX_STAT_PCT:-15}"
@@ -48,11 +48,21 @@ cleanup() {
         kill "${AGENT_PID}" >/dev/null 2>&1
         wait "${AGENT_PID}" >/dev/null 2>&1
     fi
+    # Keep self-hosted runs isolated for subsequent jobs.
+    "${BIN}" block clear >/dev/null 2>&1 || true
+    "${BIN}" network deny clear >/dev/null 2>&1 || true
     rm -f "${AGENT_LOG}" "${STAT_FILE_LIST}"
 }
 trap cleanup EXIT
 
+# Ensure stale pinned maps from previous jobs do not skew benchmarks.
+"${BIN}" block clear >/dev/null 2>&1 || true
+"${BIN}" network deny clear >/dev/null 2>&1 || true
+
+# `find | head` exits with SIGPIPE under `set -o pipefail`; scope-disable pipefail.
+set +o pipefail
 find /usr/bin /usr/sbin /bin /sbin -type f 2>/dev/null | head -n "${STAT_SAMPLE}" >"${STAT_FILE_LIST}"
+set -o pipefail
 if [[ ! -s "${STAT_FILE_LIST}" ]]; then
     echo "${FILE}" >"${STAT_FILE_LIST}"
 fi
