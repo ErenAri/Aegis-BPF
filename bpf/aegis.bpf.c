@@ -40,7 +40,6 @@
 /* BPF Map Size Constants */
 #define MAX_PROCESS_TREE_ENTRIES 65536
 #define MAX_ALLOW_CGROUP_ENTRIES 1024
-#define MAX_ALLOW_EXEC_INODE_ENTRIES 65536
 #define MAX_SURVIVAL_ALLOWLIST_ENTRIES 256
 #define MAX_DENY_BLOOM_ENTRIES 16384
 #define MAX_DENY_EXACT_ENTRIES 65536
@@ -190,20 +189,6 @@ struct {
     __type(key, __u64);
     __type(value, __u8);
 } allow_cgroup_map SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_ALLOW_EXEC_INODE_ENTRIES);
-    __type(key, struct inode_id);
-    __type(value, __u8);
-} allow_exec_inode_map SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, __u8);
-} exec_identity_mode_map SEC(".maps");
 
 /* Survival allowlist - critical binaries that can NEVER be blocked */
 struct {
@@ -660,13 +645,6 @@ static __always_inline int is_cgroup_allowed(__u64 cgid)
     return bpf_map_lookup_elem(&allow_cgroup_map, &cgid) != NULL;
 }
 
-static __always_inline int is_exec_identity_enabled(void)
-{
-    __u32 zero = 0;
-    __u8 *enabled = bpf_map_lookup_elem(&exec_identity_mode_map, &zero);
-    return enabled && *enabled;
-}
-
 static __always_inline int check_emergency_disable(void)
 {
     __u32 zero = 0;
@@ -840,110 +818,6 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     bpf_get_current_comm(e->exec.comm, sizeof(e->exec.comm));
     bpf_ringbuf_submit(e, 0);
     return 0;
-}
-
-SEC("lsm/bprm_check_security")
-int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
-{
-    if (!bprm)
-        return 0;
-
-    if (check_emergency_disable())
-        return 0;
-
-    if (!is_exec_identity_enabled())
-        return 0;
-
-    __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid))
-        return 0;
-
-    struct file *file = BPF_CORE_READ(bprm, file);
-    if (!file)
-        return enforcement_result();
-
-    const struct inode *inode = BPF_CORE_READ(file, f_inode);
-    if (!inode)
-        return enforcement_result();
-
-    struct inode_id key = {};
-    key.ino = BPF_CORE_READ(inode, i_ino);
-    key.dev = (__u32)BPF_CORE_READ(inode, i_sb, s_dev);
-
-    /* Survival allowlist always takes precedence. */
-    if (bpf_map_lookup_elem(&survival_allowlist, &key))
-        return 0;
-
-    if (bpf_map_lookup_elem(&allow_exec_inode_map, &key))
-        return 0;
-
-    __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        increment_block_stats();
-        increment_cgroup_stat(cgid);
-        increment_inode_stat(&key);
-
-        if (!should_emit_event(sample_rate))
-            return 0;
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_BLOCK;
-            fill_block_event_process_info(&e->block, pid, task);
-            e->block.cgid = cgid;
-            bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
-            e->block.ino = key.ino;
-            e->block.dev = key.dev;
-            __builtin_memset(e->block.path, 0, sizeof(e->block.path));
-            set_action_string(e->block.action, 1, enforce_signal);
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_ringbuf_drops();
-        }
-        return 0;
-    }
-
-    __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
-    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
-
-    increment_block_stats();
-    increment_cgroup_stat(cgid);
-    increment_inode_stat(&key);
-    maybe_send_enforce_signal(enforce_signal);
-
-    if (!should_emit_event(sample_rate))
-        return -EPERM;
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_BLOCK;
-        fill_block_event_process_info(&e->block, pid, task);
-        e->block.cgid = cgid;
-        bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
-        e->block.ino = key.ino;
-        e->block.dev = key.dev;
-        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
-        set_action_string(e->block.action, 0, enforce_signal);
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_ringbuf_drops();
-    }
-
-    return -EPERM;
 }
 
 SEC("lsm/file_open")
