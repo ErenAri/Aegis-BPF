@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771163635119,
+  "lastUpdate": 1771171859281,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30462,6 +30462,96 @@ window.BENCHMARK_DATA = {
             "value": 53.97918842392744,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.97573860816783 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c5e06b2889983058b3a0a9e2ca410b2636029f6",
+          "message": "Merge pull request #46 from ErenAri/feat/enterprise-emergency-control\n\nEnterprise: emergency kill switch + enforce gating",
+          "timestamp": "2026-02-15T18:59:50+03:00",
+          "tree_id": "934b3387637dff23bf0e49976f7986f9c6a38f09",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/4c5e06b2889983058b3a0a9e2ca410b2636029f6"
+        },
+        "date": 1771171857884,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1524.355616318135,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1524.256388408262 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4332.225257144567,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4331.642374838111 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26672.231429787254,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26670.592938396698 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 204942.7372329527,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 204929.95697980677 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1631352.4076445447,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1631135.084109428 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6516903.291472894,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6516455.460852728 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4066.8758152660266,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4070.5237414969165 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29453.199796476027,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29448.2708157951 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 240477.70567330145,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 240443.1815849467 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 718473.6422806039,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 718567.5571870074 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.25144950010069,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.24771452234957 ns\nthreads: 1"
           }
         ]
       }
