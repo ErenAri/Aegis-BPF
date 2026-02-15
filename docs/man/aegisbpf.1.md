@@ -35,6 +35,7 @@ Start the security agent.
 **aegisbpf run** [**--audit**|**--enforce**] [**--enforce-signal**=*SIG*]
 [**--allow-sigkill**]
 [**--allow-unsigned-bpf**]
+[**--allow-unknown-binary-identity**]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -62,6 +63,11 @@ Start the security agent.
 :   Break-glass override for BPF object integrity checks. Allows startup when
     the BPF hash file is missing or mismatched. Intended only for emergency
     recovery.
+
+**--allow-unknown-binary-identity**
+:   Break-glass override for `version=3` exec identity policies (`[allow_binary_hash]`).
+    When enabled, processes with unreadable/unknown executable hashes are logged
+    but not signaled.
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`
@@ -168,6 +174,7 @@ Exported metrics:
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`
+- `aegisbpf_allow_exec_inode_entries`
 - `aegisbpf_map_capacity{map}`
 - `aegisbpf_map_utilization{map}`
 - `aegisbpf_net_blocks_total{type}`
@@ -238,7 +245,7 @@ Notes:
 Policy files use INI-style syntax:
 
 ```
-version=1
+version=3
 
 # Block these paths
 [deny_path]
@@ -253,6 +260,10 @@ version=1
 [allow_cgroup]
 /sys/fs/cgroup/system.slice
 cgid:123456
+
+# Enforce exec identity allowlist (version 3+)
+[allow_binary_hash]
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 ## ENVIRONMENT
@@ -287,6 +298,9 @@ cgid:123456
 **AEGIS_POLICY_APPLIED_HASH_PATH**
 :   Override applied policy hash snapshot path.
 
+**AEGIS_CAPABILITIES_REPORT_PATH**
+:   Override daemon capability report path (default: `/var/lib/aegisbpf/capabilities.json`).
+
 **AEGIS_POLICY_SHA256**
 :   Expected policy SHA256 for `policy apply` when hash flags are not passed.
 
@@ -307,6 +321,9 @@ cgid:123456
 
 */var/lib/aegisbpf/policy.applied*
 :   Currently applied policy (for rollback).
+
+*/var/lib/aegisbpf/capabilities.json*
+:   Startup capability and hook-attach report emitted by daemon.
 
 */etc/aegisbpf/policy.conf*
 :   Default policy file location.

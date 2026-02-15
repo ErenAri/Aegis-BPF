@@ -146,7 +146,8 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  |  |      LSM Hooks         | |   Tracepoint Fallback     | |       |
 |  |  | file_open              | | openat / exec / fork      | |       |
 |  |  | inode_permission       | | (audit when no BPF LSM)   | |       |
-|  |  | socket_connect / bind  | +---------------------------+ |       |
+|  |  | bprm_check_security    | +---------------------------+ |       |
+|  |  | socket_connect / bind  |                               |       |
 |  |  +------------------------+                               |       |
 |  |                                                           |       |
 |  |  +------------------------------------------------------+ |       |
@@ -177,8 +178,9 @@ scripts/verify_env.sh --strict
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev \
-    pkg-config cmake ninja-build python3-jsonschema
+sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev \
+    pkg-config cmake ninja-build python3-jsonschema linux-tools-common
+sudo apt-get install -y "linux-tools-$(uname -r)" || true
 ```
 
 ### Build
@@ -199,6 +201,9 @@ sudo ./build/aegisbpf run --enforce
 
 # Enforce mode with explicit signal policy (default is SIGTERM)
 sudo ./build/aegisbpf run --enforce --enforce-signal=term
+
+# Allow unknown exec identity only as a break-glass exception
+sudo ./build/aegisbpf run --enforce --allow-unknown-binary-identity
 
 # SIGKILL mode escalates: TERM first, KILL only after repeated denies
 sudo ./build/aegisbpf run --enforce --enforce-signal=kill
@@ -328,7 +333,7 @@ sudo aegisbpf allow del /sys/fs/cgroup/system.slice
 
 ```ini
 # /etc/aegisbpf/policy.conf
-version=1
+version=3
 
 [deny_path]
 /usr/bin/dangerous
@@ -340,6 +345,9 @@ version=1
 [allow_cgroup]
 /sys/fs/cgroup/system.slice
 cgid:123456
+
+[allow_binary_hash]
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 ```bash
@@ -380,6 +388,11 @@ sudo aegisbpf health
 # Enable OTel-style policy spans in logs (for troubleshooting)
 AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
 ```
+
+Daemon startup writes a capability/attach report to
+`/var/lib/aegisbpf/capabilities.json` (override with
+`AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
+applied policy requires unavailable network or exec-identity kernel hooks.
 
 ## Event Format
 

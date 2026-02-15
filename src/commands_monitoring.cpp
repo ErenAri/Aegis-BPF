@@ -36,6 +36,7 @@ namespace {
 constexpr uint64_t MAX_DENY_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PATH_ENTRIES = 16384;
 constexpr uint64_t MAX_ALLOW_CGROUP_ENTRIES = 1024;
+constexpr uint64_t MAX_ALLOW_EXEC_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV4_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV6_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PORT_ENTRIES = 4096;
@@ -518,6 +519,9 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     append_metric_sample(oss, "aegisbpf_deny_path_entries", safe_map_entry_count(state.deny_path));
     append_metric_header(oss, "aegisbpf_allow_cgroup_entries", "gauge", "Number of allow cgroup entries");
     append_metric_sample(oss, "aegisbpf_allow_cgroup_entries", safe_map_entry_count(state.allow_cgroup));
+    append_metric_header(oss, "aegisbpf_allow_exec_inode_entries", "gauge",
+                         "Number of exec-identity allowlist inode entries");
+    append_metric_sample(oss, "aegisbpf_allow_exec_inode_entries", safe_map_entry_count(state.allow_exec_inode));
     append_metric_header(oss, "aegisbpf_net_rules_total", "gauge", "Number of active network deny rules by type");
     uint64_t ip_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv4)) +
                              static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv6));
@@ -532,9 +536,11 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     double deny_inode_util = calculate_map_utilization(state.deny_inode, MAX_DENY_INODE_ENTRIES);
     double deny_path_util = calculate_map_utilization(state.deny_path, MAX_DENY_PATH_ENTRIES);
     double allow_cgroup_util = calculate_map_utilization(state.allow_cgroup, MAX_ALLOW_CGROUP_ENTRIES);
+    double allow_exec_inode_util = calculate_map_utilization(state.allow_exec_inode, MAX_ALLOW_EXEC_INODE_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_inode"}}, deny_inode_util);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_path"}}, deny_path_util);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "allow_cgroup"}}, allow_cgroup_util);
+    append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "allow_exec_inode"}}, allow_exec_inode_util);
 
     if (state.deny_ipv4 || state.deny_ipv6) {
         double ipv4_util = calculate_map_utilization(state.deny_ipv4, MAX_DENY_IPV4_ENTRIES);
@@ -558,6 +564,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_inode"}}, MAX_DENY_INODE_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_path"}}, MAX_DENY_PATH_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "allow_cgroup"}}, MAX_ALLOW_CGROUP_ENTRIES);
+    append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "allow_exec_inode"}}, MAX_ALLOW_EXEC_INODE_ENTRIES);
     if (state.deny_ipv4 || state.deny_ipv6) {
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv4"}}, MAX_DENY_IPV4_ENTRIES);
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv6"}}, MAX_DENY_IPV6_ENTRIES);
@@ -689,7 +696,8 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     }
     report.bpf_load_ok = true;
 
-    if (!state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.events) {
+    if (!state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.allow_exec_inode ||
+        !state.exec_identity_mode || !state.events) {
         logger().log(SLOG_ERROR("BPF health check failed - missing required maps"));
         report.error = "BPF health check failed - missing required maps";
         return report;
@@ -707,9 +715,10 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     }
     report.layout_ok = true;
 
-    const std::array<const char*, 9> required_pin_paths = {
-        kDenyInodePin,      kDenyPathPin,      kAllowCgroupPin, kBlockStatsPin,        kDenyCgroupStatsPin,
-        kDenyInodeStatsPin, kDenyPathStatsPin, kAgentMetaPin,   kSurvivalAllowlistPin,
+    const std::array<const char*, 11> required_pin_paths = {
+        kDenyInodePin,        kDenyPathPin,   kAllowCgroupPin,       kAllowExecInodePin,
+        kExecIdentityModePin, kBlockStatsPin, kDenyCgroupStatsPin,   kDenyInodeStatsPin,
+        kDenyPathStatsPin,    kAgentMetaPin,  kSurvivalAllowlistPin,
     };
     for (const char* pin_path : required_pin_paths) {
         auto pin_result = verify_pinned_map_access(pin_path);
@@ -1257,6 +1266,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     uint64_t deny_path_mem = deny_paths * (sizeof(PathKey) + 1 + kBpfHashOverhead);
     // allow_cgroup: key=uint64_t(8), value=uint8_t(1)
     uint64_t allow_cgroup_mem = MAX_ALLOW_CGROUP_ENTRIES * (8 + 1 + kBpfHashOverhead);
+    // allow_exec_inode: key=InodeId(16), value=uint8_t(1)
+    uint64_t allow_exec_inode_mem = MAX_ALLOW_EXEC_INODE_ENTRIES * (sizeof(InodeId) + 1 + kBpfHashOverhead);
     // deny_ipv4: key=uint32_t(4), value=uint8_t(1)
     uint64_t deny_ip_mem = deny_ips * (16 + 1 + kBpfHashOverhead); // conservative: IPv6 key size
     // deny_cidr: LPM trie, key includes prefix
@@ -1266,8 +1277,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     // Stats maps: per-cpu arrays, small fixed size
     uint64_t stats_mem = 4096; // conservative estimate for all stats maps
 
-    uint64_t total_maps =
-        deny_inode_mem + deny_path_mem + allow_cgroup_mem + deny_ip_mem + deny_cidr_mem + deny_port_mem + stats_mem;
+    uint64_t total_maps = deny_inode_mem + deny_path_mem + allow_cgroup_mem + allow_exec_inode_mem + deny_ip_mem +
+                          deny_cidr_mem + deny_port_mem + stats_mem;
     uint64_t total = total_maps + ringbuf_bytes;
 
     auto fmt_kb = [](uint64_t bytes) -> std::string {
@@ -1285,6 +1296,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     std::cout << "  deny_inode  (" << deny_inodes << " entries): " << fmt_kb(deny_inode_mem) << "\n";
     std::cout << "  deny_path   (" << deny_paths << " entries): " << fmt_kb(deny_path_mem) << "\n";
     std::cout << "  allow_cgroup(" << MAX_ALLOW_CGROUP_ENTRIES << " entries): " << fmt_kb(allow_cgroup_mem) << "\n";
+    std::cout << "  allow_exec_inode(" << MAX_ALLOW_EXEC_INODE_ENTRIES << " entries): " << fmt_kb(allow_exec_inode_mem)
+              << "\n";
     std::cout << "  deny_ip     (" << deny_ips << " entries): " << fmt_kb(deny_ip_mem) << "\n";
     std::cout << "  deny_cidr   (" << deny_cidrs << " entries): " << fmt_kb(deny_cidr_mem) << "\n";
     std::cout << "  deny_port   (" << deny_ports << " entries): " << fmt_kb(deny_port_mem) << "\n";

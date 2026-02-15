@@ -45,7 +45,17 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get install -y linux-tools-common || true
+              sudo apt-get install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get install -y linux-tools-generic || \
+                sudo apt-get install -y linux-tools-gcp || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify environment
@@ -94,7 +104,17 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build python3-jsonschema
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get install -y linux-tools-common || true
+              sudo apt-get install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get install -y linux-tools-generic || \
+                sudo apt-get install -y linux-tools-gcp || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify environment
@@ -174,7 +194,16 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build rpm python3-jsonschema linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev pkg-config cmake ninja-build rpm python3-jsonschema linux-tools-common
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build rpm python3-jsonschema linux-tools-common linux-tools-$(uname -r) || sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build rpm python3-jsonschema linux-tools-common
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get install -y linux-tools-generic || \
+                sudo apt-get install -y linux-tools-gcp || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
           fi
 
       - name: Verify environment

@@ -166,6 +166,7 @@ set(AEGIS_SOURCES
     src/daemon.cpp
     src/bpf_ops.cpp
     src/crypto.cpp
+    src/exec_identity.cpp
     src/events.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
@@ -193,6 +194,7 @@ set(AEGIS_HEADERS
     src/daemon_test_hooks.hpp
     src/bpf_ops.hpp
     src/crypto.hpp
+    src/exec_identity.hpp
     src/events.hpp
     src/kernel_features.hpp
     src/logging.hpp
@@ -256,6 +258,7 @@ set(AEGIS_LIB_SOURCES
     src/daemon.cpp
     src/bpf_ops.cpp
     src/crypto.cpp
+    src/exec_identity.cpp
     src/events.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
@@ -314,6 +317,7 @@ if(BUILD_TESTING)
         tests/test_commands.cpp
         tests/test_crash_policy.cpp
         tests/test_crypto_safe.cpp
+        tests/test_exec_identity.cpp
         tests/test_policy_golden.cpp
         tests/test_kernel_features.cpp
         tests/test_utils.cpp

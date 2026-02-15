@@ -418,6 +418,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
         state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
         state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
+        state.allow_exec_inode = bpf_object__find_map_by_name(state.obj, "allow_exec_inode_map");
+        state.exec_identity_mode = bpf_object__find_map_by_name(state.obj, "exec_identity_mode_map");
         state.block_stats = bpf_object__find_map_by_name(state.obj, "block_stats");
         state.deny_cgroup_stats = bpf_object__find_map_by_name(state.obj, "deny_cgroup_stats");
         state.deny_inode_stats = bpf_object__find_map_by_name(state.obj, "deny_inode_stats");
@@ -438,7 +440,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
-            !state.config_map || !state.survival_allowlist) {
+            !state.config_map || !state.survival_allowlist || !state.allow_exec_inode || !state.exec_identity_mode) {
             cleanup_bpf(state);
             Error error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
             span.fail(error.to_string());
@@ -482,6 +484,11 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         uint32_t max_net = g_max_network_entries.load(std::memory_order_relaxed);
 
         auto r = try_set_max(state.deny_inode, max_inodes, "deny_inode");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.allow_exec_inode, max_inodes, "allow_exec_inode");
         if (!r) {
             span.fail(r.error().to_string());
             return fail(r.error());
@@ -553,6 +560,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused)));
         TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         TRY(check(try_reuse(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
+        TRY(check(try_reuse(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
+        TRY(check(try_reuse(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));
         TRY(check(try_reuse(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
         TRY(check(try_reuse(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));
         TRY(check(try_reuse(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
@@ -579,6 +588,10 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 bpf_program__set_autoload(lsm_prog, false);
             }
             lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_check_security");
             if (lsm_prog) {
                 bpf_program__set_autoload(lsm_prog, false);
             }
@@ -615,9 +628,10 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
     }
 
     bool need_pins =
-        !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused || !state.block_stats_reused ||
-        !state.deny_cgroup_stats_reused || !state.deny_inode_stats_reused || !state.deny_path_stats_reused ||
-        !state.agent_meta_reused || !state.survival_allowlist_reused || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
+        !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused || !state.allow_exec_inode_reused ||
+        !state.exec_identity_mode_reused || !state.block_stats_reused || !state.deny_cgroup_stats_reused ||
+        !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
+        !state.survival_allowlist_reused || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
         (state.deny_ipv6 && !state.deny_ipv6_reused) || (state.deny_port && !state.deny_port_reused) ||
         (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
@@ -655,6 +669,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused)));
         TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         TRY(check(try_pin(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
+        TRY(check(try_pin(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
+        TRY(check(try_pin(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));
         TRY(check(try_pin(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
         TRY(check(try_pin(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));
         TRY(check(try_pin(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
@@ -720,6 +736,9 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     state.attach_contract_valid = false;
     state.file_hooks_expected = 0;
     state.file_hooks_attached = 0;
+    state.exec_identity_hook_attached = false;
+    state.socket_connect_hook_attached = false;
+    state.socket_bind_hook_attached = false;
 
     auto fail = [&root_span](const Error& error) -> Result<void> {
         root_span.fail(error.to_string());
@@ -784,6 +803,21 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             span.fail(error.to_string());
             return fail(error);
         }
+
+        ScopedSpan exec_span("bpf.attach.exec_identity_hook", trace_id, root_span.span_id());
+        prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_check_security");
+        if (!prog) {
+            logger().log(
+                SLOG_WARN("Optional exec identity hook not found").field("program", "handle_bprm_check_security"));
+        } else {
+            auto result = attach_prog(prog, state);
+            if (!result) {
+                logger().log(
+                    SLOG_WARN("Optional exec identity hook attach failed").field("error", result.error().to_string()));
+            } else {
+                state.exec_identity_hook_attached = true;
+            }
+        }
     } else {
         ScopedSpan span("bpf.attach.file_hooks_tracepoint", trace_id, root_span.span_id());
         state.file_hooks_expected = 1;
@@ -840,6 +874,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             if (!result) {
                 logger().log(
                     SLOG_WARN("Optional socket_connect hook attach failed").field("error", result.error().to_string()));
+            } else {
+                state.socket_connect_hook_attached = true;
             }
         }
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
@@ -848,6 +884,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             if (!result) {
                 logger().log(
                     SLOG_WARN("Optional socket_bind hook attach failed").field("error", result.error().to_string()));
+            } else {
+                state.socket_bind_hook_attached = true;
             }
         }
     }
@@ -989,6 +1027,12 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
         return r.error();
     }
     set.allow_cgroup = std::move(*r);
+
+    r = mk(state.allow_exec_inode);
+    if (!r) {
+        return r.error();
+    }
+    set.allow_exec_inode = std::move(*r);
 
     r = mk(state.deny_ipv4);
     if (!r) {
@@ -1181,6 +1225,15 @@ Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path)
         return cgid_result.error();
     }
     return add_allow_cgroup_to_fd(cgroup_fd, *cgid_result);
+}
+
+Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id)
+{
+    uint8_t one = 1;
+    if (bpf_map_update_elem(allow_exec_inode_fd, &id, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow allow_exec_inode_map");
+    }
+    return {};
 }
 
 // --- End shadow map support ---
@@ -1469,6 +1522,31 @@ Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path)
     return add_allow_cgroup(state, *cgid_result);
 }
 
+Result<void> add_allow_exec_inode(BpfState& state, const InodeId& id)
+{
+    if (!state.allow_exec_inode) {
+        return Error(ErrorCode::BpfMapOperationFailed, "allow_exec_inode map not found");
+    }
+    uint8_t one = 1;
+    if (bpf_map_update_elem(bpf_map__fd(state.allow_exec_inode), &id, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update allow_exec_inode_map");
+    }
+    return {};
+}
+
+Result<void> set_exec_identity_mode(BpfState& state, bool enabled)
+{
+    if (!state.exec_identity_mode) {
+        return Error(ErrorCode::BpfMapOperationFailed, "exec_identity_mode map not found");
+    }
+    uint32_t key = 0;
+    uint8_t value = enabled ? 1 : 0;
+    if (bpf_map_update_elem(bpf_map__fd(state.exec_identity_mode), &key, &value, BPF_ANY)) {
+        return Error::system(errno, "Failed to update exec_identity_mode_map");
+    }
+    return {};
+}
+
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 {
     if (!state.config_map) {
@@ -1729,6 +1807,7 @@ MapPressureReport check_map_pressure(const BpfState& state)
     static constexpr size_t kMaxDenyInodes = 65536;
     static constexpr size_t kMaxDenyPaths = 16384;
     static constexpr size_t kMaxAllowCgroups = 1024;
+    static constexpr size_t kMaxAllowExecInodes = 65536;
     static constexpr size_t kMaxDenyIpv4 = 65536;
     static constexpr size_t kMaxDenyIpv6 = 65536;
     static constexpr size_t kMaxDenyPorts = 4096;
@@ -1761,6 +1840,7 @@ MapPressureReport check_map_pressure(const BpfState& state)
     add_map("deny_inode", state.deny_inode, kMaxDenyInodes);
     add_map("deny_path", state.deny_path, kMaxDenyPaths);
     add_map("allow_cgroup", state.allow_cgroup, kMaxAllowCgroups);
+    add_map("allow_exec_inode", state.allow_exec_inode, kMaxAllowExecInodes);
     add_map("deny_ipv4", state.deny_ipv4, kMaxDenyIpv4);
     add_map("deny_ipv6", state.deny_ipv6, kMaxDenyIpv6);
     add_map("deny_port", state.deny_port, kMaxDenyPorts);

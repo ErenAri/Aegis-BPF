@@ -156,11 +156,12 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     size_t line_no = 0;
 
     std::unordered_set<std::string> deny_hash_seen;
+    std::unordered_set<std::string> allow_hash_seen;
 
     // Valid sections
-    static const std::unordered_set<std::string> valid_sections = {"deny_path",        "deny_inode", "allow_cgroup",
-                                                                   "deny_ip",          "deny_cidr",  "deny_port",
-                                                                   "deny_binary_hash", "scan_paths"};
+    static const std::unordered_set<std::string> valid_sections = {
+        "deny_path", "deny_inode",       "allow_cgroup",      "deny_ip",   "deny_cidr",
+        "deny_port", "deny_binary_hash", "allow_binary_hash", "scan_paths"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -326,6 +327,39 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             continue;
         }
 
+        if (section == "allow_binary_hash") {
+            // Format: sha256:<hex_digest>
+            if (trimmed.rfind("sha256:", 0) != 0) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": allow_binary_hash entry must start with 'sha256:'");
+                continue;
+            }
+            std::string hash = trimmed.substr(7);
+            if (hash.size() != 64) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": sha256 hash must be 64 hex characters");
+                continue;
+            }
+            bool valid_hex = true;
+            for (char c : hash) {
+                if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                    valid_hex = false;
+                    break;
+                }
+            }
+            if (!valid_hex) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": sha256 hash contains non-hex characters");
+                continue;
+            }
+            // Normalize to lowercase
+            std::transform(hash.begin(), hash.end(), hash.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (allow_hash_seen.insert(hash).second) {
+                policy.allow_binary_hashes.push_back(hash);
+            }
+            continue;
+        }
+
         if (section == "scan_paths") {
             if (trimmed.empty() || trimmed.front() != '/') {
                 issues.warnings.push_back("line " + std::to_string(line_no) + ": scan_paths entry should be absolute");
@@ -338,7 +372,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     if (policy.version == 0) {
         issues.errors.push_back("missing header key: version");
     }
-    // Accept version 1, 2, or 3 (2 adds network, 3 adds binary hash)
+    // Accept version 1, 2, or 3 (2 adds network, 3 adds binary hash sections)
     if (policy.version < 1 || policy.version > 3) {
         issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
     }
@@ -346,6 +380,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     // deny_binary_hash requires version >= 3
     if (!policy.deny_binary_hashes.empty() && policy.version < 3) {
         issues.errors.push_back("[deny_binary_hash] requires version=3 or higher");
+    }
+    if (!policy.allow_binary_hashes.empty() && policy.version < 3) {
+        issues.errors.push_back("[allow_binary_hash] requires version=3 or higher");
     }
 
     if (!issues.errors.empty()) {
@@ -406,9 +443,11 @@ Result<void> reset_policy_maps(BpfState& state)
     TRY(clear_map_entries(state.deny_inode));
     TRY(clear_map_entries(state.deny_path));
     TRY(clear_map_entries(state.allow_cgroup));
+    TRY(clear_map_entries(state.allow_exec_inode));
     TRY(clear_map_entries(state.deny_cgroup_stats));
     TRY(clear_map_entries(state.deny_inode_stats));
     TRY(clear_map_entries(state.deny_path_stats));
+    TRY(set_exec_identity_mode(state, false));
 
     if (state.block_stats) {
         TRY(reset_block_stats_map(state.block_stats));
@@ -503,6 +542,25 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         entries = reset ? DenyEntries{} : read_deny_db();
     }
 
+    std::vector<BinaryScanResult> allow_binary_matches;
+    if (!policy.allow_binary_hashes.empty()) {
+        ScopedSpan span("policy.scan_allow_binary_hashes", root_span.trace_id(), root_span.span_id());
+        auto scan_result = scan_for_binary_hashes(policy.allow_binary_hashes, policy.scan_paths);
+        if (!scan_result) {
+            span.fail(scan_result.error().to_string());
+            return fail(scan_result.error());
+        }
+        allow_binary_matches = std::move(*scan_result);
+        if (allow_binary_matches.empty()) {
+            Error err(ErrorCode::PolicyApplyFailed,
+                      "allow_binary_hash policy has no matching binaries on this host; refusing fail-closed policy");
+            span.fail(err.to_string());
+            return fail(err);
+        }
+    }
+
+    size_t expected_allow_exec_inode_entries = 0;
+
     // --- Shadow-then-sync path: populate shadow maps, verify, then sync to live ---
     // Attempt to create shadow maps. If creation fails (old kernel, insufficient memory),
     // fall back to the direct-mutation approach.
@@ -571,6 +629,19 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     return fail(result.error());
                 }
             }
+
+            std::unordered_set<InodeId, InodeIdHash> allow_exec_seen;
+            for (const auto& match : allow_binary_matches) {
+                if (!allow_exec_seen.insert(match.inode).second) {
+                    continue;
+                }
+                auto result = add_allow_exec_inode_to_fd(shadows.allow_exec_inode.fd(), match.inode);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            expected_allow_exec_inode_entries = allow_exec_seen.size();
         }
 
         // Populate shadow network maps
@@ -627,6 +698,18 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 span.fail(err.to_string());
                 return fail(err);
             }
+
+            if (!allow_binary_matches.empty()) {
+                size_t shadow_allow_exec_count =
+                    map_fd_entry_count(shadows.allow_exec_inode.fd(), bpf_map__key_size(state.allow_exec_inode));
+                if (shadow_allow_exec_count < expected_allow_exec_inode_entries) {
+                    Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for allow_exec_inode",
+                              "expected>=" + std::to_string(expected_allow_exec_inode_entries) +
+                                  " actual=" + std::to_string(shadow_allow_exec_count));
+                    span.fail(err.to_string());
+                    return fail(err);
+                }
+            }
         }
 
         // Sync shadow maps into live maps
@@ -640,6 +723,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             TRY(sync_from_shadow(state.deny_inode, shadows.deny_inode.fd()));
             TRY(sync_from_shadow(state.deny_path, shadows.deny_path.fd()));
             TRY(sync_from_shadow(state.allow_cgroup, shadows.allow_cgroup.fd()));
+            TRY(sync_from_shadow(state.allow_exec_inode, shadows.allow_exec_inode.fd()));
 
             if (policy.network.enabled) {
                 TRY(sync_from_shadow(state.deny_ipv4, shadows.deny_ipv4.fd()));
@@ -664,6 +748,12 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
         {
             ScopedSpan span("policy.apply_file_rules", root_span.trace_id(), root_span.span_id());
+            auto clear_allow_exec = clear_map_entries(state.allow_exec_inode);
+            if (!clear_allow_exec) {
+                span.fail(clear_allow_exec.error().to_string());
+                return fail(clear_allow_exec.error());
+            }
+
             for (const auto& deny_path : policy.deny_paths) {
                 auto result = add_deny_path(state, deny_path, entries);
                 if (!result) {
@@ -710,6 +800,19 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     return fail(result.error());
                 }
             }
+
+            std::unordered_set<InodeId, InodeIdHash> allow_exec_seen;
+            for (const auto& match : allow_binary_matches) {
+                if (!allow_exec_seen.insert(match.inode).second) {
+                    continue;
+                }
+                auto result = add_allow_exec_inode(state, match.inode);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            expected_allow_exec_inode_entries = allow_exec_seen.size();
         }
 
         if (policy.network.enabled) {
@@ -779,6 +882,20 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
         }
 
+        if (!allow_binary_matches.empty()) {
+            size_t allow_exec_actual = map_entry_count(state.allow_exec_inode);
+            if (allow_exec_actual < expected_allow_exec_inode_entries) {
+                Error err(ErrorCode::BpfMapOperationFailed, "Post-apply verification failed for allow_exec_inode map",
+                          "expected>=" + std::to_string(expected_allow_exec_inode_entries) +
+                              " actual=" + std::to_string(allow_exec_actual));
+                span.fail(err.to_string());
+                logger().log(SLOG_ERROR("Post-apply verification failed for allow_exec_inode map")
+                                 .field("expected_min", static_cast<int64_t>(expected_allow_exec_inode_entries))
+                                 .field("actual", static_cast<int64_t>(allow_exec_actual)));
+                return fail(err);
+            }
+        }
+
         if (policy.network.enabled) {
             size_t expected_ipv4 = 0;
             size_t expected_ipv6 = 0;
@@ -841,6 +958,20 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 }
             }
         }
+    }
+
+    {
+        ScopedSpan span("policy.set_exec_identity_mode", root_span.trace_id(), root_span.span_id());
+        size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
+        bool exec_identity_enabled = allow_exec_count > 0;
+        auto mode_result = set_exec_identity_mode(state, exec_identity_enabled);
+        if (!mode_result) {
+            span.fail(mode_result.error().to_string());
+            return fail(mode_result.error());
+        }
+        logger().log(SLOG_INFO("Exec identity kernel mode updated")
+                         .field("enabled", exec_identity_enabled)
+                         .field("allow_exec_inode_entries", static_cast<int64_t>(allow_exec_count)));
     }
 
     // Commit phase: persist state to disk atomically

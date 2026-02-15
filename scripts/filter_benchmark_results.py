@@ -31,10 +31,30 @@ def benchmark_time_ns(entry: dict[str, Any]) -> float:
     return 0.0
 
 
-def should_keep(entry: dict[str, Any], min_mean_time_ns: float) -> bool:
+def benchmark_name(entry: dict[str, Any]) -> str:
+    for key in ("name", "benchmark_name", "run_name"):
+        value = entry.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def has_non_primary_suffix(name: str) -> bool:
+    return name.endswith("_median") or name.endswith("_stddev") or name.endswith("_cv")
+
+
+def should_keep(entry: dict[str, Any], min_mean_time_ns: float, has_aggregate_rows: bool) -> bool:
     aggregate = entry.get("aggregate_name")
     if aggregate is None:
-        # If aggregate output is disabled, keep single-run rows only.
+        # If aggregate rows are present, drop per-run rows to avoid noisy
+        # comparisons across hosts/runs.
+        if has_aggregate_rows:
+            return False
+        # If aggregate output is disabled, keep rows unless they encode
+        # non-primary aggregate suffixes in the benchmark name.
+        name = benchmark_name(entry)
+        if name and has_non_primary_suffix(name):
+            return False
         return True
     if aggregate != "mean":
         return False
@@ -48,11 +68,13 @@ def filter_benchmarks(payload: dict[str, Any], min_mean_time_ns: float) -> tuple
     if not isinstance(raw_rows, list):
         raise ValueError("input payload is missing 'benchmarks' list")
 
+    has_aggregate_rows = any(isinstance(row, dict) and row.get("aggregate_name") is not None for row in raw_rows)
+
     kept_rows: list[dict[str, Any]] = []
     for row in raw_rows:
         if not isinstance(row, dict):
             continue
-        if should_keep(row, min_mean_time_ns=min_mean_time_ns):
+        if should_keep(row, min_mean_time_ns=min_mean_time_ns, has_aggregate_rows=has_aggregate_rows):
             kept_rows.append(row)
 
     if not kept_rows:

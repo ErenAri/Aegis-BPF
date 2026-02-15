@@ -22,6 +22,7 @@ const char* lsm_hook_name(LsmHookMode mode);
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold = 0, uint32_t deny_rate_breach_limit = 3, bool allow_unsigned_bpf = false);
+               uint32_t deny_rate_threshold = 0, uint32_t deny_rate_breach_limit = 3,
+               bool allow_unsigned_bpf = false, bool allow_unknown_binary_identity = false);
 
 } // namespace aegis

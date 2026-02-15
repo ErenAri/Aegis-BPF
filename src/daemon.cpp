@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <csignal>
 #include <cstdlib>
 #include <ctime>
@@ -24,8 +25,10 @@
 #include "bpf_ops.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
+#include "exec_identity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
+#include "policy.hpp"
 #include "seccomp.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
@@ -252,6 +255,186 @@ const char* enforce_signal_name(uint8_t signal)
     }
 }
 
+std::string applied_policy_path_from_env()
+{
+    const char* env = std::getenv("AEGIS_POLICY_APPLIED_PATH");
+    if (env && *env) {
+        return std::string(env);
+    }
+    return kPolicyAppliedPath;
+}
+
+std::string capabilities_report_path_from_env()
+{
+    const char* env = std::getenv("AEGIS_CAPABILITIES_REPORT_PATH");
+    if (env && *env) {
+        return std::string(env);
+    }
+    return kCapabilitiesReportPath;
+}
+
+void on_exec_identity_event(void* user_ctx, const ExecEvent& ev)
+{
+    auto* enforcer = static_cast<ExecIdentityEnforcer*>(user_ctx);
+    if (!enforcer) {
+        return;
+    }
+    enforcer->on_exec(ev);
+}
+
+Result<bool> read_exec_identity_mode_enabled(const BpfState& state)
+{
+    if (!state.exec_identity_mode) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Exec identity mode map not available");
+    }
+    uint32_t key = 0;
+    uint8_t value = 0;
+    if (bpf_map_lookup_elem(bpf_map__fd(state.exec_identity_mode), &key, &value) == 0) {
+        return value != 0;
+    }
+    if (errno == ENOENT) {
+        return false;
+    }
+    return Error::system(errno, "Failed to read exec identity mode map");
+}
+
+struct AppliedPolicyRequirements {
+    bool snapshot_present = false;
+    bool parse_ok = false;
+    bool network_required = false;
+    bool network_connect_required = false;
+    bool network_bind_required = false;
+    bool exec_identity_required = false;
+    size_t network_rule_count = 0;
+    std::vector<std::string> allow_binary_hashes;
+};
+
+Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::string& policy_path)
+{
+    AppliedPolicyRequirements req{};
+    std::error_code ec;
+    req.snapshot_present = std::filesystem::exists(policy_path, ec);
+    if (ec) {
+        return Error(ErrorCode::IoError, "Failed to check applied policy snapshot", ec.message());
+    }
+    if (!req.snapshot_present) {
+        req.parse_ok = false;
+        return req;
+    }
+
+    PolicyIssues issues;
+    auto parsed = parse_policy_file(policy_path, issues);
+    if (!parsed) {
+        if (!issues.errors.empty()) {
+            return Error(ErrorCode::PolicyParseFailed, "Failed to parse applied policy snapshot",
+                         issues.errors.front());
+        }
+        return parsed.error();
+    }
+
+    req.parse_ok = true;
+    req.allow_binary_hashes = parsed->allow_binary_hashes;
+    req.exec_identity_required = !req.allow_binary_hashes.empty();
+    req.network_rule_count =
+        parsed->network.deny_ips.size() + parsed->network.deny_cidrs.size() + parsed->network.deny_ports.size();
+
+    if (!parsed->network.deny_ips.empty() || !parsed->network.deny_cidrs.empty()) {
+        req.network_connect_required = true;
+    }
+    for (const auto& port_rule : parsed->network.deny_ports) {
+        if (port_rule.direction == 0 || port_rule.direction == 2) {
+            req.network_connect_required = true;
+        }
+        if (port_rule.direction == 1 || port_rule.direction == 2) {
+            req.network_bind_required = true;
+        }
+    }
+    req.network_required = req.network_connect_required || req.network_bind_required;
+    return req;
+}
+
+Result<void> write_capabilities_report(const std::string& output_path, const KernelFeatures& features,
+                                       EnforcementCapability capability, bool audit_only, bool lsm_enabled,
+                                       bool file_open_hook_attached, bool inode_permission_hook_attached,
+                                       const BpfState& state, const std::string& applied_policy_path,
+                                       const AppliedPolicyRequirements& policy_req, bool kernel_exec_identity_enabled,
+                                       size_t kernel_exec_identity_entries,
+                                       size_t userspace_exec_identity_allowlist_size)
+{
+    std::error_code ec;
+    const std::filesystem::path report_path(output_path);
+    const std::filesystem::path parent = report_path.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            return Error(ErrorCode::IoError, "Failed to create capabilities report directory", ec.message());
+        }
+    }
+
+    const bool bpffs = check_bpffs_mounted();
+    const bool core_supported = features.btf && features.bpf_syscall;
+    const bool network_requirements_met =
+        (!policy_req.network_connect_required || state.socket_connect_hook_attached) &&
+        (!policy_req.network_bind_required || state.socket_bind_hook_attached);
+    const bool exec_identity_requirements_met =
+        !policy_req.exec_identity_required || kernel_exec_identity_enabled || (audit_only && policy_req.parse_ok);
+
+    return atomic_write_stream(output_path, [&](std::ostream& out) -> bool {
+        out << "{\n";
+        out << "  \"schema_version\": 1,\n";
+        out << "  \"generated_at_unix\": " << static_cast<int64_t>(std::time(nullptr)) << ",\n";
+        out << "  \"kernel_version\": \"" << json_escape(features.kernel_version) << "\",\n";
+        out << "  \"capability\": \"" << json_escape(capability_name(capability)) << "\",\n";
+        out << "  \"audit_only\": " << (audit_only ? "true" : "false") << ",\n";
+        out << "  \"lsm_enabled\": " << (lsm_enabled ? "true" : "false") << ",\n";
+        out << "  \"core_supported\": " << (core_supported ? "true" : "false") << ",\n";
+        out << "  \"features\": {\n";
+        out << "    \"bpf_lsm\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
+        out << "    \"cgroup_v2\": " << (features.cgroup_v2 ? "true" : "false") << ",\n";
+        out << "    \"btf\": " << (features.btf ? "true" : "false") << ",\n";
+        out << "    \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
+        out << "    \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
+        out << "    \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
+        out << "    \"bpffs\": " << (bpffs ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"hooks\": {\n";
+        out << "    \"lsm_file_open\": " << (file_open_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_inode_permission\": " << (inode_permission_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_bprm_check_security\": " << (state.exec_identity_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_socket_connect\": " << (state.socket_connect_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_socket_bind\": " << (state.socket_bind_hook_attached ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"policy\": {\n";
+        out << "    \"applied_path\": \"" << json_escape(applied_policy_path) << "\",\n";
+        out << "    \"snapshot_present\": " << (policy_req.snapshot_present ? "true" : "false") << ",\n";
+        out << "    \"parse_ok\": " << (policy_req.parse_ok ? "true" : "false") << ",\n";
+        out << "    \"network_rule_count\": " << static_cast<int64_t>(policy_req.network_rule_count) << ",\n";
+        out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
+            << "\n";
+        out << "  },\n";
+        out << "  \"requirements\": {\n";
+        out << "    \"network_enforcement_required\": " << (policy_req.network_required ? "true" : "false") << ",\n";
+        out << "    \"network_connect_required\": " << (policy_req.network_connect_required ? "true" : "false")
+            << ",\n";
+        out << "    \"network_bind_required\": " << (policy_req.network_bind_required ? "true" : "false") << ",\n";
+        out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"requirements_met\": {\n";
+        out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
+        out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"exec_identity\": {\n";
+        out << "    \"kernel_enabled\": " << (kernel_exec_identity_enabled ? "true" : "false") << ",\n";
+        out << "    \"kernel_allow_exec_inode_entries\": " << static_cast<int64_t>(kernel_exec_identity_entries)
+            << ",\n";
+        out << "    \"userspace_fallback_allowlist_entries\": "
+            << static_cast<int64_t>(userspace_exec_identity_allowlist_size) << "\n";
+        out << "  }\n";
+        out << "}\n";
+        return out.good();
+    });
+}
+
 Result<void> validate_attach_contract(const BpfState& state, bool lsm_enabled, bool use_inode_permission,
                                       bool use_file_open)
 {
@@ -443,7 +626,8 @@ void reset_attach_all_for_test()
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf)
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
+               bool allow_unknown_binary_identity)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -653,7 +837,107 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         return fail(attach_contract_result.error().to_string());
     }
 
-    RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event, nullptr, nullptr));
+    std::unique_ptr<ExecIdentityEnforcer> exec_identity_enforcer;
+    EventCallbacks event_callbacks{};
+    bool kernel_exec_identity_enabled = false;
+    size_t kernel_exec_identity_entries = 0;
+    const std::string applied_policy_path = applied_policy_path_from_env();
+    const std::string capabilities_report_path = capabilities_report_path_from_env();
+    AppliedPolicyRequirements policy_req{};
+    {
+        auto req_result = load_applied_policy_requirements(applied_policy_path);
+        if (!req_result) {
+            logger().log(SLOG_ERROR("Failed to evaluate applied policy requirements")
+                             .field("path", applied_policy_path)
+                             .field("error", req_result.error().to_string()));
+            return fail(req_result.error().to_string());
+        }
+        policy_req = *req_result;
+
+        if (policy_req.network_required) {
+            const bool connect_ok = !policy_req.network_connect_required || state.socket_connect_hook_attached;
+            const bool bind_ok = !policy_req.network_bind_required || state.socket_bind_hook_attached;
+            if (!connect_ok || !bind_ok) {
+                if (!audit_only) {
+                    logger().log(SLOG_ERROR("Network policy requires unavailable kernel hooks")
+                                     .field("policy", applied_policy_path)
+                                     .field("connect_required", policy_req.network_connect_required)
+                                     .field("bind_required", policy_req.network_bind_required)
+                                     .field("connect_hook_attached", state.socket_connect_hook_attached)
+                                     .field("bind_hook_attached", state.socket_bind_hook_attached));
+                    return fail("Network policy is active but required kernel hooks are unavailable");
+                }
+                logger().log(SLOG_WARN("Network policy hooks unavailable; running in audit-only fallback")
+                                 .field("policy", applied_policy_path)
+                                 .field("connect_required", policy_req.network_connect_required)
+                                 .field("bind_required", policy_req.network_bind_required)
+                                 .field("connect_hook_attached", state.socket_connect_hook_attached)
+                                 .field("bind_hook_attached", state.socket_bind_hook_attached));
+            }
+        }
+
+        if (policy_req.exec_identity_required) {
+            kernel_exec_identity_entries = map_entry_count(state.allow_exec_inode);
+
+            auto exec_mode_result = read_exec_identity_mode_enabled(state);
+            if (!exec_mode_result) {
+                logger().log(SLOG_ERROR("Failed to read exec identity kernel mode state")
+                                 .field("error", exec_mode_result.error().to_string()));
+                return fail(exec_mode_result.error().to_string());
+            }
+
+            bool kernel_exec_identity_ready =
+                lsm_enabled && state.exec_identity_hook_attached && state.allow_exec_inode != nullptr &&
+                state.exec_identity_mode != nullptr && *exec_mode_result && kernel_exec_identity_entries > 0;
+
+            if (kernel_exec_identity_ready) {
+                kernel_exec_identity_enabled = true;
+                logger().log(SLOG_INFO("Kernel exec identity enforcement enabled")
+                                 .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                                 .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
+                                 .field("policy", applied_policy_path));
+            } else if (!audit_only) {
+                logger().log(
+                    SLOG_ERROR("Exec identity policy requires kernel hook and populated allowlist")
+                        .field("policy", applied_policy_path)
+                        .field("lsm_enabled", lsm_enabled)
+                        .field("hook_attached", state.exec_identity_hook_attached)
+                        .field("exec_mode_enabled", *exec_mode_result)
+                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                return fail("Exec identity policy is active but kernel enforcement is unavailable");
+            } else {
+                exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
+                    policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
+                event_callbacks.on_exec = on_exec_identity_event;
+                event_callbacks.user_ctx = exec_identity_enforcer.get();
+                logger().log(
+                    SLOG_WARN("Falling back to userspace exec identity checks in audit mode")
+                        .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                        .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+                        .field("kernel_hook_attached", state.exec_identity_hook_attached)
+                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+            }
+        }
+    }
+
+    {
+        const bool file_open_hook_attached = lsm_enabled && use_file_open;
+        const bool inode_permission_hook_attached = lsm_enabled && use_inode_permission;
+        auto report_result = write_capabilities_report(
+            capabilities_report_path, features, cap, audit_only, lsm_enabled, file_open_hook_attached,
+            inode_permission_hook_attached, state, applied_policy_path, policy_req, kernel_exec_identity_enabled,
+            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0);
+        if (!report_result) {
+            logger().log(SLOG_WARN("Failed to write capability report")
+                             .field("path", capabilities_report_path)
+                             .field("error", report_result.error().to_string()));
+        } else {
+            logger().log(SLOG_INFO("Capability report written").field("path", capabilities_report_path));
+        }
+    }
+
+    RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event,
+                                        event_callbacks.on_exec ? &event_callbacks : nullptr, nullptr));
     if (!rb) {
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
         return fail("Failed to create ring buffer");
@@ -685,7 +969,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
             .field("seccomp", enable_seccomp)
             .field("break_glass", break_glass_active)
-            .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
+            .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
+            .field("exec_identity_kernel", kernel_exec_identity_enabled)
+            .field("exec_identity_allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
+            .field("exec_identity_userspace_fallback",
+                   static_cast<int64_t>(exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0))
+            .field("allow_unknown_binary_identity", allow_unknown_binary_identity));
 
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;

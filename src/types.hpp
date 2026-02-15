@@ -18,6 +18,8 @@ inline constexpr const char* kPinRoot = "/sys/fs/bpf/aegisbpf";
 inline constexpr const char* kDenyInodePin = "/sys/fs/bpf/aegisbpf/deny_inode";
 inline constexpr const char* kDenyPathPin = "/sys/fs/bpf/aegisbpf/deny_path";
 inline constexpr const char* kAllowCgroupPin = "/sys/fs/bpf/aegisbpf/allow_cgroup";
+inline constexpr const char* kAllowExecInodePin = "/sys/fs/bpf/aegisbpf/allow_exec_inode";
+inline constexpr const char* kExecIdentityModePin = "/sys/fs/bpf/aegisbpf/exec_identity_mode";
 inline constexpr const char* kBlockStatsPin = "/sys/fs/bpf/aegisbpf/block_stats";
 inline constexpr const char* kDenyCgroupStatsPin = "/sys/fs/bpf/aegisbpf/deny_cgroup_stats";
 inline constexpr const char* kDenyInodeStatsPin = "/sys/fs/bpf/aegisbpf/deny_inode_stats";
@@ -46,6 +48,7 @@ inline constexpr const char* kDenyDbPath = "/var/lib/aegisbpf/deny.db";
 inline constexpr const char* kPolicyAppliedPath = "/var/lib/aegisbpf/policy.applied";
 inline constexpr const char* kPolicyAppliedPrevPath = "/var/lib/aegisbpf/policy.applied.prev";
 inline constexpr const char* kPolicyAppliedHashPath = "/var/lib/aegisbpf/policy.applied.sha256";
+inline constexpr const char* kCapabilitiesReportPath = "/var/lib/aegisbpf/capabilities.json";
 inline constexpr const char* kBpfObjHashPath = "/etc/aegisbpf/aegis.bpf.sha256";
 inline constexpr const char* kBpfObjHashInstallPath = "/usr/lib/aegisbpf/aegis.bpf.sha256";
 inline constexpr uint32_t kLayoutVersion = 1;
@@ -259,8 +262,9 @@ struct Policy {
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;
-    std::vector<std::string> deny_binary_hashes; // sha256:... entries (v3+)
-    std::vector<std::string> scan_paths;         // Extra paths for binary hash scan (v3+)
+    std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
+    std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
+    std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)
 };
 
 struct PolicyIssues {

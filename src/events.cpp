@@ -289,11 +289,15 @@ void print_net_block_event(const NetBlockEvent& ev)
 }
 
 // cppcheck-suppress constParameterPointer
-int handle_event(void*, void* data, size_t)
+int handle_event(void* ctx, void* data, size_t)
 {
     const auto* e = static_cast<const Event*>(data);
+    const auto* callbacks = static_cast<const EventCallbacks*>(ctx);
     if (e->type == EVENT_EXEC) {
         print_exec_event(e->exec);
+        if (callbacks && callbacks->on_exec) {
+            callbacks->on_exec(callbacks->user_ctx, e->exec);
+        }
     } else if (e->type == EVENT_BLOCK) {
         print_block_event(e->block);
     } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK) {

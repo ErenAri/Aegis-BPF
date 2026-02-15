@@ -1,6 +1,7 @@
 // cppcheck-suppress-file missingIncludeSystem
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 #include "types.hpp"
@@ -13,6 +14,13 @@ extern EventLogSink g_event_sink;
 bool sink_wants_stdout(EventLogSink sink);
 bool sink_wants_journald(EventLogSink sink);
 bool set_event_log_sink(const std::string& value);
+
+using ExecEventCallback = void (*)(void* user_ctx, const ExecEvent& ev);
+
+struct EventCallbacks {
+    ExecEventCallback on_exec = nullptr;
+    void* user_ctx = nullptr;
+};
 
 // Event handling
 int handle_event(void* ctx, void* data, size_t size);
