@@ -5,6 +5,7 @@
 #include <bpf/libbpf.h>
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -79,6 +80,6 @@ std::string format_ipv6(const Ipv6Key& ip);
 std::string format_cidr_v4(uint32_t ip_be, uint8_t prefix_len);
 std::string format_cidr_v6(const Ipv6Key& ip, uint8_t prefix_len);
 std::string protocol_name(uint8_t protocol);
-std::string direction_name(uint8_t direction);
+std::string_view direction_name(uint8_t direction) noexcept;
 
 } // namespace aegis

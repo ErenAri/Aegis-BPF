@@ -31,6 +31,9 @@ or `semgrep`) to match GitHub branch-protection contexts directly.
 
 For protected `release/*` branches, use `config/required_checks_release.txt`.
 
+Current baseline includes the `e2e` check from `.github/workflows/e2e.yml` so
+PRs must pass real enforcement-path integration tests before merge.
+
 ## Audit command
 
 With an admin-capable GitHub token:

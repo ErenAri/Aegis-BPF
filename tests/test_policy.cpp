@@ -126,6 +126,41 @@ version=2
     EXPECT_EQ(result->network.deny_ports.size(), 1u);
 }
 
+TEST_F(PolicyTest, ParsePolicyWithAllowBinaryHash)
+{
+    std::string content = R"(
+version=3
+
+[allow_binary_hash]
+sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    ASSERT_EQ(result->allow_binary_hashes.size(), 1u);
+    EXPECT_EQ(result->allow_binary_hashes[0], "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+}
+
+TEST_F(PolicyTest, AllowBinaryHashRequiresVersion3)
+{
+    std::string content = R"(
+version=2
+
+[allow_binary_hash]
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_FALSE(result);
+    EXPECT_TRUE(issues.has_errors());
+}
+
 TEST_F(PolicyTest, MissingVersion)
 {
     std::string content = R"(

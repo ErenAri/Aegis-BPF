@@ -7,6 +7,9 @@ This report captures the **repeatable performance baseline** used for
 credibility claims. It should be updated whenever the perf workflow is run
 on the target self‑hosted environment.
 
+Hosted `benchmark.yml` trends are advisory and intentionally tolerant to
+shared-runner noise. Promotion decisions use self-hosted `perf.yml` evidence.
+
 ## Latest run status
 
 - **Perf Regression (self‑hosted):** last run failed  
@@ -34,4 +37,3 @@ gh workflow run perf.yml --ref main
 ```
 
 Then link the run and attach the artifact summary here.
-

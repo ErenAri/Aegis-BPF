@@ -122,6 +122,21 @@ void journal_send_net_block(const NetBlockEvent& ev, const std::string& payload,
         action.c_str(), "AEGIS_COMM=%s", comm.c_str(), "PRIORITY=%i", priority, static_cast<const char*>(nullptr));
     journal_report_error(rc);
 }
+
+void journal_send_state_change(const std::string& payload, const std::string& state, const std::string& reason_code,
+                               const std::string& detail, bool strict_mode, uint64_t transition_id,
+                               uint64_t degradation_count)
+{
+    int priority = (state == "DEGRADED") ? LOG_WARNING : LOG_INFO;
+    int rc =
+        sd_journal_send("MESSAGE=%s", payload.c_str(), "SYSLOG_IDENTIFIER=aegisbpf", "AEGIS_TYPE=state_change",
+                        "AEGIS_EVENT_VERSION=%d", 1, "AEGIS_STATE=%s", state.c_str(), "AEGIS_REASON_CODE=%s",
+                        reason_code.c_str(), "AEGIS_STRICT_MODE=%d", strict_mode ? 1 : 0, "AEGIS_TRANSITION_ID=%llu",
+                        static_cast<unsigned long long>(transition_id), "AEGIS_DEGRADATION_COUNT=%llu",
+                        static_cast<unsigned long long>(degradation_count), "AEGIS_DETAIL=%s", detail.c_str(),
+                        "PRIORITY=%i", priority, static_cast<const char*>(nullptr));
+    journal_report_error(rc);
+}
 #endif
 
 void print_exec_event(const ExecEvent& ev)
@@ -289,17 +304,45 @@ void print_net_block_event(const NetBlockEvent& ev)
 }
 
 // cppcheck-suppress constParameterPointer
-int handle_event(void*, void* data, size_t)
+int handle_event(void* ctx, void* data, size_t)
 {
     const auto* e = static_cast<const Event*>(data);
+    const auto* callbacks = static_cast<const EventCallbacks*>(ctx);
     if (e->type == EVENT_EXEC) {
         print_exec_event(e->exec);
+        if (callbacks && callbacks->on_exec) {
+            callbacks->on_exec(callbacks->user_ctx, e->exec);
+        }
     } else if (e->type == EVENT_BLOCK) {
         print_block_event(e->block);
     } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK) {
         print_net_block_event(e->net_block);
     }
     return 0;
+}
+
+void emit_state_change_event(const std::string& state, const std::string& reason_code, const std::string& detail,
+                             bool strict_mode, uint64_t transition_id, uint64_t degradation_count)
+{
+    std::ostringstream oss;
+    oss << "{" << "\"type\":\"state_change\"" << ",\"event_version\":1" << ",\"state\":\"" << json_escape(state) << "\""
+        << ",\"reason_code\":\"" << json_escape(reason_code) << "\""
+        << ",\"strict_mode\":" << (strict_mode ? "true" : "false") << ",\"transition_id\":" << transition_id
+        << ",\"degradation_count\":" << degradation_count;
+    if (!detail.empty()) {
+        oss << ",\"detail\":\"" << json_escape(detail) << "\"";
+    }
+    oss << "}";
+
+    const std::string payload = oss.str();
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << payload << '\n';
+    }
+#ifdef HAVE_SYSTEMD
+    if (sink_wants_journald(g_event_sink)) {
+        journal_send_state_change(payload, state, reason_code, detail, strict_mode, transition_id, degradation_count);
+    }
+#endif
 }
 
 } // namespace aegis

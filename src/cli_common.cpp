@@ -10,6 +10,7 @@ int usage(const char* prog)
     std::cerr
         << "Usage: " << prog
         << " run [--audit|--enforce] [--enforce-signal=none|term|kill|int] [--allow-sigkill] "
+           "[--allow-unsigned-bpf] [--allow-unknown-binary-identity] [--strict-degrade] "
            "[--kill-escalation-threshold=<n>] [--kill-escalation-window-seconds=<seconds>] [--seccomp] "
            "[--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] "
            "[--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json]"

@@ -177,7 +177,7 @@ std::string protocol_name(uint8_t protocol)
     }
 }
 
-std::string direction_name(uint8_t direction)
+std::string_view direction_name(uint8_t direction) noexcept
 {
     switch (direction) {
         case 0:

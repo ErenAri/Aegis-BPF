@@ -1,0 +1,11 @@
+# Stable, high-signal benchmark families for hosted trend comparison.
+# Patterns are regular expressions matched against the benchmark name with
+# aggregate suffixes removed (_mean/_median/_stddev/_cv).
+^BM_Sha256Long/
+^BM_DenyEntriesInsert/
+^BM_DenyEntriesLookup/
+^BM_ParseIpv6(?:Full)?$
+^BM_ParseCidrV[46]$
+^BM_InodeToString$
+^BM_ProtocolName$
+^BM_DirectionName$

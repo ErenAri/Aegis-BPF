@@ -402,7 +402,7 @@ static void BM_DirectionName(benchmark::State& state)
     uint8_t directions[] = {0, 1, 2, 255};
     size_t idx = 0;
     for (auto _ : state) {
-        std::string name = direction_name(directions[idx % 4]);
+        auto name = direction_name(directions[idx % 4]);
         benchmark::DoNotOptimize(name);
         ++idx;
     }

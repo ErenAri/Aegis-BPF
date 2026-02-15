@@ -1,6 +1,23 @@
 name: E2E (BPF LSM)
 
 on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'bpf/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bpf/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/e2e.yml'
   workflow_dispatch:
   schedule:
     - cron: "0 3 * * 0"
@@ -83,6 +100,16 @@ jobs:
 
       - name: E2E bypass tests
         run: sudo ./build/aegisbpf_bypass_test
+
+      - name: Filesystem enforcement matrix
+        run: |
+          mkdir -p artifacts/e2e
+          sudo scripts/e2e_fs_matrix.sh 2>&1 | tee artifacts/e2e/fs_matrix.log
+
+      - name: Namespace enforcement matrix
+        run: |
+          mkdir -p artifacts/e2e
+          sudo scripts/e2e_namespace_matrix.sh 2>&1 | tee artifacts/e2e/namespace_matrix.log
 
       - name: Edge-case enforcement matrix
         run: |

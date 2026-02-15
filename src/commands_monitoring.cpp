@@ -36,6 +36,7 @@ namespace {
 constexpr uint64_t MAX_DENY_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PATH_ENTRIES = 16384;
 constexpr uint64_t MAX_ALLOW_CGROUP_ENTRIES = 1024;
+constexpr uint64_t MAX_ALLOW_EXEC_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV4_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV6_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PORT_ENTRIES = 4096;
@@ -518,6 +519,9 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     append_metric_sample(oss, "aegisbpf_deny_path_entries", safe_map_entry_count(state.deny_path));
     append_metric_header(oss, "aegisbpf_allow_cgroup_entries", "gauge", "Number of allow cgroup entries");
     append_metric_sample(oss, "aegisbpf_allow_cgroup_entries", safe_map_entry_count(state.allow_cgroup));
+    append_metric_header(oss, "aegisbpf_allow_exec_inode_entries", "gauge",
+                         "Number of exec-identity allowlist inode entries");
+    append_metric_sample(oss, "aegisbpf_allow_exec_inode_entries", safe_map_entry_count(state.allow_exec_inode));
     append_metric_header(oss, "aegisbpf_net_rules_total", "gauge", "Number of active network deny rules by type");
     uint64_t ip_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv4)) +
                              static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv6));
@@ -532,9 +536,11 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     double deny_inode_util = calculate_map_utilization(state.deny_inode, MAX_DENY_INODE_ENTRIES);
     double deny_path_util = calculate_map_utilization(state.deny_path, MAX_DENY_PATH_ENTRIES);
     double allow_cgroup_util = calculate_map_utilization(state.allow_cgroup, MAX_ALLOW_CGROUP_ENTRIES);
+    double allow_exec_inode_util = calculate_map_utilization(state.allow_exec_inode, MAX_ALLOW_EXEC_INODE_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_inode"}}, deny_inode_util);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_path"}}, deny_path_util);
     append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "allow_cgroup"}}, allow_cgroup_util);
+    append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "allow_exec_inode"}}, allow_exec_inode_util);
 
     if (state.deny_ipv4 || state.deny_ipv6) {
         double ipv4_util = calculate_map_utilization(state.deny_ipv4, MAX_DENY_IPV4_ENTRIES);
@@ -558,6 +564,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_inode"}}, MAX_DENY_INODE_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_path"}}, MAX_DENY_PATH_ENTRIES);
     append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "allow_cgroup"}}, MAX_ALLOW_CGROUP_ENTRIES);
+    append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "allow_exec_inode"}}, MAX_ALLOW_EXEC_INODE_ENTRIES);
     if (state.deny_ipv4 || state.deny_ipv6) {
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv4"}}, MAX_DENY_IPV4_ENTRIES);
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ipv6"}}, MAX_DENY_IPV6_ENTRIES);
@@ -589,10 +596,18 @@ int cmd_metrics(const std::string& out_path, bool detailed)
 struct HealthReport {
     bool ok = false;
     std::string error;
+    std::string degradation_reason;
     KernelFeatures features{};
     EnforcementCapability capability = EnforcementCapability::Disabled;
+    std::string capability_tier = "Disabled";
+    std::string engine_mode = "unavailable";
     std::string kernel_version = "unknown";
+    std::string bpf_object_path;
     bool bpffs_mounted = false;
+    bool bpf_object_found = false;
+    bool bpf_hash_found = false;
+    bool bpf_hash_verified = false;
+    bool bpf_allow_unsigned = false;
     bool prereqs_ok = false;
     bool bpf_load_ok = false;
     bool required_maps_ok = false;
@@ -623,11 +638,45 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     report.features = *features_result;
     report.kernel_version = report.features.kernel_version;
     report.capability = determine_capability(report.features);
+    report.capability_tier = capability_name(report.capability);
+    report.engine_mode =
+        report.capability == EnforcementCapability::Full
+            ? "bpf_lsm"
+            : (report.capability == EnforcementCapability::AuditOnly ? "tracepoint_audit" : "unavailable");
     report.bpffs_mounted = check_bpffs_mounted();
+    report.bpf_object_path = resolve_bpf_obj_path();
+
+    std::error_code ec;
+    report.bpf_object_found = std::filesystem::exists(report.bpf_object_path, ec);
+    if (!report.bpf_object_found) {
+        report.degradation_reason = "bpf_object_missing";
+        report.error = "BPF object file not found: " + report.bpf_object_path;
+        logger().log(SLOG_ERROR("BPF object file not found").field("path", report.bpf_object_path));
+        return report;
+    }
+
+    report.bpf_allow_unsigned = allow_unsigned_bpf_enabled();
+    auto integrity_result = evaluate_bpf_integrity(false, report.bpf_allow_unsigned);
+    if (!integrity_result) {
+        report.degradation_reason = "bpf_integrity_failed";
+        report.error = integrity_result.error().to_string();
+        logger().log(SLOG_ERROR("BPF integrity check failed").field("error", report.error));
+        return report;
+    }
+    report.bpf_hash_found = integrity_result->hash_exists;
+    report.bpf_hash_verified = integrity_result->hash_verified;
+    if (!integrity_result->reason.empty()) {
+        report.degradation_reason = integrity_result->reason;
+    }
 
     report.prereqs_ok = report.features.cgroup_v2 && report.features.btf && report.features.bpf_syscall &&
                         report.bpffs_mounted && report.capability != EnforcementCapability::Disabled;
     if (!report.prereqs_ok) {
+        if (report.degradation_reason.empty()) {
+            report.degradation_reason = report.capability == EnforcementCapability::AuditOnly
+                                            ? "bpf_lsm_unavailable"
+                                            : "kernel_prereqs_missing";
+        }
         report.error =
             "Kernel prerequisites are not met: " + capability_explanation(report.features, report.capability);
         logger().log(SLOG_ERROR("Kernel prerequisites are not met")
@@ -647,7 +696,8 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     }
     report.bpf_load_ok = true;
 
-    if (!state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.events) {
+    if (!state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.allow_exec_inode ||
+        !state.exec_identity_mode || !state.events) {
         logger().log(SLOG_ERROR("BPF health check failed - missing required maps"));
         report.error = "BPF health check failed - missing required maps";
         return report;
@@ -665,9 +715,10 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     }
     report.layout_ok = true;
 
-    const std::array<const char*, 9> required_pin_paths = {
-        kDenyInodePin,      kDenyPathPin,      kAllowCgroupPin, kBlockStatsPin,        kDenyCgroupStatsPin,
-        kDenyInodeStatsPin, kDenyPathStatsPin, kAgentMetaPin,   kSurvivalAllowlistPin,
+    const std::array<const char*, 11> required_pin_paths = {
+        kDenyInodePin,        kDenyPathPin,   kAllowCgroupPin,       kAllowExecInodePin,
+        kExecIdentityModePin, kBlockStatsPin, kDenyCgroupStatsPin,   kDenyInodeStatsPin,
+        kDenyPathStatsPin,    kAgentMetaPin,  kSurvivalAllowlistPin,
     };
     for (const char* pin_path : required_pin_paths) {
         auto pin_result = verify_pinned_map_access(pin_path);
@@ -715,9 +766,13 @@ std::string build_health_json(const HealthReport& report)
 {
     std::ostringstream out;
     out << "{" << "\"ok\":" << (report.ok ? "true" : "false") << ",\"capability\":\""
-        << json_escape(capability_name(report.capability)) << "\"" << ",\"mode\":\""
-        << (report.capability == EnforcementCapability::AuditOnly ? "audit-only" : "enforce") << "\""
-        << ",\"kernel_version\":\"" << json_escape(report.kernel_version) << "\"" << ",\"features\":{"
+        << json_escape(capability_name(report.capability)) << "\"" << ",\"capability_tier\":\""
+        << json_escape(report.capability_tier) << "\"" << ",\"mode\":\""
+        << (report.capability == EnforcementCapability::Full
+                ? "enforce"
+                : (report.capability == EnforcementCapability::AuditOnly ? "audit-only" : "disabled"))
+        << "\"" << ",\"engine_mode\":\"" << json_escape(report.engine_mode) << "\"" << ",\"kernel_version\":\""
+        << json_escape(report.kernel_version) << "\"" << ",\"features\":{"
         << "\"bpf_lsm\":" << (report.features.bpf_lsm ? "true" : "false")
         << ",\"cgroup_v2\":" << (report.features.cgroup_v2 ? "true" : "false")
         << ",\"btf\":" << (report.features.btf ? "true" : "false")
@@ -730,8 +785,18 @@ std::string build_health_json(const HealthReport& report)
         << ",\"required_maps\":" << (report.required_maps_ok ? "true" : "false")
         << ",\"layout_version\":" << (report.layout_ok ? "true" : "false")
         << ",\"required_pins\":" << (report.required_pins_ok ? "true" : "false")
-        << ",\"network_pins\":" << (report.network_pins_ok ? "true" : "false") << "}"
+        << ",\"network_pins\":" << (report.network_pins_ok ? "true" : "false")
+        << ",\"bpf_object\":" << (report.bpf_object_found ? "true" : "false")
+        << ",\"bpf_hash_verified\":" << (report.bpf_hash_verified ? "true" : "false") << "}"
+        << ",\"bpf_object_path\":\"" << json_escape(report.bpf_object_path) << "\""
+        << ",\"bpf_object_found\":" << (report.bpf_object_found ? "true" : "false")
+        << ",\"bpf_hash_found\":" << (report.bpf_hash_found ? "true" : "false")
+        << ",\"bpf_hash_verified\":" << (report.bpf_hash_verified ? "true" : "false")
+        << ",\"allow_unsigned_bpf\":" << (report.bpf_allow_unsigned ? "true" : "false")
         << ",\"network_maps_present\":" << (report.network_maps_present ? "true" : "false");
+    if (!report.degradation_reason.empty()) {
+        out << ",\"degradation_reason\":\"" << json_escape(report.degradation_reason) << "\"";
+    }
     if (!report.error.empty()) {
         out << ",\"error\":\"" << json_escape(report.error) << "\"";
     }
@@ -786,6 +851,18 @@ std::vector<DoctorAdvice> build_doctor_advice(const HealthReport& report)
         advice.push_back({"bpf_load_failed", "Failed to load BPF programs.",
                           "Check kernel logs and verify libbpf, BTF, and permissions."});
     }
+    if (!report.bpf_object_found) {
+        advice.push_back({"missing_bpf_object", "BPF object file is missing.",
+                          "Build with SKIP_BPF_BUILD=OFF or install /usr/lib/aegisbpf/aegis.bpf.o."});
+    }
+    if (report.bpf_object_found && !report.bpf_hash_found) {
+        advice.push_back({"missing_bpf_hash", "BPF object hash file not found.",
+                          "Install /etc/aegisbpf/aegis.bpf.sha256 or /usr/lib/aegisbpf/aegis.bpf.sha256."});
+    }
+    if (report.bpf_hash_found && !report.bpf_hash_verified) {
+        advice.push_back({"bpf_hash_unverified", "BPF object hash could not be verified.",
+                          "Verify the BPF object and hash match, or use break-glass only for emergency recovery."});
+    }
     if (!report.layout_ok) {
         advice.push_back({"layout_mismatch", "Pinned map layout mismatch detected.",
                           "Run 'sudo aegisbpf block clear' to reset pinned maps."});
@@ -825,13 +902,20 @@ void emit_doctor_text(const HealthReport& report, const std::vector<DoctorAdvice
     std::cout << "AegisBPF Doctor" << '\n';
     std::cout << "status: " << (report.ok ? "ok" : "error") << '\n';
     std::cout << "capability: " << capability_name(report.capability) << '\n';
+    std::cout << "engine_mode: " << report.engine_mode << '\n';
     std::cout << "kernel: " << report.kernel_version << '\n';
     std::cout << "checks: prereqs=" << (report.prereqs_ok ? "ok" : "fail")
               << " bpf_load=" << (report.bpf_load_ok ? "ok" : "fail")
               << " required_maps=" << (report.required_maps_ok ? "ok" : "fail")
               << " layout=" << (report.layout_ok ? "ok" : "fail")
               << " required_pins=" << (report.required_pins_ok ? "ok" : "fail")
-              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail") << '\n';
+              << " network_pins=" << (report.network_pins_ok ? "ok" : "fail")
+              << " bpf_object=" << (report.bpf_object_found ? "ok" : "fail")
+              << " bpf_hash_verified=" << (report.bpf_hash_verified ? "ok" : "fail") << '\n';
+    std::cout << "bpf_object_path: " << report.bpf_object_path << '\n';
+    if (!report.degradation_reason.empty()) {
+        std::cout << "degradation_reason: " << report.degradation_reason << '\n';
+    }
     if (!report.error.empty()) {
         std::cout << "error: " << report.error << '\n';
     }
@@ -886,6 +970,13 @@ int cmd_health(bool json_output)
 
     std::cout << "Kernel version: " << report.kernel_version << '\n';
     std::cout << "Capability: " << capability_name(report.capability) << '\n';
+    std::cout << "Engine mode: " << report.engine_mode << '\n';
+    std::cout << "BPF object: " << report.bpf_object_path << " (" << (report.bpf_object_found ? "found" : "missing")
+              << ")" << '\n';
+    std::cout << "BPF hash verified: " << (report.bpf_hash_verified ? "yes" : "no") << '\n';
+    if (!report.degradation_reason.empty()) {
+        std::cout << "Degradation reason: " << report.degradation_reason << '\n';
+    }
     std::cout << "Features:" << '\n';
     std::cout << "  bpf_lsm: " << (report.features.bpf_lsm ? "yes" : "no") << '\n';
     std::cout << "  cgroup_v2: " << (report.features.cgroup_v2 ? "yes" : "no") << '\n';
@@ -1175,6 +1266,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     uint64_t deny_path_mem = deny_paths * (sizeof(PathKey) + 1 + kBpfHashOverhead);
     // allow_cgroup: key=uint64_t(8), value=uint8_t(1)
     uint64_t allow_cgroup_mem = MAX_ALLOW_CGROUP_ENTRIES * (8 + 1 + kBpfHashOverhead);
+    // allow_exec_inode: key=InodeId(16), value=uint8_t(1)
+    uint64_t allow_exec_inode_mem = MAX_ALLOW_EXEC_INODE_ENTRIES * (sizeof(InodeId) + 1 + kBpfHashOverhead);
     // deny_ipv4: key=uint32_t(4), value=uint8_t(1)
     uint64_t deny_ip_mem = deny_ips * (16 + 1 + kBpfHashOverhead); // conservative: IPv6 key size
     // deny_cidr: LPM trie, key includes prefix
@@ -1184,8 +1277,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     // Stats maps: per-cpu arrays, small fixed size
     uint64_t stats_mem = 4096; // conservative estimate for all stats maps
 
-    uint64_t total_maps =
-        deny_inode_mem + deny_path_mem + allow_cgroup_mem + deny_ip_mem + deny_cidr_mem + deny_port_mem + stats_mem;
+    uint64_t total_maps = deny_inode_mem + deny_path_mem + allow_cgroup_mem + allow_exec_inode_mem + deny_ip_mem +
+                          deny_cidr_mem + deny_port_mem + stats_mem;
     uint64_t total = total_maps + ringbuf_bytes;
 
     auto fmt_kb = [](uint64_t bytes) -> std::string {
@@ -1203,6 +1296,8 @@ int cmd_footprint(uint64_t deny_inodes, uint64_t deny_paths, uint64_t deny_ips, 
     std::cout << "  deny_inode  (" << deny_inodes << " entries): " << fmt_kb(deny_inode_mem) << "\n";
     std::cout << "  deny_path   (" << deny_paths << " entries): " << fmt_kb(deny_path_mem) << "\n";
     std::cout << "  allow_cgroup(" << MAX_ALLOW_CGROUP_ENTRIES << " entries): " << fmt_kb(allow_cgroup_mem) << "\n";
+    std::cout << "  allow_exec_inode(" << MAX_ALLOW_EXEC_INODE_ENTRIES << " entries): " << fmt_kb(allow_exec_inode_mem)
+              << "\n";
     std::cout << "  deny_ip     (" << deny_ips << " entries): " << fmt_kb(deny_ip_mem) << "\n";
     std::cout << "  deny_cidr   (" << deny_cidrs << " entries): " << fmt_kb(deny_cidr_mem) << "\n";
     std::cout << "  deny_port   (" << deny_ports << " entries): " << fmt_kb(deny_port_mem) << "\n";

@@ -1,7 +1,7 @@
 # Policy Semantics
 
 Version: 1.0 (2026-02-05)
-Status: Canonical semantics reference for the v1 contract.
+Status: Canonical semantics reference for the v1-v3 contract.
 
 This document defines how policy rules are interpreted at runtime, including
 edge cases that matter for production correctness.
@@ -13,10 +13,13 @@ Policy sections:
 - `[deny_inode]` -> explicit `dev:ino` deny entries
 - `[allow_cgroup]` -> cgroup exemptions (`/sys/fs/cgroup/...` or `cgid:<id>`)
 - `[deny_ip]`, `[deny_cidr]`, `[deny_port]` -> network deny rules
+- `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
+- `[allow_binary_hash]` -> policy-apply exec inode allowlist enforced at `bprm_check_security`
 
 Supported versions:
 - `version=1` and `version=2` are accepted by parser.
 - Use `version=2` for network-aware policies.
+- Use `version=3` for binary hash policy sections.
 
 ## File decision semantics
 
@@ -44,6 +47,18 @@ Network-path precedence:
 3. CIDR deny -> deny
 4. Port deny -> deny
 5. No deny match -> allow
+
+Startup gating:
+- Enforce mode fails closed when policy-required network hooks
+  (`socket_connect` and/or `socket_bind`) are unavailable.
+- Audit mode logs the degraded network-hook state and continues.
+
+Exec-identity precedence (`[allow_binary_hash]`, version 3+):
+1. Kernel exec-identity mode disabled (`exec_identity_mode_map=0`) -> allow
+2. Cgroup is allowlisted or inode is in survival allowlist -> allow
+3. Executable inode in `allow_exec_inode_map` -> allow
+4. Audit mode -> emit block/audit event only
+5. Enforce mode -> deny with `-EPERM` and optional signal per `--enforce-signal`
 
 Conflict handling:
 - Duplicate deny entries are de-duplicated by map key identity.
@@ -103,6 +118,14 @@ separate from the deny decision:
 - `term` (default): send `SIGTERM` + deny
 - `kill`: escalate `TERM -> KILL` based on strike threshold/window
 - `int`: send `SIGINT` + deny
+
+Exec identity fallback (audit-only):
+- If kernel exec-identity enforcement is unavailable, audit mode may use
+  userspace hash validation on exec events.
+- `--allow-unknown-binary-identity` remains break-glass behavior for hash read
+  failures in this fallback path.
+- Enforce mode fails closed when `[allow_binary_hash]` is active but kernel exec
+  identity prerequisites are missing.
 
 ## Signed bundle semantics
 

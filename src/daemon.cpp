@@ -13,17 +13,23 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <csignal>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 #include "bpf_ops.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
+#include "exec_identity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
+#include "policy.hpp"
 #include "seccomp.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
@@ -34,7 +40,84 @@ namespace aegis {
 namespace {
 volatile sig_atomic_t g_exiting = 0;
 std::atomic<bool> g_heartbeat_running{false};
+std::atomic<int> g_forced_exit_code{0};
 Result<void> setup_agent_cgroup(BpfState& state);
+
+enum class RuntimeState { Enforce, AuditFallback, Degraded };
+
+struct RuntimeStateTracker {
+    RuntimeState current = RuntimeState::Enforce;
+    uint64_t transition_id = 0;
+    uint64_t degradation_count = 0;
+    bool strict_mode = false;
+    bool enforce_requested = false;
+};
+
+std::mutex g_runtime_state_mu;
+RuntimeStateTracker g_runtime_state;
+
+const char* runtime_state_name(RuntimeState state)
+{
+    switch (state) {
+        case RuntimeState::Enforce:
+            return "ENFORCE";
+        case RuntimeState::AuditFallback:
+            return "AUDIT_FALLBACK";
+        case RuntimeState::Degraded:
+            return "DEGRADED";
+    }
+    return "DEGRADED";
+}
+
+void reset_runtime_state(bool strict_mode, bool enforce_requested)
+{
+    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+    g_runtime_state = RuntimeStateTracker{};
+    g_runtime_state.strict_mode = strict_mode;
+    g_runtime_state.enforce_requested = enforce_requested;
+}
+
+RuntimeStateTracker snapshot_runtime_state()
+{
+    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+    return g_runtime_state;
+}
+
+void emit_runtime_state_change(RuntimeState state, const std::string& reason_code, const std::string& detail)
+{
+    RuntimeStateTracker snapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+        g_runtime_state.current = state;
+        ++g_runtime_state.transition_id;
+        if (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded) {
+            ++g_runtime_state.degradation_count;
+        }
+        snapshot = g_runtime_state;
+    }
+
+    emit_state_change_event(runtime_state_name(state), reason_code, detail, snapshot.strict_mode,
+                            snapshot.transition_id, snapshot.degradation_count);
+
+    logger().log(SLOG_INFO("AEGIS_STATE_CHANGE")
+                     .field("event", "AEGIS_STATE_CHANGE")
+                     .field("event_version", static_cast<int64_t>(1))
+                     .field("state", runtime_state_name(state))
+                     .field("reason_code", reason_code)
+                     .field("detail", detail)
+                     .field("strict_mode", snapshot.strict_mode)
+                     .field("transition_id", static_cast<int64_t>(snapshot.transition_id))
+                     .field("degradation_count", static_cast<int64_t>(snapshot.degradation_count)));
+
+    if (snapshot.strict_mode && snapshot.enforce_requested &&
+        (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded)) {
+        logger().log(SLOG_ERROR("Strict degrade mode triggered failure")
+                         .field("reason_code", reason_code)
+                         .field("state", runtime_state_name(state)));
+        g_forced_exit_code.store(1);
+        g_exiting = 1;
+    }
+}
 
 // Production defaults for daemon dependencies
 DaemonDeps make_default_deps()
@@ -60,6 +143,36 @@ void handle_signal(int)
     g_exiting = 1;
 }
 
+class ScopedEnvOverride {
+  public:
+    ScopedEnvOverride(const char* key, const char* value) : key_(key)
+    {
+        const char* existing = std::getenv(key_);
+        if (existing != nullptr) {
+            had_previous_ = true;
+            previous_ = existing;
+        }
+        ::setenv(key_, value, 1);
+    }
+
+    ~ScopedEnvOverride()
+    {
+        if (had_previous_) {
+            ::setenv(key_, previous_.c_str(), 1);
+        } else {
+            ::unsetenv(key_);
+        }
+    }
+
+    ScopedEnvOverride(const ScopedEnvOverride&) = delete;
+    ScopedEnvOverride& operator=(const ScopedEnvOverride&) = delete;
+
+  private:
+    const char* key_;
+    bool had_previous_ = false;
+    std::string previous_;
+};
+
 void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_threshold,
                       uint32_t deny_rate_breach_limit)
 {
@@ -70,6 +183,8 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
 
     uint64_t last_block_count = 0;
     uint32_t rate_breach_count = 0;
+    bool deny_rate_state_emitted = false;
+    bool map_capacity_state_emitted = false;
 
     // Seed initial block count
     if (deny_rate_threshold > 0 && state->block_stats) {
@@ -118,6 +233,12 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                             logger().log(SLOG_ERROR("Auto-revert: deny rate exceeded threshold, switched to audit-only")
                                              .field("rate", rate)
                                              .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
+                            if (!deny_rate_state_emitted) {
+                                deny_rate_state_emitted = true;
+                                emit_runtime_state_change(RuntimeState::AuditFallback, "DENY_RATE_THRESHOLD_EXCEEDED",
+                                                          "rate=" + std::to_string(rate) +
+                                                              ",threshold=" + std::to_string(deny_rate_threshold));
+                            }
                         } else {
                             logger().log(
                                 SLOG_ERROR("Auto-revert failed").field("error", revert_result.error().to_string()));
@@ -141,6 +262,12 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                                      .field("map", m.name)
                                      .field("entries", static_cast<int64_t>(m.entry_count))
                                      .field("max_entries", static_cast<int64_t>(m.max_entries)));
+                    if (!map_capacity_state_emitted) {
+                        map_capacity_state_emitted = true;
+                        emit_runtime_state_change(RuntimeState::Degraded, "MAP_CAPACITY_EXCEEDED",
+                                                  "map=" + m.name + ",entries=" + std::to_string(m.entry_count) +
+                                                      ",max=" + std::to_string(m.max_entries));
+                    }
                 }
             }
         } else if (pressure.any_critical) {
@@ -218,6 +345,194 @@ const char* enforce_signal_name(uint8_t signal)
         default:
             return "sigterm";
     }
+}
+
+std::string applied_policy_path_from_env()
+{
+    const char* env = std::getenv("AEGIS_POLICY_APPLIED_PATH");
+    if (env && *env) {
+        return std::string(env);
+    }
+    return kPolicyAppliedPath;
+}
+
+std::string capabilities_report_path_from_env()
+{
+    const char* env = std::getenv("AEGIS_CAPABILITIES_REPORT_PATH");
+    if (env && *env) {
+        return std::string(env);
+    }
+    return kCapabilitiesReportPath;
+}
+
+void on_exec_identity_event(void* user_ctx, const ExecEvent& ev)
+{
+    auto* enforcer = static_cast<ExecIdentityEnforcer*>(user_ctx);
+    if (!enforcer) {
+        return;
+    }
+    enforcer->on_exec(ev);
+}
+
+Result<bool> read_exec_identity_mode_enabled(const BpfState& state)
+{
+    if (!state.exec_identity_mode) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Exec identity mode map not available");
+    }
+    uint32_t key = 0;
+    uint8_t value = 0;
+    if (bpf_map_lookup_elem(bpf_map__fd(state.exec_identity_mode), &key, &value) == 0) {
+        return value != 0;
+    }
+    if (errno == ENOENT) {
+        return false;
+    }
+    return Error::system(errno, "Failed to read exec identity mode map");
+}
+
+struct AppliedPolicyRequirements {
+    bool snapshot_present = false;
+    bool parse_ok = false;
+    bool network_required = false;
+    bool network_connect_required = false;
+    bool network_bind_required = false;
+    bool exec_identity_required = false;
+    size_t network_rule_count = 0;
+    std::vector<std::string> allow_binary_hashes;
+};
+
+Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::string& policy_path)
+{
+    AppliedPolicyRequirements req{};
+    std::error_code ec;
+    req.snapshot_present = std::filesystem::exists(policy_path, ec);
+    if (ec) {
+        return Error(ErrorCode::IoError, "Failed to check applied policy snapshot", ec.message());
+    }
+    if (!req.snapshot_present) {
+        req.parse_ok = false;
+        return req;
+    }
+
+    PolicyIssues issues;
+    auto parsed = parse_policy_file(policy_path, issues);
+    if (!parsed) {
+        if (!issues.errors.empty()) {
+            return Error(ErrorCode::PolicyParseFailed, "Failed to parse applied policy snapshot",
+                         issues.errors.front());
+        }
+        return parsed.error();
+    }
+
+    req.parse_ok = true;
+    req.allow_binary_hashes = parsed->allow_binary_hashes;
+    req.exec_identity_required = !req.allow_binary_hashes.empty();
+    req.network_rule_count =
+        parsed->network.deny_ips.size() + parsed->network.deny_cidrs.size() + parsed->network.deny_ports.size();
+
+    if (!parsed->network.deny_ips.empty() || !parsed->network.deny_cidrs.empty()) {
+        req.network_connect_required = true;
+    }
+    for (const auto& port_rule : parsed->network.deny_ports) {
+        if (port_rule.direction == 0 || port_rule.direction == 2) {
+            req.network_connect_required = true;
+        }
+        if (port_rule.direction == 1 || port_rule.direction == 2) {
+            req.network_bind_required = true;
+        }
+    }
+    req.network_required = req.network_connect_required || req.network_bind_required;
+    return req;
+}
+
+Result<void> write_capabilities_report(const std::string& output_path, const KernelFeatures& features,
+                                       EnforcementCapability capability, bool audit_only, bool lsm_enabled,
+                                       bool file_open_hook_attached, bool inode_permission_hook_attached,
+                                       const BpfState& state, const std::string& applied_policy_path,
+                                       const AppliedPolicyRequirements& policy_req, bool kernel_exec_identity_enabled,
+                                       size_t kernel_exec_identity_entries,
+                                       size_t userspace_exec_identity_allowlist_size,
+                                       const RuntimeStateTracker& runtime_state)
+{
+    std::error_code ec;
+    const std::filesystem::path report_path(output_path);
+    const std::filesystem::path parent = report_path.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            return Error(ErrorCode::IoError, "Failed to create capabilities report directory", ec.message());
+        }
+    }
+
+    const bool bpffs = check_bpffs_mounted();
+    const bool core_supported = features.btf && features.bpf_syscall;
+    const bool network_requirements_met =
+        (!policy_req.network_connect_required || state.socket_connect_hook_attached) &&
+        (!policy_req.network_bind_required || state.socket_bind_hook_attached);
+    const bool exec_identity_requirements_met =
+        !policy_req.exec_identity_required || kernel_exec_identity_enabled || (audit_only && policy_req.parse_ok);
+
+    return atomic_write_stream(output_path, [&](std::ostream& out) -> bool {
+        out << "{\n";
+        out << "  \"schema_version\": 1,\n";
+        out << "  \"generated_at_unix\": " << static_cast<int64_t>(std::time(nullptr)) << ",\n";
+        out << "  \"kernel_version\": \"" << json_escape(features.kernel_version) << "\",\n";
+        out << "  \"capability\": \"" << json_escape(capability_name(capability)) << "\",\n";
+        out << "  \"audit_only\": " << (audit_only ? "true" : "false") << ",\n";
+        out << "  \"runtime_state\": \"" << runtime_state_name(runtime_state.current) << "\",\n";
+        out << "  \"lsm_enabled\": " << (lsm_enabled ? "true" : "false") << ",\n";
+        out << "  \"core_supported\": " << (core_supported ? "true" : "false") << ",\n";
+        out << "  \"features\": {\n";
+        out << "    \"bpf_lsm\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
+        out << "    \"cgroup_v2\": " << (features.cgroup_v2 ? "true" : "false") << ",\n";
+        out << "    \"btf\": " << (features.btf ? "true" : "false") << ",\n";
+        out << "    \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
+        out << "    \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
+        out << "    \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
+        out << "    \"bpffs\": " << (bpffs ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"hooks\": {\n";
+        out << "    \"lsm_file_open\": " << (file_open_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_inode_permission\": " << (inode_permission_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_bprm_check_security\": " << (state.exec_identity_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_socket_connect\": " << (state.socket_connect_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_socket_bind\": " << (state.socket_bind_hook_attached ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"policy\": {\n";
+        out << "    \"applied_path\": \"" << json_escape(applied_policy_path) << "\",\n";
+        out << "    \"snapshot_present\": " << (policy_req.snapshot_present ? "true" : "false") << ",\n";
+        out << "    \"parse_ok\": " << (policy_req.parse_ok ? "true" : "false") << ",\n";
+        out << "    \"network_rule_count\": " << static_cast<int64_t>(policy_req.network_rule_count) << ",\n";
+        out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
+            << "\n";
+        out << "  },\n";
+        out << "  \"requirements\": {\n";
+        out << "    \"network_enforcement_required\": " << (policy_req.network_required ? "true" : "false") << ",\n";
+        out << "    \"network_connect_required\": " << (policy_req.network_connect_required ? "true" : "false")
+            << ",\n";
+        out << "    \"network_bind_required\": " << (policy_req.network_bind_required ? "true" : "false") << ",\n";
+        out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"requirements_met\": {\n";
+        out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
+        out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << "\n";
+        out << "  },\n";
+        out << "  \"exec_identity\": {\n";
+        out << "    \"kernel_enabled\": " << (kernel_exec_identity_enabled ? "true" : "false") << ",\n";
+        out << "    \"kernel_allow_exec_inode_entries\": " << static_cast<int64_t>(kernel_exec_identity_entries)
+            << ",\n";
+        out << "    \"userspace_fallback_allowlist_entries\": "
+            << static_cast<int64_t>(userspace_exec_identity_allowlist_size) << "\n";
+        out << "  },\n";
+        out << "  \"state_transitions\": {\n";
+        out << "    \"total\": " << static_cast<int64_t>(runtime_state.transition_id) << ",\n";
+        out << "    \"degradation_total\": " << static_cast<int64_t>(runtime_state.degradation_count) << ",\n";
+        out << "    \"strict_mode\": " << (runtime_state.strict_mode ? "true" : "false") << ",\n";
+        out << "    \"enforce_requested\": " << (runtime_state.enforce_requested ? "true" : "false") << "\n";
+        out << "  }\n";
+        out << "}\n";
+        return out.good();
+    });
 }
 
 Result<void> validate_attach_contract(const BpfState& state, bool lsm_enabled, bool use_inode_permission,
@@ -411,7 +726,8 @@ void reset_attach_all_for_test()
 int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit)
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
+               bool allow_unknown_binary_identity, bool strict_degrade)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -419,12 +735,19 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         root_span.fail(message);
         return 1;
     };
+    g_exiting = 0;
+    g_forced_exit_code.store(0);
+
+    const bool enforce_requested = !audit_only;
+    reset_runtime_state(strict_degrade, enforce_requested);
 
     // Check for break-glass mode FIRST
     bool break_glass_active = g_deps.detect_break_glass();
     if (break_glass_active) {
         logger().log(SLOG_WARN("Break-glass mode detected - forcing audit-only mode"));
         audit_only = true;
+        emit_runtime_state_change(RuntimeState::AuditFallback, "BREAK_GLASS_ACTIVE",
+                                  "break_glass marker file detected");
     }
 
     if (enforce_signal != kEnforceSignalNone && enforce_signal != kEnforceSignalInt &&
@@ -508,15 +831,31 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
 
     bool lsm_enabled = features.bpf_lsm;
 
+    bool startup_state_emitted = false;
     if (cap == EnforcementCapability::AuditOnly) {
         if (!audit_only) {
             logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
                              .field("explanation", capability_explanation(features, cap)));
             audit_only = true;
+            emit_runtime_state_change(RuntimeState::AuditFallback, "CAPABILITY_AUDIT_ONLY",
+                                      capability_explanation(features, cap));
+            startup_state_emitted = true;
         } else {
             logger().log(
                 SLOG_INFO("Running in audit-only mode").field("explanation", capability_explanation(features, cap)));
         }
+    }
+    if (!startup_state_emitted) {
+        if (audit_only) {
+            emit_runtime_state_change(RuntimeState::AuditFallback, "STARTUP_AUDIT_MODE",
+                                      "agent started in audit-only mode");
+        } else {
+            emit_runtime_state_change(RuntimeState::Enforce, "STARTUP_ENFORCE_READY",
+                                      "kernel supports enforce-capable mode");
+        }
+    }
+    if (g_forced_exit_code.load() != 0) {
+        return fail("Strict degrade mode triggered failure");
     }
 
     auto rlimit_result = g_deps.bump_memlock_rlimit();
@@ -529,6 +868,19 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         set_ringbuf_bytes(ringbuf_bytes);
     }
 
+    // Enforce BPF hash verification in enforce mode. Allowing unsigned BPF is a
+    // break-glass option and must be explicitly requested.
+    std::unique_ptr<ScopedEnvOverride> require_hash_override;
+    std::unique_ptr<ScopedEnvOverride> allow_unsigned_override;
+    if (!audit_only) {
+        require_hash_override = std::make_unique<ScopedEnvOverride>("AEGIS_REQUIRE_BPF_HASH", "1");
+    }
+    if (allow_unsigned_bpf) {
+        allow_unsigned_override = std::make_unique<ScopedEnvOverride>("AEGIS_ALLOW_UNSIGNED_BPF", "1");
+        logger().log(SLOG_WARN("Break-glass enabled: accepting unsigned or mismatched BPF object")
+                         .field("flag", "--allow-unsigned-bpf"));
+    }
+
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
@@ -538,6 +890,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     if (!load_result) {
         load_span.fail(load_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
+        const std::string load_error = load_result.error().to_string();
+        if (load_error.find("verifier") != std::string::npos || load_error.find("Verifier") != std::string::npos) {
+            emit_runtime_state_change(RuntimeState::Degraded, "BPF_VERIFIER_REJECT", load_error);
+        } else {
+            emit_runtime_state_change(RuntimeState::Degraded, "BPF_LOAD_FAILED", load_error);
+        }
         return fail(load_result.error().to_string());
     }
 
@@ -608,8 +966,130 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         return fail(attach_contract_result.error().to_string());
     }
 
-    RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event, nullptr, nullptr));
+    std::unique_ptr<ExecIdentityEnforcer> exec_identity_enforcer;
+    EventCallbacks event_callbacks{};
+    bool kernel_exec_identity_enabled = false;
+    size_t kernel_exec_identity_entries = 0;
+    const std::string applied_policy_path = applied_policy_path_from_env();
+    const std::string capabilities_report_path = capabilities_report_path_from_env();
+    AppliedPolicyRequirements policy_req{};
+    {
+        auto req_result = load_applied_policy_requirements(applied_policy_path);
+        if (!req_result) {
+            logger().log(SLOG_ERROR("Failed to evaluate applied policy requirements")
+                             .field("path", applied_policy_path)
+                             .field("error", req_result.error().to_string()));
+            return fail(req_result.error().to_string());
+        }
+        policy_req = *req_result;
+
+        if (policy_req.network_required) {
+            const bool connect_ok = !policy_req.network_connect_required || state.socket_connect_hook_attached;
+            const bool bind_ok = !policy_req.network_bind_required || state.socket_bind_hook_attached;
+            if (!connect_ok || !bind_ok) {
+                if (!audit_only) {
+                    emit_runtime_state_change(
+                        RuntimeState::Degraded, "NETWORK_HOOK_UNAVAILABLE",
+                        "connect_required=" + std::string(policy_req.network_connect_required ? "true" : "false") +
+                            ",bind_required=" + std::string(policy_req.network_bind_required ? "true" : "false") +
+                            ",connect_hook_attached=" +
+                            std::string(state.socket_connect_hook_attached ? "true" : "false") +
+                            ",bind_hook_attached=" + std::string(state.socket_bind_hook_attached ? "true" : "false"));
+                    logger().log(SLOG_ERROR("Network policy requires unavailable kernel hooks")
+                                     .field("policy", applied_policy_path)
+                                     .field("connect_required", policy_req.network_connect_required)
+                                     .field("bind_required", policy_req.network_bind_required)
+                                     .field("connect_hook_attached", state.socket_connect_hook_attached)
+                                     .field("bind_hook_attached", state.socket_bind_hook_attached));
+                    return fail("Network policy is active but required kernel hooks are unavailable");
+                }
+                emit_runtime_state_change(RuntimeState::AuditFallback, "NETWORK_HOOK_UNAVAILABLE",
+                                          "audit mode fallback for missing network hooks");
+                logger().log(SLOG_WARN("Network policy hooks unavailable; running in audit-only fallback")
+                                 .field("policy", applied_policy_path)
+                                 .field("connect_required", policy_req.network_connect_required)
+                                 .field("bind_required", policy_req.network_bind_required)
+                                 .field("connect_hook_attached", state.socket_connect_hook_attached)
+                                 .field("bind_hook_attached", state.socket_bind_hook_attached));
+                if (g_forced_exit_code.load() != 0) {
+                    return fail("Strict degrade mode triggered failure");
+                }
+            }
+        }
+
+        if (policy_req.exec_identity_required) {
+            kernel_exec_identity_entries = map_entry_count(state.allow_exec_inode);
+
+            auto exec_mode_result = read_exec_identity_mode_enabled(state);
+            if (!exec_mode_result) {
+                logger().log(SLOG_ERROR("Failed to read exec identity kernel mode state")
+                                 .field("error", exec_mode_result.error().to_string()));
+                return fail(exec_mode_result.error().to_string());
+            }
+
+            bool kernel_exec_identity_ready =
+                lsm_enabled && state.exec_identity_hook_attached && state.allow_exec_inode != nullptr &&
+                state.exec_identity_mode != nullptr && *exec_mode_result && kernel_exec_identity_entries > 0;
+
+            if (kernel_exec_identity_ready) {
+                kernel_exec_identity_enabled = true;
+                logger().log(SLOG_INFO("Kernel exec identity enforcement enabled")
+                                 .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                                 .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
+                                 .field("policy", applied_policy_path));
+            } else if (!audit_only) {
+                emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE",
+                                          "kernel hook and allowlist prerequisites not satisfied");
+                logger().log(
+                    SLOG_ERROR("Exec identity policy requires kernel hook and populated allowlist")
+                        .field("policy", applied_policy_path)
+                        .field("lsm_enabled", lsm_enabled)
+                        .field("hook_attached", state.exec_identity_hook_attached)
+                        .field("exec_mode_enabled", *exec_mode_result)
+                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                return fail("Exec identity policy is active but kernel enforcement is unavailable");
+            } else {
+                emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                          "userspace audit fallback enabled");
+                exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
+                    policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
+                event_callbacks.on_exec = on_exec_identity_event;
+                event_callbacks.user_ctx = exec_identity_enforcer.get();
+                logger().log(
+                    SLOG_WARN("Falling back to userspace exec identity checks in audit mode")
+                        .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
+                        .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+                        .field("kernel_hook_attached", state.exec_identity_hook_attached)
+                        .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                if (g_forced_exit_code.load() != 0) {
+                    return fail("Strict degrade mode triggered failure");
+                }
+            }
+        }
+    }
+
+    {
+        const bool file_open_hook_attached = lsm_enabled && use_file_open;
+        const bool inode_permission_hook_attached = lsm_enabled && use_inode_permission;
+        RuntimeStateTracker runtime_state = snapshot_runtime_state();
+        auto report_result = write_capabilities_report(
+            capabilities_report_path, features, cap, audit_only, lsm_enabled, file_open_hook_attached,
+            inode_permission_hook_attached, state, applied_policy_path, policy_req, kernel_exec_identity_enabled,
+            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0,
+            runtime_state);
+        if (!report_result) {
+            logger().log(SLOG_WARN("Failed to write capability report")
+                             .field("path", capabilities_report_path)
+                             .field("error", report_result.error().to_string()));
+        } else {
+            logger().log(SLOG_INFO("Capability report written").field("path", capabilities_report_path));
+        }
+    }
+
+    RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event,
+                                        event_callbacks.on_exec ? &event_callbacks : nullptr, nullptr));
     if (!rb) {
+        emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_CREATE_FAILED", "ring_buffer__new returned null");
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
         return fail("Failed to create ring buffer");
     }
@@ -627,9 +1107,11 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
+    RuntimeStateTracker runtime_state = snapshot_runtime_state();
     logger().log(
         SLOG_INFO("Agent started")
             .field("audit_only", audit_only)
+            .field("strict_degrade", strict_degrade)
             .field("enforce_signal", enforce_signal_name(config.enforce_signal))
             .field("lsm_enabled", lsm_enabled)
             .field("lsm_hook", lsm_hook_name(lsm_hook))
@@ -640,7 +1122,15 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
             .field("seccomp", enable_seccomp)
             .field("break_glass", break_glass_active)
-            .field("deadman_ttl", static_cast<int64_t>(deadman_ttl)));
+            .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
+            .field("exec_identity_kernel", kernel_exec_identity_enabled)
+            .field("exec_identity_allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
+            .field("exec_identity_userspace_fallback",
+                   static_cast<int64_t>(exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0))
+            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+            .field("runtime_state", runtime_state_name(runtime_state.current))
+            .field("state_transition_total", static_cast<int64_t>(runtime_state.transition_id))
+            .field("state_degradation_total", static_cast<int64_t>(runtime_state.degradation_count)));
 
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;
@@ -662,6 +1152,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             break;
         }
         if (err < 0) {
+            emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_POLL_FAILED",
+                                      "ring_buffer__poll error=" + std::to_string(-err));
             event_loop_span.fail("Ring buffer poll failed");
             logger().log(SLOG_ERROR("Ring buffer poll failed").error_code(-err));
             break;
@@ -675,6 +1167,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     logger().log(SLOG_INFO("Agent stopped"));
+    if (g_forced_exit_code.load() != 0) {
+        return fail("Strict degrade mode triggered failure");
+    }
     if (err < 0) {
         return fail("Ring buffer poll failed");
     }

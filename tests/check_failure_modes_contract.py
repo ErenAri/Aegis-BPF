@@ -38,6 +38,8 @@ def main() -> int:
         # BPF load/verifier failure paths.
         "TracingTest.DaemonRunMarksLoadSpanErrorWhenLoadBpfFails",
         "TracingTest.DaemonRunSurfacesVerifierRejectError",
+        # Strict degrade fail-closed path.
+        "TracingTest.DaemonRunStrictDegradeFailsWhenEnforceFallsBack",
     }
 
     missing = sorted(required - discovered)

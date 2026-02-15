@@ -1,7 +1,10 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -43,6 +46,39 @@ class TracingEnvGuard {
     bool had_previous_{false};
     std::string previous_;
 };
+
+class ScopedEnvVar {
+  public:
+    ScopedEnvVar(const char* key, const std::string& value) : key_(key)
+    {
+        const char* current = std::getenv(key_);
+        if (current != nullptr) {
+            had_previous_ = true;
+            previous_ = current;
+        }
+        setenv(key_, value.c_str(), 1);
+    }
+
+    ~ScopedEnvVar()
+    {
+        if (had_previous_) {
+            setenv(key_, previous_.c_str(), 1);
+        } else {
+            unsetenv(key_);
+        }
+    }
+
+  private:
+    const char* key_;
+    bool had_previous_{false};
+    std::string previous_;
+};
+
+std::string make_temp_file_path(const std::string& prefix, const std::string& suffix)
+{
+    std::filesystem::path base = std::filesystem::temp_directory_path();
+    return (base / (prefix + "_" + std::to_string(getpid()) + "_" + std::to_string(std::rand()) + suffix)).string();
+}
 
 } // namespace
 
@@ -121,6 +157,22 @@ Result<KernelFeatures> test_detect_full()
     return features;
 }
 
+Result<KernelFeatures> test_detect_audit_only()
+{
+    KernelFeatures features{};
+    features.bpf_lsm = false;
+    features.ringbuf = true;
+    features.cgroup_v2 = true;
+    features.btf = true;
+    features.bpf_syscall = true;
+    features.tracepoints = true;
+    features.kernel_version = "6.6.0";
+    features.kernel_major = 6;
+    features.kernel_minor = 6;
+    features.kernel_patch = 0;
+    return features;
+}
+
 bool test_break_glass_true()
 {
     return true;
@@ -176,6 +228,30 @@ Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled,
     state.attach_contract_valid = true;
     state.file_hooks_expected = lsm_enabled ? 2 : 1;
     state.file_hooks_attached = 1;
+    return {};
+}
+
+Result<void> test_attach_all_full_contract_no_network_hooks(BpfState& state, bool lsm_enabled,
+                                                            bool use_inode_permission, bool use_file_open)
+{
+    state.attach_contract_valid = true;
+    if (lsm_enabled) {
+        uint8_t expected = 0;
+        if (use_inode_permission) {
+            ++expected;
+        }
+        if (use_file_open) {
+            ++expected;
+        }
+        state.file_hooks_expected = expected;
+        state.file_hooks_attached = expected;
+    } else {
+        state.file_hooks_expected = 1;
+        state.file_hooks_attached = 1;
+    }
+    state.socket_connect_hook_attached = false;
+    state.socket_bind_hook_attached = false;
+    state.exec_identity_hook_attached = false;
     return {};
 }
 
@@ -407,6 +483,29 @@ TEST(TracingTest, DaemonRunSurfacesVerifierRejectError)
     EXPECT_NE(log.find("\"span_name\":\"daemon.load_bpf\""), std::string::npos);
     EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
     EXPECT_NE(log.find("BPF verifier rejected test program"), std::string::npos);
+    EXPECT_NE(log.find("AEGIS_STATE_CHANGE"), std::string::npos);
+    EXPECT_NE(log.find("BPF_VERIFIER_REJECT"), std::string::npos);
+}
+
+TEST(TracingTest, DaemonRunStrictDegradeFailsWhenEnforceFallsBack)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+    {
+        DaemonHookGuard hooks(test_config_ok, test_detect_audit_only);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault, 0, 3, false,
+                            false, true);
+        EXPECT_EQ(rc, 1);
+    }
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("CAPABILITY_AUDIT_ONLY"), std::string::npos);
+    EXPECT_NE(log.find("Strict degrade mode triggered failure"), std::string::npos);
 }
 
 TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)
@@ -456,6 +555,76 @@ TEST(TracingTest, DaemonRunRejectsSilentPartialAttachContract)
     EXPECT_NE(log.find("Attach contract validation failed"), std::string::npos);
     EXPECT_NE(log.find("hooks_expected"), std::string::npos);
     EXPECT_NE(log.find("hooks_attached"), std::string::npos);
+}
+
+TEST(TracingTest, DaemonRunFailsClosedWhenNetworkPolicyHooksMissing)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+
+    const std::string policy_path = make_temp_file_path("aegis_policy", ".conf");
+    {
+        std::ofstream policy(policy_path);
+        ASSERT_TRUE(policy.is_open());
+        policy << "version=2\n\n[deny_cidr]\n10.0.0.0/8\n";
+    }
+    const std::string capabilities_path = make_temp_file_path("aegis_caps", ".json");
+
+    {
+        ScopedEnvVar policy_env("AEGIS_POLICY_APPLIED_PATH", policy_path);
+        ScopedEnvVar report_env("AEGIS_CAPABILITIES_REPORT_PATH", capabilities_path);
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
+                              test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
+                              test_setup_agent_cgroup_ok, test_attach_all_full_contract_no_network_hooks);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("Network policy requires unavailable kernel hooks"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(policy_path, ec);
+    std::filesystem::remove(capabilities_path, ec);
+}
+
+TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
+{
+    TracingEnvGuard env("1");
+    const std::string capabilities_path = make_temp_file_path("aegis_caps", ".json");
+
+    {
+        ScopedEnvVar report_env("AEGIS_CAPABILITIES_REPORT_PATH", capabilities_path);
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
+                              test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
+                              test_setup_agent_cgroup_ok, test_attach_all_full_contract_no_network_hooks);
+        int rc = daemon_run(true, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+
+    std::ifstream report(capabilities_path);
+    ASSERT_TRUE(report.is_open());
+    std::stringstream buffer;
+    buffer << report.rdbuf();
+    const std::string payload = buffer.str();
+    EXPECT_NE(payload.find("\"schema_version\": 1"), std::string::npos);
+    EXPECT_NE(payload.find("\"features\""), std::string::npos);
+    EXPECT_NE(payload.find("\"hooks\""), std::string::npos);
+    EXPECT_NE(payload.find("\"requirements\""), std::string::npos);
+    EXPECT_NE(payload.find("\"runtime_state\": \"AUDIT_FALLBACK\""), std::string::npos);
+    EXPECT_NE(payload.find("\"state_transitions\""), std::string::npos);
+    EXPECT_NE(payload.find("\"strict_mode\": false"), std::string::npos);
+    EXPECT_NE(payload.find("\"enforce_requested\": false"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(capabilities_path, ec);
 }
 
 } // namespace aegis

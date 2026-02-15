@@ -180,6 +180,32 @@ without root privileges:
 ./build/aegisbpf_bench --benchmark_format=json
 ```
 
+For CI comparison on shared hosted runners, filter out high-noise rows and use
+primary mean rows only:
+
+```bash
+./build/aegisbpf_bench \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=16 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_out=benchmark.raw.json \
+  --benchmark_out_format=json
+python3 scripts/filter_benchmark_results.py \
+  --input benchmark.raw.json \
+  --output benchmark.json \
+  --min-mean-time-ns 50 \
+  --focus-pattern-file config/benchmark_focus_patterns.txt
+```
+
+The filter drops `stddev`/`cv` rows (and non-primary aggregate suffix rows),
+removes very short operations (`<50ns`), and keeps only high-signal benchmark
+families from `config/benchmark_focus_patterns.txt` so alerts track real
+latency shifts rather than variance artifacts. When aggregate rows exist,
+per-repetition raw rows are removed and only `mean` aggregates are kept.
+
+`benchmark.yml` uses this filtered result for advisory trend tracking. Strict
+pass/fail performance policy remains in `.github/workflows/perf.yml`.
+
 ### Syscall-level benchmarks
 
 Syscall benchmarks measure actual `open()` and `connect()` latency with BPF

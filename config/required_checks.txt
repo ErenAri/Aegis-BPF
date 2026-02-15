@@ -3,6 +3,7 @@ build (ubuntu-22.04)
 build (ubuntu-24.04)
 clang-tidy
 coverage
+e2e
 lint
 label-contract
 required-checks-contract

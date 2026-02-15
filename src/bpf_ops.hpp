@@ -39,6 +39,8 @@ class BpfState {
             deny_inode = other.deny_inode;
             deny_path = other.deny_path;
             allow_cgroup = other.allow_cgroup;
+            allow_exec_inode = other.allow_exec_inode;
+            exec_identity_mode = other.exec_identity_mode;
             block_stats = other.block_stats;
             deny_cgroup_stats = other.deny_cgroup_stats;
             deny_inode_stats = other.deny_inode_stats;
@@ -50,6 +52,8 @@ class BpfState {
             inode_reused = other.inode_reused;
             deny_path_reused = other.deny_path_reused;
             cgroup_reused = other.cgroup_reused;
+            allow_exec_inode_reused = other.allow_exec_inode_reused;
+            exec_identity_mode_reused = other.exec_identity_mode_reused;
             block_stats_reused = other.block_stats_reused;
             deny_cgroup_stats_reused = other.deny_cgroup_stats_reused;
             deny_inode_stats_reused = other.deny_inode_stats_reused;
@@ -77,6 +81,9 @@ class BpfState {
             attach_contract_valid = other.attach_contract_valid;
             file_hooks_expected = other.file_hooks_expected;
             file_hooks_attached = other.file_hooks_attached;
+            exec_identity_hook_attached = other.exec_identity_hook_attached;
+            socket_connect_hook_attached = other.socket_connect_hook_attached;
+            socket_bind_hook_attached = other.socket_bind_hook_attached;
 
             // Reset other to prevent double-free
             other.obj = nullptr;
@@ -84,6 +91,8 @@ class BpfState {
             other.deny_inode = nullptr;
             other.deny_path = nullptr;
             other.allow_cgroup = nullptr;
+            other.allow_exec_inode = nullptr;
+            other.exec_identity_mode = nullptr;
             other.block_stats = nullptr;
             other.deny_cgroup_stats = nullptr;
             other.deny_inode_stats = nullptr;
@@ -104,6 +113,8 @@ class BpfState {
             other.inode_reused = false;
             other.deny_path_reused = false;
             other.cgroup_reused = false;
+            other.allow_exec_inode_reused = false;
+            other.exec_identity_mode_reused = false;
             other.block_stats_reused = false;
             other.deny_cgroup_stats_reused = false;
             other.deny_inode_stats_reused = false;
@@ -122,6 +133,9 @@ class BpfState {
             other.attach_contract_valid = false;
             other.file_hooks_expected = 0;
             other.file_hooks_attached = 0;
+            other.exec_identity_hook_attached = false;
+            other.socket_connect_hook_attached = false;
+            other.socket_bind_hook_attached = false;
             other.links.clear();
         }
         return *this;
@@ -140,6 +154,8 @@ class BpfState {
     bpf_map* deny_inode = nullptr;
     bpf_map* deny_path = nullptr;
     bpf_map* allow_cgroup = nullptr;
+    bpf_map* allow_exec_inode = nullptr;
+    bpf_map* exec_identity_mode = nullptr;
     bpf_map* block_stats = nullptr;
     bpf_map* deny_cgroup_stats = nullptr;
     bpf_map* deny_inode_stats = nullptr;
@@ -152,6 +168,8 @@ class BpfState {
     bool inode_reused = false;
     bool deny_path_reused = false;
     bool cgroup_reused = false;
+    bool allow_exec_inode_reused = false;
+    bool exec_identity_mode_reused = false;
     bool block_stats_reused = false;
     bool deny_cgroup_stats_reused = false;
     bool deny_inode_stats_reused = false;
@@ -186,6 +204,20 @@ class BpfState {
     bool attach_contract_valid = false;
     uint8_t file_hooks_expected = 0;
     uint8_t file_hooks_attached = 0;
+    bool exec_identity_hook_attached = false;
+    bool socket_connect_hook_attached = false;
+    bool socket_bind_hook_attached = false;
+};
+
+struct BpfIntegrityStatus {
+    std::string object_path;
+    std::string hash_path;
+    bool object_exists = false;
+    bool hash_exists = false;
+    bool hash_verified = false;
+    bool allow_unsigned = false;
+    bool require_hash = false;
+    std::string reason; // empty, bpf_hash_missing, bpf_hash_mismatch
 };
 
 // BPF loading and lifecycle
@@ -229,12 +261,15 @@ Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& ent
 Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries);
 Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid);
 Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path);
+Result<void> add_allow_exec_inode(BpfState& state, const InodeId& id);
+Result<void> set_exec_identity_mode(BpfState& state, bool enabled);
 
 // FD-accepting overloads for shadow map population
 Result<void> add_deny_inode_to_fd(int inode_fd, const InodeId& id, DenyEntries& entries);
 Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& path, DenyEntries& entries);
 Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
 Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
+Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id);
 
 // Shadow map support for crash-safe policy application
 class ShadowMap {
@@ -257,6 +292,7 @@ struct ShadowMapSet {
     ShadowMap deny_inode;
     ShadowMap deny_path;
     ShadowMap allow_cgroup;
+    ShadowMap allow_exec_inode;
     ShadowMap deny_ipv4;
     ShadowMap deny_ipv6;
     ShadowMap deny_port;
@@ -295,6 +331,9 @@ Result<bool> check_prereqs();
 
 // BPF object path resolution
 std::string resolve_bpf_obj_path();
+bool allow_unsigned_bpf_enabled();
+bool require_bpf_hash_enabled();
+Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned);
 
 // RAII wrapper for ring_buffer
 class RingBufferGuard {

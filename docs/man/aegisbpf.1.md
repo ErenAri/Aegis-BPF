@@ -34,6 +34,9 @@ Start the security agent.
 
 **aegisbpf run** [**--audit**|**--enforce**] [**--enforce-signal**=*SIG*]
 [**--allow-sigkill**]
+[**--allow-unsigned-bpf**]
+[**--allow-unknown-binary-identity**]
+[**--strict-degrade**]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -56,6 +59,21 @@ Start the security agent.
 **--allow-sigkill**
 :   Runtime acknowledgement for using `--enforce-signal=kill`. Has no effect
     for other enforce signals.
+
+**--allow-unsigned-bpf**
+:   Break-glass override for BPF object integrity checks. Allows startup when
+    the BPF hash file is missing or mismatched. Intended only for emergency
+    recovery.
+
+**--allow-unknown-binary-identity**
+:   Break-glass override for `version=3` exec identity policies (`[allow_binary_hash]`).
+    When enabled, processes with unreadable/unknown executable hashes are logged
+    but not signaled.
+
+**--strict-degrade**
+:   Enforce fail-closed runtime posture in enforce mode. If startup or runtime
+    transitions to `AUDIT_FALLBACK` or `DEGRADED`, the daemon exits non-zero.
+    Use this for production nodes that must not silently downgrade enforcement.
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`
@@ -162,6 +180,7 @@ Exported metrics:
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`
+- `aegisbpf_allow_exec_inode_entries`
 - `aegisbpf_map_capacity{map}`
 - `aegisbpf_map_utilization{map}`
 - `aegisbpf_net_blocks_total{type}`
@@ -184,6 +203,7 @@ Check agent prerequisites and status.
 Checks:
 - Kernel capability summary (full vs audit-only)
 - Cgroup v2, BPF syscall, bpffs, and BTF prerequisites
+- BPF object presence and hash verification status
 - Required pinned map accessibility
 - Optional network pinned map accessibility (when network maps are present)
 - BPF object load and pinned map layout compatibility
@@ -231,7 +251,7 @@ Notes:
 Policy files use INI-style syntax:
 
 ```
-version=1
+version=3
 
 # Block these paths
 [deny_path]
@@ -246,6 +266,10 @@ version=1
 [allow_cgroup]
 /sys/fs/cgroup/system.slice
 cgid:123456
+
+# Enforce exec identity allowlist (version 3+)
+[allow_binary_hash]
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 ## ENVIRONMENT
@@ -259,6 +283,18 @@ cgid:123456
 **AEGIS_VERSION_COUNTER_PATH**
 :   Override signed-policy version counter file (default: `/var/lib/aegisbpf/version_counter`).
 
+**AEGIS_REQUIRE_BPF_HASH**
+:   When set to `1/true/yes/on`, require a BPF object hash file during load.
+
+**AEGIS_ALLOW_UNSIGNED_BPF**
+:   Break-glass override that allows missing/mismatched BPF hash verification.
+
+**AEGIS_BPF_OBJ_HASH_PATH**
+:   Override primary BPF hash file path (default: `/etc/aegisbpf/aegis.bpf.sha256`).
+
+**AEGIS_BPF_OBJ_HASH_INSTALL_PATH**
+:   Override fallback installed hash file path (default: `/usr/lib/aegisbpf/aegis.bpf.sha256`).
+
 **AEGIS_POLICY_APPLIED_PATH**
 :   Override applied policy snapshot path.
 
@@ -267,6 +303,11 @@ cgid:123456
 
 **AEGIS_POLICY_APPLIED_HASH_PATH**
 :   Override applied policy hash snapshot path.
+
+**AEGIS_CAPABILITIES_REPORT_PATH**
+:   Override daemon capability report path (default: `/var/lib/aegisbpf/capabilities.json`).
+    Report includes hook/capability probes and runtime posture fields
+    (`runtime_state`, `state_transitions`).
 
 **AEGIS_POLICY_SHA256**
 :   Expected policy SHA256 for `policy apply` when hash flags are not passed.
@@ -288,6 +329,9 @@ cgid:123456
 
 */var/lib/aegisbpf/policy.applied*
 :   Currently applied policy (for rollback).
+
+*/var/lib/aegisbpf/capabilities.json*
+:   Startup capability and hook-attach report emitted by daemon.
 
 */etc/aegisbpf/policy.conf*
 :   Default policy file location.

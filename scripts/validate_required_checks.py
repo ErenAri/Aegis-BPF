@@ -11,6 +11,8 @@ WORKFLOW_FILES = [
     Path(".github/workflows/ci.yml"),
     Path(".github/workflows/security.yml"),
     Path(".github/workflows/benchmark.yml"),
+    Path(".github/workflows/e2e.yml"),
+    Path(".github/workflows/perf.yml"),
     Path(".github/workflows/release-readiness.yml"),
     Path(".github/workflows/release-branch-guard.yml"),
 ]

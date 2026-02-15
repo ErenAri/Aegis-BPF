@@ -86,6 +86,10 @@ static const unsigned int ALLOWED_SYSCALLS[] = {
     SYS_rt_sigprocmask,
     SYS_rt_sigaction,
     SYS_rt_sigreturn,
+    SYS_kill,
+#ifdef SYS_tgkill
+    SYS_tgkill,
+#endif
 
     // Event polling (for ring buffer)
     SYS_epoll_create1,

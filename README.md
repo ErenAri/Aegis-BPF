@@ -65,13 +65,13 @@ Current scope labels:
 
 ## Validation Results
 
-**Latest Independent Validation:** 2026-02-07 
-
-AegisBPF has been independently validated on Google Cloud Platform with kernel 6.8.0-1045-gcp:
+**Latest Validation Snapshot:**
+- Independent environment validation: 2026-02-07 (Google Cloud Platform, kernel 6.8.0-1045-gcp)
+- Local full regression run: 2026-02-15 (`ctest --test-dir build-prod --output-on-failure --timeout 180`)
 
 | Test Category | Result | Details |
 |---------------|--------|---------|
-| **Unit Tests** |  183/183 PASS | All tests passed including golden vectors |
+| **Unit + Contract Tests** |  213/213 PASS | Full local `ctest` run on 2026-02-15 |
 | **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
 | **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
 | **Performance Impact** |  ~27% overhead | Audit mode: 528 MB/s (baseline: 721 MB/s) |
@@ -146,7 +146,8 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  |  |      LSM Hooks         | |   Tracepoint Fallback     | |       |
 |  |  | file_open              | | openat / exec / fork      | |       |
 |  |  | inode_permission       | | (audit when no BPF LSM)   | |       |
-|  |  | socket_connect / bind  | +---------------------------+ |       |
+|  |  | bprm_check_security    | +---------------------------+ |       |
+|  |  | socket_connect / bind  |                               |       |
 |  |  +------------------------+                               |       |
 |  |                                                           |       |
 |  |  +------------------------------------------------------+ |       |
@@ -177,8 +178,9 @@ scripts/verify_env.sh --strict
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang llvm bpftool libbpf-dev libsystemd-dev \
-    pkg-config cmake ninja-build python3-jsonschema
+sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev \
+    pkg-config cmake ninja-build python3-jsonschema linux-tools-common
+sudo apt-get install -y "linux-tools-$(uname -r)" || true
 ```
 
 ### Build
@@ -199,6 +201,12 @@ sudo ./build/aegisbpf run --enforce
 
 # Enforce mode with explicit signal policy (default is SIGTERM)
 sudo ./build/aegisbpf run --enforce --enforce-signal=term
+
+# Allow unknown exec identity only as a break-glass exception
+sudo ./build/aegisbpf run --enforce --allow-unknown-binary-identity
+
+# Fail closed if enforce mode degrades to audit/degraded state
+sudo ./build/aegisbpf run --enforce --strict-degrade
 
 # SIGKILL mode escalates: TERM first, KILL only after repeated denies
 sudo ./build/aegisbpf run --enforce --enforce-signal=kill
@@ -274,6 +282,9 @@ sudo aegisbpf run --audit --ringbuf-bytes=67108864
 
 # Sample block events (1 = all events, 10 = 1 out of 10)
 sudo aegisbpf run --audit --event-sample-rate=10
+
+# In enforce mode, exit non-zero on fallback/degraded runtime state
+sudo aegisbpf run --enforce --strict-degrade
 ```
 
 ### Performance and Soak (Sample Results)
@@ -328,7 +339,7 @@ sudo aegisbpf allow del /sys/fs/cgroup/system.slice
 
 ```ini
 # /etc/aegisbpf/policy.conf
-version=1
+version=3
 
 [deny_path]
 /usr/bin/dangerous
@@ -340,6 +351,9 @@ version=1
 [allow_cgroup]
 /sys/fs/cgroup/system.slice
 cgid:123456
+
+[allow_binary_hash]
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 ```bash
@@ -381,6 +395,14 @@ sudo aegisbpf health
 AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
 ```
 
+Daemon startup writes a capability/attach report to
+`/var/lib/aegisbpf/capabilities.json` (override with
+`AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
+applied policy requires unavailable network or exec-identity kernel hooks.
+The capability report also includes runtime posture fields (`runtime_state`,
+`state_transitions`) so operators can distinguish `ENFORCE`,
+`AUDIT_FALLBACK`, and `DEGRADED` outcomes.
+
 ## Event Format
 
 Events are emitted as newline-delimited JSON:
@@ -403,6 +425,21 @@ Events are emitted as newline-delimited JSON:
   "ino": 123456,
   "dev": 259,
   "action": "TERM"
+}
+```
+
+Runtime posture changes emit a separate event type:
+
+```json
+{
+  "type": "state_change",
+  "event_version": 1,
+  "state": "AUDIT_FALLBACK",
+  "reason_code": "CAPABILITY_AUDIT_ONLY",
+  "detail": "kernel lacks required enforce hooks",
+  "strict_mode": false,
+  "transition_id": 2,
+  "degradation_count": 1
 }
 ```
 

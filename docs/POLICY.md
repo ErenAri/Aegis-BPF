@@ -1,4 +1,4 @@
-# Policy Format (v1)
+# Policy Format (v1-v3)
 
 Policy files are line-oriented and ASCII-only. Lines starting with `#` are
 comments. Blank lines are ignored.
@@ -11,11 +11,15 @@ edge cases), see `docs/POLICY_SEMANTICS.md`.
 The header is a set of `key=value` pairs before any section.
 
 Required:
-- `version=1`
+- `version=<1|2|3>`
+
+Notes:
+- `version=1` and `version=2` remain valid for file/network rules.
+- `version=3` is required when using binary hash sections.
 
 Example:
 ```
-version=1
+version=3
 ```
 
 ## Sections
@@ -41,6 +45,27 @@ not available.
 
 This section is an explicit bypass control: matching cgroups skip deny rules.
 
+### [deny_binary_hash] (version 3+)
+One entry per line in `sha256:<64-hex>` format.
+
+During policy apply, the agent scans known executable paths and resolves matching
+hashes to inode deny entries.
+
+### [allow_binary_hash] (version 3+)
+One entry per line in `sha256:<64-hex>` format.
+
+During policy apply, hashes are resolved to executable inode identities and
+stored in the kernel exec allowlist map. Runtime enforcement occurs at
+`lsm/bprm_check_security`, so non-allowlisted binaries are denied before
+`execve()` completes in enforce mode.
+
+Audit-only mode can fall back to userspace exec-event validation when kernel
+exec-identity enforcement is unavailable.
+
+### [scan_paths] (version 3+)
+Optional additional absolute directories to include during
+`[deny_binary_hash]` and `[allow_binary_hash]` scans.
+
 ## CLI lifecycle
 
 - `policy lint <file>`: parse and validate formatting.
@@ -61,7 +86,7 @@ Environment variables:
 
 ## Example
 ```
-version=1
+version=3
 
 [deny_path]
 /etc/shadow
@@ -73,4 +98,7 @@ version=1
 [allow_cgroup]
 /sys/fs/cgroup/my_service
 cgid:10243
+
+[allow_binary_hash]
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
