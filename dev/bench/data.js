@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771171859281,
+  "lastUpdate": 1771181672204,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30552,6 +30552,102 @@ window.BENCHMARK_DATA = {
             "value": 66.25144950010069,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.24771452234957 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a906a9ed0ae35b8cd15958aeb989751ed14a1a20",
+          "message": "Merge pull request #47 from ErenAri/feat/enterprise-emergency-control\n\nperf/ci: stabilize idle overhead + perf evidence",
+          "timestamp": "2026-02-15T21:43:36+03:00",
+          "tree_id": "3e5403352a87032581a7cd193aa56020a4242f4f",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/a906a9ed0ae35b8cd15958aeb989751ed14a1a20"
+        },
+        "date": 1771181671704,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1573.7699550018108,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1573.6510750028945 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3805.3566435280395,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3804.710542464241 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21281.711603044692,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21280.172519845746 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157134.48823033707,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157123.5119943823 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1244989.2139259253,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1244784.2728148142 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4972107.862884153,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4971740.871453905 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5374.379160726795,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5376.17132104451 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34148.714069155234,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34153.74962245834 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 277010.1189273537,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 276965.2750990369 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 836842.6358415604,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 836921.1904476007 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.99722010052538,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.99276448596406 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.18503867017612,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.17675771204631 ns\nthreads: 1"
           }
         ]
       }
