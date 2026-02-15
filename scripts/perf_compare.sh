@@ -29,20 +29,8 @@ if ! [[ "$REPEATS" =~ ^[0-9]+$ ]] || [[ "$REPEATS" -lt 1 ]]; then
     exit 1
 fi
 
-collect_median() {
-    local with_agent_flag="$1"
-    local samples=()
-    local value
-    for ((i = 0; i < REPEATS; ++i)); do
-        if [[ "$with_agent_flag" -eq 1 ]]; then
-            value=$(WITH_AGENT=1 BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
-        else
-            value=$(BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}')
-        fi
-        samples+=("$value")
-    done
-
-    printf '%s\n' "${samples[@]}" | sort -n | awk '
+median() {
+    printf '%s\n' "$@" | sort -n | awk '
         { a[NR] = $1 }
         END {
             n = NR
@@ -56,8 +44,24 @@ collect_median() {
     '
 }
 
-baseline=$(collect_median 0)
-with_agent=$(collect_median 1)
+run_open_bench() {
+    local with_agent_flag="$1"
+    if [[ "$with_agent_flag" -eq 1 ]]; then
+        WITH_AGENT=1 BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}'
+    else
+        BIN="$BIN" ITERATIONS="$ITERATIONS" FILE="$FILE" scripts/perf_open_bench.sh | awk -F= '/^us_per_op=/{print $2}'
+    fi
+}
+
+baseline_samples=()
+with_agent_samples=()
+for ((i = 0; i < REPEATS; ++i)); do
+    baseline_samples+=("$(run_open_bench 0)")
+    with_agent_samples+=("$(run_open_bench 1)")
+done
+
+baseline=$(median "${baseline_samples[@]}")
+with_agent=$(median "${with_agent_samples[@]}")
 
 python3 - <<PY
 import os
@@ -79,6 +83,7 @@ passed = (max_pct <= 0) or (pct <= max_pct)
 
 out_json = os.environ.get("OUT_JSON", "")
 if out_json:
+    os.makedirs(os.path.dirname(out_json) or ".", exist_ok=True)
     payload = {
         "baseline_us_per_op": round(baseline, 2),
         "with_agent_us_per_op": round(with_agent, 2),

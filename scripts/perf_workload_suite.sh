@@ -15,6 +15,21 @@ MAX_READ_PCT="${MAX_READ_PCT:-15}"
 MAX_STAT_PCT="${MAX_STAT_PCT:-15}"
 FORMAT="${FORMAT:-text}" # text|json
 OUT="${OUT:-}"
+PIN_CPUS="${PIN_CPUS:-1}"
+BENCH_CPU="${BENCH_CPU:-}"
+AGENT_CPU="${AGENT_CPU:-}"
+
+if [[ "${PIN_CPUS}" -eq 1 ]] && command -v taskset >/dev/null 2>&1; then
+    cpu_count="$(nproc 2>/dev/null || echo 1)"
+    if [[ "${cpu_count}" -ge 2 ]]; then
+        if [[ -z "${BENCH_CPU}" ]]; then
+            BENCH_CPU="0"
+        fi
+        if [[ -z "${AGENT_CPU}" ]]; then
+            AGENT_CPU="1"
+        fi
+    fi
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "perf_workload_suite.sh must run as root (starts agent in audit mode)." >&2
@@ -68,7 +83,11 @@ if [[ ! -s "${STAT_FILE_LIST}" ]]; then
 fi
 
 start_agent() {
-    "${BIN}" run --audit >"${AGENT_LOG}" 2>&1 &
+    if [[ -n "${AGENT_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+        taskset -c "${AGENT_CPU}" "${BIN}" run --audit >"${AGENT_LOG}" 2>&1 &
+    else
+        "${BIN}" run --audit >"${AGENT_LOG}" 2>&1 &
+    fi
     AGENT_PID=$!
     sleep 1
     if ! kill -0 "${AGENT_PID}" >/dev/null 2>&1; then
@@ -89,7 +108,11 @@ stop_agent() {
 run_read_bench() {
     local path="$1"
     local iterations="$2"
-    python3 - <<PY
+    PYTHON_PREFIX=()
+    if [[ -n "${BENCH_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+        PYTHON_PREFIX=(taskset -c "${BENCH_CPU}")
+    fi
+    "${PYTHON_PREFIX[@]}" python3 - <<PY
 import os
 import time
 
@@ -108,7 +131,11 @@ PY
 run_stat_bench() {
     local list_path="$1"
     local iterations="$2"
-    python3 - <<PY
+    PYTHON_PREFIX=()
+    if [[ -n "${BENCH_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+        PYTHON_PREFIX=(taskset -c "${BENCH_CPU}")
+    fi
+    "${PYTHON_PREFIX[@]}" python3 - <<PY
 import os
 import time
 

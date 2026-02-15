@@ -218,12 +218,12 @@ Result<void> test_setup_agent_cgroup_ok(BpfState&)
     return {};
 }
 
-Result<void> test_attach_all_fail(BpfState&, bool, bool, bool)
+Result<void> test_attach_all_fail(BpfState&, bool, bool, bool, bool)
 {
     return Error(ErrorCode::BpfAttachFailed, "forced attach_all failure");
 }
 
-Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled, bool, bool)
+Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled, bool, bool, bool)
 {
     state.attach_contract_valid = true;
     state.file_hooks_expected = lsm_enabled ? 2 : 1;
@@ -232,7 +232,7 @@ Result<void> test_attach_all_partial_contract(BpfState& state, bool lsm_enabled,
 }
 
 Result<void> test_attach_all_full_contract_no_network_hooks(BpfState& state, bool lsm_enabled,
-                                                            bool use_inode_permission, bool use_file_open)
+                                                            bool use_inode_permission, bool use_file_open, bool)
 {
     state.attach_contract_valid = true;
     if (lsm_enabled) {

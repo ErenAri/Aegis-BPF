@@ -265,7 +265,7 @@ lapse, leaving the host unprotected.
 
 #### AS-6: Config Map Tampering
 
-**Threat:** An attacker modifies the `agent_config_map` to disable enforcement
+**Threat:** An attacker modifies the pinned agent config map (`/sys/fs/bpf/aegisbpf/agent_config`) to disable enforcement
 (set `audit_only = 1`) or alter the deadman deadline.
 
 **Mitigations:**

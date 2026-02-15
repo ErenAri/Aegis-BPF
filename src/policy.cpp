@@ -961,6 +961,15 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        ScopedSpan span("policy.refresh_policy_empty_hints", root_span.trace_id(), root_span.span_id());
+        auto hints_result = refresh_policy_empty_hints(state);
+        if (!hints_result) {
+            span.fail(hints_result.error().to_string());
+            return fail(hints_result.error());
+        }
+    }
+
+    {
         ScopedSpan span("policy.set_exec_identity_mode", root_span.trace_id(), root_span.span_id());
         size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
         bool exec_identity_enabled = allow_exec_count > 0;

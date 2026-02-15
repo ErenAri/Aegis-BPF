@@ -59,6 +59,7 @@ class BpfState {
             deny_inode_stats_reused = other.deny_inode_stats_reused;
             deny_path_stats_reused = other.deny_path_stats_reused;
             agent_meta_reused = other.agent_meta_reused;
+            config_map_reused = other.config_map_reused;
             survival_allowlist_reused = other.survival_allowlist_reused;
 
             // Network maps
@@ -120,6 +121,7 @@ class BpfState {
             other.deny_inode_stats_reused = false;
             other.deny_path_stats_reused = false;
             other.agent_meta_reused = false;
+            other.config_map_reused = false;
             other.survival_allowlist_reused = false;
             other.deny_ipv4_reused = false;
             other.deny_ipv6_reused = false;
@@ -175,6 +177,7 @@ class BpfState {
     bool deny_inode_stats_reused = false;
     bool deny_path_stats_reused = false;
     bool agent_meta_reused = false;
+    bool config_map_reused = false;
     bool survival_allowlist_reused = false;
 
     // Survival allowlist map
@@ -222,7 +225,8 @@ struct BpfIntegrityStatus {
 
 // BPF loading and lifecycle
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
-Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open);
+Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open,
+                        bool attach_network_hooks);
 void set_ringbuf_bytes(uint32_t bytes);
 void set_max_deny_inodes(uint32_t count);
 void set_max_deny_paths(uint32_t count);
@@ -250,6 +254,7 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns);
 Result<void> set_emergency_disable(BpfState& state, bool disable);
 Result<bool> read_emergency_disable(BpfState& state);
+Result<void> refresh_policy_empty_hints(BpfState& state);
 Result<void> ensure_layout_version(BpfState& state);
 
 // Survival allowlist operations

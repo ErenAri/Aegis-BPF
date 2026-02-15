@@ -425,7 +425,12 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_inode_stats = bpf_object__find_map_by_name(state.obj, "deny_inode_stats");
         state.deny_path_stats = bpf_object__find_map_by_name(state.obj, "deny_path_stats");
         state.agent_meta = bpf_object__find_map_by_name(state.obj, "agent_meta_map");
-        state.config_map = bpf_object__find_map_by_name(state.obj, "agent_config_map");
+        // Agent config is stored as a BPF global (fast-path reads from BPF side),
+        // which libbpf exposes as a data map.
+        state.config_map = bpf_object__find_map_by_name(state.obj, ".data");
+        if (!state.config_map) {
+            state.config_map = bpf_object__find_map_by_name(state.obj, ".bss");
+        }
         state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
 
         // Network maps (optional)
@@ -443,6 +448,17 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             !state.config_map || !state.survival_allowlist || !state.allow_exec_inode || !state.exec_identity_mode) {
             cleanup_bpf(state);
             Error error(ErrorCode::BpfLoadFailed, "Required BPF maps not found in object file");
+            span.fail(error.to_string());
+            return fail(error);
+        }
+
+        if (bpf_map__key_size(state.config_map) != sizeof(uint32_t) || bpf_map__max_entries(state.config_map) != 1 ||
+            bpf_map__value_size(state.config_map) != sizeof(AgentConfig)) {
+            cleanup_bpf(state);
+            Error error(ErrorCode::BpfLoadFailed, "Config map layout mismatch",
+                        "key_size=" + std::to_string(bpf_map__key_size(state.config_map)) +
+                            " value_size=" + std::to_string(bpf_map__value_size(state.config_map)) +
+                            " max_entries=" + std::to_string(bpf_map__max_entries(state.config_map)));
             span.fail(error.to_string());
             return fail(error);
         }
@@ -567,6 +583,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
         TRY(check(try_reuse(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
         TRY(check(try_reuse(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
+        TRY(check(try_reuse_optional(state.config_map, kAgentConfigPin, state.config_map_reused)));
         TRY(check(try_reuse(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional - don't fail if not found)
@@ -631,9 +648,10 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.inode_reused || !state.deny_path_reused || !state.cgroup_reused || !state.allow_exec_inode_reused ||
         !state.exec_identity_mode_reused || !state.block_stats_reused || !state.deny_cgroup_stats_reused ||
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
-        !state.survival_allowlist_reused || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
-        (state.deny_ipv6 && !state.deny_ipv6_reused) || (state.deny_port && !state.deny_port_reused) ||
-        (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
+        (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
+        (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
+        (state.deny_port && !state.deny_port_reused) || (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) ||
+        (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
         (state.net_ip_stats && !state.net_ip_stats_reused) || (state.net_port_stats && !state.net_port_stats_reused);
 
@@ -676,6 +694,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_pin(state.deny_inode_stats, kDenyInodeStatsPin, state.deny_inode_stats_reused)));
         TRY(check(try_pin(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
         TRY(check(try_pin(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
+        TRY(check(try_pin(state.config_map, kAgentConfigPin, state.config_map_reused)));
         TRY(check(try_pin(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional)
@@ -728,7 +747,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
     return {};
 }
 
-Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open)
+Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open,
+                        bool attach_network_hooks)
 {
     const std::string inherited_trace_id = current_trace_id();
     const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
@@ -765,43 +785,40 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     if (lsm_enabled) {
         ScopedSpan span("bpf.attach.file_hooks_lsm", trace_id, root_span.span_id());
         state.file_hooks_expected = static_cast<uint8_t>((use_inode_permission ? 1 : 0) + (use_file_open ? 1 : 0));
-        if (state.file_hooks_expected == 0) {
-            Error error(ErrorCode::BpfAttachFailed, "No LSM file hooks requested");
-            span.fail(error.to_string());
-            return fail(error);
-        }
-        if (use_inode_permission) {
-            prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
-            if (!prog) {
-                Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_inode_permission");
+        if (state.file_hooks_expected > 0) {
+            if (use_inode_permission) {
+                prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
+                if (!prog) {
+                    Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_inode_permission");
+                    span.fail(error.to_string());
+                    return fail(error);
+                }
+                auto result = attach_prog(prog, state);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+                ++state.file_hooks_attached;
+            }
+            if (use_file_open) {
+                prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
+                if (!prog) {
+                    Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_file_open");
+                    span.fail(error.to_string());
+                    return fail(error);
+                }
+                auto result = attach_prog(prog, state);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+                ++state.file_hooks_attached;
+            }
+            if (state.file_hooks_attached != state.file_hooks_expected) {
+                Error error(ErrorCode::BpfAttachFailed, "LSM file hook attach contract violated");
                 span.fail(error.to_string());
                 return fail(error);
             }
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
-            ++state.file_hooks_attached;
-        }
-        if (use_file_open) {
-            prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
-            if (!prog) {
-                Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_file_open");
-                span.fail(error.to_string());
-                return fail(error);
-            }
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                span.fail(result.error().to_string());
-                return fail(result.error());
-            }
-            ++state.file_hooks_attached;
-        }
-        if (state.file_hooks_attached != state.file_hooks_expected) {
-            Error error(ErrorCode::BpfAttachFailed, "LSM file hook attach contract violated");
-            span.fail(error.to_string());
-            return fail(error);
         }
 
         ScopedSpan exec_span("bpf.attach.exec_identity_hook", trace_id, root_span.span_id());
@@ -865,8 +882,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         }
     }
 
-    // Attach network LSM hooks if available.
-    if (lsm_enabled) {
+    // Attach network LSM hooks if requested and available.
+    if (lsm_enabled && attach_network_hooks) {
         ScopedSpan span("bpf.attach.network_hooks", trace_id, root_span.span_id());
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_connect");
         if (prog) {
@@ -912,6 +929,25 @@ size_t map_entry_count(bpf_map* map)
         key.swap(next_key);
     }
     return count;
+}
+
+static bool map_is_empty(bpf_map* map)
+{
+    if (!map) {
+        return true;
+    }
+    int fd = bpf_map__fd(map);
+    if (fd < 0) {
+        return false;
+    }
+    const size_t key_sz = bpf_map__key_size(map);
+    std::vector<uint8_t> key(key_sz);
+    errno = 0;
+    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
+    if (rc == 0) {
+        return false;
+    }
+    return errno == ENOENT;
 }
 
 Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
@@ -1564,8 +1600,25 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
         normalized.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
     }
 
+    // Preserve operator-controlled flags across daemon config updates.
     uint32_t key = 0;
-    if (bpf_map_update_elem(bpf_map__fd(state.config_map), &key, &normalized, BPF_ANY)) {
+    AgentConfig existing{};
+    int fd = bpf_map__fd(state.config_map);
+    if (bpf_map_lookup_elem(fd, &key, &existing) == 0) {
+        normalized.emergency_disable = existing.emergency_disable;
+    } else if (errno != ENOENT) {
+        return Error::system(errno, "Failed to read agent config");
+    }
+
+    // Derive empty-policy hints from pinned policy maps (optimization-only).
+    normalized.file_policy_empty = (map_is_empty(state.deny_inode) && map_is_empty(state.deny_path)) ? 1 : 0;
+    normalized.net_policy_empty =
+        (map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) && map_is_empty(state.deny_port) &&
+         map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6))
+            ? 1
+            : 0;
+
+    if (bpf_map_update_elem(fd, &key, &normalized, BPF_ANY)) {
         return Error::system(errno, "Failed to configure BPF agent config");
     }
     return {};
@@ -1618,6 +1671,33 @@ Result<bool> read_emergency_disable(BpfState& state)
         return false;
     }
     return Error::system(errno, "Failed to read agent config");
+}
+
+Result<void> refresh_policy_empty_hints(BpfState& state)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
+    }
+
+    const bool file_empty = map_is_empty(state.deny_inode) && map_is_empty(state.deny_path);
+    const bool net_empty = map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) &&
+                           map_is_empty(state.deny_port) && map_is_empty(state.deny_cidr_v4) &&
+                           map_is_empty(state.deny_cidr_v6);
+
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    int fd = bpf_map__fd(state.config_map);
+    if (bpf_map_lookup_elem(fd, &key, &cfg) && errno != ENOENT) {
+        return Error::system(errno, "Failed to read agent config");
+    }
+
+    cfg.file_policy_empty = file_empty ? 1 : 0;
+    cfg.net_policy_empty = net_empty ? 1 : 0;
+
+    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
+        return Error::system(errno, "Failed to update policy empty hints");
+    }
+    return {};
 }
 
 Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)

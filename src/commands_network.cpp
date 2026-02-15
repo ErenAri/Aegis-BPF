@@ -80,6 +80,13 @@ int cmd_network_deny_add_ip(const std::string& ip)
         return fail_span(span, add_result.error().to_string());
     }
 
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_ERROR("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
+        return fail_span(span, hints_result.error().to_string());
+    }
+
     logger().log(SLOG_INFO("Added deny IP").field("ip", ip));
     return 0;
 }
@@ -107,6 +114,13 @@ int cmd_network_deny_add_cidr(const std::string& cidr)
         logger().log(
             SLOG_ERROR("Failed to add deny CIDR").field("cidr", cidr).field("error", add_result.error().to_string()));
         return fail_span(span, add_result.error().to_string());
+    }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_ERROR("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
+        return fail_span(span, hints_result.error().to_string());
     }
 
     logger().log(SLOG_INFO("Added deny CIDR").field("cidr", cidr));
@@ -147,6 +161,13 @@ int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, co
         return fail_span(span, add_result.error().to_string());
     }
 
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_ERROR("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
+        return fail_span(span, hints_result.error().to_string());
+    }
+
     logger().log(SLOG_INFO("Added deny port")
                      .field("port", static_cast<int64_t>(port))
                      .field("protocol", protocol_str.empty() ? "any" : protocol_str)
@@ -179,6 +200,13 @@ int cmd_network_deny_del_ip(const std::string& ip)
         return fail_span(span, del_result.error().to_string());
     }
 
+    // Best-effort; empty hints affect performance only.
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(SLOG_WARN("Failed to refresh policy empty hints after delete")
+                         .field("error", hints_result.error().to_string()));
+    }
+
     logger().log(SLOG_INFO("Removed deny IP").field("ip", ip));
     return 0;
 }
@@ -207,6 +235,13 @@ int cmd_network_deny_del_cidr(const std::string& cidr)
                          .field("cidr", cidr)
                          .field("error", del_result.error().to_string()));
         return fail_span(span, del_result.error().to_string());
+    }
+
+    // Best-effort; empty hints affect performance only.
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(SLOG_WARN("Failed to refresh policy empty hints after delete")
+                         .field("error", hints_result.error().to_string()));
     }
 
     logger().log(SLOG_INFO("Removed deny CIDR").field("cidr", cidr));
@@ -245,6 +280,13 @@ int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, co
                          .field("port", static_cast<int64_t>(port))
                          .field("error", del_result.error().to_string()));
         return fail_span(span, del_result.error().to_string());
+    }
+
+    // Best-effort; empty hints affect performance only.
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(SLOG_WARN("Failed to refresh policy empty hints after delete")
+                         .field("error", hints_result.error().to_string()));
     }
 
     logger().log(SLOG_INFO("Removed deny port").field("port", static_cast<int64_t>(port)));
@@ -339,6 +381,12 @@ int cmd_network_deny_clear()
     }
     if (state.deny_port) {
         clear_map_entries(state.deny_port);
+    }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_WARN("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
     }
 
     logger().log(SLOG_INFO("Cleared all network deny rules"));

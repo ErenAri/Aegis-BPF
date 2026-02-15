@@ -17,7 +17,7 @@ using EnsureLayoutVersionFn = Result<void> (*)(BpfState&);
 using SetAgentConfigFullFn = Result<void> (*)(BpfState&, const AgentConfig&);
 using PopulateSurvivalAllowlistFn = Result<void> (*)(BpfState&);
 using SetupAgentCgroupFn = Result<void> (*)(BpfState&);
-using AttachAllFn = Result<void> (*)(BpfState&, bool, bool, bool);
+using AttachAllFn = Result<void> (*)(BpfState&, bool, bool, bool, bool);
 
 /**
  * Consolidated dependency injection struct for daemon_run().

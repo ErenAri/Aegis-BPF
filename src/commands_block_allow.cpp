@@ -66,6 +66,13 @@ int block_file(const std::string& path)
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return 1;
     }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_ERROR("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
+        return 1;
+    }
     return 0;
 }
 
@@ -126,6 +133,19 @@ int cmd_block_del(const std::string& path)
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return fail_span(span, write_result.error().to_string());
+    }
+
+    // Best-effort; empty hints affect performance only.
+    {
+        BpfState state;
+        auto load_result = load_bpf(true, false, state);
+        if (load_result) {
+            auto hints_result = refresh_policy_empty_hints(state);
+            if (!hints_result) {
+                logger().log(SLOG_WARN("Failed to refresh policy empty hints after delete")
+                                 .field("error", hints_result.error().to_string()));
+            }
+        }
     }
     return 0;
 }
@@ -195,6 +215,12 @@ int cmd_block_clear()
         if (!reset_result) {
             logger().log(SLOG_WARN("Failed to reset block stats").field("error", reset_result.error().to_string()));
         }
+    }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_WARN("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
     }
     return 0;
 }
