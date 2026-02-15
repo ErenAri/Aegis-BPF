@@ -41,14 +41,14 @@ Add these badges to your project README to showcase trustworthiness.
 ##  Testing Badges
 
 ```markdown
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen?logo=checkmarx)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen?logo=checkmarx)
 ![Test Pass Rate: 100%](https://img.shields.io/badge/test%20pass%20rate-100%25-success)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-green)
 ```
 
 **Rendered:**
 
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen?logo=checkmarx)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen?logo=checkmarx)
 ![Test Pass Rate: 100%](https://img.shields.io/badge/test%20pass%20rate-100%25-success)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-green)
 
@@ -112,7 +112,7 @@ Add this to your README.md:
 ## Trust & Security
 
 ![Trust Score: 93/100](https://img.shields.io/badge/trust%20score-93%2F100-brightgreen?style=flat-square)
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen?style=flat-square)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen?style=flat-square)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-green?style=flat-square)
 ![Security: Hardened](https://img.shields.io/badge/security-hardened-green?style=flat-square)
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue?style=flat-square)
@@ -124,7 +124,7 @@ Add this to your README.md:
 **Rendered (flat-square style):**
 
 ![Trust Score: 93/100](https://img.shields.io/badge/trust%20score-93%2F100-brightgreen?style=flat-square)
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen?style=flat-square)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen?style=flat-square)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-green?style=flat-square)
 ![Security: Hardened](https://img.shields.io/badge/security-hardened-green?style=flat-square)
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue?style=flat-square)
@@ -183,7 +183,7 @@ Recommended placement at the top of your README:
 # AegisBPF
 
 ![Trust Score: 93/100](https://img.shields.io/badge/trust%20score-93%2F100-brightgreen?style=for-the-badge)
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen?style=for-the-badge)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen?style=for-the-badge)
 
 **AegisBPF** is an eBPF-based runtime security agent...
 

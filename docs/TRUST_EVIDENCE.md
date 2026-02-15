@@ -1,7 +1,7 @@
 # Trust & Evidence Framework
 
 **Project:** AegisBPF v0.1.1
-**Last Updated:** 2026-02-07
+**Last Updated:** 2026-02-15
 **Status:** Production Ready
 
 This document provides verifiable evidence of AegisBPF's trustworthiness across security, quality, and operational dimensions.
@@ -137,7 +137,7 @@ Expected: 0 critical warnings
 
 **Recent Reviews:**
 - v0.1.1 Security Fix: Self-reviewed + automated validation
-- Test coverage: 157/157 passing
+- Test coverage: 213/213 passing (`ctest`, 2026-02-15)
 
 ---
 
@@ -145,7 +145,7 @@ Expected: 0 critical warnings
 
 ### 3.1 Test Coverage
 
-**Current Coverage:** 2026-02-07
+**Current Coverage:** 2026-02-15
 ```bash
 # Generate coverage report
 cmake -B build-coverage -DENABLE_COVERAGE=ON
@@ -158,39 +158,26 @@ open coverage.html
 ```
 
 **Metrics:**
-- Unit tests: 157 tests
+- CTest targets: 213
 - Line coverage: 85%+
 - Branch coverage: 78%+
 - Critical paths: 95%+
 
 **Test Categories:**
-- Unit tests: 144 tests
-- Crypto safety: 13 tests
+- Unit/integration tests: included in CTest target count
+- Contract tests: included in CTest target count
 - E2E tests: Available (see `tests/e2e/`)
 - Fuzz tests: 5 fuzzers
 
 ### 3.2 Test Results (Latest)
 
-**Date:** 2026-02-07
-**Commit:** 540672d
+**Date:** 2026-02-15
+**Command:** `ctest --test-dir build-prod --output-on-failure --timeout 180`
 **Status:**  ALL PASS
 
 ```
-[==========] Running 157 tests from 39 test suites.
-[  PASSED  ] 157 tests.
-
-Details:
-- Crypto safety: 13/13 PASS
-- Policy parsing: 14/14 PASS
-- Network ops: 14/14 PASS
-- Command tests: 6/6 PASS
-- Kernel features: 4/4 PASS
-- Utils: 32/32 PASS
-- Result/Error: 14/14 PASS
-- SHA256: 12/12 PASS
-- Tracing: 13/13 PASS
-- Metrics: 2/2 PASS
-- Other: 33/33 PASS
+100% tests passed, 0 tests failed out of 213
+Total Test time (real) ~= 0.8 sec
 ```
 
 ### 3.3 Continuous Testing
@@ -433,7 +420,7 @@ sha256sum -c aegisbpf-0.1.1.tar.gz.sha256
 
 **Validation Environment:** Google Cloud Platform
 - **Kernel:** 6.8.0-1045-gcp
-- **Tests:** 165 unit tests + E2E suite
+- **Tests:** historical snapshot in `docs/VALIDATION_2026-02-07.md`
 - **Results:**  All pass
 - **Evidence:** `docs/VALIDATION_2026-02-07.md`
 
@@ -487,7 +474,7 @@ evidence/
 
 Expected output:
  Security scans: PASS
- All tests: 157/157 PASS
+ All tests: 213/213 PASS
  Build reproducibility: VERIFIED
  Binary hardening: VERIFIED
  SBOM generation: SUCCESS
@@ -526,7 +513,7 @@ Trust Score: 95/100
 |-----------|--------|-------|----------|
 | Security | 30% | 95/100 | Scans, audits, fixes |
 | Code Quality | 20% | 90/100 | Static analysis, metrics |
-| Testing | 20% | 95/100 | 157/157 tests pass |
+| Testing | 20% | 95/100 | 213/213 tests pass |
 | Build | 10% | 90/100 | Reproducible, hardened |
 | Supply Chain | 10% | 85/100 | SBOM, verified deps |
 | Transparency | 5% | 100/100 | Public CI, docs |
@@ -540,7 +527,7 @@ Trust Score: 95/100
 
 ```markdown
 ![Security: Hardened](https://img.shields.io/badge/security-hardened-green)
-![Tests: 157/157](https://img.shields.io/badge/tests-157%2F157-brightgreen)
+![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-brightgreen)
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue)
 ![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
@@ -567,6 +554,6 @@ Trust Score: 95/100
 
 **Trust is earned through transparency.**
 
-**Last Verified:** 2026-02-07
+**Last Verified:** 2026-02-15
 **Next Review:** Weekly (automated)
 **Next Audit:** Q2 2026 (external)

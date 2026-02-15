@@ -65,13 +65,13 @@ Current scope labels:
 
 ## Validation Results
 
-**Latest Independent Validation:** 2026-02-07 
-
-AegisBPF has been independently validated on Google Cloud Platform with kernel 6.8.0-1045-gcp:
+**Latest Validation Snapshot:**
+- Independent environment validation: 2026-02-07 (Google Cloud Platform, kernel 6.8.0-1045-gcp)
+- Local full regression run: 2026-02-15 (`ctest --test-dir build-prod --output-on-failure --timeout 180`)
 
 | Test Category | Result | Details |
 |---------------|--------|---------|
-| **Unit Tests** |  183/183 PASS | All tests passed including golden vectors |
+| **Unit + Contract Tests** |  213/213 PASS | Full local `ctest` run on 2026-02-15 |
 | **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
 | **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
 | **Performance Impact** |  ~27% overhead | Audit mode: 528 MB/s (baseline: 721 MB/s) |
