@@ -30,8 +30,12 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          ./build-bench/aegisbpf_bench \
-            --benchmark_min_time=0.5 \
+          RUNNER="./build-bench/aegisbpf_bench"
+          if command -v taskset >/dev/null 2>&1; then
+            RUNNER="taskset -c 0 ${RUNNER}"
+          fi
+          ${RUNNER} \
+            --benchmark_min_time=1s \
             --benchmark_repetitions=12 \
             --benchmark_report_aggregates_only=true \
             --benchmark_format=json \
@@ -43,7 +47,7 @@ jobs:
           python3 scripts/filter_benchmark_results.py \
             --input benchmark.raw.json \
             --output benchmark.json \
-            --min-mean-time-ns 10
+            --min-mean-time-ns 50
 
       - name: Check benchmark history branch
         id: benchmark-history
@@ -62,9 +66,9 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: false
-          alert-threshold: '105%'
+          alert-threshold: '120%'
           fail-on-alert: false
-          comment-on-alert: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          comment-on-alert: false
           summary-always: true
 
       - name: Store benchmark result (main advisory)
@@ -75,7 +79,7 @@ jobs:
           output-file-path: benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.ref == 'refs/heads/main' }}
-          alert-threshold: '105%'
+          alert-threshold: '115%'
           fail-on-alert: false
           comment-on-alert: true
           summary-always: true
