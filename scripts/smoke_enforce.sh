@@ -26,6 +26,13 @@ esac
 cleanup() {
     if [[ -n "${AGENT_PID:-}" ]]; then
         kill "${AGENT_PID}" 2>/dev/null || true
+        wait "${AGENT_PID}" 2>/dev/null || true
+        AGENT_PID=""
+    fi
+    # Keep self-hosted runs isolated: remove deny rules added by this script.
+    if [[ -x "${BIN:-}" ]]; then
+        "$BIN" block clear >/dev/null 2>&1 || true
+        "$BIN" network deny clear >/dev/null 2>&1 || true
     fi
     rm -f "${TMPFILE:-}" "${LOGFILE:-}"
 }
@@ -50,6 +57,10 @@ if ! grep -qw bpf /sys/kernel/security/lsm 2>/dev/null; then
     echo "BPF LSM is not enabled; enforce smoke test is not applicable." >&2
     exit 0
 fi
+
+# Ensure stale pinned maps from previous jobs do not affect this smoke test.
+"$BIN" block clear >/dev/null 2>&1 || true
+"$BIN" network deny clear >/dev/null 2>&1 || true
 
 TMPFILE=$(mktemp)
 LOGFILE=$(mktemp)
@@ -92,6 +103,20 @@ if [[ $status -eq 0 ]]; then
 fi
 
 sleep 1
+for _ in 1 2 3 4 5; do
+    if grep -q "\"action\":\"${EXPECTED_ACTION}\"" "$LOGFILE"; then
+        break
+    fi
+    sleep 0.2
+done
+if ! grep -q "\"action\":\"${EXPECTED_ACTION}\"" "$LOGFILE"; then
+    # stdout can be buffered when redirected; stop the agent to flush pending events.
+    if [[ -n "${AGENT_PID:-}" ]]; then
+        kill "${AGENT_PID}" 2>/dev/null || true
+        wait "${AGENT_PID}" 2>/dev/null || true
+        AGENT_PID=""
+    fi
+fi
 if ! grep -q "\"action\":\"${EXPECTED_ACTION}\"" "$LOGFILE"; then
     echo "[!] Expected ${EXPECTED_ACTION} event but none found; log follows:" >&2
     cat "$LOGFILE" >&2

@@ -47,52 +47,31 @@ import json
 import math
 import os
 import socket
-import threading
 import time
 
 host = os.environ.get("HOST", "127.0.0.1")
+port = int(os.environ.get("PORT", "9"))
 iterations = int(os.environ.get("ITERATIONS", "50000"))
 with_agent = int(os.environ.get("WITH_AGENT", "0")) == 1
 fmt = os.environ.get("FORMAT", "text").lower()
 out_path = os.environ.get("OUT", "")
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind((host, 0))
-server.listen(256)
-port = server.getsockname()[1]
-server.settimeout(0.1)
-
-stop = False
-
-def accept_loop() -> None:
-    global stop
-    while not stop:
-        try:
-            conn, _ = server.accept()
-        except socket.timeout:
-            continue
-        except OSError:
-            break
-        conn.close()
-
-thread = threading.Thread(target=accept_loop, daemon=True)
-thread.start()
+# Use UDP connect() to benchmark connect syscall overhead without accept-thread noise.
+for _ in range(1024):
+    warm = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    warm.connect((host, port))
+    warm.close()
 
 samples_ns = []
 start_total = time.perf_counter()
 for _ in range(iterations):
     start = time.perf_counter_ns()
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client.connect((host, port))
     client.close()
     end = time.perf_counter_ns()
     samples_ns.append(end - start)
 end_total = time.perf_counter()
-
-stop = True
-server.close()
-thread.join(timeout=1)
 
 samples_ns.sort()
 
@@ -118,6 +97,7 @@ payload = {
     "p99_us": round(percentile(samples_ns, 0.99), 2),
     "host": host,
     "port": port,
+    "protocol": "udp",
     "with_agent": with_agent,
 }
 

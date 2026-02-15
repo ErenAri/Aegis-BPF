@@ -8,13 +8,14 @@ This document defines the reproducible performance harness used for Phase 5.
 - Target host class: dedicated self-hosted perf runner
 - Kernel: captured in CI artifact metadata (`uname -r`)
 - Filesystem target: `/etc/hosts` for open/read microbenches
-- Network target: loopback (`127.0.0.1`) for connect microbench
+- Network target: loopback (`127.0.0.1`) with UDP `connect()` for connect microbench
 - Agent mode: `--audit` for overhead measurement (no deny action side effects)
 
 ## Noise controls
 
 - Open benchmark default iterations: `200000`
 - Connect benchmark default iterations: `50000`
+- Open regression compare uses median of repeated runs (`REPEATS=3` default)
 - Perf gate compares baseline vs with-agent on the same host and run
 - Hosted `benchmark.yml` is advisory only; strict gating runs in
   `.github/workflows/perf.yml` on deterministic runners
@@ -65,6 +66,9 @@ ITERATIONS=50000 scripts/perf_connect_bench.sh
 WITH_AGENT=1 BIN=./build/aegisbpf ITERATIONS=50000 scripts/perf_connect_bench.sh
 ```
 
+The connect microbench uses UDP sockets to isolate syscall overhead and avoid
+accept-thread scheduling noise from TCP listener setups.
+
 Output includes:
 - `us_per_op`
 - `p50_us`
@@ -81,14 +85,15 @@ sudo BIN=./build/aegisbpf \
   READ_ITERATIONS=50000 \
   STAT_SAMPLE=400 \
   STAT_ITERATIONS=50 \
-  MAX_OPEN_PCT=10 \
+  MAX_OPEN_PCT=15 \
   MAX_CONNECT_PCT=15 \
   MAX_READ_PCT=15 \
   MAX_STAT_PCT=15 \
   scripts/perf_workload_suite.sh
 ```
 
-The suite fails if any workload exceeds threshold.
+The suite fails if any workload exceeds threshold. The strict `open_close <= 10%`
+gate remains enforced by `scripts/perf_compare.sh` in `.github/workflows/perf.yml`.
 
 ## Event-rate and drop behavior
 

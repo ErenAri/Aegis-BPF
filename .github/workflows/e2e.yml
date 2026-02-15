@@ -97,6 +97,11 @@ jobs:
       - name: Health check
         run: sudo ./build/aegisbpf health
 
+      - name: Reset pinned policy state
+        run: |
+          sudo ./build/aegisbpf block clear
+          sudo ./build/aegisbpf network deny clear
+
       - name: Enforce smoke test
         run: sudo env ENFORCE_SIGNAL=none scripts/smoke_enforce.sh
 
