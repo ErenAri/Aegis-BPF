@@ -26,6 +26,10 @@ This project enforces quality gates through required CI checks on `main`.
 - Benchmark regression policy:
   - PR: advisory signal only
   - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)
+  - Hosted trend comparison uses filtered benchmark rows:
+    - `mean` aggregates only
+    - rows `<50ns` excluded
+    - high-signal families from `config/benchmark_focus_patterns.txt`
   - Strict fail-on-regression: `.github/workflows/perf.yml` on deterministic self-hosted perf runners
   - Canonical SLO table gate: `scripts/perf_slo_check.sh` (`perf-slo-report.md`)
   - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` in strict perf workflow

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -39,8 +40,37 @@ def benchmark_name(entry: dict[str, Any]) -> str:
     return ""
 
 
+def normalize_benchmark_name(name: str) -> str:
+    for suffix in ("_mean", "_median", "_stddev", "_cv"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def has_non_primary_suffix(name: str) -> bool:
     return name.endswith("_median") or name.endswith("_stddev") or name.endswith("_cv")
+
+
+def load_focus_patterns(path: Path) -> list[re.Pattern[str]]:
+    if not path.is_file():
+        raise ValueError(f"missing focus pattern file: {path}")
+    patterns: list[re.Pattern[str]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        try:
+            patterns.append(re.compile(text))
+        except re.error as exc:
+            raise ValueError(f"{path}: invalid regex '{text}': {exc}") from exc
+    if not patterns:
+        raise ValueError(f"{path}: no usable focus patterns")
+    return patterns
+
+
+def matches_focus_patterns(name: str, patterns: list[re.Pattern[str]]) -> bool:
+    normalized = normalize_benchmark_name(name)
+    return any(pattern.search(normalized) for pattern in patterns)
 
 
 def should_keep(entry: dict[str, Any], min_mean_time_ns: float, has_aggregate_rows: bool) -> bool:
@@ -63,7 +93,9 @@ def should_keep(entry: dict[str, Any], min_mean_time_ns: float, has_aggregate_ro
     return True
 
 
-def filter_benchmarks(payload: dict[str, Any], min_mean_time_ns: float) -> tuple[dict[str, Any], int, int]:
+def filter_benchmarks(
+    payload: dict[str, Any], min_mean_time_ns: float, focus_patterns: list[re.Pattern[str]] | None
+) -> tuple[dict[str, Any], int, int]:
     raw_rows = payload.get("benchmarks")
     if not isinstance(raw_rows, list):
         raise ValueError("input payload is missing 'benchmarks' list")
@@ -75,6 +107,10 @@ def filter_benchmarks(payload: dict[str, Any], min_mean_time_ns: float) -> tuple
         if not isinstance(row, dict):
             continue
         if should_keep(row, min_mean_time_ns=min_mean_time_ns, has_aggregate_rows=has_aggregate_rows):
+            if focus_patterns:
+                name = benchmark_name(row)
+                if not name or not matches_focus_patterns(name, focus_patterns):
+                    continue
             kept_rows.append(row)
 
     if not kept_rows:
@@ -95,20 +131,32 @@ def main() -> int:
         default=10.0,
         help="Drop mean rows below this time floor (default: 10ns)",
     )
+    parser.add_argument(
+        "--focus-pattern-file",
+        type=Path,
+        default=None,
+        help="Optional path to regex patterns used to keep only high-signal benchmark families",
+    )
     args = parser.parse_args()
 
     try:
         payload = load_json(args.input)
-        filtered, total_rows, kept_rows = filter_benchmarks(payload, min_mean_time_ns=args.min_mean_time_ns)
+        focus_patterns = (
+            load_focus_patterns(args.focus_pattern_file) if args.focus_pattern_file is not None else None
+        )
+        filtered, total_rows, kept_rows = filter_benchmarks(
+            payload, min_mean_time_ns=args.min_mean_time_ns, focus_patterns=focus_patterns
+        )
     except ValueError as exc:
         print(str(exc))
         return 1
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
+    focus_label = str(args.focus_pattern_file) if args.focus_pattern_file else "none"
     print(
         f"Filtered benchmark rows: kept {kept_rows}/{total_rows} "
-        f"(min_mean_time_ns={args.min_mean_time_ns:g}) -> {args.output}"
+        f"(min_mean_time_ns={args.min_mean_time_ns:g}, focus_patterns={focus_label}) -> {args.output}"
     )
     return 0
 

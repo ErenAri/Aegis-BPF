@@ -193,12 +193,15 @@ primary mean rows only:
 python3 scripts/filter_benchmark_results.py \
   --input benchmark.raw.json \
   --output benchmark.json \
-  --min-mean-time-ns 10
+  --min-mean-time-ns 50 \
+  --focus-pattern-file config/benchmark_focus_patterns.txt
 ```
 
-The filter drops `stddev`/`cv` rows (and non-primary aggregate suffix rows) so
-alerts track latency shifts rather than variance artifacts. When aggregate rows
-exist, per-repetition raw rows are removed and only `mean` aggregates are kept.
+The filter drops `stddev`/`cv` rows (and non-primary aggregate suffix rows),
+removes very short operations (`<50ns`), and keeps only high-signal benchmark
+families from `config/benchmark_focus_patterns.txt` so alerts track real
+latency shifts rather than variance artifacts. When aggregate rows exist,
+per-repetition raw rows are removed and only `mean` aggregates are kept.
 
 `benchmark.yml` uses this filtered result for advisory trend tracking. Strict
 pass/fail performance policy remains in `.github/workflows/perf.yml`.

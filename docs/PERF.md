@@ -21,9 +21,13 @@ This document defines the reproducible performance harness used for Phase 5.
 - Hosted benchmark runs pin execution to one CPU (`taskset -c 0`) when available
 - Hosted benchmark comparison filters out unstable rows:
   - only `mean` aggregates are kept
-  - rows below `10ns` are excluded from alerting
-- Hosted benchmark alert threshold is intentionally looser (`15%`) than strict
-  perf SLO gating to account for shared-runner variance
+  - rows below `50ns` are excluded from alerting
+  - only high-signal families listed in `config/benchmark_focus_patterns.txt`
+    are compared
+- Hosted benchmark alert threshold is intentionally looser (`20%`) than strict
+  perf SLO gating to account for shared-runner variance on shared runners
+- PR benchmark comments are disabled to prevent noisy review threads; strict
+  pass/fail performance evidence is reported by `.github/workflows/perf.yml`
 - Use stable thresholds in `scripts/perf_workload_suite.sh`
 - Strict KPI gate: `p95_with_agent / p95_baseline <= 1.05` for both open and
   connect profiles (validated by `scripts/validate_perf_artifacts.py`)
