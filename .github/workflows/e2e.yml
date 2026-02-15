@@ -81,7 +81,12 @@ jobs:
         run: grep -qw bpf /sys/kernel/security/lsm
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: |
+          rm -rf build
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DSKIP_BPF_BUILD=OFF
 
       - name: Build
         run: cmake --build build

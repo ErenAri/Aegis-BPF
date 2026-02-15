@@ -85,7 +85,12 @@ jobs:
         run: scripts/verify_env.sh --strict
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+        run: |
+          rm -rf build
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DSKIP_BPF_BUILD=OFF
 
       - name: Build
         run: cmake --build build
