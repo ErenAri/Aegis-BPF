@@ -138,6 +138,12 @@ jobs:
         run: |
           OPEN_JSON=artifacts/perf/open_compare.json \
           WORKLOAD_JSON=artifacts/perf/workload_suite.json \
+          OPEN_BASELINE_JSON=artifacts/perf/open_baseline.json \
+          OPEN_WITH_AGENT_JSON=artifacts/perf/open_with_agent.json \
+          CONNECT_BASELINE_JSON=artifacts/perf/connect_baseline.json \
+          CONNECT_WITH_AGENT_JSON=artifacts/perf/connect_with_agent.json \
+          REPORT_OUT=artifacts/perf/perf-slo-report.md \
+          SUMMARY_OUT=artifacts/perf/perf-slo-summary.json \
           MAX_OPEN_P95_OVERHEAD=10 \
           MAX_CONNECT_P95_OVERHEAD=10 \
           scripts/perf_slo_check.sh

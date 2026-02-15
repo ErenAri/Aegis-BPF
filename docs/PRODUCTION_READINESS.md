@@ -16,6 +16,8 @@ For public CI evidence, see `docs/EVIDENCE.md`.
   map availability.
 - Clear failure modes: enforce fails closed; audit fallback fails open with
   explicit warnings.
+- Runtime posture transitions are explicit (`ENFORCE`, `AUDIT_FALLBACK`,
+  `DEGRADED`) and can be forced fail-closed with `run --strict-degrade`.
 - CI builds on supported distros and architectures.
 
 ## P1 (strongly recommended before wide rollout)
@@ -51,6 +53,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Reference enforcement slice: `scripts/reference_enforcement_slice.sh`
 - Environment verification: `scripts/verify_env.sh [--strict]`
 - Event schema validation: `scripts/validate_event_schema.py` + `tests/event_samples/`
+- Runtime state-change contract: `type=state_change` events (`config/event-schema.json`)
 - Failure-mode regression contract: `tests/check_failure_modes_contract.py` (parser, signature, map-full, verifier, rollback paths)
 - SBOM generation: `sbom` job in `.github/workflows/ci.yml`
 - Release provenance attestations: `actions/attest-build-provenance` in `.github/workflows/release.yml`
@@ -60,11 +63,14 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
 - Kernel file-enforcement matrix (114 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
+- Filesystem matrix: `scripts/e2e_fs_matrix.sh` (overlayfs/bind/tmpfs/symlink/hardlink behavior)
+- Namespace matrix: `scripts/e2e_namespace_matrix.sh` (mount/pid/network namespace behavior)
 - Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 100 --max-failed-checks 0`)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Chaos ringbuf overflow check: `scripts/chaos_ringbuf_overflow.sh` (runs in `e2e.yml`)
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`
 - Perf regression workflow: `.github/workflows/perf.yml`
+- Perf canonical SLO gate: `scripts/perf_slo_check.sh` (`perf-slo-report.md`, `perf-slo-summary.json`)
 - Performance baseline report: `docs/PERF_BASELINE.md`
 - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` + `artifacts/perf/perf-evidence-report.md`
 - Hosted benchmark trend workflow (advisory): `.github/workflows/benchmark.yml`

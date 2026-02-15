@@ -205,6 +205,9 @@ sudo ./build/aegisbpf run --enforce --enforce-signal=term
 # Allow unknown exec identity only as a break-glass exception
 sudo ./build/aegisbpf run --enforce --allow-unknown-binary-identity
 
+# Fail closed if enforce mode degrades to audit/degraded state
+sudo ./build/aegisbpf run --enforce --strict-degrade
+
 # SIGKILL mode escalates: TERM first, KILL only after repeated denies
 sudo ./build/aegisbpf run --enforce --enforce-signal=kill
 
@@ -279,6 +282,9 @@ sudo aegisbpf run --audit --ringbuf-bytes=67108864
 
 # Sample block events (1 = all events, 10 = 1 out of 10)
 sudo aegisbpf run --audit --event-sample-rate=10
+
+# In enforce mode, exit non-zero on fallback/degraded runtime state
+sudo aegisbpf run --enforce --strict-degrade
 ```
 
 ### Performance and Soak (Sample Results)
@@ -393,6 +399,9 @@ Daemon startup writes a capability/attach report to
 `/var/lib/aegisbpf/capabilities.json` (override with
 `AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
 applied policy requires unavailable network or exec-identity kernel hooks.
+The capability report also includes runtime posture fields (`runtime_state`,
+`state_transitions`) so operators can distinguish `ENFORCE`,
+`AUDIT_FALLBACK`, and `DEGRADED` outcomes.
 
 ## Event Format
 
@@ -416,6 +425,21 @@ Events are emitted as newline-delimited JSON:
   "ino": 123456,
   "dev": 259,
   "action": "TERM"
+}
+```
+
+Runtime posture changes emit a separate event type:
+
+```json
+{
+  "type": "state_change",
+  "event_version": 1,
+  "state": "AUDIT_FALLBACK",
+  "reason_code": "CAPABILITY_AUDIT_ONLY",
+  "detail": "kernel lacks required enforce hooks",
+  "strict_mode": false,
+  "transition_id": 2,
+  "degradation_count": 1
 }
 ```
 

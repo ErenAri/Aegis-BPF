@@ -157,6 +157,22 @@ Result<KernelFeatures> test_detect_full()
     return features;
 }
 
+Result<KernelFeatures> test_detect_audit_only()
+{
+    KernelFeatures features{};
+    features.bpf_lsm = false;
+    features.ringbuf = true;
+    features.cgroup_v2 = true;
+    features.btf = true;
+    features.bpf_syscall = true;
+    features.tracepoints = true;
+    features.kernel_version = "6.6.0";
+    features.kernel_major = 6;
+    features.kernel_minor = 6;
+    features.kernel_patch = 0;
+    return features;
+}
+
 bool test_break_glass_true()
 {
     return true;
@@ -467,6 +483,29 @@ TEST(TracingTest, DaemonRunSurfacesVerifierRejectError)
     EXPECT_NE(log.find("\"span_name\":\"daemon.load_bpf\""), std::string::npos);
     EXPECT_NE(log.find("\"status\":\"error\""), std::string::npos);
     EXPECT_NE(log.find("BPF verifier rejected test program"), std::string::npos);
+    EXPECT_NE(log.find("AEGIS_STATE_CHANGE"), std::string::npos);
+    EXPECT_NE(log.find("BPF_VERIFIER_REJECT"), std::string::npos);
+}
+
+TEST(TracingTest, DaemonRunStrictDegradeFailsWhenEnforceFallsBack)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+    {
+        DaemonHookGuard hooks(test_config_ok, test_detect_audit_only);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault, 0, 3, false,
+                            false, true);
+        EXPECT_EQ(rc, 1);
+    }
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("CAPABILITY_AUDIT_ONLY"), std::string::npos);
+    EXPECT_NE(log.find("Strict degrade mode triggered failure"), std::string::npos);
 }
 
 TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)
@@ -579,6 +618,10 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
     EXPECT_NE(payload.find("\"features\""), std::string::npos);
     EXPECT_NE(payload.find("\"hooks\""), std::string::npos);
     EXPECT_NE(payload.find("\"requirements\""), std::string::npos);
+    EXPECT_NE(payload.find("\"runtime_state\": \"AUDIT_FALLBACK\""), std::string::npos);
+    EXPECT_NE(payload.find("\"state_transitions\""), std::string::npos);
+    EXPECT_NE(payload.find("\"strict_mode\": false"), std::string::npos);
+    EXPECT_NE(payload.find("\"enforce_requested\": false"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(capabilities_path, ec);

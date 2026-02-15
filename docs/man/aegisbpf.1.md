@@ -36,6 +36,7 @@ Start the security agent.
 [**--allow-sigkill**]
 [**--allow-unsigned-bpf**]
 [**--allow-unknown-binary-identity**]
+[**--strict-degrade**]
 [**--kill-escalation-threshold**=*N*] [**--kill-escalation-window-seconds**=*SECONDS*]
 [**--seccomp**] [**--log**=*SINK*]
 
@@ -68,6 +69,11 @@ Start the security agent.
 :   Break-glass override for `version=3` exec identity policies (`[allow_binary_hash]`).
     When enabled, processes with unreadable/unknown executable hashes are logged
     but not signaled.
+
+**--strict-degrade**
+:   Enforce fail-closed runtime posture in enforce mode. If startup or runtime
+    transitions to `AUDIT_FALLBACK` or `DEGRADED`, the daemon exits non-zero.
+    Use this for production nodes that must not silently downgrade enforcement.
 
 **--kill-escalation-threshold**=*N*
 :   Number of denied operations within the escalation window before `SIGKILL`
@@ -300,6 +306,8 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 **AEGIS_CAPABILITIES_REPORT_PATH**
 :   Override daemon capability report path (default: `/var/lib/aegisbpf/capabilities.json`).
+    Report includes hook/capability probes and runtime posture fields
+    (`runtime_state`, `state_transitions`).
 
 **AEGIS_POLICY_SHA256**
 :   Expected policy SHA256 for `policy apply` when hash flags are not passed.

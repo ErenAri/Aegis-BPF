@@ -7,7 +7,8 @@
   "oneOf": [
     { "$ref": "#/$defs/ExecEvent" },
     { "$ref": "#/$defs/BlockEvent" },
-    { "$ref": "#/$defs/NetBlockEvent" }
+    { "$ref": "#/$defs/NetBlockEvent" },
+    { "$ref": "#/$defs/StateChangeEvent" }
   ],
   "$defs": {
     "ExecEvent": {
@@ -271,6 +272,60 @@
         }
       },
       "additionalProperties": false
+    },
+    "StateChangeEvent": {
+      "type": "object",
+      "description": "Runtime state transition event emitted when enforcement posture changes",
+      "required": [
+        "type",
+        "event_version",
+        "state",
+        "reason_code",
+        "strict_mode",
+        "transition_id",
+        "degradation_count"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "state_change",
+          "description": "Event type identifier"
+        },
+        "event_version": {
+          "type": "integer",
+          "const": 1,
+          "description": "Version of the state-change event schema"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["ENFORCE", "AUDIT_FALLBACK", "DEGRADED"],
+          "description": "Current runtime posture"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Machine-readable reason for the transition"
+        },
+        "detail": {
+          "type": "string",
+          "description": "Optional human-readable transition detail"
+        },
+        "strict_mode": {
+          "type": "boolean",
+          "description": "Whether strict degrade mode is enabled"
+        },
+        "transition_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic transition sequence number for this process"
+        },
+        "degradation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of transitions into fallback/degraded states"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": [
@@ -323,6 +378,16 @@
       "rule_type": "ip",
       "action": "TERM",
       "comm": "curl"
+    },
+    {
+      "type": "state_change",
+      "event_version": 1,
+      "state": "AUDIT_FALLBACK",
+      "reason_code": "CAPABILITY_AUDIT_ONLY",
+      "detail": "kernel lacks required enforce hooks",
+      "strict_mode": false,
+      "transition_id": 2,
+      "degradation_count": 1
     }
   ]
 }

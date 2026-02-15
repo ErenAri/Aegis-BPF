@@ -68,6 +68,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     bool allow_sigkill = false;
     bool allow_unsigned_bpf = false;
     bool allow_unknown_binary_identity = false;
+    bool strict_degrade = false;
     uint32_t deadman_ttl = 0;
     uint8_t enforce_signal = kEnforceSignalTerm;
     uint32_t ringbuf_bytes = 0;
@@ -95,6 +96,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             allow_unsigned_bpf = true;
         } else if (arg == "--allow-unknown-binary-identity") {
             allow_unknown_binary_identity = true;
+        } else if (arg == "--strict-degrade") {
+            strict_degrade = true;
         } else if (arg.rfind("--deadman-ttl=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--deadman-ttl="));
             if (!parse_u32_option(value, deadman_ttl, "Invalid deadman TTL value", false))
@@ -243,7 +246,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
 
     return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
                       event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
-                      deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity);
+                      deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity,
+                      strict_degrade);
 }
 
 } // namespace aegis

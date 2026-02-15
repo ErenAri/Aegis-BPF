@@ -11,6 +11,10 @@ This project enforces quality gates through required CI checks on `main`.
 - Clang-Tidy (changed C++ files)
 - Semgrep (changed C/C++ files; full scan on schedule)
 - Smoke fuzzing (60s per fuzz target on PR/main)
+- E2E enforcement gate (`e2e` in `.github/workflows/e2e.yml`) including:
+  - file-enforcement matrix
+  - filesystem matrix
+  - namespace matrix
 - Kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
   minimum 100 checks, zero failed checks)
 - Coverage report with minimum thresholds
@@ -23,6 +27,7 @@ This project enforces quality gates through required CI checks on `main`.
   - PR: advisory signal only
   - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)
   - Strict fail-on-regression: `.github/workflows/perf.yml` on deterministic self-hosted perf runners
+  - Canonical SLO table gate: `scripts/perf_slo_check.sh` (`perf-slo-report.md`)
   - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` in strict perf workflow
   - Strict KPI ratio gates: open/connect `p95_with_agent / p95_baseline <= 1.05`
   - Soak reliability gate enforces event-drop ratio `<0.1%` with minimum decision-event volume

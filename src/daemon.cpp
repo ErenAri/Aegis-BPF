@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 #include "bpf_ops.hpp"
@@ -39,7 +40,84 @@ namespace aegis {
 namespace {
 volatile sig_atomic_t g_exiting = 0;
 std::atomic<bool> g_heartbeat_running{false};
+std::atomic<int> g_forced_exit_code{0};
 Result<void> setup_agent_cgroup(BpfState& state);
+
+enum class RuntimeState { Enforce, AuditFallback, Degraded };
+
+struct RuntimeStateTracker {
+    RuntimeState current = RuntimeState::Enforce;
+    uint64_t transition_id = 0;
+    uint64_t degradation_count = 0;
+    bool strict_mode = false;
+    bool enforce_requested = false;
+};
+
+std::mutex g_runtime_state_mu;
+RuntimeStateTracker g_runtime_state;
+
+const char* runtime_state_name(RuntimeState state)
+{
+    switch (state) {
+        case RuntimeState::Enforce:
+            return "ENFORCE";
+        case RuntimeState::AuditFallback:
+            return "AUDIT_FALLBACK";
+        case RuntimeState::Degraded:
+            return "DEGRADED";
+    }
+    return "DEGRADED";
+}
+
+void reset_runtime_state(bool strict_mode, bool enforce_requested)
+{
+    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+    g_runtime_state = RuntimeStateTracker{};
+    g_runtime_state.strict_mode = strict_mode;
+    g_runtime_state.enforce_requested = enforce_requested;
+}
+
+RuntimeStateTracker snapshot_runtime_state()
+{
+    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+    return g_runtime_state;
+}
+
+void emit_runtime_state_change(RuntimeState state, const std::string& reason_code, const std::string& detail)
+{
+    RuntimeStateTracker snapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_runtime_state_mu);
+        g_runtime_state.current = state;
+        ++g_runtime_state.transition_id;
+        if (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded) {
+            ++g_runtime_state.degradation_count;
+        }
+        snapshot = g_runtime_state;
+    }
+
+    emit_state_change_event(runtime_state_name(state), reason_code, detail, snapshot.strict_mode, snapshot.transition_id,
+                            snapshot.degradation_count);
+
+    logger().log(SLOG_INFO("AEGIS_STATE_CHANGE")
+                     .field("event", "AEGIS_STATE_CHANGE")
+                     .field("event_version", static_cast<int64_t>(1))
+                     .field("state", runtime_state_name(state))
+                     .field("reason_code", reason_code)
+                     .field("detail", detail)
+                     .field("strict_mode", snapshot.strict_mode)
+                     .field("transition_id", static_cast<int64_t>(snapshot.transition_id))
+                     .field("degradation_count", static_cast<int64_t>(snapshot.degradation_count)));
+
+    if (snapshot.strict_mode && snapshot.enforce_requested &&
+        (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded)) {
+        logger().log(SLOG_ERROR("Strict degrade mode triggered failure")
+                         .field("reason_code", reason_code)
+                         .field("state", runtime_state_name(state)));
+        g_forced_exit_code.store(1);
+        g_exiting = 1;
+    }
+}
 
 // Production defaults for daemon dependencies
 DaemonDeps make_default_deps()
@@ -105,6 +183,8 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
 
     uint64_t last_block_count = 0;
     uint32_t rate_breach_count = 0;
+    bool deny_rate_state_emitted = false;
+    bool map_capacity_state_emitted = false;
 
     // Seed initial block count
     if (deny_rate_threshold > 0 && state->block_stats) {
@@ -153,6 +233,12 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                             logger().log(SLOG_ERROR("Auto-revert: deny rate exceeded threshold, switched to audit-only")
                                              .field("rate", rate)
                                              .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
+                            if (!deny_rate_state_emitted) {
+                                deny_rate_state_emitted = true;
+                                emit_runtime_state_change(
+                                    RuntimeState::AuditFallback, "DENY_RATE_THRESHOLD_EXCEEDED",
+                                    "rate=" + std::to_string(rate) + ",threshold=" + std::to_string(deny_rate_threshold));
+                            }
                         } else {
                             logger().log(
                                 SLOG_ERROR("Auto-revert failed").field("error", revert_result.error().to_string()));
@@ -176,6 +262,12 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                                      .field("map", m.name)
                                      .field("entries", static_cast<int64_t>(m.entry_count))
                                      .field("max_entries", static_cast<int64_t>(m.max_entries)));
+                    if (!map_capacity_state_emitted) {
+                        map_capacity_state_emitted = true;
+                        emit_runtime_state_change(RuntimeState::Degraded, "MAP_CAPACITY_EXCEEDED",
+                                                  "map=" + m.name + ",entries=" + std::to_string(m.entry_count) +
+                                                      ",max=" + std::to_string(m.max_entries));
+                    }
                 }
             }
         } else if (pressure.any_critical) {
@@ -359,7 +451,8 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
                                        const BpfState& state, const std::string& applied_policy_path,
                                        const AppliedPolicyRequirements& policy_req, bool kernel_exec_identity_enabled,
                                        size_t kernel_exec_identity_entries,
-                                       size_t userspace_exec_identity_allowlist_size)
+                                       size_t userspace_exec_identity_allowlist_size,
+                                       const RuntimeStateTracker& runtime_state)
 {
     std::error_code ec;
     const std::filesystem::path report_path(output_path);
@@ -386,6 +479,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "  \"kernel_version\": \"" << json_escape(features.kernel_version) << "\",\n";
         out << "  \"capability\": \"" << json_escape(capability_name(capability)) << "\",\n";
         out << "  \"audit_only\": " << (audit_only ? "true" : "false") << ",\n";
+        out << "  \"runtime_state\": \"" << runtime_state_name(runtime_state.current) << "\",\n";
         out << "  \"lsm_enabled\": " << (lsm_enabled ? "true" : "false") << ",\n";
         out << "  \"core_supported\": " << (core_supported ? "true" : "false") << ",\n";
         out << "  \"features\": {\n";
@@ -429,6 +523,12 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
             << ",\n";
         out << "    \"userspace_fallback_allowlist_entries\": "
             << static_cast<int64_t>(userspace_exec_identity_allowlist_size) << "\n";
+        out << "  },\n";
+        out << "  \"state_transitions\": {\n";
+        out << "    \"total\": " << static_cast<int64_t>(runtime_state.transition_id) << ",\n";
+        out << "    \"degradation_total\": " << static_cast<int64_t>(runtime_state.degradation_count) << ",\n";
+        out << "    \"strict_mode\": " << (runtime_state.strict_mode ? "true" : "false") << ",\n";
+        out << "    \"enforce_requested\": " << (runtime_state.enforce_requested ? "true" : "false") << "\n";
         out << "  }\n";
         out << "}\n";
         return out.good();
@@ -627,7 +727,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
                uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
-               bool allow_unknown_binary_identity)
+               bool allow_unknown_binary_identity, bool strict_degrade)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -635,12 +735,19 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         root_span.fail(message);
         return 1;
     };
+    g_exiting = 0;
+    g_forced_exit_code.store(0);
+
+    const bool enforce_requested = !audit_only;
+    reset_runtime_state(strict_degrade, enforce_requested);
 
     // Check for break-glass mode FIRST
     bool break_glass_active = g_deps.detect_break_glass();
     if (break_glass_active) {
         logger().log(SLOG_WARN("Break-glass mode detected - forcing audit-only mode"));
         audit_only = true;
+        emit_runtime_state_change(RuntimeState::AuditFallback, "BREAK_GLASS_ACTIVE",
+                                  "break_glass marker file detected");
     }
 
     if (enforce_signal != kEnforceSignalNone && enforce_signal != kEnforceSignalInt &&
@@ -724,15 +831,31 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
 
     bool lsm_enabled = features.bpf_lsm;
 
+    bool startup_state_emitted = false;
     if (cap == EnforcementCapability::AuditOnly) {
         if (!audit_only) {
             logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
                              .field("explanation", capability_explanation(features, cap)));
             audit_only = true;
+            emit_runtime_state_change(RuntimeState::AuditFallback, "CAPABILITY_AUDIT_ONLY",
+                                      capability_explanation(features, cap));
+            startup_state_emitted = true;
         } else {
             logger().log(
                 SLOG_INFO("Running in audit-only mode").field("explanation", capability_explanation(features, cap)));
         }
+    }
+    if (!startup_state_emitted) {
+        if (audit_only) {
+            emit_runtime_state_change(RuntimeState::AuditFallback, "STARTUP_AUDIT_MODE",
+                                      "agent started in audit-only mode");
+        } else {
+            emit_runtime_state_change(RuntimeState::Enforce, "STARTUP_ENFORCE_READY",
+                                      "kernel supports enforce-capable mode");
+        }
+    }
+    if (g_forced_exit_code.load() != 0) {
+        return fail("Strict degrade mode triggered failure");
     }
 
     auto rlimit_result = g_deps.bump_memlock_rlimit();
@@ -767,6 +890,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     if (!load_result) {
         load_span.fail(load_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
+        const std::string load_error = load_result.error().to_string();
+        if (load_error.find("verifier") != std::string::npos || load_error.find("Verifier") != std::string::npos) {
+            emit_runtime_state_change(RuntimeState::Degraded, "BPF_VERIFIER_REJECT", load_error);
+        } else {
+            emit_runtime_state_change(RuntimeState::Degraded, "BPF_LOAD_FAILED", load_error);
+        }
         return fail(load_result.error().to_string());
     }
 
@@ -859,6 +988,15 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             const bool bind_ok = !policy_req.network_bind_required || state.socket_bind_hook_attached;
             if (!connect_ok || !bind_ok) {
                 if (!audit_only) {
+                    emit_runtime_state_change(RuntimeState::Degraded, "NETWORK_HOOK_UNAVAILABLE",
+                                              "connect_required=" +
+                                                  std::string(policy_req.network_connect_required ? "true" : "false") +
+                                                  ",bind_required=" +
+                                                  std::string(policy_req.network_bind_required ? "true" : "false") +
+                                                  ",connect_hook_attached=" +
+                                                  std::string(state.socket_connect_hook_attached ? "true" : "false") +
+                                                  ",bind_hook_attached=" +
+                                                  std::string(state.socket_bind_hook_attached ? "true" : "false"));
                     logger().log(SLOG_ERROR("Network policy requires unavailable kernel hooks")
                                      .field("policy", applied_policy_path)
                                      .field("connect_required", policy_req.network_connect_required)
@@ -867,12 +1005,17 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                                      .field("bind_hook_attached", state.socket_bind_hook_attached));
                     return fail("Network policy is active but required kernel hooks are unavailable");
                 }
+                emit_runtime_state_change(RuntimeState::AuditFallback, "NETWORK_HOOK_UNAVAILABLE",
+                                          "audit mode fallback for missing network hooks");
                 logger().log(SLOG_WARN("Network policy hooks unavailable; running in audit-only fallback")
                                  .field("policy", applied_policy_path)
                                  .field("connect_required", policy_req.network_connect_required)
                                  .field("bind_required", policy_req.network_bind_required)
                                  .field("connect_hook_attached", state.socket_connect_hook_attached)
                                  .field("bind_hook_attached", state.socket_bind_hook_attached));
+                if (g_forced_exit_code.load() != 0) {
+                    return fail("Strict degrade mode triggered failure");
+                }
             }
         }
 
@@ -897,6 +1040,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                                  .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
                                  .field("policy", applied_policy_path));
             } else if (!audit_only) {
+                emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE",
+                                          "kernel hook and allowlist prerequisites not satisfied");
                 logger().log(
                     SLOG_ERROR("Exec identity policy requires kernel hook and populated allowlist")
                         .field("policy", applied_policy_path)
@@ -906,6 +1051,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                         .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
                 return fail("Exec identity policy is active but kernel enforcement is unavailable");
             } else {
+                emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
+                                          "userspace audit fallback enabled");
                 exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
                     policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
                 event_callbacks.on_exec = on_exec_identity_event;
@@ -916,6 +1063,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                         .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
                         .field("kernel_hook_attached", state.exec_identity_hook_attached)
                         .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
+                if (g_forced_exit_code.load() != 0) {
+                    return fail("Strict degrade mode triggered failure");
+                }
             }
         }
     }
@@ -923,10 +1073,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     {
         const bool file_open_hook_attached = lsm_enabled && use_file_open;
         const bool inode_permission_hook_attached = lsm_enabled && use_inode_permission;
+        RuntimeStateTracker runtime_state = snapshot_runtime_state();
         auto report_result = write_capabilities_report(
             capabilities_report_path, features, cap, audit_only, lsm_enabled, file_open_hook_attached,
             inode_permission_hook_attached, state, applied_policy_path, policy_req, kernel_exec_identity_enabled,
-            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0);
+            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0,
+            runtime_state);
         if (!report_result) {
             logger().log(SLOG_WARN("Failed to write capability report")
                              .field("path", capabilities_report_path)
@@ -939,6 +1091,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event,
                                         event_callbacks.on_exec ? &event_callbacks : nullptr, nullptr));
     if (!rb) {
+        emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_CREATE_FAILED", "ring_buffer__new returned null");
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
         return fail("Failed to create ring buffer");
     }
@@ -956,9 +1109,11 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
+    RuntimeStateTracker runtime_state = snapshot_runtime_state();
     logger().log(
         SLOG_INFO("Agent started")
             .field("audit_only", audit_only)
+            .field("strict_degrade", strict_degrade)
             .field("enforce_signal", enforce_signal_name(config.enforce_signal))
             .field("lsm_enabled", lsm_enabled)
             .field("lsm_hook", lsm_hook_name(lsm_hook))
@@ -974,7 +1129,10 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             .field("exec_identity_allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
             .field("exec_identity_userspace_fallback",
                    static_cast<int64_t>(exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0))
-            .field("allow_unknown_binary_identity", allow_unknown_binary_identity));
+            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
+            .field("runtime_state", runtime_state_name(runtime_state.current))
+            .field("state_transition_total", static_cast<int64_t>(runtime_state.transition_id))
+            .field("state_degradation_total", static_cast<int64_t>(runtime_state.degradation_count)));
 
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;
@@ -996,6 +1154,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             break;
         }
         if (err < 0) {
+            emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_POLL_FAILED",
+                                      "ring_buffer__poll error=" + std::to_string(-err));
             event_loop_span.fail("Ring buffer poll failed");
             logger().log(SLOG_ERROR("Ring buffer poll failed").error_code(-err));
             break;
@@ -1009,6 +1169,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     logger().log(SLOG_INFO("Agent stopped"));
+    if (g_forced_exit_code.load() != 0) {
+        return fail("Strict degrade mode triggered failure");
+    }
     if (err < 0) {
         return fail("Ring buffer poll failed");
     }

@@ -1,0 +1,10 @@
+{
+    "type": "state_change",
+    "event_version": 1,
+    "state": "DEGRADED",
+    "reason_code": "RINGBUF_POLL_FAILED",
+    "detail": "ring_buffer__poll error=22",
+    "strict_mode": true,
+    "transition_id": 4,
+    "degradation_count": 2
+}
