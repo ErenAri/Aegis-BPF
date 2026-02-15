@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771121416055,
+  "lastUpdate": 1771163635119,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30366,6 +30366,102 @@ window.BENCHMARK_DATA = {
             "value": 53.79162992387949,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.7874337693649 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b9642c1b423cc9260ed2e33433fabccf0f54a17",
+          "message": "Merge pull request #45 from ErenAri/fix/security-perf-improvements\n\nci(self-hosted): force clean BPF build in e2e/perf runners",
+          "timestamp": "2026-02-15T16:43:04+03:00",
+          "tree_id": "a36f9df565e99c3309f18b586fbe83c825c543a9",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/5b9642c1b423cc9260ed2e33433fabccf0f54a17"
+        },
+        "date": 1771163633984,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1537.3575278457408,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1537.0950780967548 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3788.0521715997206,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3787.752752968982 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21738.570929004953,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21736.889590093113 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 164841.12238173725,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 164814.54703067357 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1311204.3723836301,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1311105.9860980955 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5252321.645755318,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5251934.818352059 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5277.703173220364,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5278.7474984365535 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34390.388778781766,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34395.93961009294 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 275604.5092392488,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 275592.93578491564 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 826921.456903224,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 826973.5941813671 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.75323430740713,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.74838122879109 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.97918842392744,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.97573860816783 ns\nthreads: 1"
           }
         ]
       }
