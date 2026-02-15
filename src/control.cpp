@@ -31,7 +31,7 @@ constexpr size_t kMaxStoredTransitionTimes = 128;
 bool parse_u64_env(const char* key, uint64_t& out)
 {
     const char* env = std::getenv(key);
-    if (!env || !*env) {
+    if (env == nullptr || std::strlen(env) == 0) {
         return false;
     }
     uint64_t v = 0;
@@ -235,7 +235,6 @@ bool extract_json_int64_array_simple(const std::string& json, const std::string&
             ++pos;
         }
         if (pos < json.size() && json[pos] == ']') {
-            ++pos;
             out = vals;
             return true;
         }
@@ -298,7 +297,7 @@ EmergencyControlConfig emergency_control_config_from_env()
 std::string control_state_path_from_env()
 {
     const char* env = std::getenv("AEGIS_CONTROL_STATE_PATH");
-    if (env && *env) {
+    if (env != nullptr && std::strlen(env) > 0) {
         return std::string(env);
     }
     return kControlStatePath;
@@ -307,7 +306,7 @@ std::string control_state_path_from_env()
 std::string control_log_path_from_env()
 {
     const char* env = std::getenv("AEGIS_CONTROL_LOG_PATH");
-    if (env && *env) {
+    if (env != nullptr && std::strlen(env) > 0) {
         return std::string(env);
     }
     return kControlLogPath;
@@ -316,7 +315,7 @@ std::string control_log_path_from_env()
 std::string control_lock_path_from_env()
 {
     const char* env = std::getenv("AEGIS_CONTROL_LOCK_PATH");
-    if (env && *env) {
+    if (env != nullptr && std::strlen(env) > 0) {
         return std::string(env);
     }
     return kControlLockPath;
@@ -325,7 +324,7 @@ std::string control_lock_path_from_env()
 std::string node_name_from_env_or_hostname()
 {
     const char* env = std::getenv("AEGIS_NODE_NAME");
-    if (env && *env) {
+    if (env != nullptr && std::strlen(env) > 0) {
         return std::string(env);
     }
     char host[256];
@@ -356,14 +355,15 @@ SanitizedReason sanitize_reason_and_hash(const std::string& raw_reason, size_t m
     if (max_bytes == 0) {
         max_bytes = 512;
     }
-    static constexpr const char* kSuffix = "...(truncated)";
     if (s.size() > max_bytes) {
         out.truncated = true;
-        const size_t suffix_len = std::strlen(kSuffix);
+        constexpr std::string_view kSuffix = "...(truncated)";
+        const size_t suffix_len = kSuffix.size();
         if (max_bytes > suffix_len + 1) {
-            s = s.substr(0, max_bytes - suffix_len) + kSuffix;
+            s.resize(max_bytes - suffix_len);
+            s.append(kSuffix);
         } else {
-            s = s.substr(0, max_bytes);
+            s.resize(max_bytes);
         }
     }
 

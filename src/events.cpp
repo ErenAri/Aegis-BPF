@@ -370,6 +370,15 @@ void emit_control_change_event(const std::string& payload, const std::string& ac
     if (sink_wants_journald(g_event_sink)) {
         journal_send_control_change(payload, action, enabled, prev_enabled, uid, pid, node_name, reason_sha256, reason);
     }
+#else
+    (void)action;
+    (void)enabled;
+    (void)prev_enabled;
+    (void)uid;
+    (void)pid;
+    (void)node_name;
+    (void)reason_sha256;
+    (void)reason;
 #endif
 }
 

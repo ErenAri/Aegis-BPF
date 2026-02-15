@@ -85,7 +85,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
 
     const char* env_gate = std::getenv("AEGIS_ENFORCE_GATE_MODE");
-    if (env_gate && *env_gate) {
+    if (env_gate != nullptr && std::strlen(env_gate) > 0) {
         EnforceGateMode parsed{};
         if (parse_enforce_gate_mode(env_gate, parsed)) {
             enforce_gate_mode = parsed;
