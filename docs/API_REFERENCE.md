@@ -682,9 +682,12 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b);
 
 | Map Name | Type | Key | Value | Max Entries |
 |----------|------|-----|-------|-------------|
-| `agent_config_map` | ARRAY | `u32` (0) | `AgentConfig` | 1 |
+| `agent_config` | ARRAY | `u32` (0) | `AgentConfig` | 1 |
 | `agent_meta_map` | ARRAY | `u32` (0) | `AgentMeta` | 1 |
 | `events` | RINGBUF | - | `Event` | 16 MB |
+
+**Note:** `agent_config` is pinned at `/sys/fs/bpf/aegisbpf/agent_config` and is backed by the libbpf data map
+(toolchain-dependent map name: `.data` or `.bss`) so the BPF fast-path can read config without a map lookup.
 
 ---
 

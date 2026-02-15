@@ -1011,10 +1011,42 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         return fail(cgroup_result.error().to_string());
     }
 
+    bool file_policy_empty_hint = false;
+    bool net_policy_empty_hint = false;
+    {
+        uint32_t key = 0;
+        AgentConfig live_cfg{};
+        int cfg_fd = state.config_map ? bpf_map__fd(state.config_map) : -1;
+        if (cfg_fd >= 0 && bpf_map_lookup_elem(cfg_fd, &key, &live_cfg) == 0) {
+            file_policy_empty_hint = live_cfg.file_policy_empty != 0;
+            net_policy_empty_hint = live_cfg.net_policy_empty != 0;
+        } else {
+            logger().log(SLOG_WARN("Failed to read policy-empty hints; attaching hooks conservatively")
+                             .field("errno", static_cast<int64_t>(errno)));
+        }
+    }
+
     bool use_inode_permission = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::InodePermission);
     bool use_file_open = (lsm_hook == LsmHookMode::Both || lsm_hook == LsmHookMode::FileOpen);
+    bool attach_network_hooks = !audit_only || !net_policy_empty_hint;
+    if (audit_only && file_policy_empty_hint) {
+        if (use_inode_permission || use_file_open) {
+            logger().log(SLOG_INFO("Audit mode optimization: skipping file hooks (no deny rules loaded)")
+                             .field("lsm_hook", lsm_hook_name(lsm_hook))
+                             .field("net_policy_empty", net_policy_empty_hint));
+        }
+        use_inode_permission = false;
+        use_file_open = false;
+    }
+    if (audit_only && net_policy_empty_hint) {
+        if (lsm_enabled) {
+            logger().log(SLOG_INFO("Audit mode optimization: skipping network hooks (no deny rules loaded)"));
+        }
+        attach_network_hooks = false;
+    }
     ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
-    auto attach_result = g_deps.attach_all(state, lsm_enabled, use_inode_permission, use_file_open);
+    auto attach_result =
+        g_deps.attach_all(state, lsm_enabled, use_inode_permission, use_file_open, attach_network_hooks);
     if (!attach_result) {
         attach_span.fail(attach_result.error().to_string());
         logger().log(SLOG_ERROR("Failed to attach programs").field("error", attach_result.error().to_string()));

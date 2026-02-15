@@ -97,7 +97,8 @@ class BpfBenchmark : public benchmark::Fixture {
 
         // Attach hooks (both inode_permission and file_open).
         auto att = attach_all(state_, lsm_enabled_,
-                              /*use_inode_permission=*/true, /*use_file_open=*/true);
+                              /*use_inode_permission=*/true, /*use_file_open=*/true,
+                              /*attach_network_hooks=*/true);
         if (!att) {
             skip_ = true;
             return;
@@ -194,7 +195,8 @@ class NetBpfBenchmark : public benchmark::Fixture {
         }
 
         auto att = attach_all(state_, feats->bpf_lsm,
-                              /*use_inode_permission=*/true, /*use_file_open=*/true);
+                              /*use_inode_permission=*/true, /*use_file_open=*/true,
+                              /*attach_network_hooks=*/true);
         if (!att) {
             skip_ = true;
             return;

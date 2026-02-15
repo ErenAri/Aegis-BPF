@@ -76,7 +76,7 @@ Current scope labels:
 | **Unit + Contract Tests** |  213/213 PASS | Full local `ctest` run on 2026-02-15 |
 | **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
 | **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
-| **Performance Impact** |  Gate-enforced | Self-hosted perf gate (`perf.yml`): open microbench <=10%, workload budgets in `docs/PERF.md` |
+| **Performance Impact** |  Gate-enforced | Self-hosted perf gate (`perf.yml`): open microbench <=10% (audit-only, empty deny policy), workload budgets in `docs/PERF.md` |
 | **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO |
 
 **Security Hardening Applied:**

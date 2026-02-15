@@ -7,6 +7,21 @@ WITH_AGENT="${WITH_AGENT:-0}"
 FORMAT="${FORMAT:-text}"
 OUT="${OUT:-}"
 HOST="${HOST:-127.0.0.1}"
+PIN_CPUS="${PIN_CPUS:-1}"
+BENCH_CPU="${BENCH_CPU:-}"
+AGENT_CPU="${AGENT_CPU:-}"
+
+if [[ "${PIN_CPUS}" -eq 1 ]] && command -v taskset >/dev/null 2>&1; then
+    cpu_count="$(nproc 2>/dev/null || echo 1)"
+    if [[ "${cpu_count}" -ge 2 ]]; then
+        if [[ -z "${BENCH_CPU}" ]]; then
+            BENCH_CPU="0"
+        fi
+        if [[ -z "${AGENT_CPU}" ]]; then
+            AGENT_CPU="1"
+        fi
+    fi
+fi
 
 cleanup() {
     if [[ -n "${AGENT_PID:-}" ]]; then
@@ -32,7 +47,11 @@ if [[ "${WITH_AGENT}" -eq 1 ]]; then
         exit 1
     fi
     LOGFILE=$(mktemp)
-    "$BIN" run --audit >"$LOGFILE" 2>&1 &
+    if [[ -n "${AGENT_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+        taskset -c "${AGENT_CPU}" "$BIN" run --audit >"$LOGFILE" 2>&1 &
+    else
+        "$BIN" run --audit >"$LOGFILE" 2>&1 &
+    fi
     AGENT_PID=$!
     sleep 1
     if ! kill -0 "$AGENT_PID" 2>/dev/null; then
@@ -42,7 +61,12 @@ if [[ "${WITH_AGENT}" -eq 1 ]]; then
     fi
 fi
 
-python3 - <<PY
+PYTHON_PREFIX=()
+if [[ -n "${BENCH_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+    PYTHON_PREFIX=(taskset -c "${BENCH_CPU}")
+fi
+
+"${PYTHON_PREFIX[@]}" python3 - <<PY
 import json
 import math
 import os
@@ -55,25 +79,13 @@ iterations = int(os.environ.get("ITERATIONS", "50000"))
 with_agent = int(os.environ.get("WITH_AGENT", "0")) == 1
 fmt = os.environ.get("FORMAT", "text").lower()
 out_path = os.environ.get("OUT", "")
-
-# Use UDP connect() to benchmark connect syscall overhead without accept-thread noise.
-for _ in range(1024):
-    warm = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    warm.connect((host, port))
-    warm.close()
-
-samples_ns = []
-start_total = time.perf_counter()
-for _ in range(iterations):
-    start = time.perf_counter_ns()
-    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    client.connect((host, port))
-    client.close()
-    end = time.perf_counter_ns()
-    samples_ns.append(end - start)
-end_total = time.perf_counter()
-
-samples_ns.sort()
+repeats = int(os.environ.get("REPEATS", "0"))
+if repeats <= 0:
+    repeats = 3 if fmt == "json" else 1
+warmup = int(os.environ.get("WARMUP", "1024"))
+burn_in = int(os.environ.get("BURN_IN", "-1"))
+if burn_in < 0:
+    burn_in = 1 if fmt == "json" else 0
 
 def percentile(sorted_samples, p):
     if not sorted_samples:
@@ -86,15 +98,58 @@ def percentile(sorted_samples, p):
     frac = idx - lo
     return (sorted_samples[lo] + (sorted_samples[hi] - sorted_samples[lo]) * frac) / 1000.0
 
-elapsed = end_total - start_total
-us_per_op = (elapsed / iterations) * 1e6 if iterations else 0.0
+def median(values):
+    values = sorted(values)
+    n = len(values)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    if n % 2:
+        return float(values[mid])
+    return (float(values[mid - 1]) + float(values[mid])) / 2.0
+
+def run_once():
+    # Use UDP connect() to benchmark connect syscall overhead without accept-thread noise.
+    for _ in range(warmup):
+        warm = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        warm.connect((host, port))
+        warm.close()
+
+    samples_ns = []
+    start_total = time.perf_counter()
+    for _ in range(iterations):
+        start = time.perf_counter_ns()
+        client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client.connect((host, port))
+        client.close()
+        end = time.perf_counter_ns()
+        samples_ns.append(end - start)
+    end_total = time.perf_counter()
+    samples_ns.sort()
+    elapsed = end_total - start_total
+    us_per_op = (elapsed / iterations) * 1e6 if iterations else 0.0
+    return {
+        "seconds": elapsed,
+        "us_per_op": us_per_op,
+        "p50_us": percentile(samples_ns, 0.50),
+        "p95_us": percentile(samples_ns, 0.95),
+        "p99_us": percentile(samples_ns, 0.99),
+    }
+
+runs = [run_once() for _ in range(repeats + burn_in)]
+if burn_in:
+    runs = runs[burn_in:]
+elapsed = median([r["seconds"] for r in runs])
+us_per_op = median([r["us_per_op"] for r in runs])
 payload = {
     "iterations": iterations,
+    "repeats": len(runs),
+    "burn_in": burn_in,
     "seconds": round(elapsed, 6),
     "us_per_op": round(us_per_op, 2),
-    "p50_us": round(percentile(samples_ns, 0.50), 2),
-    "p95_us": round(percentile(samples_ns, 0.95), 2),
-    "p99_us": round(percentile(samples_ns, 0.99), 2),
+    "p50_us": round(median([r["p50_us"] for r in runs]), 2),
+    "p95_us": round(median([r["p95_us"] for r in runs]), 2),
+    "p99_us": round(median([r["p99_us"] for r in runs]), 2),
     "host": host,
     "port": port,
     "protocol": "udp",

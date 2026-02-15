@@ -143,12 +143,34 @@ struct agent_config {
     __u8 break_glass_active;
     __u8 enforce_signal;  /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
     __u8 emergency_disable;  /* bypass enforcement (force AUDIT) when set */
-    __u8 _pad[3];            /* maintain alignment */
+    __u8 file_policy_empty;  /* optimization hint: no file deny rules loaded */
+    __u8 net_policy_empty;   /* optimization hint: no network deny rules loaded */
+    __u8 _pad;               /* maintain alignment */
     __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
     __u32 deadman_ttl_seconds;
     __u32 event_sample_rate;
     __u32 sigkill_escalation_threshold;  /* SIGKILL after N denies in window */
     __u32 sigkill_escalation_window_seconds;  /* Escalation window size */
+};
+
+/* Agent config is stored as a BPF global so programs can read it without a
+ * per-hook bpf_map_lookup_elem() helper call. Userspace updates the backing
+ * map (and pins it at kAgentConfigPin).
+ */
+volatile struct agent_config agent_cfg = {
+    .audit_only = 1,
+    .deadman_enabled = 0,
+    .break_glass_active = 0,
+    .enforce_signal = SIGTERM,
+    .emergency_disable = 0,
+    .file_policy_empty = 0,
+    .net_policy_empty = 0,
+    ._pad = 0,
+    .deadman_deadline_ns = 0,
+    .deadman_ttl_seconds = 0,
+    .event_sample_rate = 1,
+    .sigkill_escalation_threshold = SIGKILL_ESCALATION_THRESHOLD_DEFAULT,
+    .sigkill_escalation_window_seconds = 30,
 };
 
 struct agent_meta {
@@ -213,13 +235,6 @@ struct {
     __type(key, struct inode_id);
     __type(value, __u8);
 } survival_allowlist SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, struct agent_config);
-} agent_config_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -489,10 +504,7 @@ static __always_inline void fill_block_event_process_info(
 
 static __always_inline __u8 get_effective_audit_mode(void)
 {
-    __u32 zero = 0;
-    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (!cfg)
-        return 1;  /* Fail-open if no config */
+    const volatile struct agent_config *cfg = &agent_cfg;
 
     /* Emergency disable always forces audit-only (bypass enforcement). */
     if (cfg->emergency_disable)
@@ -518,10 +530,7 @@ static __always_inline __u8 get_effective_audit_mode(void)
 
 static __always_inline __u8 get_effective_enforce_signal(void)
 {
-    __u32 zero = 0;
-    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (!cfg)
-        return SIGTERM;  /* Safe default in enforce mode */
+    const volatile struct agent_config *cfg = &agent_cfg;
 
     if (cfg->enforce_signal == 0 || cfg->enforce_signal == SIGINT ||
         cfg->enforce_signal == SIGKILL || cfg->enforce_signal == SIGTERM)
@@ -546,18 +555,16 @@ static __always_inline int enforcement_result(void)
 
 static __always_inline __u32 get_sigkill_escalation_threshold(void)
 {
-    __u32 zero = 0;
-    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (!cfg || cfg->sigkill_escalation_threshold == 0)
+    const volatile struct agent_config *cfg = &agent_cfg;
+    if (cfg->sigkill_escalation_threshold == 0)
         return SIGKILL_ESCALATION_THRESHOLD_DEFAULT;
     return cfg->sigkill_escalation_threshold;
 }
 
 static __always_inline __u64 get_sigkill_escalation_window_ns(void)
 {
-    __u32 zero = 0;
-    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (!cfg || cfg->sigkill_escalation_window_seconds == 0)
+    const volatile struct agent_config *cfg = &agent_cfg;
+    if (cfg->sigkill_escalation_window_seconds == 0)
         return SIGKILL_ESCALATION_WINDOW_NS_DEFAULT;
     return (__u64)cfg->sigkill_escalation_window_seconds * 1000000000ULL;
 }
@@ -633,10 +640,7 @@ static __always_inline void set_action_string(char action[8], __u8 audit, __u8 s
 
 static __always_inline __u32 get_event_sample_rate(void)
 {
-    __u32 zero = 0;
-    struct agent_config *cfg = bpf_map_lookup_elem(&agent_config_map, &zero);
-    if (!cfg)
-        return 1;  /* Default to no sampling if config missing */
+    const volatile struct agent_config *cfg = &agent_cfg;
     return cfg->event_sample_rate ? cfg->event_sample_rate : 1;
 }
 
@@ -824,6 +828,9 @@ int BPF_PROG(handle_file_open, struct file *file)
     if (!file)
         return 0;
 
+    if (agent_cfg.file_policy_empty)
+        return 0;
+
     /* Get inode info early for survival check */
     const struct inode *inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
@@ -928,6 +935,9 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     if (!inode)
         return 0;
     (void)mask;
+
+    if (agent_cfg.file_policy_empty)
+        return 0;
 
     struct inode_id key = {};
     key.ino = BPF_CORE_READ(inode, i_ino);
@@ -1036,6 +1046,9 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     if (!filename)
         return 0;
 
+    if (agent_cfg.file_policy_empty)
+        return 0;
+
     /* Read path from userspace */
     struct path_key key = {};
     long len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
@@ -1129,6 +1142,9 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (!sock || !address)
         return 0;
     (void)addrlen;
+
+    if (agent_cfg.net_policy_empty)
+        return 0;
 
     __u64 cgid = bpf_get_current_cgroup_id();
 
@@ -1322,6 +1338,9 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (!sock || !address)
         return 0;
     (void)addrlen;
+
+    if (agent_cfg.net_policy_empty)
+        return 0;
 
     __u64 cgid = bpf_get_current_cgroup_id();
 

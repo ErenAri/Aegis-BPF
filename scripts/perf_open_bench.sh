@@ -7,6 +7,21 @@ ITERATIONS="${ITERATIONS:-200000}"
 WITH_AGENT="${WITH_AGENT:-0}"
 FORMAT="${FORMAT:-text}"
 OUT="${OUT:-}"
+PIN_CPUS="${PIN_CPUS:-1}"
+BENCH_CPU="${BENCH_CPU:-}"
+AGENT_CPU="${AGENT_CPU:-}"
+
+if [[ "${PIN_CPUS}" -eq 1 ]] && command -v taskset >/dev/null 2>&1; then
+    cpu_count="$(nproc 2>/dev/null || echo 1)"
+    if [[ "${cpu_count}" -ge 2 ]]; then
+        if [[ -z "${BENCH_CPU}" ]]; then
+            BENCH_CPU="0"
+        fi
+        if [[ -z "${AGENT_CPU}" ]]; then
+            AGENT_CPU="1"
+        fi
+    fi
+fi
 
 cleanup() {
     if [[ -n "${AGENT_PID:-}" ]]; then
@@ -41,7 +56,11 @@ if [[ "$WITH_AGENT" -eq 1 ]]; then
     if [[ -n "${LSM_HOOK:-}" ]]; then
         hook_arg="--lsm-hook=${LSM_HOOK}"
     fi
-    "$BIN" run --audit $hook_arg >"$LOGFILE" 2>&1 &
+    if [[ -n "${AGENT_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+        taskset -c "${AGENT_CPU}" "$BIN" run --audit $hook_arg >"$LOGFILE" 2>&1 &
+    else
+        "$BIN" run --audit $hook_arg >"$LOGFILE" 2>&1 &
+    fi
     AGENT_PID=$!
     sleep 1
     if ! kill -0 "$AGENT_PID" 2>/dev/null; then
@@ -49,9 +68,15 @@ if [[ "$WITH_AGENT" -eq 1 ]]; then
         cat "$LOGFILE" >&2
         exit 1
     fi
+    sleep "${AGENT_SETTLE_SECONDS:-1}"
 fi
 
-python3 - <<PY
+PYTHON_PREFIX=()
+if [[ -n "${BENCH_CPU}" ]] && command -v taskset >/dev/null 2>&1; then
+    PYTHON_PREFIX=(taskset -c "${BENCH_CPU}")
+fi
+
+"${PYTHON_PREFIX[@]}" python3 - <<PY
 import os
 import json
 import math
@@ -62,19 +87,13 @@ iterations = int("$ITERATIONS")
 with_agent = int("$WITH_AGENT") == 1
 fmt = os.environ.get("FORMAT", "text").lower()
 out_path = os.environ.get("OUT", "")
-
-samples_ns = []
-start = time.perf_counter()
-for _ in range(iterations):
-    op_start = time.perf_counter_ns()
-    fd = os.open(path, os.O_RDONLY)
-    os.read(fd, 1)
-    os.close(fd)
-    op_end = time.perf_counter_ns()
-    samples_ns.append(op_end - op_start)
-end = time.perf_counter()
-
-samples_ns.sort()
+warmup = int(os.environ.get("WARMUP", "1024"))
+repeats = int(os.environ.get("REPEATS", "0"))
+if repeats <= 0:
+    repeats = 3 if fmt == "json" else 1
+burn_in = int(os.environ.get("BURN_IN", "-1"))
+if burn_in < 0:
+    burn_in = 1 if fmt == "json" else 0
 
 def percentile(sorted_samples, p):
     if not sorted_samples:
@@ -87,15 +106,58 @@ def percentile(sorted_samples, p):
     frac = idx - lo
     return (sorted_samples[lo] + (sorted_samples[hi] - sorted_samples[lo]) * frac) / 1000.0
 
-elapsed = end - start
-us_per_op = (elapsed / iterations) * 1e6
+def median(values):
+    values = sorted(values)
+    n = len(values)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    if n % 2:
+        return float(values[mid])
+    return (float(values[mid - 1]) + float(values[mid])) / 2.0
+
+def run_once():
+    for _ in range(warmup):
+        fd = os.open(path, os.O_RDONLY)
+        os.read(fd, 1)
+        os.close(fd)
+
+    samples_ns = []
+    start = time.perf_counter()
+    for _ in range(iterations):
+        op_start = time.perf_counter_ns()
+        fd = os.open(path, os.O_RDONLY)
+        os.read(fd, 1)
+        os.close(fd)
+        op_end = time.perf_counter_ns()
+        samples_ns.append(op_end - op_start)
+    end = time.perf_counter()
+    samples_ns.sort()
+    elapsed = end - start
+    us_per_op = (elapsed / iterations) * 1e6
+    return {
+        "seconds": elapsed,
+        "us_per_op": us_per_op,
+        "p50_us": percentile(samples_ns, 0.50),
+        "p95_us": percentile(samples_ns, 0.95),
+        "p99_us": percentile(samples_ns, 0.99),
+    }
+
+runs = [run_once() for _ in range(repeats + burn_in)]
+if burn_in:
+    runs = runs[burn_in:]
+
+elapsed = median([r["seconds"] for r in runs])
+us_per_op = median([r["us_per_op"] for r in runs])
 payload = {
     "iterations": iterations,
+    "repeats": len(runs),
+    "burn_in": burn_in,
     "seconds": round(elapsed, 6),
     "us_per_op": round(us_per_op, 2),
-    "p50_us": round(percentile(samples_ns, 0.50), 2),
-    "p95_us": round(percentile(samples_ns, 0.95), 2),
-    "p99_us": round(percentile(samples_ns, 0.99), 2),
+    "p50_us": round(median([r["p50_us"] for r in runs]), 2),
+    "p95_us": round(median([r["p95_us"] for r in runs]), 2),
+    "p99_us": round(median([r["p99_us"] for r in runs]), 2),
     "file": path,
     "with_agent": with_agent,
 }

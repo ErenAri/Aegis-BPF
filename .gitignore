@@ -29,3 +29,4 @@ __pycache__/
 # local clones / scratch dirs
 Aegis-BPF-CO-RE-Enforcement-Prototype/
 docs/_internal/
+artifacts/

@@ -25,6 +25,7 @@ inline constexpr const char* kDenyCgroupStatsPin = "/sys/fs/bpf/aegisbpf/deny_cg
 inline constexpr const char* kDenyInodeStatsPin = "/sys/fs/bpf/aegisbpf/deny_inode_stats";
 inline constexpr const char* kDenyPathStatsPin = "/sys/fs/bpf/aegisbpf/deny_path_stats";
 inline constexpr const char* kAgentMetaPin = "/sys/fs/bpf/aegisbpf/agent_meta";
+inline constexpr const char* kAgentConfigPin = "/sys/fs/bpf/aegisbpf/agent_config";
 inline constexpr const char* kSurvivalAllowlistPin = "/sys/fs/bpf/aegisbpf/survival_allowlist";
 inline constexpr const char* kBpfObjInstallPath = "/usr/lib/aegisbpf/aegis.bpf.o";
 
@@ -226,7 +227,9 @@ struct AgentConfig {
     uint8_t break_glass_active;
     uint8_t enforce_signal;    /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
     uint8_t emergency_disable; /* bypass enforcement (force AUDIT) when set */
-    uint8_t _pad[3];           /* maintain alignment */
+    uint8_t file_policy_empty; /* optimization hint: no file deny rules loaded */
+    uint8_t net_policy_empty;  /* optimization hint: no network deny rules loaded */
+    uint8_t _pad;              /* maintain alignment */
     uint64_t deadman_deadline_ns;
     uint32_t deadman_ttl_seconds;
     uint32_t event_sample_rate;

@@ -10,6 +10,9 @@ This document defines the reproducible performance harness used for Phase 5.
 - Filesystem target: `/etc/hosts` for open/read microbenches
 - Network target: loopback (`127.0.0.1`) with UDP `connect()` for connect microbench
 - Agent mode: `--audit` for overhead measurement (no deny action side effects)
+- Policy state: deny maps cleared (no deny rules). In audit-only mode with an
+  empty deny policy, the daemon intentionally skips attaching file/network LSM
+  hooks to measure *idle overhead* rather than enforcement cost.
 
 ## Noise controls
 
@@ -171,7 +174,7 @@ Required artifacts for each strict perf run:
 - `perf-slo-report.md`
 - `perf-slo-summary.json`
 - `perf-evidence-report.md`
-- `kernel-info.txt`
+- `kernel.txt`
 - `os-release.txt`
-- `cpu-info.txt`
-- `fs-type.txt`
+- `cpu.txt`
+- `fs.txt`
