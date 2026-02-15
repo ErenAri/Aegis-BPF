@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771111801881,
+  "lastUpdate": 1771121416055,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30270,6 +30270,102 @@ window.BENCHMARK_DATA = {
             "value": 0.0006269946797088353,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 0.0006302812295772983 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a776f2a74df5b12882e3a93d807c4ee50245e86b",
+          "message": "Fix/security perf improvements (#44)\n\nfix(clang-tidy): remove cloned sigterm branch in exec identity\n\n  CI clang-tidy was failing with `-warnings-as-errors` due to\n  `bugprone-branch-clone` in `src/exec_identity.cpp`.\n\n  Root cause:\n  `signal_name(uint8_t sig)` had two consecutive branches with identical output:\n  - `case kEnforceSignalTerm: return \"sigterm\";`\n  - `default: return \"sigterm\";`\n\n  This triggered branch-clone detection and caused the clang-tidy job to fail.\n\n  Change:\n  Removed the redundant explicit `kEnforceSignalTerm` case and kept:\n  - `kEnforceSignalInt -> \"sigint\"`\n  - `kEnforceSignalKill -> \"sigkill\"`\n  - `default -> \"sigterm\"`\n\n  Behavior impact:\n  No functional behavior change. `kEnforceSignalTerm` still resolves to\n  `\"sigterm\"` via `default`, and unknown values continue to safely map to\n  `\"sigterm\"` as before.\n\n  Why this is safe:\n  The existing enforcement path already normalizes invalid configured signals to\n  `kEnforceSignalTerm` via `effective_exec_signal()`, so keeping a single\n  `default` mapping preserves contract and simplifies the switch.\n\n  Validation:\n  - Rebuilt tests: `cmake --build build-prod --target aegisbpf_test -j`\n  - Ran focused regression tests:\n    `ctest --test-dir build-prod --output-on-failure -R \"ExecIdentity|TracingTest\"`\n    Result: `24/24` passed.",
+          "timestamp": "2026-02-15T04:59:16+03:00",
+          "tree_id": "67410ce5bddc4ae96f6f7ffff8b425c3cf9724de",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/a776f2a74df5b12882e3a93d807c4ee50245e86b"
+        },
+        "date": 1771121415580,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1535.1100135461945,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1534.8485997040477 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3760.994921953324,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3760.6819164768335 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21726.78161147405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21724.87771817992 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 164858.09739239913,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 164829.4139765943 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1311158.8114818253,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1311034.657424811 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5246725.999687893,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5246231.625780288 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5376.607805030499,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5380.704608681972 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33877.612962710155,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33885.13015762844 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 274561.4346502876,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 274544.78237402096 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 827902.1713185566,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 827959.9847584082 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.83370945632579,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.82279452753353 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.79162992387949,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.7874337693649 ns\nthreads: 1"
           }
         ]
       }
