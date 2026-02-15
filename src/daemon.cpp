@@ -96,8 +96,8 @@ void emit_runtime_state_change(RuntimeState state, const std::string& reason_cod
         snapshot = g_runtime_state;
     }
 
-    emit_state_change_event(runtime_state_name(state), reason_code, detail, snapshot.strict_mode, snapshot.transition_id,
-                            snapshot.degradation_count);
+    emit_state_change_event(runtime_state_name(state), reason_code, detail, snapshot.strict_mode,
+                            snapshot.transition_id, snapshot.degradation_count);
 
     logger().log(SLOG_INFO("AEGIS_STATE_CHANGE")
                      .field("event", "AEGIS_STATE_CHANGE")
@@ -235,9 +235,9 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                                              .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
                             if (!deny_rate_state_emitted) {
                                 deny_rate_state_emitted = true;
-                                emit_runtime_state_change(
-                                    RuntimeState::AuditFallback, "DENY_RATE_THRESHOLD_EXCEEDED",
-                                    "rate=" + std::to_string(rate) + ",threshold=" + std::to_string(deny_rate_threshold));
+                                emit_runtime_state_change(RuntimeState::AuditFallback, "DENY_RATE_THRESHOLD_EXCEEDED",
+                                                          "rate=" + std::to_string(rate) +
+                                                              ",threshold=" + std::to_string(deny_rate_threshold));
                             }
                         } else {
                             logger().log(
@@ -988,15 +988,13 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             const bool bind_ok = !policy_req.network_bind_required || state.socket_bind_hook_attached;
             if (!connect_ok || !bind_ok) {
                 if (!audit_only) {
-                    emit_runtime_state_change(RuntimeState::Degraded, "NETWORK_HOOK_UNAVAILABLE",
-                                              "connect_required=" +
-                                                  std::string(policy_req.network_connect_required ? "true" : "false") +
-                                                  ",bind_required=" +
-                                                  std::string(policy_req.network_bind_required ? "true" : "false") +
-                                                  ",connect_hook_attached=" +
-                                                  std::string(state.socket_connect_hook_attached ? "true" : "false") +
-                                                  ",bind_hook_attached=" +
-                                                  std::string(state.socket_bind_hook_attached ? "true" : "false"));
+                    emit_runtime_state_change(
+                        RuntimeState::Degraded, "NETWORK_HOOK_UNAVAILABLE",
+                        "connect_required=" + std::string(policy_req.network_connect_required ? "true" : "false") +
+                            ",bind_required=" + std::string(policy_req.network_bind_required ? "true" : "false") +
+                            ",connect_hook_attached=" +
+                            std::string(state.socket_connect_hook_attached ? "true" : "false") +
+                            ",bind_hook_attached=" + std::string(state.socket_bind_hook_attached ? "true" : "false"));
                     logger().log(SLOG_ERROR("Network policy requires unavailable kernel hooks")
                                      .field("policy", applied_policy_path)
                                      .field("connect_required", policy_req.network_connect_required)

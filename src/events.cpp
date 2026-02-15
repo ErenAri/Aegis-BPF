@@ -128,13 +128,13 @@ void journal_send_state_change(const std::string& payload, const std::string& st
                                uint64_t degradation_count)
 {
     int priority = (state == "DEGRADED") ? LOG_WARNING : LOG_INFO;
-    int rc = sd_journal_send("MESSAGE=%s", payload.c_str(), "SYSLOG_IDENTIFIER=aegisbpf", "AEGIS_TYPE=state_change",
-                             "AEGIS_EVENT_VERSION=%d", 1, "AEGIS_STATE=%s", state.c_str(), "AEGIS_REASON_CODE=%s",
-                             reason_code.c_str(), "AEGIS_STRICT_MODE=%d", strict_mode ? 1 : 0,
-                             "AEGIS_TRANSITION_ID=%llu", static_cast<unsigned long long>(transition_id),
-                             "AEGIS_DEGRADATION_COUNT=%llu", static_cast<unsigned long long>(degradation_count),
-                             "AEGIS_DETAIL=%s", detail.c_str(), "PRIORITY=%i", priority,
-                             static_cast<const char*>(nullptr));
+    int rc =
+        sd_journal_send("MESSAGE=%s", payload.c_str(), "SYSLOG_IDENTIFIER=aegisbpf", "AEGIS_TYPE=state_change",
+                        "AEGIS_EVENT_VERSION=%d", 1, "AEGIS_STATE=%s", state.c_str(), "AEGIS_REASON_CODE=%s",
+                        reason_code.c_str(), "AEGIS_STRICT_MODE=%d", strict_mode ? 1 : 0, "AEGIS_TRANSITION_ID=%llu",
+                        static_cast<unsigned long long>(transition_id), "AEGIS_DEGRADATION_COUNT=%llu",
+                        static_cast<unsigned long long>(degradation_count), "AEGIS_DETAIL=%s", detail.c_str(),
+                        "PRIORITY=%i", priority, static_cast<const char*>(nullptr));
     journal_report_error(rc);
 }
 #endif
@@ -325,13 +325,9 @@ void emit_state_change_event(const std::string& state, const std::string& reason
                              bool strict_mode, uint64_t transition_id, uint64_t degradation_count)
 {
     std::ostringstream oss;
-    oss << "{"
-        << "\"type\":\"state_change\""
-        << ",\"event_version\":1"
-        << ",\"state\":\"" << json_escape(state) << "\""
+    oss << "{" << "\"type\":\"state_change\"" << ",\"event_version\":1" << ",\"state\":\"" << json_escape(state) << "\""
         << ",\"reason_code\":\"" << json_escape(reason_code) << "\""
-        << ",\"strict_mode\":" << (strict_mode ? "true" : "false")
-        << ",\"transition_id\":" << transition_id
+        << ",\"strict_mode\":" << (strict_mode ? "true" : "false") << ",\"transition_id\":" << transition_id
         << ",\"degradation_count\":" << degradation_count;
     if (!detail.empty()) {
         oss << ",\"detail\":\"" << json_escape(detail) << "\"";
