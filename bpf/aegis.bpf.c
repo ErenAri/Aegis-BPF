@@ -586,8 +586,11 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     if (!(iflags & FS_VERITY_FL))
         return 0;
 
+    struct path fpath = {};
+    BPF_CORE_READ_INTO(&fpath, file, f_path);
+
     char path[128] = {};
-    long len = bpf_d_path((struct path *)&file->f_path, path, sizeof(path));
+    long len = bpf_d_path(&fpath, path, sizeof(path));
     if (len < 0)
         return 0;
 
