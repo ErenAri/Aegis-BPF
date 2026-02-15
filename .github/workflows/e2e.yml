@@ -128,7 +128,7 @@ jobs:
             SUMMARY_OUT=artifacts/e2e/matrix_summary.json \
             scripts/e2e_file_enforcement_matrix.sh
           python3 scripts/validate_e2e_matrix_summary.py \
-            --summary artifacts/e2e/matrix_summary.json \
+            artifacts/e2e/matrix_summary.json \
             --min-total-checks 100 \
             --max-failed-checks 0
 
