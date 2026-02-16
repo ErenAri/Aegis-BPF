@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771250837205,
+  "lastUpdate": 1771254693743,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -31032,6 +31032,102 @@ window.BENCHMARK_DATA = {
             "value": 54.40020774982866,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.39651726761286 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f80ba77f618fe1b58c2c5930762ad29afff1ee79",
+          "message": "Merge pull request #52 from ErenAri/feat/v02-perf-posture-automation\n\nfeat(ops): harden posture contracts and operator observability",
+          "timestamp": "2026-02-16T18:00:38+03:00",
+          "tree_id": "f15c4b4fffbc76270bd336991c32d9940942c695",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/f80ba77f618fe1b58c2c5930762ad29afff1ee79"
+        },
+        "date": 1771254692840,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1517.1007114342865,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1516.9621740447938 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3640.3856716164537,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3640.049827658498 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20927.890885618657,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20923.800510924262 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 158149.68995818277,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 158134.10343203737 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1252711.0577152243,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1252566.636803693 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4995885.007413989,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4995314.441281125 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5329.5723024756435,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5339.264517860243 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32992.03115636657,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32988.92652846042 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267880.30658652546,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267857.4573718962 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 811393.5239475496,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 811399.6227791696 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.69263938345192,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.67981336777821 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.30527839333333,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.30061961364541 ns\nthreads: 1"
           }
         ]
       }
