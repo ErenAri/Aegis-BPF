@@ -717,6 +717,12 @@ sizing guidance, and capacity planning.
 3. Run `scripts/dev_check.sh` plus static/security checks in `CONTRIBUTING.md`
 4. Open a PR using the template and include validation output
 
+## Status
+
+Status: Actively maintained. Contributions and feedback are welcome. 
+The project follows an audit-first rollout strategy before enforcement mode.
+
+
 ## License
 
 MIT License See [LICENSE](LICENSE) for details.
