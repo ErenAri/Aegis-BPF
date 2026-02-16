@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload kernel matrix evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: kernel-matrix-${{ matrix.runner.label }}
           path: artifacts/kernel-matrix/

@@ -39,7 +39,7 @@ jobs:
 
       - name: Upload release drill artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-drill-artifacts
           path: artifacts/release-drill/

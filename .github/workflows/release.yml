@@ -238,7 +238,7 @@ jobs:
 
       - name: Upload perf evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-perf-evidence
           path: artifacts/perf/
@@ -305,7 +305,7 @@ jobs:
           ls -1 *.deb *.rpm 2>/dev/null || true
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: aegisbpf-${{ matrix.os }}-${{ matrix.arch }}
           path: |

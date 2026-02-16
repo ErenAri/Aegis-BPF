@@ -32,7 +32,7 @@ jobs:
             --report artifacts/meta-security/capability-contract-report.md
 
       - name: Upload meta-security drill artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: meta-security-drill
           path: artifacts/meta-security

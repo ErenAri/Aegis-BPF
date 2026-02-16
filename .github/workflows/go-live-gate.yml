@@ -29,7 +29,7 @@ jobs:
 
       - name: Upload readiness artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: go-live-readiness
           path: artifacts/go-live/readiness/
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload runtime artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: go-live-runtime
           path: |
@@ -207,7 +207,7 @@ jobs:
 
       - name: Upload perf artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: go-live-perf
           path: artifacts/go-live/perf/
@@ -246,7 +246,7 @@ jobs:
 
       - name: Upload release-drill artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: go-live-release-drill
           path: artifacts/go-live/release-drill/
@@ -269,7 +269,7 @@ jobs:
           tar -czf go-live-evidence-${GITHUB_RUN_ID}.tar.gz -C bundle .
 
       - name: Upload aggregated evidence bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: go-live-evidence-bundle
           path: |
