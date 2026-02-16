@@ -1460,7 +1460,10 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         err = ring_buffer__poll(rb.get(), 250);
         if (err == -EINTR) {
             err = 0;
-            break;
+            // Signal interruptions (including SIGINT and scheduler stop/continue)
+            // should not force an immediate shutdown. Respect the normal loop
+            // exit condition via g_exiting instead.
+            continue;
         }
         if (err < 0) {
             emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_POLL_FAILED",
