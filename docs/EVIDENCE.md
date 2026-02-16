@@ -29,9 +29,15 @@ artifacts on each run.
 - Kernel Matrix (dispatch): 2026-02-06
   - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
   - Artifacts: `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`, `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
+- E2E (BPF LSM): 2026-02-15
+  - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845463
+  - Artifact: `e2e-evidence` (includes `matrix_summary.json`, soak, chaos, fs-verity logs)
+- Perf Regression (self-hosted): 2026-02-15
+  - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845474
+  - Artifact: `perf-evidence` (includes canonical SLO report + perf profiles)
+- Perf baseline: **published** (see `docs/PERF_BASELINE.md`)
+- Edge-case compliance results: **published** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 - External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
-- Perf baseline: **pending** (see `docs/PERF_BASELINE.md`)
-- Edge‑case compliance results: **pending** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 
 ## Evidence expectations
 

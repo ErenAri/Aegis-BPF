@@ -212,6 +212,8 @@ Print the daemon capability report (as written at startup).
 
 Outputs the contents of the capability report (default:
 `/var/lib/aegisbpf/capabilities.json`).
+Report contains both integer schema (`schema_version`) and semantic schema
+(`schema_semver`) fields for compatibility-aware automation.
 
 ### emergency-disable
 

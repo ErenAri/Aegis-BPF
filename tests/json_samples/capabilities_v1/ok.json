@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "schema_semver": "1.1.0",
   "generated_at_unix": 1700000000,
   "kernel_version": "6.14.0-37-generic",
   "capability": "Full",

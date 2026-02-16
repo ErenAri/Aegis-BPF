@@ -71,13 +71,13 @@ Current scope labels:
 - Independent environment validation: 2026-02-07 (Google Cloud Platform, kernel 6.8.0-1045-gcp)
 - Local full regression run: 2026-02-15 (`ctest --test-dir build-prod --output-on-failure --timeout 180`)
 
-| Test Category | Result | Details |
-|---------------|--------|---------|
-| **Unit + Contract Tests** |  213/213 PASS | Full local `ctest` run on 2026-02-15 |
-| **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
-| **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
+| Test Category | Result | Details                                                                                                                       |
+|---------------|--------|-------------------------------------------------------------------------------------------------------------------------------|
+| **Unit + Contract Tests** |  217/217 PASS | Full local `ctest` run on 2026-02-16                                                                                          |
+| **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix                                                                              |
+| **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass                                                                    |
 | **Performance Impact** |  Gate-enforced | Self-hosted perf gate (`perf.yml`): open microbench <=10% (audit-only, empty deny policy), workload budgets in `docs/PERF.md` |
-| **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO |
+| **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO                                                                              |
 
 **Security Hardening Applied:**
 - Compiler security flags (FORTIFY_SOURCE=2, stack-protector-strong, PIE, RELRO)
@@ -415,6 +415,15 @@ dependency trust hooks.
 The capability report also includes runtime posture fields (`runtime_state`,
 `state_transitions`) so operators can distinguish `ENFORCE`,
 `AUDIT_FALLBACK`, and `DEGRADED` outcomes.
+For machine-readable posture compliance and Kubernetes scheduling labels, use:
+
+```bash
+python3 scripts/evaluate_capability_posture.py \
+  --input /var/lib/aegisbpf/capabilities.json \
+  --strict \
+  --out-json /var/lib/aegisbpf/capabilities.posture.json \
+  --out-labels-json /var/lib/aegisbpf/capabilities.labels.json
+```
 
 ## Event Format
 

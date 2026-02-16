@@ -522,6 +522,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
     return atomic_write_stream(output_path, [&](std::ostream& out) -> bool {
         out << "{\n";
         out << "  \"schema_version\": 1,\n";
+        out << "  \"schema_semver\": \"" << kCapabilitiesSchemaSemver << "\",\n";
         out << "  \"generated_at_unix\": " << static_cast<int64_t>(std::time(nullptr)) << ",\n";
         out << "  \"kernel_version\": \"" << json_escape(features.kernel_version) << "\",\n";
         out << "  \"capability\": \"" << json_escape(capability_name(capability)) << "\",\n";

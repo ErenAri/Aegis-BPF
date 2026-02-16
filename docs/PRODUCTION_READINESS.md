@@ -83,6 +83,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Key rotation/revocation runbook: `docs/KEY_MANAGEMENT.md`
 - Key rotation drill workflow: `.github/workflows/key-rotation-drill.yml` + `scripts/key_rotation_drill.sh`
 - Capability contract validator: `scripts/validate_capability_contract.py` (documents vs systemd capability bounds)
+- Capability posture evaluator: `scripts/evaluate_capability_posture.py` (machine-readable posture + Kubernetes label outputs)
 - Key-rotation artifact evidence: `artifacts/meta-security/key-rotation-summary.json` + `artifacts/meta-security/capability-contract-report.md`
 - Aggregated go-live evidence workflow: `.github/workflows/go-live-gate.yml`
 - Incident evidence collection script: `scripts/collect_incident_bundle.sh`
