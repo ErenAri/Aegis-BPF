@@ -274,6 +274,48 @@ jobs:
       - name: Validate label contract
         run: python3 scripts/validate_label_contract.py
 
+  capability-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate capability posture contract
+        run: python3 scripts/validate_capability_posture_contract.py
+
+  helm-posture-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Helm posture contract
+        run: python3 tests/check_helm_posture_contract.py
+
+  ops-observability-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate ops observability contract
+        run: |
+          python3 scripts/validate_grafana_dashboard.py config/grafana/aegisbpf-ops-minimal.json
+          python3 tests/check_ops_observability_contract.py
+
+  k8s-rollout-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Kubernetes rollout contract
+        run: python3 tests/check_k8s_rollout_contract.py
+
+  guarantees-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate enforcement guarantees contract
+        run: python3 tests/check_guarantees_contract.py
+
   clang-tidy:
     runs-on: ubuntu-24.04
     steps:

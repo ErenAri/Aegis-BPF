@@ -108,7 +108,11 @@ Public proof lives in the docs and CI artifacts:
 - Kernel/distro compatibility: `docs/COMPATIBILITY.md`
 - Threat model + non-goals: `docs/THREAT_MODEL.md`
 - Enforcement guarantees + TOCTOU analysis: `docs/GUARANTEES.md`
+- Enforce posture guarantees contract: `docs/ENFORCEMENT_GUARANTEES.md`
 - Emergency control contract: `docs/EMERGENCY_CONTROL_CONTRACT.md`
+- Capability/posture contract: `docs/CAPABILITY_POSTURE_CONTRACT.md`
+- Helm enforce-gating contract: `docs/HELM_ENFORCE_GATING_CONTRACT.md`
+- Kubernetes mixed-mode rollout: `docs/K8S_ROLLOUT_AUDIT_ENFORCE.md`
 - Kubernetes RBAC guidance: `docs/KUBERNETES_RBAC.md`
 - Performance profile + tuning: `docs/PERFORMANCE.md`
 - Policy semantics contract: `docs/POLICY_SEMANTICS.md`
@@ -623,6 +627,10 @@ TOCTOU analysis are in [docs/GUARANTEES.md](docs/GUARANTEES.md).
 | Document | Description |
 |----------|-------------|
 | [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Production readiness checklist and operator guidance |
+| [CAPABILITY_POSTURE_CONTRACT.md](docs/CAPABILITY_POSTURE_CONTRACT.md) | Normative capability schema + runtime posture gating contract |
+| [HELM_ENFORCE_GATING_CONTRACT.md](docs/HELM_ENFORCE_GATING_CONTRACT.md) | Helm defaults/template contract for fail-closed enforcement |
+| [K8S_ROLLOUT_AUDIT_ENFORCE.md](docs/K8S_ROLLOUT_AUDIT_ENFORCE.md) | Mixed-capability rollout: audit everywhere, enforce on labeled nodes |
+| [ENFORCEMENT_GUARANTEES.md](docs/ENFORCEMENT_GUARANTEES.md) | Guaranteed/best-effort/not-guaranteed enforcement behavior |
 | [PRODUCTION_DEPLOYMENT_BLUEPRINT.md](docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md) | Deployment hardening and rollout blueprint |
 | [CANARY_RUNBOOK.md](docs/CANARY_RUNBOOK.md) | Staging canary and soak validation workflow |
 | [RELEASE_DRILL.md](docs/RELEASE_DRILL.md) | Pre-release packaging and upgrade drill |

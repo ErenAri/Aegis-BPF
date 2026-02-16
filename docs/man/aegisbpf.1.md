@@ -188,6 +188,13 @@ Exported metrics:
 - `aegisbpf_ringbuf_drops_total`
 - `aegisbpf_emergency_toggle_transitions_total`
 - `aegisbpf_emergency_toggle_storm_active`
+- `aegisbpf_capability_report_present`
+- `aegisbpf_capability_contract_valid`
+- `aegisbpf_enforce_capable`
+- `aegisbpf_runtime_state{state}`
+- `aegisbpf_perf_slo_summary_present`
+- `aegisbpf_perf_slo_gate_pass`
+- `aegisbpf_perf_slo_failed_rows`
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
 - `aegisbpf_allow_cgroup_entries`

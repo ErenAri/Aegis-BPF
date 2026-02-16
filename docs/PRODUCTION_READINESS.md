@@ -85,7 +85,12 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Key rotation/revocation runbook: `docs/KEY_MANAGEMENT.md`
 - Key rotation drill workflow: `.github/workflows/key-rotation-drill.yml` + `scripts/key_rotation_drill.sh`
 - Capability contract validator: `scripts/validate_capability_contract.py` (documents vs systemd capability bounds)
+- Capability/posture anti-drift contract: `scripts/validate_capability_posture_contract.py` + `docs/CAPABILITY_POSTURE_CONTRACT.md`
 - Capability posture evaluator: `scripts/evaluate_capability_posture.py` (machine-readable posture + Kubernetes label outputs)
+- Helm enforce-gating contract: `tests/check_helm_posture_contract.py` + `docs/HELM_ENFORCE_GATING_CONTRACT.md`
+- Kubernetes mixed-mode rollout contract: `tests/check_k8s_rollout_contract.py` + `docs/K8S_ROLLOUT_AUDIT_ENFORCE.md`
+- Enforcement guarantees contract: `tests/check_guarantees_contract.py` + `docs/ENFORCEMENT_GUARANTEES.md`
+- Ops observability contract: `tests/check_ops_observability_contract.py` + `config/grafana/aegisbpf-ops-minimal.json` + `config/prometheus/alerts.yml`
 - Optional posture label automation: `postureAutomation.enabled=true` in `helm/aegisbpf/values.yaml` (node label sidecar + cluster RBAC templates)
 - Key-rotation artifact evidence: `artifacts/meta-security/key-rotation-summary.json` + `artifacts/meta-security/capability-contract-report.md`
 - Aggregated go-live evidence workflow: `.github/workflows/go-live-gate.yml`
