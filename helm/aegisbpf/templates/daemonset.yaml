@@ -81,15 +81,52 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with .ctx.Values.readinessProbe }}
-          readinessProbe:
-            {{- toYaml . | nindent 12 }}
+          {{- $readiness := deepCopy . }}
+          {{- if and (eq $.mode "enforce") $.ctx.Values.agent.requireEnforceReadiness (hasKey $readiness "exec") }}
+          {{- $_ := set $readiness.exec "command" (list "/usr/bin/aegisbpf" "health" "--require-enforce") }}
           {{- end }}
+          readinessProbe:
+            {{- toYaml $readiness | nindent 12 }}
+          {{- end }}
+        {{- if .ctx.Values.postureAutomation.enabled }}
+        - name: posture-labeler
+          image: {{ .ctx.Values.postureAutomation.image.repository }}:{{ .ctx.Values.postureAutomation.image.tag }}
+          imagePullPolicy: {{ .ctx.Values.postureAutomation.image.pullPolicy }}
+          command:
+            - python3
+            - /opt/aegisbpf/posture_labeler.py
+          env:
+            - name: AEGIS_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: AEGIS_CAPABILITY_REPORT_PATH
+              value: /var/lib/aegisbpf/capabilities.json
+            - name: AEGIS_POSTURE_REPORT_PATH
+              value: /var/lib/aegisbpf/capabilities.posture.json
+            - name: AEGIS_POSTURE_INTERVAL_SECONDS
+              value: {{ .ctx.Values.postureAutomation.intervalSeconds | quote }}
+          resources:
+            {{- toYaml .ctx.Values.postureAutomation.resources | nindent 12 }}
+          volumeMounts:
+            - name: varlib
+              mountPath: /var/lib/aegisbpf
+            - name: posture-automation-script
+              mountPath: /opt/aegisbpf
+              readOnly: true
+        {{- end }}
       volumes:
         {{- toYaml .ctx.Values.volumes | nindent 8 }}
         {{- if .ctx.Values.policy.enabled }}
         - name: policy
           configMap:
             name: {{ include "aegisbpf.fullname" .ctx }}-policy
+        {{- end }}
+        {{- if .ctx.Values.postureAutomation.enabled }}
+        - name: posture-automation-script
+          configMap:
+            name: {{ include "aegisbpf.fullname" .ctx }}-posture-automation
+            defaultMode: 0555
         {{- end }}
       {{- if .nodeSelector }}
       nodeSelector:

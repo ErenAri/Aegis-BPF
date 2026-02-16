@@ -79,6 +79,18 @@ cleanup() {
 trap cleanup EXIT
 
 echo "starting daemon for soak test (duration=${DURATION_SECONDS}s workers=${WORKERS})"
+if [[ "${SOAK_GENERATE_BLOCK_EVENTS}" == "1" ]]; then
+  # Pre-seed the deny rule before daemon startup so audit-mode hook optimization
+  # does not skip file hooks due an empty-policy hint.
+  if "${AEGIS_BIN}" block add "${SOAK_BLOCK_PATH}" >/dev/null 2>&1; then
+    BLOCK_RULE_ADDED=1
+    echo "preloaded temporary soak block rule: ${SOAK_BLOCK_PATH}"
+  else
+    echo "failed to preload temporary soak block rule: ${SOAK_BLOCK_PATH}" >&2
+    exit 1
+  fi
+fi
+
 "${AEGIS_BIN}" run --audit --ringbuf-bytes="${RINGBUF_BYTES}" >"${DAEMON_LOG}" 2>&1 &
 DAEMON_PID=$!
 sleep 2
@@ -87,16 +99,6 @@ if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
   echo "daemon failed to start" >&2
   cat "${DAEMON_LOG}" >&2 || true
   exit 1
-fi
-
-if [[ "${SOAK_GENERATE_BLOCK_EVENTS}" == "1" ]]; then
-  if "${AEGIS_BIN}" block add "${SOAK_BLOCK_PATH}" >/dev/null 2>&1; then
-    BLOCK_RULE_ADDED=1
-    echo "added temporary soak block rule: ${SOAK_BLOCK_PATH}"
-  else
-    echo "failed to add temporary soak block rule: ${SOAK_BLOCK_PATH}" >&2
-    exit 1
-  fi
 fi
 
 for _ in $(seq 1 "${WORKERS}"); do

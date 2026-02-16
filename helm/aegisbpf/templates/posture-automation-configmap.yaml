@@ -1,0 +1,156 @@
+{{- if .Values.postureAutomation.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-posture-automation
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+data:
+  posture_labeler.py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+    import ssl
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from pathlib import Path
+
+    CAP_PATH = Path(os.environ.get("AEGIS_CAPABILITY_REPORT_PATH", "/var/lib/aegisbpf/capabilities.json"))
+    POSTURE_OUT = Path(os.environ.get("AEGIS_POSTURE_REPORT_PATH", "/var/lib/aegisbpf/capabilities.posture.json"))
+    NODE_NAME = os.environ.get("AEGIS_NODE_NAME", "")
+    INTERVAL_SECONDS = max(5, int(os.environ.get("AEGIS_POSTURE_INTERVAL_SECONDS", "60")))
+
+    TOKEN_PATH = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+    CA_PATH = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+
+
+    def log(message: str) -> None:
+        print(f"[posture-labeler] {message}", flush=True)
+
+
+    def read_json(path: Path):
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log(f"failed to parse {path}: {exc}")
+            return None
+        if not isinstance(payload, dict):
+            log(f"invalid JSON root (expected object): {path}")
+            return None
+        return payload
+
+
+    def as_bool(value) -> bool:
+        return bool(value)
+
+
+    def runtime_label(runtime_state: str) -> str:
+        if not runtime_state:
+            return "unknown"
+        return runtime_state.lower().replace("_", "-")
+
+
+    def evaluate(report: dict):
+        features = report.get("features") if isinstance(report.get("features"), dict) else {}
+        hooks = report.get("hooks") if isinstance(report.get("hooks"), dict) else {}
+        requirements_met = report.get("requirements_met") if isinstance(report.get("requirements_met"), dict) else {}
+
+        enforce_capable = as_bool(report.get("enforce_capable"))
+        runtime_state = str(report.get("runtime_state", ""))
+
+        labels = {
+            "aegisbpf.io/enforce-capable": "true" if enforce_capable else "false",
+            "aegisbpf.io/runtime-state": runtime_label(runtime_state),
+            "aegisbpf.io/bpf-lsm": "true" if as_bool(features.get("bpf_lsm")) else "false",
+            "aegisbpf.io/network-hooks": "true"
+            if as_bool(hooks.get("lsm_socket_connect")) and as_bool(hooks.get("lsm_socket_bind"))
+            else "false",
+            "aegisbpf.io/verified-exec-hook": "true" if as_bool(hooks.get("lsm_bprm_check_security")) else "false",
+            "aegisbpf.io/runtime-deps-hook": "true" if as_bool(hooks.get("lsm_file_mmap")) else "false",
+            "aegisbpf.io/exec-runtime-deps-ready": "true" if as_bool(requirements_met.get("exec_runtime_deps")) else "false",
+        }
+
+        posture = {
+            "schema_version": 1,
+            "schema_semver": "1.0.0",
+            "generated_at_unix": int(time.time()),
+            "node": NODE_NAME,
+            "summary": {
+                "overall": "pass" if enforce_capable else "fail",
+                "enforce_capable": enforce_capable,
+                "runtime_state": runtime_state,
+            },
+            "kubernetes": {
+                "recommended_node_labels": labels,
+                "enforce_node_selector": {"aegisbpf.io/enforce-capable": "true"},
+            },
+        }
+        return labels, posture
+
+
+    def patch_node_labels(node_name: str, labels: dict) -> bool:
+        token = TOKEN_PATH.read_text(encoding="utf-8").strip()
+        host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+        port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+        if not host:
+            log("KUBERNETES_SERVICE_HOST is unset")
+            return False
+
+        url = f"https://{host}:{port}/api/v1/nodes/{urllib.parse.quote(node_name)}"
+        body = json.dumps({"metadata": {"labels": labels}}).encode("utf-8")
+        request = urllib.request.Request(url=url, data=body, method="PATCH")
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("Content-Type", "application/merge-patch+json")
+
+        context = ssl.create_default_context(cafile=str(CA_PATH))
+
+        try:
+            with urllib.request.urlopen(request, timeout=10, context=context):
+                return True
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            log(f"node label patch failed (HTTP {exc.code}): {detail}")
+            return False
+        except Exception as exc:
+            log(f"node label patch failed: {exc}")
+            return False
+
+
+    def main() -> int:
+        if not NODE_NAME:
+            log("AEGIS_NODE_NAME is empty; exiting")
+            return 1
+        if not TOKEN_PATH.is_file() or not CA_PATH.is_file():
+            log("service account token/CA not found; exiting")
+            return 1
+
+        last_labels = None
+
+        while True:
+            report = read_json(CAP_PATH)
+            if report is None:
+                time.sleep(INTERVAL_SECONDS)
+                continue
+
+            labels, posture = evaluate(report)
+
+            try:
+                POSTURE_OUT.parent.mkdir(parents=True, exist_ok=True)
+                POSTURE_OUT.write_text(json.dumps(posture, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            except Exception as exc:
+                log(f"failed to write posture file: {exc}")
+
+            if labels != last_labels:
+                if patch_node_labels(NODE_NAME, labels):
+                    log(f"updated node labels for {NODE_NAME}: {json.dumps(labels, sort_keys=True)}")
+                    last_labels = labels.copy()
+            time.sleep(INTERVAL_SECONDS)
+
+
+    if __name__ == "__main__":
+        raise SystemExit(main())
+{{- end }}

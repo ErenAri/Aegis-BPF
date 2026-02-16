@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "schema_semver": "1.0.0",
+  "generated_at_unix": 1739870000,
+  "ci": {
+    "repository": "aegisbpf/aegisbpf",
+    "workflow": "Perf Regression",
+    "run_id": "123456789",
+    "run_url": "https://github.com/aegisbpf/aegisbpf/actions/runs/123456789",
+    "ref": "refs/heads/main",
+    "sha": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "environment": {
+    "schema_version": 1,
+    "schema_semver": "1.0.0",
+    "generated_at_unix": 1739870000,
+    "host": {
+      "hostname": "runner-01",
+      "kernel_release": "6.14.0",
+      "kernel_version": "#1 SMP PREEMPT_DYNAMIC",
+      "architecture": "x86_64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R)",
+      "logical_cores": 16
+    },
+    "memory": {
+      "mem_total_kib": 32768000
+    },
+    "os": {
+      "id": "ubuntu",
+      "version_id": "24.04",
+      "pretty_name": "Ubuntu 24.04 LTS"
+    },
+    "filesystem": {
+      "tmp_type": "ext2/ext3"
+    }
+  },
+  "budgets": {
+    "max_open_delta_pct": 10,
+    "max_open_p95_overhead_pct": 10,
+    "max_connect_p95_overhead_pct": 10,
+    "max_workload_failed_rows": 0
+  },
+  "microbench": {
+    "open_compare": {
+      "baseline_us_per_op": 1.4,
+      "with_agent_us_per_op": 1.5,
+      "delta_us_per_op": 0.1,
+      "delta_pct": 7.1,
+      "max_allowed_pct": 10,
+      "pass": true
+    },
+    "open_percentiles": {
+      "baseline": {
+        "iterations": 100000,
+        "seconds": 0.14,
+        "us_per_op": 1.4,
+        "p50_us": 1.2,
+        "p95_us": 1.3,
+        "p99_us": 1.5,
+        "file": "/etc/hosts",
+        "with_agent": false
+      },
+      "with_agent": {
+        "iterations": 100000,
+        "seconds": 0.15,
+        "us_per_op": 1.5,
+        "p50_us": 1.3,
+        "p95_us": 1.4,
+        "p99_us": 1.6,
+        "file": "/etc/hosts",
+        "with_agent": true
+      },
+      "p95_overhead_pct": 7.7
+    },
+    "connect_percentiles": {
+      "baseline": {
+        "iterations": 50000,
+        "seconds": 0.11,
+        "us_per_op": 2.2,
+        "p50_us": 2.0,
+        "p95_us": 3.0,
+        "p99_us": 4.0,
+        "host": "127.0.0.1",
+        "port": 9,
+        "with_agent": false
+      },
+      "with_agent": {
+        "iterations": 50000,
+        "seconds": 0.12,
+        "us_per_op": 2.4,
+        "p50_us": 2.1,
+        "p95_us": 3.2,
+        "p99_us": 4.2,
+        "host": "127.0.0.1",
+        "port": 9,
+        "with_agent": true
+      },
+      "p95_overhead_pct": 6.7
+    }
+  },
+  "workload_suite": {
+    "benchmarks": [
+      {
+        "name": "open_close",
+        "baseline_us_per_op": 1.4,
+        "with_agent_us_per_op": 1.5,
+        "delta_us_per_op": 0.1,
+        "delta_pct": 7.1,
+        "max_allowed_pct": 15,
+        "pass": true
+      },
+      {
+        "name": "connect_loopback",
+        "baseline_us_per_op": 2.2,
+        "with_agent_us_per_op": 2.4,
+        "delta_us_per_op": 0.2,
+        "delta_pct": 9.1,
+        "max_allowed_pct": 15,
+        "pass": true
+      },
+      {
+        "name": "full_read",
+        "baseline_us_per_op": 7.0,
+        "with_agent_us_per_op": 7.1,
+        "delta_us_per_op": 0.1,
+        "delta_pct": 1.4,
+        "max_allowed_pct": 15,
+        "pass": true
+      },
+      {
+        "name": "stat_walk",
+        "baseline_us_per_op": 3.0,
+        "with_agent_us_per_op": 3.0,
+        "delta_us_per_op": 0.0,
+        "delta_pct": 0.0,
+        "max_allowed_pct": 15,
+        "pass": true
+      }
+    ]
+  },
+  "taxonomy": [
+    {
+      "category": "syscall_microbench",
+      "scenario": "open_close",
+      "metric": "delta_pct",
+      "source": "artifacts/perf/open_compare.json"
+    },
+    {
+      "category": "syscall_latency_percentiles",
+      "scenario": "open",
+      "metric": "p95_overhead_pct",
+      "source": "artifacts/perf/open_baseline.json,artifacts/perf/open_with_agent.json"
+    },
+    {
+      "category": "network_workload",
+      "scenario": "connect_loopback",
+      "metric": "p95_overhead_pct",
+      "source": "artifacts/perf/connect_baseline.json,artifacts/perf/connect_with_agent.json"
+    },
+    {
+      "category": "file_workload",
+      "scenario": "full_read",
+      "metric": "delta_pct",
+      "source": "artifacts/perf/workload_suite.json"
+    },
+    {
+      "category": "file_workload",
+      "scenario": "stat_walk",
+      "metric": "delta_pct",
+      "source": "artifacts/perf/workload_suite.json"
+    }
+  ],
+  "canonical_table": [
+    {
+      "scenario": "audit_mode_open",
+      "metric": "delta_pct",
+      "result": 7.1,
+      "budget": 10,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/open_compare.json"
+    },
+    {
+      "scenario": "audit_mode_open",
+      "metric": "p95_overhead_pct",
+      "result": 7.7,
+      "budget": 10,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/open_baseline.json,artifacts/perf/open_with_agent.json"
+    },
+    {
+      "scenario": "audit_mode_connect",
+      "metric": "p95_overhead_pct",
+      "result": 6.7,
+      "budget": 10,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/connect_baseline.json,artifacts/perf/connect_with_agent.json"
+    },
+    {
+      "scenario": "workload_open_close",
+      "metric": "delta_pct",
+      "result": 7.1,
+      "budget": 15,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/workload_suite.json"
+    },
+    {
+      "scenario": "workload_connect_loopback",
+      "metric": "delta_pct",
+      "result": 9.1,
+      "budget": 15,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/workload_suite.json"
+    },
+    {
+      "scenario": "workload_full_read",
+      "metric": "delta_pct",
+      "result": 1.4,
+      "budget": 15,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/workload_suite.json"
+    },
+    {
+      "scenario": "workload_stat_walk",
+      "metric": "delta_pct",
+      "result": 0,
+      "budget": 15,
+      "unit": "%",
+      "status": "PASS",
+      "evidence": "artifacts/perf/workload_suite.json"
+    },
+    {
+      "scenario": "workload_suite",
+      "metric": "failed_rows",
+      "result": 0,
+      "budget": 0,
+      "unit": "",
+      "status": "PASS",
+      "evidence": "artifacts/perf/workload_suite.json"
+    }
+  ],
+  "gate": {
+    "pass": true,
+    "failed_rows": [],
+    "slo_summary_gate_pass": true
+  }
+}

@@ -73,6 +73,8 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Perf canonical SLO gate: `scripts/perf_slo_check.sh` (`perf-slo-report.md`, `perf-slo-summary.json`)
 - Performance baseline report: `docs/PERF_BASELINE.md`
 - Perf artifact schema validation: `scripts/validate_perf_artifacts.py` + `artifacts/perf/perf-evidence-report.md`
+- Perf canonical evidence artifact: `scripts/generate_perf_baseline_artifact.py` (`perf-baseline-canonical.json`, `perf-baseline-canonical.md`)
+- Release perf hard gate: `perf-gate` job in `.github/workflows/release.yml` (`release-perf-evidence`)
 - Hosted benchmark trend workflow (advisory): `.github/workflows/benchmark.yml`
 - Kernel matrix workflow: `.github/workflows/kernel-matrix.yml`
 - Kernel matrix run evidence: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269 (2026-02-06)
@@ -84,6 +86,7 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Key rotation drill workflow: `.github/workflows/key-rotation-drill.yml` + `scripts/key_rotation_drill.sh`
 - Capability contract validator: `scripts/validate_capability_contract.py` (documents vs systemd capability bounds)
 - Capability posture evaluator: `scripts/evaluate_capability_posture.py` (machine-readable posture + Kubernetes label outputs)
+- Optional posture label automation: `postureAutomation.enabled=true` in `helm/aegisbpf/values.yaml` (node label sidecar + cluster RBAC templates)
 - Key-rotation artifact evidence: `artifacts/meta-security/key-rotation-summary.json` + `artifacts/meta-security/capability-contract-report.md`
 - Aggregated go-live evidence workflow: `.github/workflows/go-live-gate.yml`
 - Incident evidence collection script: `scripts/collect_incident_bundle.sh`

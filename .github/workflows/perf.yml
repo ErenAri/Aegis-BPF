@@ -9,6 +9,9 @@ on:
       - 'bpf/**'
       - 'scripts/perf_*.sh'
       - 'scripts/validate_perf_artifacts.py'
+      - 'scripts/capture_perf_environment.py'
+      - 'scripts/generate_perf_baseline_artifact.py'
+      - 'config/schemas/perf_baseline_v1.json'
       - '.github/workflows/perf.yml'
   pull_request:
     paths:
@@ -16,6 +19,9 @@ on:
       - 'bpf/**'
       - 'scripts/perf_*.sh'
       - 'scripts/validate_perf_artifacts.py'
+      - 'scripts/capture_perf_environment.py'
+      - 'scripts/generate_perf_baseline_artifact.py'
+      - 'config/schemas/perf_baseline_v1.json'
       - '.github/workflows/perf.yml'
   schedule:
     - cron: "0 4 * * 0"
@@ -152,6 +158,7 @@ jobs:
 
       - name: Capture perf environment
         run: |
+          python3 scripts/capture_perf_environment.py --out artifacts/perf/environment.json
           uname -a > artifacts/perf/kernel.txt
           cat /etc/os-release > artifacts/perf/os-release.txt || true
           lscpu > artifacts/perf/cpu.txt || true
@@ -173,6 +180,31 @@ jobs:
           MAX_CONNECT_P95_OVERHEAD=10 \
           scripts/perf_slo_check.sh
 
+      - name: Generate canonical perf baseline artifact
+        id: canonical_gate
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python3 scripts/generate_perf_baseline_artifact.py \
+            --open-compare artifacts/perf/open_compare.json \
+            --open-baseline artifacts/perf/open_baseline.json \
+            --open-with-agent artifacts/perf/open_with_agent.json \
+            --connect-baseline artifacts/perf/connect_baseline.json \
+            --connect-with-agent artifacts/perf/connect_with_agent.json \
+            --workload artifacts/perf/workload_suite.json \
+            --environment artifacts/perf/environment.json \
+            --slo-summary artifacts/perf/perf-slo-summary.json \
+            --out-json artifacts/perf/perf-baseline-canonical.json \
+            --out-md artifacts/perf/perf-baseline-canonical.md \
+            --max-open-delta-pct 10 \
+            --max-open-p95-overhead-pct 10 \
+            --max-connect-p95-overhead-pct 10 \
+            --max-workload-failed-rows 0 \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}"
+
       - name: Validate perf artifact schema and KPI ratios
         id: schema_gate
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -184,6 +216,7 @@ jobs:
             --connect-with-agent artifacts/perf/connect_with_agent.json \
             --workload artifacts/perf/workload_suite.json \
             --report artifacts/perf/perf-evidence-report.md \
+            --canonical-baseline artifacts/perf/perf-baseline-canonical.json \
             --max-open-p95-ratio 1.05 \
             --max-connect-p95-ratio 1.05
 
@@ -200,6 +233,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           SLO_OUTCOME: ${{ steps.slo_gate.outcome }}
+          CANONICAL_OUTCOME: ${{ steps.canonical_gate.outcome }}
           SCHEMA_OUTCOME: ${{ steps.schema_gate.outcome }}
         with:
           script: |
@@ -225,7 +259,10 @@ jobs:
             const failedRows = (workload.benchmarks || [])
               .filter((row) => !row.pass)
               .map((row) => row.name);
-            const status = process.env.SLO_OUTCOME === 'success' && process.env.SCHEMA_OUTCOME === 'success'
+            const status =
+              process.env.SLO_OUTCOME === 'success' &&
+              process.env.CANONICAL_OUTCOME === 'success' &&
+              process.env.SCHEMA_OUTCOME === 'success'
               ? ':white_check_mark:'
               : ':warning:';
 
@@ -233,6 +270,7 @@ jobs:
             body += '| Check | Outcome |\n';
             body += '|---|---|\n';
             body += `| SLO gate | ${process.env.SLO_OUTCOME} |\n`;
+            body += `| Canonical evidence gate | ${process.env.CANONICAL_OUTCOME} |\n`;
             body += `| Artifact/KPI gate | ${process.env.SCHEMA_OUTCOME} |\n`;
             body += `| open delta_pct | ${open.delta_pct !== undefined ? `${open.delta_pct}%` : 'N/A'} |\n`;
             body += `| workload failing rows | ${failedRows.length ? failedRows.join(', ') : 'none'} |\n`;

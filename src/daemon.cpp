@@ -402,6 +402,7 @@ struct AppliedPolicyRequirements {
     bool verified_exec_runtime_deps_required = false; // [protect_runtime_deps]
     bool protect_connect = false;
     bool protect_runtime_deps = false;
+    bool ima_appraisal_required = false; // [require_ima_appraisal]
     size_t protect_path_count = 0;
     size_t network_rule_count = 0;
     std::vector<std::string> allow_binary_hashes;
@@ -435,6 +436,7 @@ Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::st
     req.exec_allowlist_required = !req.allow_binary_hashes.empty();
     req.protect_connect = parsed->protect_connect;
     req.protect_runtime_deps = parsed->protect_runtime_deps;
+    req.ima_appraisal_required = parsed->require_ima_appraisal;
     req.protect_path_count = parsed->protect_paths.size();
     req.verified_exec_required = req.protect_connect || req.protect_path_count > 0;
     req.verified_exec_runtime_deps_required = req.verified_exec_required && req.protect_runtime_deps;
@@ -489,11 +491,13 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         !policy_req.exec_identity_required || kernel_exec_identity_enabled || audit_only;
     const bool exec_runtime_deps_requirements_met =
         !policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached || audit_only;
+    const bool ima_requirements_met = !policy_req.ima_appraisal_required || features.ima_appraisal || audit_only;
     const bool exec_identity_requirements_met =
         exec_identity_base_requirements_met && exec_runtime_deps_requirements_met;
     const bool exec_identity_enforce_ready =
         (!policy_req.exec_identity_required || kernel_exec_identity_enabled) &&
         (!policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached);
+    const bool ima_enforce_ready = !policy_req.ima_appraisal_required || features.ima_appraisal;
 
     std::vector<std::string> enforce_blockers;
     if (capability != EnforcementCapability::Full) {
@@ -516,6 +520,9 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
     }
     if (policy_req.verified_exec_runtime_deps_required && !state.exec_identity_runtime_deps_hook_attached) {
         enforce_blockers.emplace_back("EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE");
+    }
+    if (!ima_enforce_ready) {
+        enforce_blockers.emplace_back("IMA_APPRAISAL_UNAVAILABLE");
     }
     const bool enforce_capable = enforce_blockers.empty();
 
@@ -546,7 +553,9 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
         out << "    \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
         out << "    \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
-        out << "    \"bpffs\": " << (bpffs ? "true" : "false") << "\n";
+        out << "    \"bpffs\": " << (bpffs ? "true" : "false") << ",\n";
+        out << "    \"ima\": " << (features.ima ? "true" : "false") << ",\n";
+        out << "    \"ima_appraisal\": " << (features.ima_appraisal ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"hooks\": {\n";
         out << "    \"lsm_file_open\": " << (file_open_hook_attached ? "true" : "false") << ",\n";
@@ -565,6 +574,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"protect_path_count\": " << static_cast<int64_t>(policy_req.protect_path_count) << ",\n";
         out << "    \"protect_connect\": " << (policy_req.protect_connect ? "true" : "false") << ",\n";
         out << "    \"protect_runtime_deps\": " << (policy_req.protect_runtime_deps ? "true" : "false") << ",\n";
+        out << "    \"require_ima_appraisal\": " << (policy_req.ima_appraisal_required ? "true" : "false") << ",\n";
         out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
             << "\n";
         out << "  },\n";
@@ -577,12 +587,14 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"exec_allowlist_required\": " << (policy_req.exec_allowlist_required ? "true" : "false") << ",\n";
         out << "    \"verified_exec_required\": " << (policy_req.verified_exec_required ? "true" : "false") << ",\n";
         out << "    \"verified_exec_runtime_deps_required\": "
-            << (policy_req.verified_exec_runtime_deps_required ? "true" : "false") << "\n";
+            << (policy_req.verified_exec_runtime_deps_required ? "true" : "false") << ",\n";
+        out << "    \"ima_appraisal_required\": " << (policy_req.ima_appraisal_required ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"requirements_met\": {\n";
         out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
         out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << ",\n";
-        out << "    \"exec_runtime_deps\": " << (exec_runtime_deps_requirements_met ? "true" : "false") << "\n";
+        out << "    \"exec_runtime_deps\": " << (exec_runtime_deps_requirements_met ? "true" : "false") << ",\n";
+        out << "    \"ima_appraisal\": " << (ima_requirements_met ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"exec_identity\": {\n";
         out << "    \"kernel_enabled\": " << (kernel_exec_identity_enabled ? "true" : "false") << ",\n";
@@ -1140,6 +1152,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             policy_req.verified_exec_runtime_deps_required = false;
             policy_req.protect_connect = false;
             policy_req.protect_runtime_deps = false;
+            policy_req.ima_appraisal_required = false;
             policy_req.protect_path_count = 0;
             policy_req.network_rule_count = 0;
             policy_req.allow_binary_hashes.clear();
@@ -1200,6 +1213,50 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                     if (g_forced_exit_code.load() != 0) {
                         return fail("Strict degrade mode triggered failure");
                     }
+                }
+            }
+        }
+
+        if (policy_req.ima_appraisal_required && !features.ima_appraisal) {
+            const std::string detail = "ima_available=" + std::string(features.ima ? "true" : "false") +
+                                       ",ima_appraisal=" + std::string(features.ima_appraisal ? "true" : "false");
+            if (!audit_only) {
+                if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
+                    audit_only = true;
+                    config.audit_only = 1;
+                    auto update_result = g_deps.set_agent_config_full(state, config);
+                    if (!update_result) {
+                        logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
+                                         .field("error", update_result.error().to_string()));
+                        return fail(update_result.error().to_string());
+                    }
+
+                    emit_runtime_state_change(RuntimeState::AuditFallback, "IMA_APPRAISAL_UNAVAILABLE",
+                                              "enforce requested; falling back to audit-only mode");
+                    logger().log(SLOG_WARN("IMA appraisal requirement unmet; falling back to audit-only mode")
+                                     .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                     .field("policy", applied_policy_path)
+                                     .field("detail", detail));
+                    if (g_forced_exit_code.load() != 0) {
+                        return fail("Strict degrade mode triggered failure");
+                    }
+                } else {
+                    emit_runtime_state_change(RuntimeState::Degraded, "IMA_APPRAISAL_UNAVAILABLE", detail);
+                    logger().log(SLOG_ERROR("Policy requires IMA appraisal but it is unavailable")
+                                     .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                     .field("policy", applied_policy_path)
+                                     .field("ima_available", features.ima)
+                                     .field("ima_appraisal", features.ima_appraisal));
+                    return fail("Policy requires IMA appraisal but it is unavailable on this node");
+                }
+            } else {
+                emit_runtime_state_change(RuntimeState::AuditFallback, "IMA_APPRAISAL_UNAVAILABLE",
+                                          "audit mode fallback for missing IMA appraisal");
+                logger().log(SLOG_WARN("IMA appraisal requirement unmet; running in audit-only fallback")
+                                 .field("policy", applied_policy_path)
+                                 .field("detail", detail));
+                if (g_forced_exit_code.load() != 0) {
+                    return fail("Strict degrade mode triggered failure");
                 }
             }
         }

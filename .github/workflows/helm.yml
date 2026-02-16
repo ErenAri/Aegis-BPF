@@ -60,3 +60,11 @@ jobs:
             --set rbac.breakglass.enabled=true \
             > /tmp/aegisbpf-policy-breakglass.yaml
           test -s /tmp/aegisbpf-policy-breakglass.yaml
+
+      - name: Helm template (posture automation)
+        run: |
+          helm template aegisbpf helm/aegisbpf \
+            --namespace aegisbpf \
+            --set postureAutomation.enabled=true \
+            > /tmp/aegisbpf-posture-automation.yaml
+          test -s /tmp/aegisbpf-posture-automation.yaml

@@ -58,8 +58,194 @@ jobs:
       - name: Short soak reliability
         run: sudo AEGIS_BIN=./build-e2e/aegisbpf DURATION_SECONDS=180 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/soak_reliability.sh
 
+  perf-gate:
+    runs-on: [self-hosted, perf]
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (if apt-get is available)
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            pkgs="clang llvm libbpf-dev libsystemd-dev pkg-config cmake ninja-build libelf-dev zlib1g-dev git python3"
+            for attempt in 1 2 3; do
+              if sudo apt-get -o DPkg::Lock::Timeout=120 update && \
+                 sudo apt-get -o DPkg::Lock::Timeout=120 install -y $pkgs; then
+                break
+              fi
+              echo "apt-get attempt ${attempt} failed; retrying in 10s..."
+              sleep 10
+            done
+            if ! pkg-config --exists libbpf || ! pkg-config --atleast-version=1.1.0 libbpf; then
+              rm -rf /tmp/libbpf
+              git clone --depth 1 --branch v1.4.0 https://github.com/libbpf/libbpf.git /tmp/libbpf
+              make -C /tmp/libbpf/src
+              sudo make -C /tmp/libbpf/src install
+              echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/libbpf.conf
+              if [ -d /usr/local/lib64 ]; then
+                echo "/usr/local/lib64" | sudo tee /etc/ld.so.conf.d/libbpf64.conf
+              fi
+              if [ -d /usr/lib64 ]; then
+                echo "/usr/lib64" | sudo tee /etc/ld.so.conf.d/lib64.conf
+              fi
+              for dir in /usr/local/lib /usr/local/lib64; do
+                if ls "$dir"/libbpf.so.* >/dev/null 2>&1; then
+                  sudo ln -sf "$(ls "$dir"/libbpf.so.* | head -n1)" "$dir/libbpf.so.1"
+                fi
+              done
+              sudo ldconfig
+              echo "PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+              echo "LD_LIBRARY_PATH=/usr/lib64:/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-common || true
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y "linux-tools-$(uname -r)" || \
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-generic || \
+                sudo apt-get -o DPkg::Lock::Timeout=120 install -y linux-tools-gcp || true
+            fi
+            if ! command -v bpftool >/dev/null 2>&1; then
+              echo "bpftool is required but was not installed" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Verify environment
+        run: scripts/verify_env.sh --strict
+
+      - name: Configure
+        run: |
+          rm -rf build-perf
+          cmake -S . -B build-perf -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DSKIP_BPF_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build-perf
+
+      - name: Prepare perf artifacts
+        run: mkdir -p artifacts/perf
+
+      - name: Set CPU governor (performance)
+        run: |
+          if [[ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors ]] && \
+             grep -qw performance /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors; then
+            echo "Setting CPU governor=performance for perf run (best-effort)"
+            for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+              echo performance | sudo tee "$g" >/dev/null || true
+            done
+            echo "cpu0 governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)"
+          else
+            echo "CPU governor control not available; continuing"
+          fi
+
+      - name: Reset pinned policy state
+        run: |
+          sudo ./build-perf/aegisbpf block clear
+          sudo ./build-perf/aegisbpf network deny clear
+
+      - name: Perf regression (open/close microbench)
+        run: |
+          sudo OUT_JSON=artifacts/perf/open_compare.json \
+            MAX_PCT=10 \
+            ITERATIONS=200000 \
+            FILE=/etc/hosts \
+            BIN=./build-perf/aegisbpf \
+            scripts/perf_compare.sh
+
+      - name: Perf workload suite (realistic file workloads)
+        run: |
+          sudo BIN=./build-perf/aegisbpf \
+            FILE=/etc/hosts \
+            OPEN_ITERATIONS=200000 \
+            CONNECT_ITERATIONS=50000 \
+            READ_ITERATIONS=50000 \
+            STAT_SAMPLE=400 \
+            STAT_ITERATIONS=50 \
+            MAX_OPEN_PCT=15 \
+            MAX_CONNECT_PCT=15 \
+            MAX_READ_PCT=15 \
+            MAX_STAT_PCT=15 \
+            FORMAT=json \
+            OUT=artifacts/perf/workload_suite.json \
+            scripts/perf_workload_suite.sh
+
+      - name: Capture percentile profiles (open/connect)
+        run: |
+          sudo BIN=./build-perf/aegisbpf FORMAT=json OUT=artifacts/perf/open_baseline.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo WITH_AGENT=1 BIN=./build-perf/aegisbpf FORMAT=json OUT=artifacts/perf/open_with_agent.json ITERATIONS=100000 FILE=/etc/hosts scripts/perf_open_bench.sh
+          sudo BIN=./build-perf/aegisbpf FORMAT=json OUT=artifacts/perf/connect_baseline.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+          sudo WITH_AGENT=1 BIN=./build-perf/aegisbpf FORMAT=json OUT=artifacts/perf/connect_with_agent.json ITERATIONS=50000 scripts/perf_connect_bench.sh
+
+      - name: Capture perf environment
+        run: |
+          python3 scripts/capture_perf_environment.py --out artifacts/perf/environment.json
+          uname -a > artifacts/perf/kernel.txt
+          cat /etc/os-release > artifacts/perf/os-release.txt || true
+          lscpu > artifacts/perf/cpu.txt || true
+          stat -f -c '%T' /tmp > artifacts/perf/fs.txt || true
+
+      - name: SLO gate check
+        run: |
+          OPEN_JSON=artifacts/perf/open_compare.json \
+          WORKLOAD_JSON=artifacts/perf/workload_suite.json \
+          OPEN_BASELINE_JSON=artifacts/perf/open_baseline.json \
+          OPEN_WITH_AGENT_JSON=artifacts/perf/open_with_agent.json \
+          CONNECT_BASELINE_JSON=artifacts/perf/connect_baseline.json \
+          CONNECT_WITH_AGENT_JSON=artifacts/perf/connect_with_agent.json \
+          REPORT_OUT=artifacts/perf/perf-slo-report.md \
+          SUMMARY_OUT=artifacts/perf/perf-slo-summary.json \
+          MAX_OPEN_P95_OVERHEAD=10 \
+          MAX_CONNECT_P95_OVERHEAD=10 \
+          scripts/perf_slo_check.sh
+
+      - name: Generate canonical perf baseline artifact
+        run: |
+          python3 scripts/generate_perf_baseline_artifact.py \
+            --open-compare artifacts/perf/open_compare.json \
+            --open-baseline artifacts/perf/open_baseline.json \
+            --open-with-agent artifacts/perf/open_with_agent.json \
+            --connect-baseline artifacts/perf/connect_baseline.json \
+            --connect-with-agent artifacts/perf/connect_with_agent.json \
+            --workload artifacts/perf/workload_suite.json \
+            --environment artifacts/perf/environment.json \
+            --slo-summary artifacts/perf/perf-slo-summary.json \
+            --out-json artifacts/perf/perf-baseline-canonical.json \
+            --out-md artifacts/perf/perf-baseline-canonical.md \
+            --max-open-delta-pct 10 \
+            --max-open-p95-overhead-pct 10 \
+            --max-connect-p95-overhead-pct 10 \
+            --max-workload-failed-rows 0 \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "${GITHUB_WORKFLOW}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}"
+
+      - name: Validate perf artifact schema and KPI ratios
+        run: |
+          python3 scripts/validate_perf_artifacts.py \
+            --open-baseline artifacts/perf/open_baseline.json \
+            --open-with-agent artifacts/perf/open_with_agent.json \
+            --connect-baseline artifacts/perf/connect_baseline.json \
+            --connect-with-agent artifacts/perf/connect_with_agent.json \
+            --workload artifacts/perf/workload_suite.json \
+            --report artifacts/perf/perf-evidence-report.md \
+            --canonical-baseline artifacts/perf/perf-baseline-canonical.json \
+            --max-open-p95-ratio 1.05 \
+            --max-connect-p95-ratio 1.05
+
+      - name: Upload perf evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-perf-evidence
+          path: artifacts/perf/
+          if-no-files-found: warn
+
   build-release:
-    needs: [e2e-gate]
+    needs: [e2e-gate, perf-gate]
     strategy:
       fail-fast: false
       matrix:

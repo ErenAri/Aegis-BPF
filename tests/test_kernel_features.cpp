@@ -113,6 +113,8 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     const auto cgroup_path = temp.path() / "cgroup.controllers";
     const auto btf_path = temp.path() / "vmlinux";
     const auto bpffs_path = temp.path() / "bpffs";
+    const auto ima_dir = temp.path() / "ima";
+    const auto ima_policy_path = ima_dir / "policy";
 
     {
         std::ofstream out(lsm_path);
@@ -127,16 +129,25 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
         out << "btf";
     }
     std::filesystem::create_directories(bpffs_path);
+    std::filesystem::create_directories(ima_dir);
+    {
+        std::ofstream out(ima_policy_path);
+        out << "appraise func=BPRM_CHECK\n";
+    }
 
     ScopedEnvVar lsm_env("AEGIS_LSM_PATH", lsm_path.string());
     ScopedEnvVar cgroup_env("AEGIS_CGROUP_CONTROLLERS_PATH", cgroup_path.string());
     ScopedEnvVar btf_env("AEGIS_BTF_VMLINUX_PATH", btf_path.string());
     ScopedEnvVar bpffs_env("AEGIS_BPFFS_PATH", bpffs_path.string());
+    ScopedEnvVar ima_dir_env("AEGIS_IMA_DIR_PATH", ima_dir.string());
+    ScopedEnvVar ima_policy_env("AEGIS_IMA_POLICY_PATH", ima_policy_path.string());
 
     EXPECT_TRUE(check_bpf_lsm_enabled());
     EXPECT_TRUE(check_cgroup_v2());
     EXPECT_TRUE(check_btf_available());
     EXPECT_TRUE(check_bpffs_mounted());
+    EXPECT_TRUE(check_ima_available());
+    EXPECT_TRUE(check_ima_appraisal_enabled());
 
     {
         std::ofstream out(lsm_path, std::ios::trunc);
@@ -145,11 +156,18 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     std::filesystem::remove(cgroup_path);
     std::filesystem::remove(btf_path);
     std::filesystem::remove_all(bpffs_path);
+    {
+        std::ofstream out(ima_policy_path, std::ios::trunc);
+        out << "measure func=BPRM_CHECK\n";
+    }
+    std::filesystem::remove_all(ima_dir);
 
     EXPECT_FALSE(check_bpf_lsm_enabled());
     EXPECT_FALSE(check_cgroup_v2());
     EXPECT_FALSE(check_btf_available());
     EXPECT_FALSE(check_bpffs_mounted());
+    EXPECT_FALSE(check_ima_available());
+    EXPECT_FALSE(check_ima_appraisal_enabled());
 }
 
 } // namespace

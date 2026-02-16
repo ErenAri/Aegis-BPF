@@ -91,6 +91,18 @@ Startup gating:
 - Default behavior is fail-closed (or explicit audit fallback with
   `--enforce-gate-mode=audit-fallback`).
 
+## IMA Appraisal Gating (`[require_ima_appraisal]`, version 5+)
+
+For stronger enterprise posture, policy can require host IMA appraisal:
+
+- Policy section: `[require_ima_appraisal]`
+- Effect: enforce mode requires `features.ima_appraisal=true` in node
+  capability probes.
+- If unavailable:
+  - `--enforce-gate-mode=fail-closed` (default): startup fails closed.
+  - `--enforce-gate-mode=audit-fallback`: daemon enters `AUDIT_FALLBACK`
+    with reason `IMA_APPRAISAL_UNAVAILABLE`.
+
 ## Enabling fs-verity
 
 Prerequisites:
@@ -109,5 +121,6 @@ sudo fsverity enable /usr/local/bin/mytool
 
 ## Non-Goals / Known Limits
 
-- This contract does **not** integrate with IMA appraisal/measurement yet.
+- IMA appraisal is enforced as a node posture gate, not as a per-file
+  signature check inside the BPF data path.
 - Containers using overlayfs for executables are treated as unverified.

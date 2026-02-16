@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -103,6 +104,146 @@ def validate_workload_suite(path: Path, payload: dict[str, Any]) -> None:
         raise ValueError(f"{path}: missing benchmark rows: {', '.join(missing_names)}")
 
 
+def validate_canonical_baseline(path: Path, payload: dict[str, Any]) -> None:
+    require_keys(
+        path,
+        payload,
+        [
+            "schema_version",
+            "schema_semver",
+            "generated_at_unix",
+            "ci",
+            "environment",
+            "budgets",
+            "microbench",
+            "workload_suite",
+            "taxonomy",
+            "canonical_table",
+            "gate",
+        ],
+    )
+    if payload.get("schema_version") != 1:
+        raise ValueError(f"{path}: expected schema_version=1")
+    schema_semver = payload.get("schema_semver")
+    if not isinstance(schema_semver, str) or not re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+", schema_semver
+    ):
+        raise ValueError(f"{path}: schema_semver must be semver string")
+
+    ci = payload.get("ci")
+    if not isinstance(ci, dict):
+        raise ValueError(f"{path}: 'ci' must be object")
+    require_keys(path, ci, ["repository", "workflow", "run_id", "run_url", "ref", "sha"])
+    if not all(isinstance(ci.get(key), str) for key in ("repository", "workflow", "ref", "sha")):
+        raise ValueError(f"{path}: ci.repository/workflow/ref/sha must be strings")
+    run_id = ci.get("run_id")
+    run_url = ci.get("run_url")
+    if not isinstance(run_id, str) or not isinstance(run_url, str):
+        raise ValueError(f"{path}: ci.run_id/run_url must be strings")
+    if run_id and run_url and f"/actions/runs/{run_id}" not in run_url:
+        raise ValueError(f"{path}: ci.run_url must contain /actions/runs/<run_id>")
+
+    env = payload.get("environment")
+    if not isinstance(env, dict):
+        raise ValueError(f"{path}: 'environment' must be object")
+    if not isinstance(env.get("cpu"), dict):
+        raise ValueError(f"{path}: environment.cpu must be object")
+    if not isinstance(env.get("host"), dict):
+        raise ValueError(f"{path}: environment.host must be object")
+    if not isinstance(env.get("os"), dict):
+        raise ValueError(f"{path}: environment.os must be object")
+
+    budgets = payload.get("budgets")
+    if not isinstance(budgets, dict):
+        raise ValueError(f"{path}: 'budgets' must be object")
+    for key in (
+        "max_open_delta_pct",
+        "max_open_p95_overhead_pct",
+        "max_connect_p95_overhead_pct",
+        "max_workload_failed_rows",
+    ):
+        if key not in budgets:
+            raise ValueError(f"{path}: budgets missing key '{key}'")
+    if not isinstance(budgets["max_workload_failed_rows"], int) or budgets["max_workload_failed_rows"] < 0:
+        raise ValueError(f"{path}: budgets.max_workload_failed_rows must be non-negative integer")
+    for key in ("max_open_delta_pct", "max_open_p95_overhead_pct", "max_connect_p95_overhead_pct"):
+        if not isinstance(budgets[key], (int, float)):
+            raise ValueError(f"{path}: budgets.{key} must be numeric")
+
+    microbench = payload.get("microbench")
+    if not isinstance(microbench, dict):
+        raise ValueError(f"{path}: 'microbench' must be object")
+    require_keys(path, microbench, ["open_compare", "open_percentiles", "connect_percentiles"])
+
+    taxonomy = payload.get("taxonomy")
+    if not isinstance(taxonomy, list) or not taxonomy:
+        raise ValueError(f"{path}: 'taxonomy' must be non-empty array")
+    required_categories = {"syscall_microbench", "syscall_latency_percentiles", "network_workload", "file_workload"}
+    seen_categories: set[str] = set()
+    for idx, item in enumerate(taxonomy):
+        if not isinstance(item, dict):
+            raise ValueError(f"{path}: taxonomy[{idx}] must be object")
+        require_keys(path, item, ["category", "scenario", "metric", "source"])
+        category = item.get("category")
+        if not isinstance(category, str):
+            raise ValueError(f"{path}: taxonomy[{idx}].category must be string")
+        seen_categories.add(category)
+    missing_categories = sorted(required_categories - seen_categories)
+    if missing_categories:
+        raise ValueError(f"{path}: taxonomy missing categories: {', '.join(missing_categories)}")
+
+    table = payload.get("canonical_table")
+    if not isinstance(table, list) or not table:
+        raise ValueError(f"{path}: 'canonical_table' must be non-empty array")
+    seen_rows: set[tuple[str, str]] = set()
+    failed_rows = 0
+    for idx, item in enumerate(table):
+        if not isinstance(item, dict):
+            raise ValueError(f"{path}: canonical_table[{idx}] must be object")
+        require_keys(path, item, ["scenario", "metric", "result", "budget", "unit", "status", "evidence"])
+        scenario = item.get("scenario")
+        metric = item.get("metric")
+        if not isinstance(scenario, str) or not isinstance(metric, str):
+            raise ValueError(f"{path}: canonical_table[{idx}].scenario/metric must be strings")
+        seen_rows.add((scenario, metric))
+        if not isinstance(item.get("result"), (int, float)) or not isinstance(item.get("budget"), (int, float)):
+            raise ValueError(f"{path}: canonical_table[{idx}].result/budget must be numeric")
+        if not isinstance(item.get("unit"), str) or not isinstance(item.get("evidence"), str):
+            raise ValueError(f"{path}: canonical_table[{idx}].unit/evidence must be strings")
+        status = item.get("status")
+        if status not in ("PASS", "FAIL"):
+            raise ValueError(f"{path}: canonical_table[{idx}].status must be PASS or FAIL")
+        if status == "FAIL":
+            failed_rows += 1
+
+    required_rows = {
+        ("audit_mode_open", "delta_pct"),
+        ("audit_mode_open", "p95_overhead_pct"),
+        ("audit_mode_connect", "p95_overhead_pct"),
+        ("workload_suite", "failed_rows"),
+    }
+    missing_rows = sorted(required_rows - seen_rows)
+    if missing_rows:
+        raise ValueError(f"{path}: canonical_table missing required rows: {missing_rows}")
+
+    gate = payload.get("gate")
+    if not isinstance(gate, dict):
+        raise ValueError(f"{path}: 'gate' must be object")
+    require_keys(path, gate, ["pass", "failed_rows", "slo_summary_gate_pass"])
+    if not isinstance(gate["pass"], bool):
+        raise ValueError(f"{path}: gate.pass must be bool")
+    if not isinstance(gate["failed_rows"], list):
+        raise ValueError(f"{path}: gate.failed_rows must be array")
+    if not isinstance(gate["slo_summary_gate_pass"], bool):
+        raise ValueError(f"{path}: gate.slo_summary_gate_pass must be bool")
+
+    expected_pass = failed_rows == 0
+    if gate["pass"] != expected_pass:
+        raise ValueError(
+            f"{path}: gate.pass ({gate['pass']}) does not match canonical_table status (expected {expected_pass})"
+        )
+
+
 def ratio(a: float, b: float, label: str) -> float:
     if b <= 0:
         raise ValueError(f"{label}: baseline must be > 0")
@@ -171,6 +312,7 @@ def main() -> int:
     parser.add_argument("--connect-with-agent", type=Path, required=True)
     parser.add_argument("--workload", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--canonical-baseline", type=Path)
     parser.add_argument("--max-open-p95-ratio", type=float, default=1.05)
     parser.add_argument("--max-connect-p95-ratio", type=float, default=1.05)
     args = parser.parse_args()
@@ -187,6 +329,9 @@ def main() -> int:
         validate_connect_profile(args.connect_baseline, connect_baseline, with_agent=False)
         validate_connect_profile(args.connect_with_agent, connect_with_agent, with_agent=True)
         validate_workload_suite(args.workload, workload)
+        if args.canonical_baseline:
+            canonical = load_json(args.canonical_baseline)
+            validate_canonical_baseline(args.canonical_baseline, canonical)
     except ValueError as exc:
         print(str(exc))
         return 1

@@ -52,7 +52,17 @@
     "features": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["bpf_lsm", "cgroup_v2", "btf", "bpf_syscall", "ringbuf", "tracepoints", "bpffs"],
+      "required": [
+        "bpf_lsm",
+        "cgroup_v2",
+        "btf",
+        "bpf_syscall",
+        "ringbuf",
+        "tracepoints",
+        "bpffs",
+        "ima",
+        "ima_appraisal"
+      ],
       "properties": {
         "bpf_lsm": { "type": "boolean" },
         "cgroup_v2": { "type": "boolean" },
@@ -60,7 +70,9 @@
         "bpf_syscall": { "type": "boolean" },
         "ringbuf": { "type": "boolean" },
         "tracepoints": { "type": "boolean" },
-        "bpffs": { "type": "boolean" }
+        "bpffs": { "type": "boolean" },
+        "ima": { "type": "boolean" },
+        "ima_appraisal": { "type": "boolean" }
       }
     },
     "hooks": {
@@ -94,6 +106,7 @@
         "protect_path_count",
         "protect_connect",
         "protect_runtime_deps",
+        "require_ima_appraisal",
         "allow_binary_hash_count"
       ],
       "properties": {
@@ -104,6 +117,7 @@
         "protect_path_count": { "type": "integer", "minimum": 0 },
         "protect_connect": { "type": "boolean" },
         "protect_runtime_deps": { "type": "boolean" },
+        "require_ima_appraisal": { "type": "boolean" },
         "allow_binary_hash_count": { "type": "integer", "minimum": 0 }
       }
     },
@@ -117,7 +131,8 @@
         "exec_identity_required",
         "exec_allowlist_required",
         "verified_exec_required",
-        "verified_exec_runtime_deps_required"
+        "verified_exec_runtime_deps_required",
+        "ima_appraisal_required"
       ],
       "properties": {
         "network_enforcement_required": { "type": "boolean" },
@@ -126,17 +141,19 @@
         "exec_identity_required": { "type": "boolean" },
         "exec_allowlist_required": { "type": "boolean" },
         "verified_exec_required": { "type": "boolean" },
-        "verified_exec_runtime_deps_required": { "type": "boolean" }
+        "verified_exec_runtime_deps_required": { "type": "boolean" },
+        "ima_appraisal_required": { "type": "boolean" }
       }
     },
     "requirements_met": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["network", "exec_identity", "exec_runtime_deps"],
+      "required": ["network", "exec_identity", "exec_runtime_deps", "ima_appraisal"],
       "properties": {
         "network": { "type": "boolean" },
         "exec_identity": { "type": "boolean" },
-        "exec_runtime_deps": { "type": "boolean" }
+        "exec_runtime_deps": { "type": "boolean" },
+        "ima_appraisal": { "type": "boolean" }
       }
     },
     "exec_identity": {

@@ -255,6 +255,30 @@ Result<void> test_attach_all_full_contract_no_network_hooks(BpfState& state, boo
     return {};
 }
 
+Result<void> test_attach_all_full_contract_with_network_hooks(BpfState& state, bool lsm_enabled,
+                                                              bool use_inode_permission, bool use_file_open, bool)
+{
+    state.attach_contract_valid = true;
+    if (lsm_enabled) {
+        uint8_t expected = 0;
+        if (use_inode_permission) {
+            ++expected;
+        }
+        if (use_file_open) {
+            ++expected;
+        }
+        state.file_hooks_expected = expected;
+        state.file_hooks_attached = expected;
+    } else {
+        state.file_hooks_expected = 1;
+        state.file_hooks_attached = 1;
+    }
+    state.socket_connect_hook_attached = true;
+    state.socket_bind_hook_attached = true;
+    state.exec_identity_hook_attached = false;
+    return {};
+}
+
 } // namespace
 
 TEST(TracingTest, MakeSpanIdUsesPrefix)
@@ -594,6 +618,41 @@ TEST(TracingTest, DaemonRunFailsClosedWhenNetworkPolicyHooksMissing)
     std::filesystem::remove(capabilities_path, ec);
 }
 
+TEST(TracingTest, DaemonRunFailsClosedWhenImaAppraisalRequiredButUnavailable)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+
+    const std::string policy_path = make_temp_file_path("aegis_policy", ".conf");
+    {
+        std::ofstream policy(policy_path);
+        ASSERT_TRUE(policy.is_open());
+        policy << "version=5\n\n[protect_connect]\n\n[require_ima_appraisal]\n";
+    }
+
+    {
+        ScopedEnvVar policy_env("AEGIS_POLICY_APPLIED_PATH", policy_path);
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
+                              test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
+                              test_setup_agent_cgroup_ok, test_attach_all_full_contract_with_network_hooks);
+        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
+        EXPECT_EQ(rc, 1);
+    }
+
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("IMA_APPRAISAL_UNAVAILABLE"), std::string::npos);
+    EXPECT_NE(log.find("Policy requires IMA appraisal"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(policy_path, ec);
+}
+
 TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
 {
     TracingEnvGuard env("1");
@@ -615,10 +674,15 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
     buffer << report.rdbuf();
     const std::string payload = buffer.str();
     EXPECT_NE(payload.find("\"schema_version\": 1"), std::string::npos);
-    EXPECT_NE(payload.find("\"schema_semver\": \"1.1.0\""), std::string::npos);
+    EXPECT_NE(payload.find("\"schema_semver\": \"1.2.0\""), std::string::npos);
     EXPECT_NE(payload.find("\"features\""), std::string::npos);
+    EXPECT_NE(payload.find("\"ima\""), std::string::npos);
+    EXPECT_NE(payload.find("\"ima_appraisal\""), std::string::npos);
     EXPECT_NE(payload.find("\"hooks\""), std::string::npos);
     EXPECT_NE(payload.find("\"requirements\""), std::string::npos);
+    EXPECT_NE(payload.find("\"ima_appraisal_required\""), std::string::npos);
+    EXPECT_NE(payload.find("\"require_ima_appraisal\""), std::string::npos);
+    EXPECT_NE(payload.find("\"requirements_met\""), std::string::npos);
     EXPECT_NE(payload.find("\"runtime_state\": \"AUDIT_FALLBACK\""), std::string::npos);
     EXPECT_NE(payload.find("\"state_transitions\""), std::string::npos);
     EXPECT_NE(payload.find("\"strict_mode\": false"), std::string::npos);

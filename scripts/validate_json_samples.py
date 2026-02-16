@@ -90,6 +90,11 @@ def main() -> int:
             root / "config/schemas/capabilities_v1.json",
             root / "tests/json_samples/capabilities_v1",
         ),
+        (
+            "perf_baseline_v1",
+            root / "config/schemas/perf_baseline_v1.json",
+            root / "tests/json_samples/perf_baseline_v1",
+        ),
     ]
 
     failures = 0
@@ -113,4 +118,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
