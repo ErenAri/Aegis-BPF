@@ -382,7 +382,7 @@ jobs:
             --report release/capability-contract-report.md
 
       - name: Generate build provenance attestations
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: |
             release/*.tar.gz
