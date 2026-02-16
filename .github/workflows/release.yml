@@ -412,7 +412,7 @@ jobs:
           cosign sign-blob --yes --output-signature sbom.cyclonedx.json.sig --output-certificate sbom.cyclonedx.json.pem sbom.cyclonedx.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: release/*
           generate_release_notes: true
