@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "schema_semver",
     "generated_at_unix",
     "kernel_version",
     "capability",
@@ -26,6 +27,10 @@
   ],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
+    "schema_semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
     "generated_at_unix": { "type": "integer", "minimum": 0 },
     "kernel_version": { "type": "string" },
     "capability": {
@@ -65,6 +70,7 @@
         "lsm_file_open",
         "lsm_inode_permission",
         "lsm_bprm_check_security",
+        "lsm_file_mmap",
         "lsm_socket_connect",
         "lsm_socket_bind"
       ],
@@ -72,6 +78,7 @@
         "lsm_file_open": { "type": "boolean" },
         "lsm_inode_permission": { "type": "boolean" },
         "lsm_bprm_check_security": { "type": "boolean" },
+        "lsm_file_mmap": { "type": "boolean" },
         "lsm_socket_connect": { "type": "boolean" },
         "lsm_socket_bind": { "type": "boolean" }
       }
@@ -86,6 +93,7 @@
         "network_rule_count",
         "protect_path_count",
         "protect_connect",
+        "protect_runtime_deps",
         "allow_binary_hash_count"
       ],
       "properties": {
@@ -95,6 +103,7 @@
         "network_rule_count": { "type": "integer", "minimum": 0 },
         "protect_path_count": { "type": "integer", "minimum": 0 },
         "protect_connect": { "type": "boolean" },
+        "protect_runtime_deps": { "type": "boolean" },
         "allow_binary_hash_count": { "type": "integer", "minimum": 0 }
       }
     },
@@ -107,7 +116,8 @@
         "network_bind_required",
         "exec_identity_required",
         "exec_allowlist_required",
-        "verified_exec_required"
+        "verified_exec_required",
+        "verified_exec_runtime_deps_required"
       ],
       "properties": {
         "network_enforcement_required": { "type": "boolean" },
@@ -115,16 +125,18 @@
         "network_bind_required": { "type": "boolean" },
         "exec_identity_required": { "type": "boolean" },
         "exec_allowlist_required": { "type": "boolean" },
-        "verified_exec_required": { "type": "boolean" }
+        "verified_exec_required": { "type": "boolean" },
+        "verified_exec_runtime_deps_required": { "type": "boolean" }
       }
     },
     "requirements_met": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["network", "exec_identity"],
+      "required": ["network", "exec_identity", "exec_runtime_deps"],
       "properties": {
         "network": { "type": "boolean" },
-        "exec_identity": { "type": "boolean" }
+        "exec_identity": { "type": "boolean" },
+        "exec_runtime_deps": { "type": "boolean" }
       }
     },
     "exec_identity": {
@@ -133,11 +145,13 @@
       "required": [
         "kernel_enabled",
         "kernel_allow_exec_inode_entries",
+        "runtime_deps_hook_attached",
         "userspace_fallback_allowlist_entries"
       ],
       "properties": {
         "kernel_enabled": { "type": "boolean" },
         "kernel_allow_exec_inode_entries": { "type": "integer", "minimum": 0 },
+        "runtime_deps_hook_attached": { "type": "boolean" },
         "userspace_fallback_allowlist_entries": { "type": "integer", "minimum": 0 }
       }
     },

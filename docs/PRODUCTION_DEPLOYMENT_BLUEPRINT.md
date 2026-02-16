@@ -81,6 +81,18 @@ Node capability fragmentation handling:
   pods only on labeled nodes (`enforceNodeSelector`).
 - For strict fleets, use `agent.enforceGateMode=fail-closed` to prevent silent
   enforcement downgrades.
+- Generate machine-readable posture + recommended node labels from each node's
+  capability report:
+
+```bash
+python3 scripts/evaluate_capability_posture.py \
+  --input /var/lib/aegisbpf/capabilities.json \
+  --strict \
+  --out-json /var/lib/aegisbpf/capabilities.posture.json \
+  --out-labels-json /var/lib/aegisbpf/capabilities.labels.json
+```
+
+- Use `aegisbpf.io/enforce-capable=true` for enforce DaemonSet placement.
 
 Minimal RBAC for emergency control:
 - See `docs/KUBERNETES_RBAC.md`.

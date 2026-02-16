@@ -13,7 +13,7 @@ shared-runner noise. Promotion decisions use self-hosted `perf.yml` evidence.
 ## Latest run status
 
 - **Perf Regression (self‑hosted):** last run success  
-  Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22041044117
+  Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845474
 
 ## Baseline environment
 
@@ -25,26 +25,26 @@ shared-runner noise. Promotion decisions use self-hosted `perf.yml` evidence.
 
 Open/close microbench (audit-only, empty deny policy):
 
-- baseline_us_per_op: `1.53`
-- with_agent_us_per_op: `1.46`
-- delta_pct: `-4.58%` (budget: `<= 10%`)
+- baseline_us_per_op: `1.37`
+- with_agent_us_per_op: `1.34`
+- delta_pct: `-2.19%` (budget: `<= 10%`)
 
 Percentile profiles (with agent):
 
-- open p50/p95/p99 (us): `1.34` / `1.38` / `1.40`
-- connect p50/p95/p99 (us): `2.33` / `3.44` / `5.03`
+- open p50/p95/p99 (us): `1.22` / `1.26` / `1.47`
+- connect p50/p95/p99 (us): `2.16` / `3.22` / `4.60`
 
 KPI gates:
 
-- open_p95_ratio: `1.029851` (target <= `1.050000`)
-- connect_p95_ratio: `1.005848` (target <= `1.050000`)
+- open_p95_ratio: `0.787500` (target <= `1.050000`)
+- connect_p95_ratio: `0.993827` (target <= `1.050000`)
 
 Workload suite rows (delta_pct, budget <= 15%):
 
-- open_close: `-3.40%`
-- connect_loopback: `-4.70%`
-- full_read: `-3.18%`
-- stat_walk: `-2.47%`
+- open_close: `11.94%`
+- connect_loopback: `-3.31%`
+- full_read: `2.55%`
+- stat_walk: `0.00%`
 
 ## Required baseline fields
 

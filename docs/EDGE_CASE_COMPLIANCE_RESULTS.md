@@ -1,7 +1,7 @@
 # Edge‑Case Compliance Results
 
-Status: **pending**  
-Last updated: 2026-02-06
+Status: **current**  
+Last updated: 2026-02-15
 
 This file records **human‑readable results** for the Edge‑Case Compliance Suite.
 Evidence artifacts are always attached to CI runs; this document is the public
@@ -9,25 +9,36 @@ summary.
 
 ## Latest run status
 
-- **Run:** Kernel Matrix (dispatch) 2026-02-06  
-  https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/21735329269
-- **Artifacts:** `kernel-matrix-kernel-5.14`, `kernel-matrix-kernel-6.1`,
-  `kernel-matrix-kernel-6.5`, `kernel-matrix-kernel-6.8`
+- **Run:** E2E (BPF LSM) push (main), 2026-02-15  
+  https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845463
+- **Artifact:** `e2e-evidence`
+- **Canonical summary (`matrix_summary.json`):**
+  - `total_checks`: `114`
+  - `passed_checks`: `114`
+  - `failed_checks`: `0`
+  - `skipped_checks`: `0`
+  - `kernel_release`: `6.14.0-37-generic`
+  - `os_id`: `ubuntu`
+  - `os_version`: `24.04`
+  - `workspace_fs`: `ext2/ext3`
 
-**Note:** The kernel‑matrix workflow currently runs unit/integration tests and
-does **not** execute the edge‑case suite. Results below are therefore marked
-`PENDING` until an E2E run is captured and linked here.
-
-## Expected results table (placeholder)
+## Results table
 
 | Scenario group | Expected behavior | Result | Evidence |
 |---------------|-------------------|--------|----------|
-| Symlink swaps | Blocked | PENDING | Run + artifact (TBD) |
-| Hardlinks | Blocked | PENDING | Run + artifact (TBD) |
-| Rename races | Blocked | PENDING | Run + artifact (TBD) |
-| Bind‑mount aliases | Blocked | PENDING | Run + artifact (TBD) |
-| Exec deny | Blocked | PENDING | Run + artifact (TBD) |
-| Benign controls | Allowed | PENDING | Run + artifact (TBD) |
+| Symlink swaps | Blocked | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+| Hardlinks | Blocked | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+| Rename races | Blocked | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+| Bind‑mount aliases | Blocked | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+| Exec deny | Blocked | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+| Benign controls | Allowed | PASS | `e2e-evidence/matrix_summary.json` (`failed_checks=0`) |
+
+Notes:
+- The strict edge-case gate is `scripts/e2e_file_enforcement_matrix.sh` +
+  `scripts/validate_e2e_matrix_summary.py`.
+- Additional exploratory probes (`fs_matrix.log`, `namespace_matrix.log`,
+  `enforcement_proofs.log`) are retained as supplementary diagnostics and are
+  not the canonical contract gate for this table.
 
 ## How to produce evidence
 
@@ -48,4 +59,3 @@ Then publish:
 - the run URL
 - artifact names
 - an updated PASS/FAIL table above
-

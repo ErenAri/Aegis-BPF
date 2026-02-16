@@ -71,13 +71,13 @@ Current scope labels:
 - Independent environment validation: 2026-02-07 (Google Cloud Platform, kernel 6.8.0-1045-gcp)
 - Local full regression run: 2026-02-15 (`ctest --test-dir build-prod --output-on-failure --timeout 180`)
 
-| Test Category | Result | Details |
-|---------------|--------|---------|
-| **Unit + Contract Tests** |  213/213 PASS | Full local `ctest` run on 2026-02-15 |
-| **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix |
-| **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass |
+| Test Category | Result | Details                                                                                                                       |
+|---------------|--------|-------------------------------------------------------------------------------------------------------------------------------|
+| **Unit + Contract Tests** |  217/217 PASS | Full local `ctest` run on 2026-02-16                                                                                          |
+| **E2E Tests** |  100% PASS | Smoke (audit/enforce), chaos, enforcement matrix                                                                              |
+| **Security Validation** | 3/3 PASS | Enforcement blocks access, symlinks/hardlinks can't bypass                                                                    |
 | **Performance Impact** |  Gate-enforced | Self-hosted perf gate (`perf.yml`): open microbench <=10% (audit-only, empty deny policy), workload budgets in `docs/PERF.md` |
-| **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO |
+| **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO                                                                              |
 
 **Security Hardening Applied:**
 - Compiler security flags (FORTIFY_SOURCE=2, stack-protector-strong, PIE, RELRO)
@@ -362,6 +362,8 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Protected resources (require VERIFIED_EXEC, see docs/VERIFIED_EXEC_CONTRACT.md)
 [protect_connect]
 
+[protect_runtime_deps]
+
 [protect_path]
 /etc/shadow
 ```
@@ -408,10 +410,20 @@ AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
 Daemon startup writes a capability/attach report to
 `/var/lib/aegisbpf/capabilities.json` (override with
 `AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
-applied policy requires unavailable network or exec-identity kernel hooks.
+applied policy requires unavailable network, exec-identity, or runtime
+dependency trust hooks.
 The capability report also includes runtime posture fields (`runtime_state`,
 `state_transitions`) so operators can distinguish `ENFORCE`,
 `AUDIT_FALLBACK`, and `DEGRADED` outcomes.
+For machine-readable posture compliance and Kubernetes scheduling labels, use:
+
+```bash
+python3 scripts/evaluate_capability_posture.py \
+  --input /var/lib/aegisbpf/capabilities.json \
+  --strict \
+  --out-json /var/lib/aegisbpf/capabilities.posture.json \
+  --out-labels-json /var/lib/aegisbpf/capabilities.labels.json
+```
 
 ## Event Format
 

@@ -161,8 +161,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     // Valid sections
     static const std::unordered_set<std::string> valid_sections = {
-        "deny_path", "deny_inode", "protect_path",     "protect_connect",   "allow_cgroup", "deny_ip",
-        "deny_cidr", "deny_port",  "deny_binary_hash", "allow_binary_hash", "scan_paths"};
+        "deny_path", "deny_inode", "protect_path", "protect_connect",  "protect_runtime_deps", "allow_cgroup",
+        "deny_ip",   "deny_cidr",  "deny_port",    "deny_binary_hash", "allow_binary_hash",    "scan_paths"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -179,6 +179,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             if (section == "protect_connect") {
                 policy.protect_connect = true;
+            }
+            if (section == "protect_runtime_deps") {
+                policy.protect_runtime_deps = true;
             }
             continue;
         }
@@ -236,6 +239,13 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             // Presence of the section enables connect protection. Entries are not used.
             issues.warnings.push_back("line " + std::to_string(line_no) +
                                       ": [protect_connect] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "protect_runtime_deps") {
+            // Presence of the section enables runtime dependency trust checks. Entries are not used.
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [protect_runtime_deps] does not take entries; ignoring '" + trimmed + "'");
             continue;
         }
 
@@ -410,8 +420,13 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
         issues.errors.push_back("[allow_binary_hash] requires version=3 or higher");
     }
 
-    if ((!policy.protect_paths.empty() || policy.protect_connect) && policy.version < 4) {
-        issues.errors.push_back("[protect_path]/[protect_connect] requires version=4 or higher");
+    if ((!policy.protect_paths.empty() || policy.protect_connect || policy.protect_runtime_deps) &&
+        policy.version < 4) {
+        issues.errors.push_back("[protect_path]/[protect_connect]/[protect_runtime_deps] requires version=4 or higher");
+    }
+
+    if (policy.protect_runtime_deps && !policy.protect_connect && policy.protect_paths.empty()) {
+        issues.errors.push_back("[protect_runtime_deps] requires [protect_connect] or [protect_path]");
     }
 
     if (!issues.errors.empty()) {
@@ -1020,7 +1035,8 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     {
         ScopedSpan span("policy.set_exec_identity_mode", root_span.trace_id(), root_span.span_id());
         size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
-        bool exec_identity_enabled = allow_exec_count > 0 || policy.protect_connect || !policy.protect_paths.empty();
+        bool exec_identity_enabled = allow_exec_count > 0 || policy.protect_connect || !policy.protect_paths.empty() ||
+                                     policy.protect_runtime_deps;
         auto mode_result = set_exec_identity_mode(state, exec_identity_enabled);
         if (!mode_result) {
             span.fail(mode_result.error().to_string());
@@ -1036,6 +1052,9 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         if (!policy.protect_paths.empty()) {
             exec_flags |= kExecIdentityFlagProtectFiles;
         }
+        if (policy.protect_runtime_deps) {
+            exec_flags |= kExecIdentityFlagTrustRuntimeDeps;
+        }
         auto flags_result = set_exec_identity_flags(state, exec_flags);
         if (!flags_result) {
             span.fail(flags_result.error().to_string());
@@ -1046,6 +1065,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                          .field("allow_exec_inode_entries", static_cast<int64_t>(allow_exec_count))
                          .field("exec_identity_flags", static_cast<int64_t>(exec_flags))
                          .field("protect_connect", policy.protect_connect)
+                         .field("protect_runtime_deps", policy.protect_runtime_deps)
                          .field("protect_paths", static_cast<int64_t>(policy.protect_paths.size())));
     }
 

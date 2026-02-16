@@ -23,6 +23,11 @@ python3 "${ROOT_DIR}/scripts/validate_event_schema.py" \
   --schema "${ROOT_DIR}/config/event-schema.json" \
   --samples "${ROOT_DIR}/tests/event_samples"
 python3 "${ROOT_DIR}/scripts/validate_json_samples.py"
+python3 "${ROOT_DIR}/scripts/evaluate_capability_posture.py" \
+  --input "${ROOT_DIR}/tests/json_samples/capabilities_v1/ok.json" \
+  --strict \
+  --out-json "${ROOT_DIR}/${BUILD_DIR}/capability-posture.json" \
+  --out-labels-json "${ROOT_DIR}/${BUILD_DIR}/capability-labels.json"
 python3 "${ROOT_DIR}/tests/check_systemd_policy_prestart.py" \
   "${ROOT_DIR}/packaging/systemd/aegisbpf.service"
 python3 "${ROOT_DIR}/tests/check_metrics_contract.py" \
