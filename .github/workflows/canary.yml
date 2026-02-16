@@ -48,7 +48,7 @@ jobs:
         run: sudo AEGIS_BIN=./build/aegisbpf PHASE=enforce ENFORCE_SIGNAL=term DURATION_SECONDS=300 MAX_RINGBUF_DROPS=100 MAX_RSS_GROWTH_KB=65536 MAX_EVENT_DROP_RATIO_PCT=0.1 MIN_TOTAL_DECISIONS=100 scripts/canary_gate.sh
 
       - name: Upload canary artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: canary-artifacts
           path: artifacts/canary/

@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload audit log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: branch-protection-audit
           path: branch-protection-audit.log

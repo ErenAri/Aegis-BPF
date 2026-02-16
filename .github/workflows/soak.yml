@@ -58,7 +58,7 @@ jobs:
 
       - name: Upload soak evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: soak-evidence
           path: artifacts/soak/
@@ -132,7 +132,7 @@ jobs:
 
       - name: Upload ASAN soak evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: soak-asan-evidence
           path: artifacts/soak-asan/
