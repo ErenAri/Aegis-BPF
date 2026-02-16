@@ -9,11 +9,18 @@ on the target self‑hosted environment.
 
 Hosted `benchmark.yml` trends are advisory and intentionally tolerant to
 shared-runner noise. Promotion decisions use self-hosted `perf.yml` evidence.
+Release tags (`v*`) are additionally blocked by a strict perf gate in
+`.github/workflows/release.yml`.
 
 ## Latest run status
 
 - **Perf Regression (self‑hosted):** last run success  
   Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845474
+  Canonical artifacts:
+  - `perf-baseline-canonical.json`
+  - `perf-baseline-canonical.md`
+  - `perf-slo-report.md`
+  - `perf-evidence-report.md`
 
 ## Baseline environment
 
@@ -55,6 +62,8 @@ When a successful run exists, record:
 - **Overhead:** p50 / p95 / p99 syscall latency delta
 - **Drop rate:** ring buffer drops under load
 - **CPU impact:** mean and p95 CPU overhead under workload
+- **Canonical CI metadata:** workflow, run URL, ref, commit SHA
+- **Canonical evidence table:** scenario/metric/result/budget/status/evidence rows
 
 ## How to produce a baseline
 

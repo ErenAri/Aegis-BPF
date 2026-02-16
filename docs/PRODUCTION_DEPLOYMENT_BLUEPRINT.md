@@ -81,6 +81,9 @@ Node capability fragmentation handling:
   pods only on labeled nodes (`enforceNodeSelector`).
 - For strict fleets, use `agent.enforceGateMode=fail-closed` to prevent silent
   enforcement downgrades.
+- Enforce pods should use readiness fail-closed:
+  - `aegisbpf health --require-enforce`
+  - Helm default: `agent.requireEnforceReadiness=true` (enforce mode only).
 - Generate machine-readable posture + recommended node labels from each node's
   capability report:
 
@@ -93,6 +96,14 @@ python3 scripts/evaluate_capability_posture.py \
 ```
 
 - Use `aegisbpf.io/enforce-capable=true` for enforce DaemonSet placement.
+
+Optional posture-label automation (Helm):
+- Enable `postureAutomation.enabled=true` to run a node-local sidecar that:
+  - reads `/var/lib/aegisbpf/capabilities.json`
+  - writes `/var/lib/aegisbpf/capabilities.posture.json`
+  - patches node labels (`aegisbpf.io/*`) for scheduler targeting
+- This requires cluster-scoped RBAC (`nodes.get/patch`), installed by chart
+  when `serviceAccount.create=true`.
 
 Minimal RBAC for emergency control:
 - See `docs/KUBERNETES_RBAC.md`.

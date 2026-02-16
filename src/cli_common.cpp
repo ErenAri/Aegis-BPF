@@ -23,7 +23,7 @@ int usage(const char* prog)
            "<hex>|--sha256-file <path>] [--no-rollback] [--require-signature] [--verbose]"
         << " | policy sign <policy.conf> --key <private.key> --output <policy.signed>" << " | policy {show|rollback}"
         << " | keys {list|add <pubkey.pub>}" << " | stats [--detailed]" << " | metrics [--out <path>] [--detailed]"
-        << " | capabilities [--json]" << " | health [--json]" << " | doctor [--json]"
+        << " | capabilities [--json]" << " | health [--json] [--require-enforce]" << " | doctor [--json]"
         << " | emergency-disable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-enable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-status [--json] [--log=stdout|journald|both]" << " | probe"

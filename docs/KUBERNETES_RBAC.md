@@ -25,6 +25,16 @@ RoleBinding:
   - `rbac.breakglass.subjectKind=Group`
   - `rbac.breakglass.subjectName=<your-group>`
 
+## Optional Posture Automation RBAC
+
+If you enable automated node labeling (`postureAutomation.enabled=true`), the
+chart installs cluster-scoped RBAC for `nodes/get,patch` so the posture sidecar
+can apply `aegisbpf.io/*` labels from `capabilities.json`.
+
+- Keep this disabled unless you need automatic mixed-capability scheduling.
+- If `serviceAccount.create=false`, provide equivalent ClusterRole/Binding
+  manually.
+
 ## Important RBAC Limitation
 
 Kubernetes RBAC cannot reliably express "allow `pods/exec` only for pods with
@@ -48,4 +58,3 @@ The primary mechanism is:
 
 Use `aegisbpf emergency-status --json` to confirm posture and verify that the
 emergency toggle audit trail is present on the node.
-

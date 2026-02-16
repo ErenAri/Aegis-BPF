@@ -31,6 +31,10 @@ agent:
   # Log format: text, json
   logFormat: json
 
+  # In enforce mode, make readiness fail when node is not enforce-capable.
+  # This injects `aegisbpf health --require-enforce` into the enforce readiness probe.
+  requireEnforceReadiness: true
+
 # Policy configuration
 policy:
   # Enable policy ConfigMap
@@ -71,6 +75,23 @@ deployment:
 # Default scheduling selector for enforce mode.
 enforceNodeSelector:
   aegisbpf.io/enforce-capable: "true"
+
+# Optional automatic node posture labeling from capabilities.json.
+# When enabled, a sidecar patches Node labels (cluster-scoped RBAC required).
+postureAutomation:
+  enabled: false
+  intervalSeconds: 60
+  image:
+    repository: python
+    tag: "3.12-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 50m
+      memory: 64Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
 
 # Tolerations (deploy on all nodes by default)
 tolerations:

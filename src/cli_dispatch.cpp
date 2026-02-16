@@ -91,15 +91,18 @@ int dispatch_survival_command(int argc, char** argv, const char* prog)
 int dispatch_health_command(int argc, char** argv, const char* prog)
 {
     bool json_output = false;
+    bool require_enforce = false;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--json") {
             json_output = true;
+        } else if (arg == "--require-enforce") {
+            require_enforce = true;
         } else {
             return usage(prog);
         }
     }
-    return cmd_health(json_output);
+    return cmd_health(json_output, require_enforce);
 }
 
 int dispatch_doctor_command(int argc, char** argv, const char* prog)

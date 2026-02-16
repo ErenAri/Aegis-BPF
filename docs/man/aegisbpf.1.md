@@ -244,7 +244,7 @@ Show emergency control state.
 
 Check agent prerequisites and status.
 
-**aegisbpf health** [**--json**]
+**aegisbpf health** [**--json**] [**--require-enforce**]
 
 Checks:
 - Kernel capability summary (full vs audit-only)
@@ -256,6 +256,10 @@ Checks:
 
 **--json**
 :   Emit a machine-readable status object with feature flags and per-check booleans.
+
+**--require-enforce**
+:   Fail when the node is only audit-capable. Use this for enforce-mode readiness
+    probes to keep scheduling fail-closed.
 
 ### doctor
 

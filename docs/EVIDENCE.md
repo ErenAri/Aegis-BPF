@@ -18,7 +18,8 @@ artifacts on each run.
 | Kernel portability | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | Includes kernel + OS details and ctest log. |
 | Edge‑case compliance | `Kernel Matrix` + `E2E (BPF LSM)` | `kernel-matrix-<runner>`, `e2e-evidence` | File‑enforcement matrix and edge‑case behaviors. |
 | BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info, soak summary, and chaos ringbuf overflow result. |
-| Perf regression (self-hosted) | `Perf Regression` (`.github/workflows/perf.yml`) | `perf-evidence` | Includes open/close microbench + workload suite JSON. |
+| Perf regression (self-hosted) | `Perf Regression` (`.github/workflows/perf.yml`) | `perf-evidence` | Includes canonical perf baseline (`perf-baseline-canonical.json/.md`), SLO report, and workload/profile JSON. |
+| Release perf gate (strict) | `Release` (`.github/workflows/release.yml`) | `release-perf-evidence` | Tag releases are blocked when perf SLO or canonical evidence validation fails. |
 | Soak reliability (self-hosted) | `Soak Reliability` (`.github/workflows/soak.yml`) | `soak-evidence` | Includes soak summary JSON with drop/RSS thresholds. |
 | Release readiness | `Release Readiness` (`.github/workflows/release-readiness.yml`) | (status only) | Status gate for release readiness script. |
 | Security scans | `Security` (`.github/workflows/security.yml`) | (status only) | CodeQL, gitleaks, semgrep results. |
@@ -34,7 +35,7 @@ artifacts on each run.
   - Artifact: `e2e-evidence` (includes `matrix_summary.json`, soak, chaos, fs-verity logs)
 - Perf Regression (self-hosted): 2026-02-15
   - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845474
-  - Artifact: `perf-evidence` (includes canonical SLO report + perf profiles)
+  - Artifact: `perf-evidence` (includes canonical SLO report + canonical baseline + perf profiles)
 - Perf baseline: **published** (see `docs/PERF_BASELINE.md`)
 - Edge-case compliance results: **published** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 - External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
@@ -59,7 +60,7 @@ Target runners for portability evidence (self-hosted):
 
 ## Perf evidence trend
 
-- **Self-hosted perf artifacts:** `perf-evidence` (from `Perf Regression`).
+- **Self-hosted perf artifacts:** `perf-evidence` (from `Perf Regression`) and `release-perf-evidence` (from `Release` tag gates).
 - **Benchmark trend history:** `benchmark.yml` publishes to `gh-pages` under
   `dev/bench/` for long-term trend visualization.
 

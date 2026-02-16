@@ -973,7 +973,7 @@ void emit_doctor_json(const HealthReport& report, const std::vector<DoctorAdvice
     std::cout << out.str() << '\n';
 }
 
-int cmd_health(bool json_output)
+int cmd_health(bool json_output, bool require_enforce)
 {
     const std::string trace_id = make_span_id("trace-health");
     ScopedSpan root_span("cli.health", trace_id);
@@ -982,10 +982,12 @@ int cmd_health(bool json_output)
         return 1;
     };
     HealthReport report = collect_health_report(trace_id, root_span.span_id());
+    const bool enforce_capable = report.capability == EnforcementCapability::Full;
+    const bool health_ok = report.ok && (!require_enforce || enforce_capable);
 
     if (json_output) {
         emit_health_json(report);
-        return report.ok ? 0 : 1;
+        return health_ok ? 0 : 1;
     }
 
     std::cout << "Kernel version: " << report.kernel_version << '\n';
@@ -1008,6 +1010,12 @@ int cmd_health(bool json_output)
 
     if (!report.ok) {
         return fail(report.error.empty() ? "Health check failed" : report.error);
+    }
+
+    if (require_enforce && !enforce_capable) {
+        std::cout << "Health check failed (enforce capability required)" << '\n';
+        std::cout << "  Reason: current node is not enforce-capable (audit-only)." << '\n';
+        return fail("Enforce capability required");
     }
 
     if (report.capability == EnforcementCapability::AuditOnly) {
