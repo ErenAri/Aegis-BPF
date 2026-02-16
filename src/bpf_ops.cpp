@@ -1,6 +1,8 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_ops.hpp"
 
+#include <bpf/btf.h>
+
 #include <dirent.h>
 #include <limits.h>
 #include <sys/resource.h>
@@ -8,6 +10,7 @@
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -73,6 +76,36 @@ std::string adjacent_hash_path_for_object(const std::string& object_path)
     std::filesystem::path obj(object_path);
     std::filesystem::path parent = obj.has_parent_path() ? obj.parent_path() : std::filesystem::path(".");
     return (parent / "aegis.bpf.sha256").string();
+}
+
+std::set<std::string> detect_missing_optional_lsm_hooks()
+{
+    static constexpr std::array<const char*, 4> kOptionalHooks = {
+        "bprm_check_security",
+        "file_mmap",
+        "socket_connect",
+        "socket_bind",
+    };
+
+    std::set<std::string> missing;
+    struct btf* vmlinux = btf__load_vmlinux_btf();
+    long btf_err = libbpf_get_error(vmlinux);
+    if (btf_err != 0) {
+        logger().log(SLOG_WARN("Failed to load vmlinux BTF; disabling optional LSM programs")
+                         .field("error", static_cast<int64_t>(-btf_err)));
+        for (const char* hook : kOptionalHooks) {
+            missing.insert(hook);
+        }
+        return missing;
+    }
+
+    for (const char* hook : kOptionalHooks) {
+        if (btf__find_by_name_kind(vmlinux, hook, BTF_KIND_FUNC) < 0) {
+            missing.insert(hook);
+        }
+    }
+    btf__free(vmlinux);
+    return missing;
 }
 } // namespace
 
@@ -621,6 +654,26 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             if (lsm_prog) {
                 bpf_program__set_autoload(lsm_prog, false);
             }
+        } else {
+            const std::set<std::string> missing_hooks = detect_missing_optional_lsm_hooks();
+            const auto disable_optional_program = [&](const char* prog_name, const char* hook_name) {
+                if (missing_hooks.find(hook_name) == missing_hooks.end()) {
+                    return;
+                }
+                bpf_program* prog = bpf_object__find_program_by_name(state.obj, prog_name);
+                if (!prog) {
+                    return;
+                }
+                bpf_program__set_autoload(prog, false);
+                logger().log(SLOG_WARN("Disabling optional LSM program; kernel hook not available")
+                                 .field("program", prog_name)
+                                 .field("hook", hook_name));
+            };
+
+            disable_optional_program("handle_bprm_check_security", "bprm_check_security");
+            disable_optional_program("handle_file_mmap", "file_mmap");
+            disable_optional_program("handle_socket_connect", "socket_connect");
+            disable_optional_program("handle_socket_bind", "socket_bind");
         }
     }
 
