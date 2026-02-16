@@ -130,6 +130,39 @@ groups:
           description: "AegisBPF on {{ $labels.instance }} exceeds the 0.1% network event loss SLO for 15m."
           runbook: "docs/runbooks/ALERT_ringbuf_drops.md"
 
+      # Runtime posture degraded/fallback - enforce guarantees are no longer active.
+      - alert: AegisBPFRuntimeStateDegraded
+        expr: max by (instance) (aegisbpf_runtime_state{state=~"AUDIT_FALLBACK|DEGRADED"}) == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AegisBPF runtime posture is not ENFORCE"
+          description: "AegisBPF on {{ $labels.instance }} is in AUDIT_FALLBACK or DEGRADED for >2m. Enforcement guarantees are reduced."
+          runbook: "docs/runbooks/ALERT_runtime_posture.md"
+
+      # Emergency toggle storm indicates potentially abusive or unstable break-glass operations.
+      - alert: AegisBPFEmergencyToggleStorm
+        expr: aegisbpf_emergency_toggle_storm_active == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AegisBPF emergency toggle storm detected"
+          description: "AegisBPF on {{ $labels.instance }} detected rapid emergency-disable transitions. Investigate operator actions and incident scope."
+          runbook: "docs/runbooks/ALERT_emergency_toggle_storm.md"
+
+      # Perf SLO gate failed in the latest imported summary artifact.
+      - alert: AegisBPFPerfSLOGateFailed
+        expr: aegisbpf_perf_slo_failed_rows > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AegisBPF performance SLO gate is failing"
+          description: "AegisBPF on {{ $labels.instance }} reports failed perf SLO summary rows (failed_rows={{ $value | printf \"%.0f\" }})."
+          runbook: "docs/runbooks/ALERT_perf_slo_breach.md"
+
       # Agent metrics stale - scrape working but counters not updating
       - alert: AegisBPFMetricsStale
         expr: changes(aegisbpf_blocks_total[30m]) == 0 and aegisbpf_deny_inode_entries > 0

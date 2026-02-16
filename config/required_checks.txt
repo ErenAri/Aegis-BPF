@@ -6,6 +6,11 @@ coverage
 e2e
 lint
 label-contract
+capability-contract
+helm-posture-contract
+ops-observability-contract
+k8s-rollout-contract
+guarantees-contract
 required-checks-contract
 sanitizers (asan)
 sanitizers (tsan)

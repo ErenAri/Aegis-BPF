@@ -34,7 +34,15 @@ python3 "${ROOT_DIR}/tests/check_metrics_contract.py" \
   "${ROOT_DIR}/src/commands_monitoring.cpp" \
   "${ROOT_DIR}/config/prometheus/alerts.yml" \
   "${ROOT_DIR}/config/grafana/dashboard.json" \
-  "${ROOT_DIR}/docs/man/aegisbpf.1.md"
+  "${ROOT_DIR}/docs/man/aegisbpf.1.md" \
+  "${ROOT_DIR}/config/grafana/aegisbpf-ops-minimal.json"
+python3 "${ROOT_DIR}/scripts/validate_grafana_dashboard.py" \
+  "${ROOT_DIR}/config/grafana/aegisbpf-ops-minimal.json"
+python3 "${ROOT_DIR}/scripts/validate_capability_posture_contract.py"
+python3 "${ROOT_DIR}/tests/check_helm_posture_contract.py"
+python3 "${ROOT_DIR}/tests/check_ops_observability_contract.py"
+python3 "${ROOT_DIR}/tests/check_k8s_rollout_contract.py"
+python3 "${ROOT_DIR}/tests/check_guarantees_contract.py"
 python3 "${ROOT_DIR}/tests/check_slo_contract.py" \
   "${ROOT_DIR}/config/prometheus/alerts.yml" \
   "${ROOT_DIR}/docs/PRODUCT.md"

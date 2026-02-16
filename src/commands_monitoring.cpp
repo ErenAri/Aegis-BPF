@@ -11,6 +11,7 @@
 #include <array>
 #include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -111,6 +112,15 @@ double calculate_map_utilization(bpf_map* map, uint64_t max_entries)
     }
     uint64_t current = map_entry_count(map);
     return static_cast<double>(current) / static_cast<double>(max_entries);
+}
+
+std::string env_path_or_default(const char* env_name, const char* fallback)
+{
+    const char* value = std::getenv(env_name);
+    if (value != nullptr && *value != '\0') {
+        return std::string(value);
+    }
+    return std::string(fallback);
 }
 
 Result<void> verify_pinned_map_access(const char* pin_path)
@@ -231,6 +241,105 @@ bool extract_json_uint64(const std::string& json, const std::string& key, uint64
         return false;
     }
     return parse_uint64(token, out);
+}
+
+bool extract_json_bool(const std::string& json, const std::string& key, bool& out)
+{
+    size_t pos = 0;
+    if (!find_json_value_start(json, key, pos)) {
+        return false;
+    }
+    if (json.compare(pos, 4, "true") == 0) {
+        out = true;
+        return true;
+    }
+    if (json.compare(pos, 5, "false") == 0) {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+struct CapabilityMetricsSample {
+    bool report_present = false;
+    bool parse_ok = false;
+    bool enforce_capable = false;
+    std::string runtime_state = "UNKNOWN";
+};
+
+CapabilityMetricsSample read_capability_metrics_sample()
+{
+    CapabilityMetricsSample sample{};
+    const std::string path = env_path_or_default("AEGIS_CAPABILITIES_REPORT_PATH", kCapabilitiesReportPath);
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec) {
+        return sample;
+    }
+
+    sample.report_present = true;
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return sample;
+    }
+
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    const std::string payload = buf.str();
+
+    std::string runtime_state;
+    bool enforce_capable = false;
+    if (!extract_json_string(payload, "runtime_state", runtime_state)) {
+        return sample;
+    }
+    if (!extract_json_bool(payload, "enforce_capable", enforce_capable)) {
+        return sample;
+    }
+
+    sample.runtime_state = runtime_state;
+    sample.enforce_capable = enforce_capable;
+    sample.parse_ok = true;
+    return sample;
+}
+
+struct PerfSloMetricsSample {
+    bool summary_present = false;
+    bool parse_ok = false;
+    bool gate_pass = true;
+    uint64_t failed_rows = 0;
+};
+
+PerfSloMetricsSample read_perf_slo_metrics_sample()
+{
+    PerfSloMetricsSample sample{};
+    const std::string path =
+        env_path_or_default("AEGIS_PERF_SLO_SUMMARY_PATH", "/var/lib/aegisbpf/perf-slo-summary.json");
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec) {
+        return sample;
+    }
+
+    sample.summary_present = true;
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return sample;
+    }
+
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    const std::string payload = buf.str();
+
+    bool gate_pass = true;
+    if (!extract_json_bool(payload, "gate_pass", gate_pass)) {
+        return sample;
+    }
+    sample.gate_pass = gate_pass;
+
+    uint64_t failed_rows = 0;
+    if (extract_json_uint64(payload, "failed_rows", failed_rows)) {
+        sample.failed_rows = failed_rows;
+    }
+    sample.parse_ok = true;
+    return sample;
 }
 
 bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string& error)
@@ -596,6 +705,44 @@ int cmd_metrics(const std::string& out_path, bool detailed)
                          "Whether an emergency control toggle storm is active (1=true, 0=false)");
     const auto storm = evaluate_toggle_storm(control_state, control_cfg, static_cast<int64_t>(std::time(nullptr)));
     append_metric_sample(oss, "aegisbpf_emergency_toggle_storm_active", storm.active ? 1 : 0);
+
+    // Runtime posture telemetry from daemon capability report.
+    const auto capability_sample = read_capability_metrics_sample();
+    append_metric_header(oss, "aegisbpf_capability_report_present", "gauge",
+                         "Whether daemon capability report is present (1=true, 0=false)");
+    append_metric_sample(oss, "aegisbpf_capability_report_present", capability_sample.report_present ? 1 : 0);
+    append_metric_header(oss, "aegisbpf_capability_contract_valid", "gauge",
+                         "Whether capability report could be parsed for posture metrics (1=true, 0=false)");
+    append_metric_sample(oss, "aegisbpf_capability_contract_valid", capability_sample.parse_ok ? 1 : 0);
+    append_metric_header(oss, "aegisbpf_enforce_capable", "gauge",
+                         "Whether node is enforce-capable per capability report (1=true, 0=false)");
+    append_metric_sample(oss, "aegisbpf_enforce_capable",
+                         (capability_sample.parse_ok && capability_sample.enforce_capable) ? 1 : 0);
+    append_metric_header(oss, "aegisbpf_runtime_state", "gauge",
+                         "Runtime posture state from capability report (1 for active state label)");
+    const std::array<const char*, 4> runtime_states = {"ENFORCE", "AUDIT_FALLBACK", "DEGRADED", "UNKNOWN"};
+    for (const char* state_name : runtime_states) {
+        const bool active = capability_sample.parse_ok ? (capability_sample.runtime_state == state_name)
+                                                       : (std::string(state_name) == "UNKNOWN");
+        append_metric_sample(oss, "aegisbpf_runtime_state", {{"state", state_name}},
+                             static_cast<uint64_t>(active ? 1 : 0));
+    }
+
+    // Perf SLO gate summary is optional and can be sourced from periodic perf jobs.
+    const auto perf_slo_sample = read_perf_slo_metrics_sample();
+    append_metric_header(oss, "aegisbpf_perf_slo_summary_present", "gauge",
+                         "Whether perf SLO summary artifact is present (1=true, 0=false)");
+    append_metric_sample(oss, "aegisbpf_perf_slo_summary_present", perf_slo_sample.summary_present ? 1 : 0);
+    append_metric_header(oss, "aegisbpf_perf_slo_gate_pass", "gauge",
+                         "Perf SLO gate status from summary artifact (1=pass, 0=fail)");
+    append_metric_sample(
+        oss, "aegisbpf_perf_slo_gate_pass",
+        (perf_slo_sample.summary_present && perf_slo_sample.parse_ok && !perf_slo_sample.gate_pass) ? 0 : 1);
+    append_metric_header(oss, "aegisbpf_perf_slo_failed_rows", "gauge",
+                         "Number of failed rows in perf SLO summary (0 when missing)");
+    append_metric_sample(oss, "aegisbpf_perf_slo_failed_rows",
+                         (perf_slo_sample.summary_present && perf_slo_sample.parse_ok) ? perf_slo_sample.failed_rows
+                                                                                       : 0);
 
     std::string metrics = oss.str();
 
