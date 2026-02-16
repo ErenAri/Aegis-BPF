@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771193500108,
+  "lastUpdate": 1771245279911,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype",
   "entries": {
     "Benchmark": [
@@ -30840,6 +30840,102 @@ window.BENCHMARK_DATA = {
             "value": 53.638866512835364,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.63622148123929 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a39a851842a79ed1e8f05a1ba9d6432dbe2e0010",
+          "message": "Merge pull request #50 from ErenAri/feat/verified-exec-runtime-deps\n\nfeat: VERIFIED_EXEC runtime deps trust + posture contract + evidence refresh",
+          "timestamp": "2026-02-16T15:23:36+03:00",
+          "tree_id": "826bf5a9b277fee716af53528330c7a1751be017",
+          "url": "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/commit/a39a851842a79ed1e8f05a1ba9d6432dbe2e0010"
+        },
+        "date": 1771245278599,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1524.778269342596,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1524.6221003687676 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3753.3039264537715,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3752.9515629464954 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21788.48502288692,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21784.979624985182 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 164958.2772180981,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 164944.94177369302 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1310565.7497659123,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1310467.810783395 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5237248.105181048,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5236347.959737832 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5277.682016102687,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5283.55909701908 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33173.009514392135,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33177.60692939529 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 268453.3886601291,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 268441.5209530571 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 808700.2159726616,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 808730.8324174065 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.26447657749189,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.25904380317395 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.7093510444977,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.705544137431936 ns\nthreads: 1"
           }
         ]
       }
