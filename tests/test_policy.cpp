@@ -184,6 +184,40 @@ version=4
     EXPECT_EQ(result->protect_paths[1], "/etc/ssh/ssh_host_rsa_key");
 }
 
+TEST_F(PolicyTest, ParsePolicyWithProtectRuntimeDeps)
+{
+    std::string content = R"(
+version=4
+
+[protect_connect]
+
+[protect_runtime_deps]
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    EXPECT_TRUE(result->protect_connect);
+    EXPECT_TRUE(result->protect_runtime_deps);
+}
+
+TEST_F(PolicyTest, ProtectRuntimeDepsRequiresProtectedResources)
+{
+    std::string content = R"(
+version=4
+
+[protect_runtime_deps]
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_FALSE(result);
+    EXPECT_TRUE(issues.has_errors());
+}
+
 TEST_F(PolicyTest, ProtectRulesRequireVersion4)
 {
     std::string content = R"(

@@ -757,6 +757,7 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     state.file_hooks_expected = 0;
     state.file_hooks_attached = 0;
     state.exec_identity_hook_attached = false;
+    state.exec_identity_runtime_deps_hook_attached = false;
     state.socket_connect_hook_attached = false;
     state.socket_bind_hook_attached = false;
 
@@ -833,6 +834,20 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
                     SLOG_WARN("Optional exec identity hook attach failed").field("error", result.error().to_string()));
             } else {
                 state.exec_identity_hook_attached = true;
+            }
+        }
+
+        ScopedSpan deps_span("bpf.attach.exec_runtime_deps_hook", trace_id, root_span.span_id());
+        prog = bpf_object__find_program_by_name(state.obj, "handle_file_mmap");
+        if (!prog) {
+            logger().log(SLOG_WARN("Optional exec runtime deps hook not found").field("program", "handle_file_mmap"));
+        } else {
+            auto result = attach_prog(prog, state);
+            if (!result) {
+                logger().log(SLOG_WARN("Optional exec runtime deps hook attach failed")
+                                 .field("error", result.error().to_string()));
+            } else {
+                state.exec_identity_runtime_deps_hook_attached = true;
             }
         }
     } else {

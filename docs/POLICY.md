@@ -86,6 +86,23 @@ protected resources:
 This section is distinct from `[deny_path]` which always denies regardless of
 exec identity.
 
+### [protect_runtime_deps] (version 4+)
+When present, runtime executable mappings (`mmap(..., PROT_EXEC, ...)`) for
+currently `VERIFIED_EXEC` processes must also satisfy the `VERIFIED_EXEC`
+identity contract.
+
+Behavior:
+- If a process mapped an executable dependency (loader/shared object/JIT file)
+  that fails `VERIFIED_EXEC` checks, the process trust is downgraded from
+  `VERIFIED_EXEC` to unverified for subsequent protected-resource decisions.
+- The mmap is allowed (compatibility), but protected resources (`[protect_path]`
+  and `[protect_connect]`) then fail closed for that process in enforce mode.
+
+Requirements:
+- Must be used together with `[protect_connect]` or `[protect_path]`.
+- Requires `lsm/file_mmap`; enforce startup fails closed (or audit-fallback if
+  explicitly configured) when unavailable.
+
 ### [scan_paths] (version 3+)
 Optional additional absolute directories to include during
 `[deny_binary_hash]` and `[allow_binary_hash]` scans.
@@ -127,6 +144,8 @@ cgid:10243
 sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 [protect_connect]
+
+[protect_runtime_deps]
 
 [protect_path]
 /etc/shadow

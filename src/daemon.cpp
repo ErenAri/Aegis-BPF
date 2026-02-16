@@ -397,9 +397,11 @@ struct AppliedPolicyRequirements {
     bool network_connect_required = false;
     bool network_bind_required = false;
     bool exec_identity_required = false;
-    bool exec_allowlist_required = false; // [allow_binary_hash]
-    bool verified_exec_required = false;  // [protect_connect]/[protect_path]
+    bool exec_allowlist_required = false;             // [allow_binary_hash]
+    bool verified_exec_required = false;              // [protect_connect]/[protect_path]
+    bool verified_exec_runtime_deps_required = false; // [protect_runtime_deps]
     bool protect_connect = false;
+    bool protect_runtime_deps = false;
     size_t protect_path_count = 0;
     size_t network_rule_count = 0;
     std::vector<std::string> allow_binary_hashes;
@@ -432,8 +434,10 @@ Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::st
     req.allow_binary_hashes = parsed->allow_binary_hashes;
     req.exec_allowlist_required = !req.allow_binary_hashes.empty();
     req.protect_connect = parsed->protect_connect;
+    req.protect_runtime_deps = parsed->protect_runtime_deps;
     req.protect_path_count = parsed->protect_paths.size();
     req.verified_exec_required = req.protect_connect || req.protect_path_count > 0;
+    req.verified_exec_runtime_deps_required = req.verified_exec_required && req.protect_runtime_deps;
     req.exec_identity_required = req.exec_allowlist_required || req.verified_exec_required;
     req.network_rule_count =
         parsed->network.deny_ips.size() + parsed->network.deny_cidrs.size() + parsed->network.deny_ports.size();
@@ -481,9 +485,15 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         (!policy_req.network_connect_required || state.socket_connect_hook_attached) &&
         (!policy_req.network_bind_required || state.socket_bind_hook_attached);
     const bool network_enforce_ready = !policy_req.network_required || network_requirements_met;
-    const bool exec_identity_requirements_met =
+    const bool exec_identity_base_requirements_met =
         !policy_req.exec_identity_required || kernel_exec_identity_enabled || audit_only;
-    const bool exec_identity_enforce_ready = !policy_req.exec_identity_required || kernel_exec_identity_enabled;
+    const bool exec_runtime_deps_requirements_met =
+        !policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached || audit_only;
+    const bool exec_identity_requirements_met =
+        exec_identity_base_requirements_met && exec_runtime_deps_requirements_met;
+    const bool exec_identity_enforce_ready =
+        (!policy_req.exec_identity_required || kernel_exec_identity_enabled) &&
+        (!policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached);
 
     std::vector<std::string> enforce_blockers;
     if (capability != EnforcementCapability::Full) {
@@ -503,6 +513,9 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
     }
     if (!exec_identity_enforce_ready) {
         enforce_blockers.emplace_back("EXEC_IDENTITY_UNAVAILABLE");
+    }
+    if (policy_req.verified_exec_runtime_deps_required && !state.exec_identity_runtime_deps_hook_attached) {
+        enforce_blockers.emplace_back("EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE");
     }
     const bool enforce_capable = enforce_blockers.empty();
 
@@ -538,6 +551,8 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"lsm_file_open\": " << (file_open_hook_attached ? "true" : "false") << ",\n";
         out << "    \"lsm_inode_permission\": " << (inode_permission_hook_attached ? "true" : "false") << ",\n";
         out << "    \"lsm_bprm_check_security\": " << (state.exec_identity_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_file_mmap\": " << (state.exec_identity_runtime_deps_hook_attached ? "true" : "false")
+            << ",\n";
         out << "    \"lsm_socket_connect\": " << (state.socket_connect_hook_attached ? "true" : "false") << ",\n";
         out << "    \"lsm_socket_bind\": " << (state.socket_bind_hook_attached ? "true" : "false") << "\n";
         out << "  },\n";
@@ -548,6 +563,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"network_rule_count\": " << static_cast<int64_t>(policy_req.network_rule_count) << ",\n";
         out << "    \"protect_path_count\": " << static_cast<int64_t>(policy_req.protect_path_count) << ",\n";
         out << "    \"protect_connect\": " << (policy_req.protect_connect ? "true" : "false") << ",\n";
+        out << "    \"protect_runtime_deps\": " << (policy_req.protect_runtime_deps ? "true" : "false") << ",\n";
         out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
             << "\n";
         out << "  },\n";
@@ -558,16 +574,21 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"network_bind_required\": " << (policy_req.network_bind_required ? "true" : "false") << ",\n";
         out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << ",\n";
         out << "    \"exec_allowlist_required\": " << (policy_req.exec_allowlist_required ? "true" : "false") << ",\n";
-        out << "    \"verified_exec_required\": " << (policy_req.verified_exec_required ? "true" : "false") << "\n";
+        out << "    \"verified_exec_required\": " << (policy_req.verified_exec_required ? "true" : "false") << ",\n";
+        out << "    \"verified_exec_runtime_deps_required\": "
+            << (policy_req.verified_exec_runtime_deps_required ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"requirements_met\": {\n";
         out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
-        out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << "\n";
+        out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << ",\n";
+        out << "    \"exec_runtime_deps\": " << (exec_runtime_deps_requirements_met ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"exec_identity\": {\n";
         out << "    \"kernel_enabled\": " << (kernel_exec_identity_enabled ? "true" : "false") << ",\n";
         out << "    \"kernel_allow_exec_inode_entries\": " << static_cast<int64_t>(kernel_exec_identity_entries)
             << ",\n";
+        out << "    \"runtime_deps_hook_attached\": "
+            << (state.exec_identity_runtime_deps_hook_attached ? "true" : "false") << ",\n";
         out << "    \"userspace_fallback_allowlist_entries\": "
             << static_cast<int64_t>(userspace_exec_identity_allowlist_size) << "\n";
         out << "  },\n";
@@ -1115,7 +1136,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             policy_req.exec_identity_required = false;
             policy_req.exec_allowlist_required = false;
             policy_req.verified_exec_required = false;
+            policy_req.verified_exec_runtime_deps_required = false;
             policy_req.protect_connect = false;
+            policy_req.protect_runtime_deps = false;
             policy_req.protect_path_count = 0;
             policy_req.network_rule_count = 0;
             policy_req.allow_binary_hashes.clear();
@@ -1194,6 +1217,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                                            state.exec_identity_mode != nullptr && *exec_mode_result;
             kernel_exec_identity_enabled = kernel_hook_ready;
 
+            const bool runtime_deps_hook_ready = state.exec_identity_runtime_deps_hook_attached;
+
             if (policy_req.verified_exec_required && !kernel_hook_ready) {
                 const std::string detail = "bprm_check_security_hook_attached=" +
                                            std::string(state.exec_identity_hook_attached ? "true" : "false") +
@@ -1232,6 +1257,51 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                     emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
                                               "audit mode fallback for missing exec identity hook");
                     logger().log(SLOG_WARN("Verified-exec enforcement unavailable; running in audit-only fallback")
+                                     .field("policy", applied_policy_path)
+                                     .field("detail", detail));
+                    if (g_forced_exit_code.load() != 0) {
+                        return fail("Strict degrade mode triggered failure");
+                    }
+                }
+            }
+
+            if (policy_req.verified_exec_runtime_deps_required && !runtime_deps_hook_ready) {
+                const std::string detail =
+                    "file_mmap_hook_attached=" +
+                    std::string(state.exec_identity_runtime_deps_hook_attached ? "true" : "false");
+                if (!audit_only) {
+                    if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
+                        audit_only = true;
+                        config.audit_only = 1;
+                        auto update_result = g_deps.set_agent_config_full(state, config);
+                        if (!update_result) {
+                            logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
+                                             .field("error", update_result.error().to_string()));
+                            return fail(update_result.error().to_string());
+                        }
+
+                        emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE",
+                                                  "enforce requested; falling back to audit-only mode");
+                        logger().log(
+                            SLOG_WARN("Runtime dependency trust hook unavailable; falling back to audit-only mode")
+                                .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                .field("policy", applied_policy_path)
+                                .field("detail", detail));
+                        if (g_forced_exit_code.load() != 0) {
+                            return fail("Strict degrade mode triggered failure");
+                        }
+                    } else {
+                        emit_runtime_state_change(RuntimeState::Degraded, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE", detail);
+                        logger().log(SLOG_ERROR("Runtime dependency trust requires file_mmap hook")
+                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                         .field("policy", applied_policy_path)
+                                         .field("hook_attached", state.exec_identity_runtime_deps_hook_attached));
+                        return fail("Runtime dependency trust is required but file_mmap hook is unavailable");
+                    }
+                } else {
+                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE",
+                                              "audit mode fallback for missing runtime dependency trust hook");
+                    logger().log(SLOG_WARN("Runtime dependency trust hook unavailable; running in audit-only fallback")
                                      .field("policy", applied_policy_path)
                                      .field("detail", detail));
                     if (g_forced_exit_code.load() != 0) {

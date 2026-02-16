@@ -70,7 +70,7 @@ Start the security agent.
 :   Break-glass override for `version=3` exec allowlist policies (`[allow_binary_hash]`).
     When enabled, processes with unreadable/unknown executable hashes are logged
     but not signaled. This flag does not bypass `VERIFIED_EXEC` protected-resource
-    policies (`version=4` `[protect_connect]` / `[protect_path]`).
+    policies (`version=4` `[protect_connect]` / `[protect_path]` / `[protect_runtime_deps]`).
 
 **--strict-degrade**
 :   Enforce fail-closed runtime posture in enforce mode. If startup or runtime
@@ -317,6 +317,8 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 # Protected resources (require VERIFIED_EXEC, version 4+)
 [protect_connect]
+
+[protect_runtime_deps]
 
 [protect_path]
 /etc/shadow

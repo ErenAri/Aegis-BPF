@@ -22,6 +22,7 @@
     "lsm_file_open": true,
     "lsm_inode_permission": true,
     "lsm_bprm_check_security": true,
+    "lsm_file_mmap": true,
     "lsm_socket_connect": true,
     "lsm_socket_bind": true
   },
@@ -32,6 +33,7 @@
     "network_rule_count": 0,
     "protect_path_count": 0,
     "protect_connect": false,
+    "protect_runtime_deps": false,
     "allow_binary_hash_count": 0
   },
   "requirements": {
@@ -40,15 +42,18 @@
     "network_bind_required": false,
     "exec_identity_required": false,
     "exec_allowlist_required": false,
-    "verified_exec_required": false
+    "verified_exec_required": false,
+    "verified_exec_runtime_deps_required": false
   },
   "requirements_met": {
     "network": true,
-    "exec_identity": true
+    "exec_identity": true,
+    "exec_runtime_deps": true
   },
   "exec_identity": {
     "kernel_enabled": true,
     "kernel_allow_exec_inode_entries": 0,
+    "runtime_deps_hook_attached": true,
     "userspace_fallback_allowlist_entries": 0
   },
   "state_transitions": {

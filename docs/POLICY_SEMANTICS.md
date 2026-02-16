@@ -13,6 +13,7 @@ Policy sections:
 - `[deny_inode]` -> explicit `dev:ino` deny entries
 - `[protect_path]` -> inode-derived protected entries (deny only for non-`VERIFIED_EXEC`)
 - `[protect_connect]` -> protect all IPv4/IPv6 connect() attempts for non-`VERIFIED_EXEC`
+- `[protect_runtime_deps]` -> require runtime executable mappings to preserve `VERIFIED_EXEC`
 - `[allow_cgroup]` -> cgroup exemptions (`/sys/fs/cgroup/...` or `cgid:<id>`)
 - `[deny_ip]`, `[deny_cidr]`, `[deny_port]` -> network deny rules
 - `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
@@ -81,6 +82,16 @@ Verified exec identity (`VERIFIED_EXEC`, version 4+):
 - For interpreter inline-code execution:
   - `bash|sh|dash -c`, `python* -c`, and `node|perl|ruby -e` are treated as
     unverified for protected resources.
+
+Runtime dependency trust (`[protect_runtime_deps]`, version 4+):
+- Applies to executable mappings (`mmap` with `PROT_EXEC`) through
+  `lsm/file_mmap`.
+- If a currently `VERIFIED_EXEC` process maps an executable dependency that does
+  not satisfy `VERIFIED_EXEC` checks, the process trust is downgraded to
+  unverified.
+- Mapping is allowed for compatibility, but subsequent protected-resource
+  decisions (`[protect_path]`, `[protect_connect]`) fail closed in enforce mode.
+- Enforce startup requires the `file_mmap` hook when this section is active.
 
 Conflict handling:
 - Duplicate deny entries are de-duplicated by map key identity.

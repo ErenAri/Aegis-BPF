@@ -362,6 +362,8 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Protected resources (require VERIFIED_EXEC, see docs/VERIFIED_EXEC_CONTRACT.md)
 [protect_connect]
 
+[protect_runtime_deps]
+
 [protect_path]
 /etc/shadow
 ```
@@ -408,7 +410,8 @@ AEGIS_OTEL_SPANS=1 sudo aegisbpf policy apply /etc/aegisbpf/policy.conf
 Daemon startup writes a capability/attach report to
 `/var/lib/aegisbpf/capabilities.json` (override with
 `AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
-applied policy requires unavailable network or exec-identity kernel hooks.
+applied policy requires unavailable network, exec-identity, or runtime
+dependency trust hooks.
 The capability report also includes runtime posture fields (`runtime_state`,
 `state_transitions`) so operators can distinguish `ENFORCE`,
 `AUDIT_FALLBACK`, and `DEGRADED` outcomes.

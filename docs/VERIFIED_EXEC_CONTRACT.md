@@ -66,6 +66,31 @@ If enforce is requested but the required kernel hooks are unavailable, startup
 fails closed by default (or falls back to audit if explicitly configured via
 `--enforce-gate-mode=audit-fallback`).
 
+## Runtime Dependency Trust (`[protect_runtime_deps]`)
+
+When a policy enables `[protect_runtime_deps]`, `VERIFIED_EXEC` must remain
+true across runtime executable dependencies (loader/shared objects/mapped
+executable files):
+
+- Hook: `lsm/file_mmap`
+- Scope: mappings with `PROT_EXEC`
+- Rule: if a currently `VERIFIED_EXEC` process maps a file that does not satisfy
+  `VERIFIED_EXEC`, process trust is downgraded to unverified.
+
+Enforcement behavior:
+
+- mmap is kept **allow** for compatibility.
+- protected resource decisions then fail closed for that process:
+  - `[protect_connect]` => connect denied
+  - `[protect_path]` => protected file access denied
+
+Startup gating:
+
+- In enforce mode with `[protect_runtime_deps]`, missing `file_mmap` hook is a
+  capability blocker.
+- Default behavior is fail-closed (or explicit audit fallback with
+  `--enforce-gate-mode=audit-fallback`).
+
 ## Enabling fs-verity
 
 Prerequisites:
@@ -84,8 +109,5 @@ sudo fsverity enable /usr/local/bin/mytool
 
 ## Non-Goals / Known Limits
 
-- This contract does **not** verify dynamic libraries loaded by a verified
-  binary.
 - This contract does **not** integrate with IMA appraisal/measurement yet.
 - Containers using overlayfs for executables are treated as unverified.
-

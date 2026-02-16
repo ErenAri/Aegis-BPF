@@ -69,6 +69,7 @@ inline constexpr uint8_t kRuleFlagProtectByVerifiedExec = 2;
 inline constexpr uint8_t kExecIdentityFlagAllowlistEnforce = 1u << 0;
 inline constexpr uint8_t kExecIdentityFlagProtectConnect = 1u << 1;
 inline constexpr uint8_t kExecIdentityFlagProtectFiles = 1u << 2;
+inline constexpr uint8_t kExecIdentityFlagTrustRuntimeDeps = 1u << 3;
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
@@ -273,7 +274,8 @@ struct Policy {
     // "Protected" resources are allowed for VERIFIED_EXEC processes and denied otherwise.
     // This is distinct from deny rules, which always deny regardless of exec identity.
     std::vector<std::string> protect_paths;
-    bool protect_connect = false; // when true, all connect() attempts are protected
+    bool protect_connect = false;      // when true, all connect() attempts are protected
+    bool protect_runtime_deps = false; // when true, executable mmaps must remain VERIFIED_EXEC
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;

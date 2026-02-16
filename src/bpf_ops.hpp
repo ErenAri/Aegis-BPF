@@ -83,6 +83,7 @@ class BpfState {
             file_hooks_expected = other.file_hooks_expected;
             file_hooks_attached = other.file_hooks_attached;
             exec_identity_hook_attached = other.exec_identity_hook_attached;
+            exec_identity_runtime_deps_hook_attached = other.exec_identity_runtime_deps_hook_attached;
             socket_connect_hook_attached = other.socket_connect_hook_attached;
             socket_bind_hook_attached = other.socket_bind_hook_attached;
 
@@ -136,6 +137,7 @@ class BpfState {
             other.file_hooks_expected = 0;
             other.file_hooks_attached = 0;
             other.exec_identity_hook_attached = false;
+            other.exec_identity_runtime_deps_hook_attached = false;
             other.socket_connect_hook_attached = false;
             other.socket_bind_hook_attached = false;
             other.links.clear();
@@ -208,6 +210,7 @@ class BpfState {
     uint8_t file_hooks_expected = 0;
     uint8_t file_hooks_attached = 0;
     bool exec_identity_hook_attached = false;
+    bool exec_identity_runtime_deps_hook_attached = false;
     bool socket_connect_hook_attached = false;
     bool socket_bind_hook_attached = false;
 };

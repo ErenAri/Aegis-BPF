@@ -41,6 +41,7 @@
 #define EXEC_IDENTITY_FLAG_ALLOWLIST_ENFORCE (1U << 0)
 #define EXEC_IDENTITY_FLAG_PROTECT_CONNECT (1U << 1)
 #define EXEC_IDENTITY_FLAG_PROTECT_FILES (1U << 2)
+#define EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS (1U << 3)
 
 #ifndef FS_VERITY_FL
 #define FS_VERITY_FL 0x00100000
@@ -53,6 +54,9 @@
 #endif
 #ifndef S_IWOTH
 #define S_IWOTH 00002
+#endif
+#ifndef PROT_EXEC
+#define PROT_EXEC 0x4
 #endif
 
 /* BPF Map Size Constants */
@@ -1128,6 +1132,43 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     }
 
     return -EPERM;
+}
+
+SEC("lsm/file_mmap")
+int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigned long prot, unsigned long flags)
+{
+    (void)reqprot;
+    (void)flags;
+
+    if (!file)
+        return 0;
+
+    if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS))
+        return 0;
+
+    if (!(prot & PROT_EXEC))
+        return 0;
+
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (is_cgroup_allowed(cgid))
+        return 0;
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    struct process_info *pi = get_or_create_process_info(pid, task);
+    if (!pi || !pi->exec_identity_known || !pi->verified_exec)
+        return 0;
+
+    if (file_is_verified_exec_identity(file))
+        return 0;
+
+    /*
+     * Keep mmap fail-open for compatibility; downgrade trust so protected
+     * resource checks fail closed for this process afterward.
+     */
+    pi->verified_exec = 0;
+    pi->exec_identity_known = 1;
+    return 0;
 }
 
 SEC("lsm/file_open")
