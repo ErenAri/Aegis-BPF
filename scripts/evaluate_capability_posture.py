@@ -12,7 +12,7 @@ from typing import Any
 
 
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_OUTPUT_SCHEMA_SEMVER = "1.0.0"
+_OUTPUT_SCHEMA_SEMVER = "1.1.0"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -89,13 +89,15 @@ def evaluate(report: dict[str, Any], source_path: str) -> dict[str, Any]:
     network_met = _as_bool(requirements_met.get("network"))
     exec_identity_met = _as_bool(requirements_met.get("exec_identity"))
     exec_runtime_deps_met = _as_bool(requirements_met.get("exec_runtime_deps"))
+    ima_appraisal_met = _as_bool(requirements_met.get("ima_appraisal"))
     _check(
         checks,
         "requirements_met",
-        network_met and exec_identity_met and exec_runtime_deps_met,
+        network_met and exec_identity_met and exec_runtime_deps_met and ima_appraisal_met,
         (
             f"network={network_met}, exec_identity={exec_identity_met}, "
-            f"exec_runtime_deps={exec_runtime_deps_met}"
+            f"exec_runtime_deps={exec_runtime_deps_met}, "
+            f"ima_appraisal={ima_appraisal_met}"
         ),
     )
 
@@ -155,6 +157,9 @@ def evaluate(report: dict[str, Any], source_path: str) -> dict[str, Any]:
         "aegisbpf.io/exec-runtime-deps-ready": (
             "true" if exec_runtime_deps_met else "false"
         ),
+        "aegisbpf.io/ima-appraisal": (
+            "true" if _as_bool(features.get("ima_appraisal")) else "false"
+        ),
     }
 
     return {
@@ -173,6 +178,7 @@ def evaluate(report: dict[str, Any], source_path: str) -> dict[str, Any]:
             "network_requirements_met": network_met,
             "exec_identity_requirements_met": exec_identity_met,
             "exec_runtime_deps_requirements_met": exec_runtime_deps_met,
+            "ima_appraisal_requirements_met": ima_appraisal_met,
             "required_hooks_ok": hooks_ok,
             "report_schema_ok": report_schema_ok,
         },

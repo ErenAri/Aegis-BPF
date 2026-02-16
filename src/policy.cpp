@@ -160,9 +160,19 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     std::unordered_set<std::string> allow_hash_seen;
 
     // Valid sections
-    static const std::unordered_set<std::string> valid_sections = {
-        "deny_path", "deny_inode", "protect_path", "protect_connect",  "protect_runtime_deps", "allow_cgroup",
-        "deny_ip",   "deny_cidr",  "deny_port",    "deny_binary_hash", "allow_binary_hash",    "scan_paths"};
+    static const std::unordered_set<std::string> valid_sections = {"deny_path",
+                                                                   "deny_inode",
+                                                                   "protect_path",
+                                                                   "protect_connect",
+                                                                   "protect_runtime_deps",
+                                                                   "require_ima_appraisal",
+                                                                   "allow_cgroup",
+                                                                   "deny_ip",
+                                                                   "deny_cidr",
+                                                                   "deny_port",
+                                                                   "deny_binary_hash",
+                                                                   "allow_binary_hash",
+                                                                   "scan_paths"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -182,6 +192,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             if (section == "protect_runtime_deps") {
                 policy.protect_runtime_deps = true;
+            }
+            if (section == "require_ima_appraisal") {
+                policy.require_ima_appraisal = true;
             }
             continue;
         }
@@ -246,6 +259,13 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             // Presence of the section enables runtime dependency trust checks. Entries are not used.
             issues.warnings.push_back("line " + std::to_string(line_no) +
                                       ": [protect_runtime_deps] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "require_ima_appraisal") {
+            // Presence of the section enables IMA appraisal gating. Entries are not used.
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [require_ima_appraisal] does not take entries; ignoring '" + trimmed + "'");
             continue;
         }
 
@@ -407,8 +427,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     if (policy.version == 0) {
         issues.errors.push_back("missing header key: version");
     }
-    // Accept version 1..4 (2 adds network, 3 adds binary hash sections, 4 adds exec-identity protected resources)
-    if (policy.version < 1 || policy.version > 4) {
+    // Accept version 1..5 (2 adds network, 3 adds binary hash sections, 4 adds VERIFIED_EXEC protected resources,
+    // 5 adds IMA appraisal gating).
+    if (policy.version < 1 || policy.version > 5) {
         issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
     }
 
@@ -423,6 +444,10 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     if ((!policy.protect_paths.empty() || policy.protect_connect || policy.protect_runtime_deps) &&
         policy.version < 4) {
         issues.errors.push_back("[protect_path]/[protect_connect]/[protect_runtime_deps] requires version=4 or higher");
+    }
+
+    if (policy.require_ima_appraisal && policy.version < 5) {
+        issues.errors.push_back("[require_ima_appraisal] requires version=5 or higher");
     }
 
     if (policy.protect_runtime_deps && !policy.protect_connect && policy.protect_paths.empty()) {

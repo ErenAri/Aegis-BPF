@@ -96,6 +96,32 @@ bool check_bpffs_mounted()
     return std::filesystem::exists(env_path_or_default("AEGIS_BPFFS_PATH", "/sys/fs/bpf"), ec);
 }
 
+bool check_ima_available()
+{
+    std::error_code ec;
+    return std::filesystem::exists(env_path_or_default("AEGIS_IMA_DIR_PATH", "/sys/kernel/security/ima"), ec);
+}
+
+bool check_ima_appraisal_enabled()
+{
+    std::ifstream policy(env_path_or_default("AEGIS_IMA_POLICY_PATH", "/sys/kernel/security/ima/policy"));
+    std::string line;
+    if (!policy.is_open()) {
+        return false;
+    }
+
+    while (std::getline(policy, line)) {
+        std::istringstream iss(line);
+        std::string token;
+        while (iss >> token) {
+            if (token == "appraise" || token.rfind("appraise_", 0) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool check_tracepoints_available()
 {
     std::error_code ec;
@@ -150,6 +176,8 @@ Result<KernelFeatures> detect_kernel_features()
     features.ringbuf = check_ringbuf_support();
     features.tracepoints = check_tracepoints_available();
     features.sk_storage = check_sk_storage_support();
+    features.ima = check_ima_available();
+    features.ima_appraisal = features.ima && check_ima_appraisal_enabled();
 
     return features;
 }

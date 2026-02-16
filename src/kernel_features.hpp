@@ -21,6 +21,8 @@ struct KernelFeatures {
     bool bpf_syscall = false;   // BPF syscall available
     bool tracepoints = false;   // Tracepoints available
     bool sk_storage = false;    // BPF_MAP_TYPE_SK_STORAGE support (kernel 5.2+)
+    bool ima = false;           // IMA securityfs availability
+    bool ima_appraisal = false; // IMA appraisal policy active
     std::string kernel_version; // Kernel version string (e.g., "6.1.0")
     int kernel_major = 0;       // Major version number
     int kernel_minor = 0;       // Minor version number
@@ -122,5 +124,19 @@ bool check_btf_available();
  * Checks for /sys/fs/bpf.
  */
 bool check_bpffs_mounted();
+
+/**
+ * Check if IMA securityfs is available.
+ *
+ * Checks for /sys/kernel/security/ima.
+ */
+bool check_ima_available();
+
+/**
+ * Check if IMA appraisal policy is enabled.
+ *
+ * Reads /sys/kernel/security/ima/policy and looks for appraise rules.
+ */
+bool check_ima_appraisal_enabled();
 
 } // namespace aegis

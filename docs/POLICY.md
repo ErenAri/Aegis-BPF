@@ -1,4 +1,4 @@
-# Policy Format (v1-v4)
+# Policy Format (v1-v5)
 
 Policy files are line-oriented and ASCII-only. Lines starting with `#` are
 comments. Blank lines are ignored.
@@ -11,16 +11,17 @@ edge cases), see `docs/POLICY_SEMANTICS.md`.
 The header is a set of `key=value` pairs before any section.
 
 Required:
-- `version=<1|2|3|4>`
+- `version=<1|2|3|4|5>`
 
 Notes:
 - `version=1` and `version=2` remain valid for file/network rules.
 - `version=3` is required when using binary hash sections.
 - `version=4` is required when using exec-identity protected-resource sections.
+- `version=5` is required when using IMA appraisal gating.
 
 Example:
 ```
-version=4
+version=5
 ```
 
 ## Sections
@@ -103,6 +104,19 @@ Requirements:
 - Requires `lsm/file_mmap`; enforce startup fails closed (or audit-fallback if
   explicitly configured) when unavailable.
 
+### [require_ima_appraisal] (version 5+)
+When present, enforce mode requires host-level IMA appraisal policy to be
+active on the node.
+
+Behavior:
+- Enforce mode fails closed if IMA appraisal is unavailable.
+- With `--enforce-gate-mode=audit-fallback`, daemon transitions to
+  `AUDIT_FALLBACK` and reports `IMA_APPRAISAL_UNAVAILABLE`.
+- Audit mode continues and reports unmet posture in `capabilities.json`.
+
+This section does not change exec behavior directly; it hardens protected-resource
+policy posture by requiring kernel integrity appraisal capability.
+
 ### [scan_paths] (version 3+)
 Optional additional absolute directories to include during
 `[deny_binary_hash]` and `[allow_binary_hash]` scans.
@@ -127,7 +141,7 @@ Environment variables:
 
 ## Example
 ```
-version=4
+version=5
 
 [deny_path]
 /etc/shadow
@@ -146,6 +160,8 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 [protect_connect]
 
 [protect_runtime_deps]
+
+[require_ima_appraisal]
 
 [protect_path]
 /etc/shadow

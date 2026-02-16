@@ -1,7 +1,7 @@
 # Policy Semantics
 
 Version: 1.0 (2026-02-05)
-Status: Canonical semantics reference for the v1-v4 contract.
+Status: Canonical semantics reference for the v1-v5 contract.
 
 This document defines how policy rules are interpreted at runtime, including
 edge cases that matter for production correctness.
@@ -14,6 +14,7 @@ Policy sections:
 - `[protect_path]` -> inode-derived protected entries (deny only for non-`VERIFIED_EXEC`)
 - `[protect_connect]` -> protect all IPv4/IPv6 connect() attempts for non-`VERIFIED_EXEC`
 - `[protect_runtime_deps]` -> require runtime executable mappings to preserve `VERIFIED_EXEC`
+- `[require_ima_appraisal]` -> require IMA appraisal capability for enforce posture
 - `[allow_cgroup]` -> cgroup exemptions (`/sys/fs/cgroup/...` or `cgid:<id>`)
 - `[deny_ip]`, `[deny_cidr]`, `[deny_port]` -> network deny rules
 - `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
@@ -24,6 +25,7 @@ Supported versions:
 - Use `version=2` for network-aware policies.
 - Use `version=3` for binary hash policy sections.
 - Use `version=4` for protected-resource and verified-exec policies.
+- Use `version=5` for IMA appraisal posture gating (`[require_ima_appraisal]`).
 
 ## File decision semantics
 
@@ -57,6 +59,8 @@ Network-path precedence:
 Startup gating:
 - Enforce mode fails closed when policy-required network hooks
   (`socket_connect` and/or `socket_bind`) are unavailable.
+- Enforce mode fails closed when `[require_ima_appraisal]` is active and IMA
+  appraisal is unavailable.
 - Audit mode logs the degraded network-hook state and continues.
 
 Exec-identity precedence (`[allow_binary_hash]`, version 3+):
@@ -92,6 +96,13 @@ Runtime dependency trust (`[protect_runtime_deps]`, version 4+):
 - Mapping is allowed for compatibility, but subsequent protected-resource
   decisions (`[protect_path]`, `[protect_connect]`) fail closed in enforce mode.
 - Enforce startup requires the `file_mmap` hook when this section is active.
+
+IMA appraisal gating (`[require_ima_appraisal]`, version 5+):
+- Enforce mode requires node capability `features.ima_appraisal=true`.
+- If unavailable and `--enforce-gate-mode=fail-closed` (default), startup
+  exits with reason `IMA_APPRAISAL_UNAVAILABLE`.
+- With `--enforce-gate-mode=audit-fallback`, daemon drops to audit-only and
+  reports the same reason in state-change and capability artifacts.
 
 Conflict handling:
 - Duplicate deny entries are de-duplicated by map key identity.

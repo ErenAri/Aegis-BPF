@@ -203,6 +203,42 @@ version=4
     EXPECT_TRUE(result->protect_runtime_deps);
 }
 
+TEST_F(PolicyTest, ParsePolicyWithRequireImaAppraisal)
+{
+    std::string content = R"(
+version=5
+
+[protect_connect]
+
+[require_ima_appraisal]
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    EXPECT_TRUE(result->protect_connect);
+    EXPECT_TRUE(result->require_ima_appraisal);
+}
+
+TEST_F(PolicyTest, RequireImaAppraisalRequiresVersion5)
+{
+    std::string content = R"(
+version=4
+
+[protect_connect]
+
+[require_ima_appraisal]
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_FALSE(result);
+    EXPECT_TRUE(issues.has_errors());
+}
+
 TEST_F(PolicyTest, ProtectRuntimeDepsRequiresProtectedResources)
 {
     std::string content = R"(

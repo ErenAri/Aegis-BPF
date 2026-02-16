@@ -343,7 +343,7 @@ sudo aegisbpf allow del /sys/fs/cgroup/system.slice
 
 ```ini
 # /etc/aegisbpf/policy.conf
-version=4
+version=5
 
 [deny_path]
 /usr/bin/dangerous
@@ -363,6 +363,9 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 [protect_connect]
 
 [protect_runtime_deps]
+
+# Optional hard gate: require host IMA appraisal when enforcing
+[require_ima_appraisal]
 
 [protect_path]
 /etc/shadow
@@ -411,7 +414,7 @@ Daemon startup writes a capability/attach report to
 `/var/lib/aegisbpf/capabilities.json` (override with
 `AEGIS_CAPABILITIES_REPORT_PATH`). In enforce mode, startup fails closed if the
 applied policy requires unavailable network, exec-identity, or runtime
-dependency trust hooks.
+dependency trust hooks (and, when configured, missing IMA appraisal posture).
 The capability report also includes runtime posture fields (`runtime_state`,
 `state_transitions`) so operators can distinguish `ENFORCE`,
 `AUDIT_FALLBACK`, and `DEGRADED` outcomes.
