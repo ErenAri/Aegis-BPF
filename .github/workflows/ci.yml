@@ -16,7 +16,7 @@ jobs:
           - ubuntu-24.04
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -32,7 +32,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -59,7 +59,7 @@ jobs:
           - tsan
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -93,7 +93,7 @@ jobs:
   coverage:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -197,7 +197,7 @@ jobs:
   build-arm64:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: docker/setup-qemu-action@v3
 
@@ -213,7 +213,7 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -248,7 +248,7 @@ jobs:
   required-checks-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -264,7 +264,7 @@ jobs:
   label-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -277,7 +277,7 @@ jobs:
   capability-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate capability posture contract
         run: python3 scripts/validate_capability_posture_contract.py
@@ -285,7 +285,7 @@ jobs:
   helm-posture-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate Helm posture contract
         run: python3 tests/check_helm_posture_contract.py
@@ -293,7 +293,7 @@ jobs:
   ops-observability-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate ops observability contract
         run: |
@@ -303,7 +303,7 @@ jobs:
   k8s-rollout-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate Kubernetes rollout contract
         run: python3 tests/check_k8s_rollout_contract.py
@@ -311,7 +311,7 @@ jobs:
   guarantees-contract:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate enforcement guarantees contract
         run: python3 tests/check_guarantees_contract.py
@@ -319,7 +319,7 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -341,7 +341,7 @@ jobs:
   smoke-fuzz:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -377,7 +377,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -406,7 +406,7 @@ jobs:
   sbom:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.17.0
         with:

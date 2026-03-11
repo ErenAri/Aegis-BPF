@@ -20,7 +20,7 @@ jobs:
       # PRs are advisory; `main`/manual runs enforce industrial contracts strictly.
       AEGIS_INDUSTRIAL_STRICT: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
