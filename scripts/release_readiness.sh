@@ -31,7 +31,7 @@ python3 "${ROOT_DIR}/scripts/evaluate_capability_posture.py" \
 python3 "${ROOT_DIR}/tests/check_systemd_policy_prestart.py" \
   "${ROOT_DIR}/packaging/systemd/aegisbpf.service"
 python3 "${ROOT_DIR}/tests/check_metrics_contract.py" \
-  "${ROOT_DIR}/src/commands_monitoring.cpp" \
+  "${ROOT_DIR}/src/commands_metrics.cpp" \
   "${ROOT_DIR}/config/prometheus/alerts.yml" \
   "${ROOT_DIR}/config/grafana/dashboard.json" \
   "${ROOT_DIR}/docs/man/aegisbpf.1.md" \
