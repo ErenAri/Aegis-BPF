@@ -428,7 +428,7 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 ## FILES
 
-*/sys/fs/bpf/aegis/**
+*/sys/fs/bpf/aegisbpf/**
 :   BPF map and link pins.
 
 */var/lib/aegisbpf/deny.db*

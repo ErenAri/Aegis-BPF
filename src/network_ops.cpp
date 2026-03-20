@@ -11,6 +11,7 @@
 
 #include "bpf_ops.hpp"
 #include "logging.hpp"
+#include "utils.hpp"
 
 namespace aegis {
 
@@ -120,6 +121,23 @@ std::string format_cidr_v6(const Ipv6Key& ip, uint8_t prefix_len)
 
 namespace {
 
+bool parse_protocol_value(const std::string& protocol_str, uint8_t& protocol)
+{
+    protocol = 0;
+    if (protocol_str.empty() || protocol_str == "any") {
+        return true;
+    }
+    if (protocol_str == "tcp") {
+        protocol = 6;
+        return true;
+    }
+    if (protocol_str == "udp") {
+        protocol = 17;
+        return true;
+    }
+    return false;
+}
+
 bool parse_ip_auto(const std::string& ip, uint32_t& ipv4_be, Ipv6Key& ipv6, bool& is_ipv6)
 {
     if (parse_ipv4(ip, ipv4_be)) {
@@ -163,6 +181,99 @@ std::string format_net_ip_key(const NetIpKey& key)
 
 } // namespace
 
+Result<IpPortRule> parse_ip_port_rule(const std::string& rule_text)
+{
+    auto invalid = [&rule_text](const std::string& message) -> Result<IpPortRule> {
+        return Error(ErrorCode::InvalidArgument, message, rule_text);
+    };
+
+    if (rule_text.empty()) {
+        return invalid("Invalid IP:port rule");
+    }
+
+    std::string ip_part;
+    std::string port_part;
+    std::string protocol_part;
+
+    if (rule_text.front() == '[') {
+        size_t close = rule_text.find(']');
+        if (close == std::string::npos || close + 1 >= rule_text.size() || rule_text[close + 1] != ':') {
+            return invalid("Invalid bracketed IP:port rule");
+        }
+        ip_part = rule_text.substr(1, close - 1);
+        std::string remainder = rule_text.substr(close + 2);
+        size_t colon = remainder.find(':');
+        if (colon == std::string::npos) {
+            port_part = remainder;
+        } else {
+            port_part = remainder.substr(0, colon);
+            protocol_part = remainder.substr(colon + 1);
+            if (protocol_part.find(':') != std::string::npos) {
+                return invalid("Invalid bracketed IP:port rule");
+            }
+        }
+    } else {
+        size_t last_colon = rule_text.rfind(':');
+        if (last_colon == std::string::npos) {
+            return invalid("Invalid IP:port rule");
+        }
+
+        std::string tail = rule_text.substr(last_colon + 1);
+        uint8_t protocol = 0;
+        if (parse_protocol_value(tail, protocol)) {
+            protocol_part = tail;
+            std::string head = rule_text.substr(0, last_colon);
+            size_t port_colon = head.rfind(':');
+            if (port_colon == std::string::npos) {
+                return invalid("Invalid IP:port rule");
+            }
+            ip_part = head.substr(0, port_colon);
+            port_part = head.substr(port_colon + 1);
+        } else {
+            ip_part = rule_text.substr(0, last_colon);
+            port_part = tail;
+        }
+    }
+
+    if (ip_part.empty() || port_part.empty()) {
+        return invalid("Invalid IP:port rule");
+    }
+
+    uint64_t parsed_port = 0;
+    if (!parse_uint64(port_part, parsed_port) || parsed_port == 0 || parsed_port > 65535) {
+        return invalid("Invalid IP:port rule");
+    }
+
+    uint8_t protocol = 0;
+    if (!parse_protocol_value(protocol_part, protocol)) {
+        return invalid("Invalid IP:port rule");
+    }
+
+    IpPortRule rule{};
+    rule.port = static_cast<uint16_t>(parsed_port);
+    rule.protocol = protocol;
+
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    bool is_ipv6 = false;
+    if (!parse_ip_auto(ip_part, ipv4_be, ipv6, is_ipv6)) {
+        return invalid("Invalid IP:port rule");
+    }
+
+    rule.ip = is_ipv6 ? format_ipv6(ipv6) : format_ipv4(ipv4_be);
+    return rule;
+}
+
+std::string format_ip_port_rule(const IpPortRule& rule)
+{
+    std::string ip = rule.ip.find(':') != std::string::npos ? "[" + rule.ip + "]" : rule.ip;
+    std::string out = ip + ":" + std::to_string(rule.port);
+    if (rule.protocol != 0) {
+        out += ":" + protocol_name(rule.protocol);
+    }
+    return out;
+}
+
 std::string protocol_name(uint8_t protocol)
 {
     switch (protocol) {
@@ -197,6 +308,8 @@ Result<void> load_network_maps(BpfState& state, bool reuse_pins)
     state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
     state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
     state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
+    state.deny_ip_port_v4 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4");
+    state.deny_ip_port_v6 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6");
     state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
     state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
     state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
@@ -236,6 +349,8 @@ Result<void> load_network_maps(BpfState& state, bool reuse_pins)
         TRY(try_reuse_optional(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused));
         TRY(try_reuse_optional(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused));
         TRY(try_reuse_optional(state.deny_port, kDenyPortPin, state.deny_port_reused));
+        TRY(try_reuse_optional(state.deny_ip_port_v4, kDenyIpPortV4Pin, state.deny_ip_port_v4_reused));
+        TRY(try_reuse_optional(state.deny_ip_port_v6, kDenyIpPortV6Pin, state.deny_ip_port_v6_reused));
         TRY(try_reuse_optional(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused));
         TRY(try_reuse_optional(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused));
         TRY(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused));
@@ -262,6 +377,12 @@ Result<void> pin_network_maps(BpfState& state)
     }
     if (!state.deny_port_reused && state.deny_port) {
         TRY(pin_map(state.deny_port, kDenyPortPin));
+    }
+    if (!state.deny_ip_port_v4_reused && state.deny_ip_port_v4) {
+        TRY(pin_map(state.deny_ip_port_v4, kDenyIpPortV4Pin));
+    }
+    if (!state.deny_ip_port_v6_reused && state.deny_ip_port_v6) {
+        TRY(pin_map(state.deny_ip_port_v6, kDenyIpPortV6Pin));
     }
     if (!state.deny_cidr_v4_reused && state.deny_cidr_v4) {
         TRY(pin_map(state.deny_cidr_v4, kDenyCidrV4Pin));
@@ -312,6 +433,45 @@ Result<void> attach_network_hooks(BpfState& state, bool lsm_enabled)
         } else {
             state.links.push_back(link);
             logger().log(SLOG_INFO("Attached network socket_bind hook"));
+        }
+    }
+
+    // Attach socket_listen hook
+    prog = bpf_object__find_program_by_name(state.obj, "handle_socket_listen");
+    if (prog) {
+        bpf_link* link = bpf_program__attach_lsm(prog);
+        int err = libbpf_get_error(link);
+        if (err || !link) {
+            logger().log(SLOG_WARN("Failed to attach socket_listen hook").field("error", static_cast<int64_t>(err)));
+        } else {
+            state.links.push_back(link);
+            logger().log(SLOG_INFO("Attached network socket_listen hook"));
+        }
+    }
+
+    // Attach socket_accept hook
+    prog = bpf_object__find_program_by_name(state.obj, "handle_socket_accept");
+    if (prog) {
+        bpf_link* link = bpf_program__attach_lsm(prog);
+        int err = libbpf_get_error(link);
+        if (err || !link) {
+            logger().log(SLOG_WARN("Failed to attach socket_accept hook").field("error", static_cast<int64_t>(err)));
+        } else {
+            state.links.push_back(link);
+            logger().log(SLOG_INFO("Attached network socket_accept hook"));
+        }
+    }
+
+    // Attach socket_sendmsg hook
+    prog = bpf_object__find_program_by_name(state.obj, "handle_socket_sendmsg");
+    if (prog) {
+        bpf_link* link = bpf_program__attach_lsm(prog);
+        int err = libbpf_get_error(link);
+        if (err || !link) {
+            logger().log(SLOG_WARN("Failed to attach socket_sendmsg hook").field("error", static_cast<int64_t>(err)));
+        } else {
+            state.links.push_back(link);
+            logger().log(SLOG_INFO("Attached network socket_sendmsg hook"));
         }
     }
 
@@ -684,6 +844,142 @@ Result<std::vector<PortKey>> list_deny_ports(BpfState& state)
     return ports;
 }
 
+namespace {
+
+Result<void> add_deny_ip_port_v4_raw(BpfState& state, const IpPortV4Key& key)
+{
+    if (!state.deny_ip_port_v4) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v4 map not loaded");
+    }
+
+    uint8_t one = 1;
+    if (bpf_map_update_elem(bpf_map__fd(state.deny_ip_port_v4), &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_ip_port_v4 map");
+    }
+    return {};
+}
+
+Result<void> add_deny_ip_port_v6_raw(BpfState& state, const IpPortV6Key& key)
+{
+    if (!state.deny_ip_port_v6) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v6 map not loaded");
+    }
+
+    uint8_t one = 1;
+    if (bpf_map_update_elem(bpf_map__fd(state.deny_ip_port_v6), &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_ip_port_v6 map");
+    }
+    return {};
+}
+
+} // namespace
+
+Result<void> add_deny_ip_port(BpfState& state, const IpPortRule& rule)
+{
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    bool is_ipv6 = false;
+    if (!parse_ip_auto(rule.ip, ipv4_be, ipv6, is_ipv6)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid IP address", rule.ip);
+    }
+
+    if (is_ipv6) {
+        IpPortV6Key key{};
+        std::memcpy(key.addr, ipv6.addr, sizeof(key.addr));
+        key.port = rule.port;
+        key.protocol = rule.protocol;
+        return add_deny_ip_port_v6_raw(state, key);
+    }
+
+    IpPortV4Key key{};
+    key.addr = ipv4_be;
+    key.port = rule.port;
+    key.protocol = rule.protocol;
+    return add_deny_ip_port_v4_raw(state, key);
+}
+
+Result<void> del_deny_ip_port(BpfState& state, const IpPortRule& rule)
+{
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    bool is_ipv6 = false;
+    if (!parse_ip_auto(rule.ip, ipv4_be, ipv6, is_ipv6)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid IP address", rule.ip);
+    }
+
+    if (is_ipv6) {
+        if (!state.deny_ip_port_v6) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v6 map not loaded");
+        }
+        IpPortV6Key key{};
+        std::memcpy(key.addr, ipv6.addr, sizeof(key.addr));
+        key.port = rule.port;
+        key.protocol = rule.protocol;
+        if (bpf_map_delete_elem(bpf_map__fd(state.deny_ip_port_v6), &key)) {
+            if (errno == ENOENT) {
+                return Error(ErrorCode::ResourceNotFound, "IP:port rule not in deny list", format_ip_port_rule(rule));
+            }
+            return Error::system(errno, "Failed to delete from deny_ip_port_v6 map");
+        }
+        return {};
+    }
+
+    if (!state.deny_ip_port_v4) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v4 map not loaded");
+    }
+    IpPortV4Key key{};
+    key.addr = ipv4_be;
+    key.port = rule.port;
+    key.protocol = rule.protocol;
+    if (bpf_map_delete_elem(bpf_map__fd(state.deny_ip_port_v4), &key)) {
+        if (errno == ENOENT) {
+            return Error(ErrorCode::ResourceNotFound, "IP:port rule not in deny list", format_ip_port_rule(rule));
+        }
+        return Error::system(errno, "Failed to delete from deny_ip_port_v4 map");
+    }
+    return {};
+}
+
+Result<std::vector<IpPortV4Key>> list_deny_ip_port_v4(BpfState& state)
+{
+    if (!state.deny_ip_port_v4) {
+        return std::vector<IpPortV4Key>{};
+    }
+
+    std::vector<IpPortV4Key> rules;
+    int fd = bpf_map__fd(state.deny_ip_port_v4);
+    IpPortV4Key key{};
+    IpPortV4Key next_key{};
+
+    int rc = bpf_map_get_next_key(fd, nullptr, &key);
+    while (!rc) {
+        rules.push_back(key);
+        rc = bpf_map_get_next_key(fd, &key, &next_key);
+        key = next_key;
+    }
+    return rules;
+}
+
+Result<std::vector<IpPortV6Key>> list_deny_ip_port_v6(BpfState& state)
+{
+    if (!state.deny_ip_port_v6) {
+        return std::vector<IpPortV6Key>{};
+    }
+
+    std::vector<IpPortV6Key> rules;
+    int fd = bpf_map__fd(state.deny_ip_port_v6);
+    IpPortV6Key key{};
+    IpPortV6Key next_key{};
+
+    int rc = bpf_map_get_next_key(fd, nullptr, &key);
+    while (!rc) {
+        rules.push_back(key);
+        rc = bpf_map_get_next_key(fd, &key, &next_key);
+        key = next_key;
+    }
+    return rules;
+}
+
 Result<NetBlockStats> read_net_block_stats(BpfState& state)
 {
     if (!state.net_block_stats) {
@@ -709,6 +1005,9 @@ Result<NetBlockStats> read_net_block_stats(BpfState& state)
     for (const auto& v : vals) {
         out.connect_blocks += v.connect_blocks;
         out.bind_blocks += v.bind_blocks;
+        out.listen_blocks += v.listen_blocks;
+        out.accept_blocks += v.accept_blocks;
+        out.sendmsg_blocks += v.sendmsg_blocks;
         out.ringbuf_drops += v.ringbuf_drops;
     }
     return out;
@@ -805,6 +1104,12 @@ Result<void> clear_network_maps(BpfState& state)
     if (state.deny_port) {
         TRY(clear_map_entries(state.deny_port));
     }
+    if (state.deny_ip_port_v4) {
+        TRY(clear_map_entries(state.deny_ip_port_v4));
+    }
+    if (state.deny_ip_port_v6) {
+        TRY(clear_map_entries(state.deny_ip_port_v6));
+    }
     if (state.deny_cidr_v4) {
         TRY(clear_map_entries(state.deny_cidr_v4));
     }
@@ -890,6 +1195,43 @@ Result<void> add_deny_port_to_fd(int port_fd, uint16_t port, uint8_t protocol, u
     uint8_t one = 1;
     if (bpf_map_update_elem(port_fd, &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update shadow deny_port map");
+    }
+    return {};
+}
+
+Result<void> add_deny_ip_port_to_fds(int ip_port_v4_fd, int ip_port_v6_fd, const IpPortRule& rule)
+{
+    uint32_t ipv4_be = 0;
+    Ipv6Key ipv6{};
+    bool is_ipv6 = false;
+    if (!parse_ip_auto(rule.ip, ipv4_be, ipv6, is_ipv6)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid IP address", rule.ip);
+    }
+
+    uint8_t one = 1;
+    if (is_ipv6) {
+        if (ip_port_v6_fd < 0) {
+            return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v6 shadow not available");
+        }
+        IpPortV6Key key{};
+        std::memcpy(key.addr, ipv6.addr, sizeof(key.addr));
+        key.port = rule.port;
+        key.protocol = rule.protocol;
+        if (bpf_map_update_elem(ip_port_v6_fd, &key, &one, BPF_ANY)) {
+            return Error::system(errno, "Failed to update shadow deny_ip_port_v6 map");
+        }
+        return {};
+    }
+
+    if (ip_port_v4_fd < 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Network deny_ip_port_v4 shadow not available");
+    }
+    IpPortV4Key key{};
+    key.addr = ipv4_be;
+    key.port = rule.port;
+    key.protocol = rule.protocol;
+    if (bpf_map_update_elem(ip_port_v4_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update shadow deny_ip_port_v4 map");
     }
     return {};
 }

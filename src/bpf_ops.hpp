@@ -8,6 +8,10 @@
 #include <utility>
 #include <vector>
 
+#include "bpf_attach.hpp"
+#include "bpf_config.hpp"
+#include "bpf_integrity.hpp"
+#include "bpf_maps.hpp"
 #include "result.hpp"
 #include "types.hpp"
 
@@ -66,6 +70,8 @@ class BpfState {
             deny_ipv4 = other.deny_ipv4;
             deny_ipv6 = other.deny_ipv6;
             deny_port = other.deny_port;
+            deny_ip_port_v4 = other.deny_ip_port_v4;
+            deny_ip_port_v6 = other.deny_ip_port_v6;
             deny_cidr_v4 = other.deny_cidr_v4;
             deny_cidr_v6 = other.deny_cidr_v6;
             net_block_stats = other.net_block_stats;
@@ -74,6 +80,8 @@ class BpfState {
             deny_ipv4_reused = other.deny_ipv4_reused;
             deny_ipv6_reused = other.deny_ipv6_reused;
             deny_port_reused = other.deny_port_reused;
+            deny_ip_port_v4_reused = other.deny_ip_port_v4_reused;
+            deny_ip_port_v6_reused = other.deny_ip_port_v6_reused;
             deny_cidr_v4_reused = other.deny_cidr_v4_reused;
             deny_cidr_v6_reused = other.deny_cidr_v6_reused;
             net_block_stats_reused = other.net_block_stats_reused;
@@ -86,6 +94,9 @@ class BpfState {
             exec_identity_runtime_deps_hook_attached = other.exec_identity_runtime_deps_hook_attached;
             socket_connect_hook_attached = other.socket_connect_hook_attached;
             socket_bind_hook_attached = other.socket_bind_hook_attached;
+            socket_listen_hook_attached = other.socket_listen_hook_attached;
+            socket_accept_hook_attached = other.socket_accept_hook_attached;
+            socket_sendmsg_hook_attached = other.socket_sendmsg_hook_attached;
 
             // Reset other to prevent double-free
             other.obj = nullptr;
@@ -105,6 +116,8 @@ class BpfState {
             other.deny_ipv4 = nullptr;
             other.deny_ipv6 = nullptr;
             other.deny_port = nullptr;
+            other.deny_ip_port_v4 = nullptr;
+            other.deny_ip_port_v6 = nullptr;
             other.deny_cidr_v4 = nullptr;
             other.deny_cidr_v6 = nullptr;
             other.net_block_stats = nullptr;
@@ -127,6 +140,8 @@ class BpfState {
             other.deny_ipv4_reused = false;
             other.deny_ipv6_reused = false;
             other.deny_port_reused = false;
+            other.deny_ip_port_v4_reused = false;
+            other.deny_ip_port_v6_reused = false;
             other.deny_cidr_v4_reused = false;
             other.deny_cidr_v6_reused = false;
             other.net_block_stats_reused = false;
@@ -140,6 +155,9 @@ class BpfState {
             other.exec_identity_runtime_deps_hook_attached = false;
             other.socket_connect_hook_attached = false;
             other.socket_bind_hook_attached = false;
+            other.socket_listen_hook_attached = false;
+            other.socket_accept_hook_attached = false;
+            other.socket_sendmsg_hook_attached = false;
             other.links.clear();
         }
         return *this;
@@ -189,6 +207,8 @@ class BpfState {
     bpf_map* deny_ipv4 = nullptr;
     bpf_map* deny_ipv6 = nullptr;
     bpf_map* deny_port = nullptr;
+    bpf_map* deny_ip_port_v4 = nullptr;
+    bpf_map* deny_ip_port_v6 = nullptr;
     bpf_map* deny_cidr_v4 = nullptr;
     bpf_map* deny_cidr_v6 = nullptr;
     bpf_map* net_block_stats = nullptr;
@@ -199,6 +219,8 @@ class BpfState {
     bool deny_ipv4_reused = false;
     bool deny_ipv6_reused = false;
     bool deny_port_reused = false;
+    bool deny_ip_port_v4_reused = false;
+    bool deny_ip_port_v6_reused = false;
     bool deny_cidr_v4_reused = false;
     bool deny_cidr_v6_reused = false;
     bool net_block_stats_reused = false;
@@ -213,23 +235,13 @@ class BpfState {
     bool exec_identity_runtime_deps_hook_attached = false;
     bool socket_connect_hook_attached = false;
     bool socket_bind_hook_attached = false;
-};
-
-struct BpfIntegrityStatus {
-    std::string object_path;
-    std::string hash_path;
-    bool object_exists = false;
-    bool hash_exists = false;
-    bool hash_verified = false;
-    bool allow_unsigned = false;
-    bool require_hash = false;
-    std::string reason; // empty, bpf_hash_missing, bpf_hash_mismatch
+    bool socket_listen_hook_attached = false;
+    bool socket_accept_hook_attached = false;
+    bool socket_sendmsg_hook_attached = false;
 };
 
 // BPF loading and lifecycle
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
-Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open,
-                        bool attach_network_hooks);
 void set_ringbuf_bytes(uint32_t bytes);
 void set_max_deny_inodes(uint32_t count);
 void set_max_deny_paths(uint32_t count);
@@ -239,9 +251,6 @@ void cleanup_bpf(BpfState& state);
 // Map operations
 Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused);
 Result<void> pin_map(bpf_map* map, const char* path);
-size_t map_entry_count(bpf_map* map);
-Result<void> clear_map_entries(bpf_map* map);
-Result<void> verify_map_entry_count(bpf_map* map, size_t expected);
 
 // Stats operations
 Result<BlockStats> read_block_stats_map(bpf_map* map);
@@ -250,15 +259,6 @@ Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_ma
 Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map* map);
 Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map);
 Result<void> reset_block_stats_map(bpf_map* map);
-
-// Configuration
-Result<void> set_agent_config(BpfState& state, bool audit_only);
-Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
-Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns);
-Result<void> set_emergency_disable(BpfState& state, bool disable);
-Result<bool> read_emergency_disable(BpfState& state);
-Result<void> refresh_policy_empty_hints(BpfState& state);
-Result<void> ensure_layout_version(BpfState& state);
 
 // Survival allowlist operations
 Result<void> populate_survival_allowlist(BpfState& state);
@@ -272,7 +272,6 @@ Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid);
 Result<void> add_allow_cgroup_path(BpfState& state, const std::string& path);
 Result<void> add_allow_exec_inode(BpfState& state, const InodeId& id);
 Result<void> set_exec_identity_mode(BpfState& state, bool enabled);
-Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags);
 
 // Access-control rules share the deny maps; the value is a bitmask.
 // - kRuleFlagDenyAlways: unconditional deny
@@ -288,69 +287,12 @@ Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
 Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
 Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id);
 
-// Shadow map support for crash-safe policy application
-class ShadowMap {
-  public:
-    ShadowMap() = default;
-    explicit ShadowMap(int fd) : fd_(fd) {}
-    ~ShadowMap();
-    ShadowMap(ShadowMap&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    ShadowMap& operator=(ShadowMap&& o) noexcept;
-    ShadowMap(const ShadowMap&) = delete;
-    ShadowMap& operator=(const ShadowMap&) = delete;
-    [[nodiscard]] int fd() const { return fd_; }
-    [[nodiscard]] explicit operator bool() const { return fd_ >= 0; }
-
-  private:
-    int fd_ = -1;
-};
-
-struct ShadowMapSet {
-    ShadowMap deny_inode;
-    ShadowMap deny_path;
-    ShadowMap allow_cgroup;
-    ShadowMap allow_exec_inode;
-    ShadowMap deny_ipv4;
-    ShadowMap deny_ipv6;
-    ShadowMap deny_port;
-    ShadowMap deny_cidr_v4;
-    ShadowMap deny_cidr_v6;
-};
-
-Result<ShadowMap> create_shadow_map(bpf_map* live_map);
-Result<ShadowMapSet> create_shadow_map_set(const BpfState& state);
-size_t map_fd_entry_count(int fd, size_t key_size);
-Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
-
-// Map pressure monitoring
-struct MapPressure {
-    std::string name;
-    size_t entry_count;
-    size_t max_entries;
-    double utilization; // entry_count / max_entries
-};
-
-struct MapPressureReport {
-    std::vector<MapPressure> maps;
-    bool any_warning;  // >= 80%
-    bool any_critical; // >= 95%
-    bool any_full;     // == 100%
-};
-
-MapPressureReport check_map_pressure(const BpfState& state);
-
 // System checks
 bool kernel_bpf_lsm_enabled();
 Result<void> bump_memlock_rlimit();
 Result<void> ensure_pin_dir();
 Result<void> ensure_db_dir();
 Result<bool> check_prereqs();
-
-// BPF object path resolution
-std::string resolve_bpf_obj_path();
-bool allow_unsigned_bpf_enabled();
-bool require_bpf_hash_enabled();
-Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned);
 
 // RAII wrapper for ring_buffer
 class RingBufferGuard {

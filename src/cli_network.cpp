@@ -47,12 +47,14 @@ int dispatch_network_command(int argc, char** argv, const char* prog)
 
     std::string ip;
     std::string cidr;
+    std::string ip_port_rule;
     std::string protocol = "any";
     std::string direction = "both";
     uint16_t port = 0;
     bool has_ip = false;
     bool has_cidr = false;
     bool has_port = false;
+    bool has_ip_port = false;
 
     for (int i = 4; i < argc; ++i) {
         std::string arg = argv[i];
@@ -66,6 +68,11 @@ int dispatch_network_command(int argc, char** argv, const char* prog)
                 return usage(prog);
             cidr = argv[++i];
             has_cidr = true;
+        } else if (arg == "--ip-port") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            ip_port_rule = argv[++i];
+            has_ip_port = true;
         } else if (arg == "--port") {
             if (i + 1 >= argc)
                 return usage(prog);
@@ -85,9 +92,9 @@ int dispatch_network_command(int argc, char** argv, const char* prog)
         }
     }
 
-    int selector_count = (has_ip ? 1 : 0) + (has_cidr ? 1 : 0) + (has_port ? 1 : 0);
+    int selector_count = (has_ip ? 1 : 0) + (has_cidr ? 1 : 0) + (has_port ? 1 : 0) + (has_ip_port ? 1 : 0);
     if (selector_count != 1) {
-        logger().log(SLOG_ERROR("Specify exactly one of --ip, --cidr, or --port"));
+        logger().log(SLOG_ERROR("Specify exactly one of --ip, --cidr, --port, or --ip-port"));
         return 1;
     }
 
@@ -96,6 +103,8 @@ int dispatch_network_command(int argc, char** argv, const char* prog)
             return cmd_network_deny_add_ip(ip);
         if (has_cidr)
             return cmd_network_deny_add_cidr(cidr);
+        if (has_ip_port)
+            return cmd_network_deny_add_ip_port(ip_port_rule);
         if (has_port)
             return cmd_network_deny_add_port(port, protocol, direction);
         return usage(prog);
@@ -105,6 +114,8 @@ int dispatch_network_command(int argc, char** argv, const char* prog)
             return cmd_network_deny_del_ip(ip);
         if (has_cidr)
             return cmd_network_deny_del_cidr(cidr);
+        if (has_ip_port)
+            return cmd_network_deny_del_ip_port(ip_port_rule);
         if (has_port)
             return cmd_network_deny_del_port(port, protocol, direction);
         return usage(prog);

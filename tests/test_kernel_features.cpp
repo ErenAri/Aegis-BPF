@@ -104,6 +104,10 @@ TEST(KernelFeaturesTest, DetermineCapabilityCoversFullAuditAndDisabledModes)
     KernelFeatures disabled = audit;
     disabled.cgroup_v2 = false;
     EXPECT_EQ(determine_capability(disabled), EnforcementCapability::Disabled);
+
+    KernelFeatures no_ringbuf = full;
+    no_ringbuf.ringbuf = false;
+    EXPECT_EQ(determine_capability(no_ringbuf), EnforcementCapability::Disabled);
 }
 
 TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)

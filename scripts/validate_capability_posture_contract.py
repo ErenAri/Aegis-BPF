@@ -52,12 +52,15 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     schema_path = root / "config" / "schemas" / "capabilities_v1.json"
     daemon_path = root / "src" / "daemon.cpp"
+    gate_path = root / "src" / "daemon_policy_gate.cpp"
+    posture_path = root / "src" / "daemon_posture.cpp"
     evaluator_path = root / "scripts" / "evaluate_capability_posture.py"
     contract_doc_path = root / "docs" / "CAPABILITY_POSTURE_CONTRACT.md"
+    daemon_sources_label = f"{daemon_path}, {gate_path}, {posture_path}"
 
     errors: list[str] = []
 
-    for path in (schema_path, daemon_path, evaluator_path, contract_doc_path):
+    for path in (schema_path, daemon_path, gate_path, posture_path, evaluator_path, contract_doc_path):
         if not path.is_file():
             errors.append(f"missing required contract file: {path}")
 
@@ -67,7 +70,11 @@ def main() -> int:
         return 1
 
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    daemon_src = daemon_path.read_text(encoding="utf-8")
+    daemon_src = "\n".join([
+        daemon_path.read_text(encoding="utf-8"),
+        gate_path.read_text(encoding="utf-8"),
+        posture_path.read_text(encoding="utf-8"),
+    ])
     evaluator_src = evaluator_path.read_text(encoding="utf-8")
     contract_doc = contract_doc_path.read_text(encoding="utf-8")
 
@@ -78,7 +85,7 @@ def main() -> int:
     top_required = _required_keys(schema, "required")
     for key in sorted(top_required):
         if not _daemon_emits_key(daemon_src, key):
-            errors.append(f"{daemon_path}: capability key not emitted in daemon output: {key}")
+            errors.append(f"{daemon_sources_label}: capability key not emitted in daemon output: {key}")
 
     nested_required_paths = [
         ("properties", "features", "required"),
@@ -93,7 +100,7 @@ def main() -> int:
         keys = _required_keys(schema, *path)
         for key in sorted(keys):
             if not _daemon_emits_key(daemon_src, key):
-                errors.append(f"{daemon_path}: missing nested capability key emission: {key}")
+                errors.append(f"{daemon_sources_label}: missing nested capability key emission: {key}")
 
     for key in REQUIREMENTS_MET_KEYS:
         token = f'requirements_met.get("{key}")'
@@ -103,7 +110,7 @@ def main() -> int:
     for blocker in sorted(REQUIRED_BLOCKERS):
         daemon_token = f'"{blocker}"'
         if daemon_token not in daemon_src:
-            errors.append(f"{daemon_path}: missing enforce blocker token: {blocker}")
+            errors.append(f"{daemon_sources_label}: missing enforce blocker token: {blocker}")
         if blocker not in contract_doc:
             errors.append(f"{contract_doc_path}: missing blocker documentation: {blocker}")
 

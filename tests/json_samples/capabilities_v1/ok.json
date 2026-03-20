@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "schema_semver": "1.2.0",
+  "schema_semver": "1.5.0",
   "generated_at_unix": 1700000000,
   "kernel_version": "6.14.0-37-generic",
   "capability": "Full",
@@ -27,7 +27,10 @@
     "lsm_bprm_check_security": true,
     "lsm_file_mmap": true,
     "lsm_socket_connect": true,
-    "lsm_socket_bind": true
+    "lsm_socket_bind": true,
+    "lsm_socket_listen": true,
+    "lsm_socket_accept": true,
+    "lsm_socket_sendmsg": true
   },
   "policy": {
     "applied_path": "/etc/aegisbpf/policy.applied",

@@ -251,6 +251,9 @@ Result<void> test_attach_all_full_contract_no_network_hooks(BpfState& state, boo
     }
     state.socket_connect_hook_attached = false;
     state.socket_bind_hook_attached = false;
+    state.socket_listen_hook_attached = false;
+    state.socket_accept_hook_attached = false;
+    state.socket_sendmsg_hook_attached = false;
     state.exec_identity_hook_attached = false;
     return {};
 }
@@ -275,6 +278,9 @@ Result<void> test_attach_all_full_contract_with_network_hooks(BpfState& state, b
     }
     state.socket_connect_hook_attached = true;
     state.socket_bind_hook_attached = true;
+    state.socket_listen_hook_attached = true;
+    state.socket_accept_hook_attached = true;
+    state.socket_sendmsg_hook_attached = true;
     state.exec_identity_hook_attached = false;
     return {};
 }
@@ -674,11 +680,12 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
     buffer << report.rdbuf();
     const std::string payload = buffer.str();
     EXPECT_NE(payload.find("\"schema_version\": 1"), std::string::npos);
-    EXPECT_NE(payload.find("\"schema_semver\": \"1.2.0\""), std::string::npos);
+    EXPECT_NE(payload.find("\"schema_semver\": \"1.5.0\""), std::string::npos);
     EXPECT_NE(payload.find("\"features\""), std::string::npos);
     EXPECT_NE(payload.find("\"ima\""), std::string::npos);
     EXPECT_NE(payload.find("\"ima_appraisal\""), std::string::npos);
     EXPECT_NE(payload.find("\"hooks\""), std::string::npos);
+    EXPECT_NE(payload.find("\"lsm_socket_sendmsg\""), std::string::npos);
     EXPECT_NE(payload.find("\"requirements\""), std::string::npos);
     EXPECT_NE(payload.find("\"ima_appraisal_required\""), std::string::npos);
     EXPECT_NE(payload.find("\"require_ima_appraisal\""), std::string::npos);

@@ -30,7 +30,8 @@ analysis, see `docs/GUARANTEES.md`.
 - TOCTOU windows around pathname resolution still depend on inode/path map
   freshness and canonicalization timing.
 - Enforcement does not currently cover every network operation family (for
-  example `accept` and `sendmsg` paths remain outside current enforcement).
+  example `listen()` remains port-deny only and some kernels may lack optional
+  network hooks).
 - Strong guarantees depend on operators enabling signed-policy enforcement in
   production (`--require-signature`).
 
@@ -58,16 +59,19 @@ indirection.
 
 | Asset | Storage | Protection Mechanism |
 |-------|---------|---------------------|
-| IPv4 deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_ipv4` | Exact-match lookup in `socket_connect` / `socket_bind` LSM hooks |
-| IPv6 deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_ipv6` | Exact-match lookup in `socket_connect` / `socket_bind` LSM hooks |
-| CIDR v4 deny map | BPF LPM trie pinned at `/sys/fs/bpf/aegisbpf/deny_cidr_v4` | Longest-prefix-match lookup, O(prefix-length) |
-| CIDR v6 deny map | BPF LPM trie pinned at `/sys/fs/bpf/aegisbpf/deny_cidr_v6` | Longest-prefix-match lookup, O(prefix-length) |
-| Port deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_port` | Port + protocol + direction tuple matching |
+| IPv4 deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_ipv4` | Exact-match lookup for outbound `connect` / `sendmsg` and accepted inbound peers via `socket_accept` |
+| IPv6 deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_ipv6` | Exact-match lookup for outbound `connect` / `sendmsg` and accepted inbound peers via `socket_accept` |
+| CIDR v4 deny map | BPF LPM trie pinned at `/sys/fs/bpf/aegisbpf/deny_cidr_v4` | Longest-prefix-match lookup for outbound `connect` / `sendmsg` and accepted inbound peers via `socket_accept` |
+| CIDR v6 deny map | BPF LPM trie pinned at `/sys/fs/bpf/aegisbpf/deny_cidr_v6` | Longest-prefix-match lookup for outbound `connect` / `sendmsg` and accepted inbound peers via `socket_accept` |
+| Port deny map | BPF hash map pinned at `/sys/fs/bpf/aegisbpf/deny_port` | Port + protocol + direction tuple matching across `connect`, `bind`, `listen`, `accept`, and `sendmsg` |
 
 Network deny rules are enforced synchronously in kernel LSM hooks.  The
 offending syscall receives `-EPERM` before the connection or bind completes.
-Outbound (`connect`) and `bind` operations are in scope; `accept`, `listen`,
-and `sendmsg` are not enforced in this release.
+Outbound (`connect`) and `bind` operations are in scope. `listen()` is also
+enforced for port-deny rules when the kernel exposes `socket_listen`;
+`accept()` is enforced for remote exact IP, CIDR, IP:port, and local-port deny
+rules when the kernel exposes `socket_accept`; `sendmsg()` is also enforced for
+outbound deny rules when the kernel exposes `socket_sendmsg`.
 
 ### 1.3 Process Integrity
 
@@ -244,8 +248,8 @@ to confuse forensic analysis.
 causing legitimate deny rules to be silently dropped or new rules to fail
 insertion.
 
-**Mitigations (planned Phase 5):**
-- **Map pressure monitoring:** Prometheus metrics will track map utilization ratios and alert when maps approach capacity.
+**Mitigations:**
+- **Map pressure monitoring:** The daemon logs warning/critical/full utilization states, emits degraded runtime posture on capacity exhaustion, and exports map utilization/capacity metrics for alerting.
 - **Entry count verification:** Post-apply verification (`verify_map_entry_count()`) already confirms that map contents match expected counts after every policy application.
 - **Configurable map sizes:** `set_max_deny_inodes()`, `set_max_deny_paths()`, and `set_max_network_entries()` allow capacity tuning at build time.
 - **Shadow map validation:** The shadow-then-sync policy application path validates entry counts in shadow maps before touching live maps.
@@ -308,7 +312,7 @@ These are outside the security boundary and require complementary controls.
 | **Physical access** | An attacker with physical access to the host can modify boot parameters, attach debugging hardware, or replace storage media.  These attacks require hardware-level mitigations (Secure Boot, TPM, disk encryption) that are outside AegisBPF's scope. |
 | **Side-channel attacks** | Timing attacks, speculative execution attacks (Spectre/Meltdown variants), and cache-based side channels are CPU and kernel concerns.  AegisBPF does use constant-time hash comparisons to avoid leaking policy content via timing, but it does not claim defense against microarchitectural side channels. |
 | **Host root compromise** | If an attacker gains full root access on the host, they can unload BPF programs, modify pinned maps, replace the daemon binary, or disable security controls entirely.  AegisBPF assumes the host root is part of the trusted computing base. |
-| **Inbound network enforcement** | `accept()`, `listen()`, and `sendmsg()` are not covered by deny rules in this release.  Only `connect()` (outbound) and `bind()` operations are enforced. |
+| **Inbound network enforcement** | `listen()` is enforced for port-deny rules when the kernel exposes `socket_listen`; `accept()` is enforced for remote exact IP, CIDR, IP:port, and local-port deny rules when the kernel exposes `socket_accept`; `sendmsg()` is enforced for outbound deny rules when the kernel exposes `socket_sendmsg`; listen-stage inbound filtering remains partial. |
 
 ---
 
@@ -459,7 +463,9 @@ across mounts.
 | `mmap` (executable mapping) | Partial | Depends on kernel hook behavior and file-open path |
 | `socket_connect` | In scope | IPv4/IPv6 exact, CIDR, and port deny |
 | `socket_bind` | In scope | Port-oriented deny logic |
-| `accept` / `listen` / `sendmsg` | Out of scope | No enforcement in this release |
+| `socket_listen` | Partial | Port-oriented deny logic when the kernel hook is available |
+| `socket_accept` | Partial | Remote exact IP, CIDR, IP:port, and local-port deny logic when the kernel hook is available |
+| `socket_sendmsg` | Partial | Outbound exact IP, CIDR, IP:port, and egress-port logic when the kernel hook is available |
 
 ### 8.2 Filesystem Coverage
 

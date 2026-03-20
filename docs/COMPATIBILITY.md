@@ -9,7 +9,7 @@ See `docs/SUPPORT_POLICY.md` for versioning and support windows.
 
 | Component | Requirement | Notes |
 |-----------|-------------|-------|
-| Kernel | 5.8+ | For ring buffer support |
+| Kernel | 5.8+ | Current shipped BPF object requires ring buffer maps |
 | cgroup | v2 | Required for cgroup isolation |
 | BTF | Required | `/sys/kernel/btf/vmlinux` must exist |
 | bpffs | Mounted | `/sys/fs/bpf` must be mounted |
@@ -18,12 +18,12 @@ See `docs/SUPPORT_POLICY.md` for versioning and support windows.
 
 | Feature | Min Kernel | Impact if Missing |
 |---------|------------|------------------|
-| BPF LSM | 5.7+ | **No enforcement** - audit-only mode |
-| Ring Buffer | 5.8+ | Perf event array fallback (higher overhead) |
-| **Socket Caching** | **5.2+** | **30-40% higher network overhead** |
-| Process Tracking | 5.8+ | Tracepoint fallback (path-only, no blocking) |
+| BPF LSM | 5.7+ | **No kernel enforcement** - audit-only mode when other runtime requirements are met |
+| Ring Buffer | 5.8+ | **Current shipped build cannot load without it** |
+| Tracepoints | tracefs available | **No audit-only fallback** if unavailable |
+| Process Tracking | 5.8+ | Tracepoint-based process tracking unavailable |
 
-**Critical:** Kernel 5.2+ required for `BPF_MAP_TYPE_SK_STORAGE` used in network policy socket caching. On older kernels, BPF program load will **fail** with helpful error message.
+**Important:** AegisBPF does not currently use socket-local storage maps or alternate event-map fallbacks. Compatibility should be evaluated against the shipped BPF object, which requires ring buffer support.
 
 ## Enforcement Capabilities
 
@@ -46,6 +46,7 @@ AegisBPF operates in one of three capability levels based on kernel support:
 ### Audit-Only Mode
 
 **Requirements:**
+- Ring buffer support (kernel 5.8+)
 - Tracepoint support
 - cgroup v2
 - BTF
@@ -66,36 +67,35 @@ AegisBPF cannot run if:
 - BPF syscall not available
 - cgroup v2 not available
 - BTF not available
+- Ring buffer support not available
+- Neither BPF LSM nor tracepoints are available
 
 ## Kernel Version Feature Matrix
 
-| Kernel | LSM Enforce | Socket Caching | Ring Buffer | Performance | Status |
-|--------|-------------|----------------|-------------|-------------|--------|
-| 6.8+ (Ubuntu 24.04) | ✅ | ✅ | ✅ | **Optimal** (<30% overhead) | ✅ **Recommended** |
-| 6.1-6.7 | ✅ | ✅ | ✅ | **Optimal** (<30% overhead) | ✅ Supported |
-| 5.8-6.0 | ✅ | ✅ | ✅ | **Optimal** (<30% overhead) | ✅ Supported |
-| 5.7 | ✅ | ✅ | ❌ | Good (~35% overhead, no socket cache) | ⚠️ Degraded |
-| 5.2-5.6 | ❌ | ✅ | ❌ | Audit-only | ⚠️ Limited |
-| 4.18 (RHEL 8) | ❌ | ❌ | ❌ | **Not Supported** | ❌ **Incompatible** |
+| Kernel | LSM Enforce | Audit Fallback | Status |
+|--------|-------------|----------------|--------|
+| 6.8+ (Ubuntu 24.04) | ✅ | ✅ | ✅ **Recommended** |
+| 5.8-6.7 | ✅ | ✅ | ✅ Supported |
+| 5.7 and earlier | ❌ | ❌ | ❌ **Unsupported by current shipped build** |
 
 **Enterprise Impact:**
-- **RHEL 8 (kernel 4.18):** ❌ Not supported - socket storage map will fail to load
+- **RHEL 8 (kernel 4.18):** ❌ Not supported - required modern BPF runtime features are missing
 - **RHEL 9 (kernel 5.14):** ✅ Supported but LSM may need manual enable
 - **Ubuntu 22.04+ / Debian 12+:** ✅ Full support
 
 ## Distribution Compatibility
 
-| Distribution | Version | Kernel | Socket Caching | LSM Enforce | Status |
-|-------------|---------|--------|----------------|-------------|--------|
-| Ubuntu | 24.04 LTS | 6.8+ | ✅ | Yes* | ✅ **Recommended** |
-| Ubuntu | 22.04 LTS | 5.15+ | ✅ | Yes* | ✅ Supported |
-| Debian | 12 (Bookworm) | 6.1+ | ✅ | Yes* | ✅ Supported |
-| RHEL | 9.x | 5.14+ | ✅ | Yes* | ✅ Supported |
-| RHEL | 8.x | 4.18 | ❌ | No | ❌ **Not Supported** |
-| Fedora | 38+ | 6.2+ | ✅ | Yes | ✅ Supported |
-| Arch Linux | Rolling | Latest | ✅ | Yes* | ✅ Supported |
-| Amazon Linux | 2023 | 6.1+ | ✅ | Yes* | ✅ Supported |
-| Flatcar | Stable | 6.6+ | ✅ | Yes* | ✅ Supported |
+| Distribution | Version | Kernel | LSM Enforce | Status |
+|-------------|---------|--------|-------------|--------|
+| Ubuntu | 24.04 LTS | 6.8+ | Yes* | ✅ **Recommended** |
+| Ubuntu | 22.04 LTS | 5.15+ | Yes* | ✅ Supported |
+| Debian | 12 (Bookworm) | 6.1+ | Yes* | ✅ Supported |
+| RHEL | 9.x | 5.14+ | Yes* | ✅ Supported |
+| RHEL | 8.x | 4.18 | No | ❌ **Not Supported** |
+| Fedora | 38+ | 6.2+ | Yes | ✅ Supported |
+| Arch Linux | Rolling | Latest | Yes* | ✅ Supported |
+| Amazon Linux | 2023 | 6.1+ | Yes* | ✅ Supported |
+| Flatcar | Stable | 6.6+ | Yes* | ✅ Supported |
 
 \* Requires adding `lsm=bpf` or `lsm=landlock,lockdown,yama,bpf` to kernel boot parameters.
 

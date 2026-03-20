@@ -36,7 +36,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         aegis::BlockEvent ev{};
         std::memcpy(&ev, data, std::min(size, sizeof(ev)));
         aegis::print_block_event(ev);
-    } else if ((event_type == aegis::EVENT_NET_CONNECT_BLOCK || event_type == aegis::EVENT_NET_BIND_BLOCK) &&
+    } else if ((event_type == aegis::EVENT_NET_CONNECT_BLOCK || event_type == aegis::EVENT_NET_BIND_BLOCK ||
+                event_type == aegis::EVENT_NET_LISTEN_BLOCK || event_type == aegis::EVENT_NET_ACCEPT_BLOCK ||
+                event_type == aegis::EVENT_NET_SENDMSG_BLOCK) &&
                size >= sizeof(aegis::NetBlockEvent)) {
         aegis::NetBlockEvent ev{};
         std::memcpy(&ev, data, std::min(size, sizeof(ev)));

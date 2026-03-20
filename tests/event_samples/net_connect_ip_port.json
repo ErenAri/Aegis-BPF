@@ -1,0 +1,21 @@
+{
+  "type": "net_connect_block",
+  "pid": 12347,
+  "ppid": 12345,
+  "start_time": 323456789,
+  "exec_id": "12347:323456789",
+  "trace_id": "12347:323456789",
+  "parent_start_time": 123456789,
+  "parent_exec_id": "12345:123456789",
+  "parent_trace_id": "12345:123456789",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+  "family": "ipv4",
+  "protocol": "tcp",
+  "direction": "egress",
+  "remote_ip": "10.0.0.1",
+  "remote_port": 443,
+  "rule_type": "ip_port",
+  "action": "TERM",
+  "comm": "curl"
+}

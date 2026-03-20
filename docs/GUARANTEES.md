@@ -36,10 +36,18 @@ see `docs/THREAT_MODEL.md`.
 - **CIDR range deny:** IPv4 and IPv6 CIDR ranges use BPF LPM (Longest Prefix
   Match) trie maps for O(prefix-length) lookup.
 - **Port deny:** Port + protocol + direction tuples are matched in a hash map
-  (`deny_port_map`).
-- Network deny is enforced synchronously in `socket_connect` and `socket_bind`
-  LSM hooks.  The syscall returns `-EPERM` before the connection is
-  established.
+  (`deny_port_map`). Port-oriented rules also apply to `listen()` when the
+  kernel exposes the `socket_listen` LSM hook and to `accept()` when the
+  kernel exposes the `socket_accept` LSM hook.
+- **Inbound accepted-peer deny:** When the kernel exposes `socket_accept`,
+  accepted inbound connections also evaluate remote exact IP, CIDR, and
+  IP:port deny rules against the accepted peer tuple.
+- Network deny is enforced synchronously in `socket_connect` and
+  `socket_bind` LSM hooks, with additional `socket_listen` coverage for
+  port-deny rules when that hook is available, `socket_accept` coverage for
+  established inbound accepts when that hook is available, plus outbound
+  `socket_sendmsg` coverage when that hook is available.  The syscall returns
+  `-EPERM` before the operation completes.
 
 ### Policy integrity
 
@@ -97,11 +105,14 @@ see `docs/THREAT_MODEL.md`.
   enforced**.  Syscalls succeed.
 - The deadman switch reverts to audit-only, not to full enforcement.
 
-### Inbound network connections
+### Partial network coverage
 
-- `accept()`, `listen()`, and `sendmsg()` are not covered by deny rules in
-  this release.
-- Only `connect()` (outbound) and `bind()` are enforced.
+- `listen()` remains port-deny only when the kernel exposes `socket_listen`.
+- `accept()` is covered for remote exact IP, CIDR, IP:port, and local-port
+  deny rules when the kernel exposes `socket_accept`.
+- `sendmsg()` is covered for outbound exact IP, CIDR, IP:port, and egress-port
+  rules when the kernel exposes `socket_sendmsg`.
+- Exact IP and CIDR rules do not apply to `listen()` decisions in this release.
 
 ### Non-ext4/xfs filesystems
 

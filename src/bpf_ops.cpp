@@ -12,79 +12,31 @@
 
 #include <array>
 #include <atomic>
-#include <cctype>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <numeric>
 #include <set>
 
+#include "bpf_integrity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
-#include "sha256.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
-
-#ifndef AEGIS_BPF_OBJ_PATH
-#    define AEGIS_BPF_OBJ_PATH ""
-#endif
 
 namespace aegis {
 
 namespace {
-constexpr const char* kBpfObjPath = AEGIS_BPF_OBJ_PATH;
 std::atomic<uint32_t> g_ringbuf_bytes{0};
 std::atomic<uint32_t> g_max_deny_inodes{0};
 std::atomic<uint32_t> g_max_deny_paths{0};
 std::atomic<uint32_t> g_max_network_entries{0};
 
-std::string env_path_or_default(const char* env_name, const char* fallback)
-{
-    const char* value = std::getenv(env_name);
-    if (value != nullptr && *value != '\0') {
-        return std::string(value);
-    }
-    return std::string(fallback);
-}
-
-bool env_flag_enabled(const char* env_name)
-{
-    const char* value = std::getenv(env_name);
-    if (value == nullptr || *value == '\0') {
-        return false;
-    }
-
-    std::string normalized(value);
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
-}
-
-std::string configured_hash_paths_text()
-{
-    const std::string primary = env_path_or_default("AEGIS_BPF_OBJ_HASH_PATH", kBpfObjHashPath);
-    const std::string secondary = env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
-    return primary + ", " + secondary;
-}
-
-std::string adjacent_hash_path_for_object(const std::string& object_path)
-{
-    if (object_path.empty()) {
-        return {};
-    }
-    std::filesystem::path obj(object_path);
-    std::filesystem::path parent = obj.has_parent_path() ? obj.parent_path() : std::filesystem::path(".");
-    return (parent / "aegis.bpf.sha256").string();
-}
-
 std::set<std::string> detect_missing_optional_lsm_hooks()
 {
-    static constexpr std::array<const char*, 4> kOptionalHooks = {
-        "bprm_check_security",
-        "file_mmap",
-        "socket_connect",
-        "socket_bind",
+    static constexpr std::array<const char*, 7> kOptionalHooks = {
+        "bprm_check_security", "file_mmap",     "socket_connect", "socket_bind",
+        "socket_listen",       "socket_accept", "socket_sendmsg",
     };
 
     std::set<std::string> missing;
@@ -142,115 +94,6 @@ Result<void> ensure_db_dir()
         return Error(ErrorCode::IoError, "Failed to create database directory", ec.message());
     }
     return {};
-}
-
-std::string resolve_bpf_obj_path()
-{
-    const char* env = std::getenv("AEGIS_BPF_OBJ");
-    if (env && *env) {
-        return std::string(env);
-    }
-
-    auto exe_in_system_prefix = []() -> bool {
-        char buf[PATH_MAX];
-        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (len <= 0) {
-            return false;
-        }
-        buf[len] = '\0';
-        std::string exe(buf);
-        return exe.rfind("/usr/", 0) == 0 || exe.rfind("/usr/local/", 0) == 0;
-    };
-
-    std::error_code ec;
-    if (exe_in_system_prefix()) {
-        if (std::filesystem::exists(kBpfObjInstallPath, ec)) {
-            return kBpfObjInstallPath;
-        }
-        if (std::filesystem::exists(kBpfObjPath, ec)) {
-            return kBpfObjPath;
-        }
-    } else {
-        if (std::filesystem::exists(kBpfObjPath, ec)) {
-            return kBpfObjPath;
-        }
-        if (std::filesystem::exists(kBpfObjInstallPath, ec)) {
-            return kBpfObjInstallPath;
-        }
-    }
-    return kBpfObjPath;
-}
-
-bool allow_unsigned_bpf_enabled()
-{
-    return env_flag_enabled("AEGIS_ALLOW_UNSIGNED_BPF");
-}
-
-bool require_bpf_hash_enabled()
-{
-    return env_flag_enabled("AEGIS_REQUIRE_BPF_HASH");
-}
-
-Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned)
-{
-    BpfIntegrityStatus status{};
-    status.require_hash = require_hash;
-    status.allow_unsigned = allow_unsigned;
-    status.object_path = resolve_bpf_obj_path();
-
-    std::error_code ec;
-    status.object_exists = std::filesystem::exists(status.object_path, ec);
-    if (!status.object_exists) {
-        return Error(ErrorCode::ResourceNotFound, "BPF object file not found", status.object_path);
-    }
-
-    const std::string hash_path_primary = env_path_or_default("AEGIS_BPF_OBJ_HASH_PATH", kBpfObjHashPath);
-    const std::string hash_path_secondary =
-        env_path_or_default("AEGIS_BPF_OBJ_HASH_INSTALL_PATH", kBpfObjHashInstallPath);
-    const std::string hash_path_adjacent = adjacent_hash_path_for_object(status.object_path);
-
-    if (std::filesystem::exists(hash_path_primary, ec)) {
-        status.hash_path = hash_path_primary;
-        status.hash_exists = true;
-    } else if (std::filesystem::exists(hash_path_secondary, ec)) {
-        status.hash_path = hash_path_secondary;
-        status.hash_exists = true;
-    } else if (!hash_path_adjacent.empty() && std::filesystem::exists(hash_path_adjacent, ec)) {
-        status.hash_path = hash_path_adjacent;
-        status.hash_exists = true;
-    }
-
-    if (!status.hash_exists) {
-        status.reason = "bpf_hash_missing";
-        if (require_hash && !allow_unsigned) {
-            return Error(ErrorCode::BpfLoadFailed, "BPF object hash file is required but not found",
-                         configured_hash_paths_text());
-        }
-        return status;
-    }
-
-    std::string expected_hash;
-    if (!read_sha256_file(status.hash_path, expected_hash)) {
-        return Error(ErrorCode::InvalidArgument, "Failed to read BPF hash file", status.hash_path);
-    }
-
-    std::string actual_hash;
-    if (!sha256_file_hex(status.object_path, actual_hash)) {
-        return Error(ErrorCode::IoError, "Failed to compute hash of BPF object", status.object_path);
-    }
-
-    if (!constant_time_hex_compare(expected_hash, actual_hash)) {
-        status.reason = "bpf_hash_mismatch";
-        if (!allow_unsigned) {
-            return Error(ErrorCode::BpfLoadFailed,
-                         "BPF object integrity verification failed - file may have been tampered with",
-                         "expected=" + expected_hash + " actual=" + actual_hash);
-        }
-        return status;
-    }
-
-    status.hash_verified = true;
-    return status;
 }
 
 Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused)
@@ -331,53 +174,6 @@ void set_max_network_entries(uint32_t count)
     g_max_network_entries.store(count, std::memory_order_relaxed);
 }
 
-// Verify BPF object file integrity before loading
-static Result<void> verify_bpf_integrity(const std::string& obj_path)
-{
-    // Check if verification is disabled (for development only)
-    // SECURITY: This bypass is disabled in Release builds to prevent tampering
-#ifndef NDEBUG
-    const char* skip_verify = std::getenv("AEGIS_SKIP_BPF_VERIFY");
-    if (skip_verify && std::string(skip_verify) == "1") {
-        logger().log(SLOG_WARN("BPF verification disabled via AEGIS_SKIP_BPF_VERIFY (DEBUG BUILD ONLY)"));
-        return {};
-    }
-#endif
-
-    const bool allow_unsigned = allow_unsigned_bpf_enabled();
-    const bool require_hash = require_bpf_hash_enabled();
-
-    auto integrity_result = evaluate_bpf_integrity(require_hash, allow_unsigned);
-    if (!integrity_result) {
-        return integrity_result.error();
-    }
-    const auto& status = *integrity_result;
-
-    if (status.reason == "bpf_hash_missing") {
-        std::string checked_paths = configured_hash_paths_text();
-        const std::string adjacent_hash = adjacent_hash_path_for_object(obj_path);
-        if (!adjacent_hash.empty()) {
-            checked_paths += ", " + adjacent_hash;
-        }
-        logger().log(SLOG_WARN("BPF object hash file not found")
-                         .field("checked", checked_paths)
-                         .field("require_hash", require_hash)
-                         .field("allow_unsigned_bpf", allow_unsigned));
-        return {};
-    }
-
-    if (status.reason == "bpf_hash_mismatch") {
-        logger().log(SLOG_WARN("BPF object hash mismatch accepted by break-glass")
-                         .field("path", obj_path)
-                         .field("allow_unsigned_bpf", allow_unsigned));
-        return {};
-    }
-
-    logger().log(
-        SLOG_INFO("BPF object integrity verified").field("path", obj_path).field("hash_path", status.hash_path));
-    return {};
-}
-
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 {
     const std::string inherited_trace_id = current_trace_id();
@@ -434,14 +230,6 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             return fail(error);
         }
         kernel_features = features_result.value();
-
-        // Warn if socket storage is not supported
-        if (!kernel_features.sk_storage) {
-            logger().log(SLOG_WARN("Socket caching not available (kernel < 5.2)")
-                             .field("kernel_version", kernel_features.kernel_version)
-                             .field("impact",
-                                    "BPF program load may fail. Kernel 5.2+ required for optimal network performance"));
-        }
     }
 
     {
@@ -470,6 +258,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
         state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
         state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
+        state.deny_ip_port_v4 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4");
+        state.deny_ip_port_v6 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6");
         state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
         state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
@@ -562,6 +352,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             span.fail(r.error().to_string());
             return fail(r.error());
         }
+        r = try_set_max(state.deny_ip_port_v4, max_net, "deny_ip_port_v4");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_ip_port_v6, max_net, "deny_ip_port_v6");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
     }
 
     if (reuse_pins) {
@@ -623,6 +423,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse_optional(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused)));
         TRY(check(try_reuse_optional(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused)));
         TRY(check(try_reuse_optional(state.deny_port, kDenyPortPin, state.deny_port_reused)));
+        TRY(check(try_reuse_optional(state.deny_ip_port_v4, kDenyIpPortV4Pin, state.deny_ip_port_v4_reused)));
+        TRY(check(try_reuse_optional(state.deny_ip_port_v6, kDenyIpPortV6Pin, state.deny_ip_port_v6_reused)));
         TRY(check(try_reuse_optional(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
         TRY(check(try_reuse_optional(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused)));
         TRY(check(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused)));
@@ -654,6 +456,18 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             if (lsm_prog) {
                 bpf_program__set_autoload(lsm_prog, false);
             }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_listen");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_accept");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_sendmsg");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
         } else {
             const std::set<std::string> missing_hooks = detect_missing_optional_lsm_hooks();
             const auto disable_optional_program = [&](const char* prog_name, const char* hook_name) {
@@ -674,6 +488,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             disable_optional_program("handle_file_mmap", "file_mmap");
             disable_optional_program("handle_socket_connect", "socket_connect");
             disable_optional_program("handle_socket_bind", "socket_bind");
+            disable_optional_program("handle_socket_listen", "socket_listen");
+            disable_optional_program("handle_socket_accept", "socket_accept");
+            disable_optional_program("handle_socket_sendmsg", "socket_sendmsg");
         }
     }
 
@@ -683,13 +500,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         if (err) {
             cleanup_bpf(state);
 
-            // Provide helpful error message for SK_STORAGE compatibility issues
             std::string error_msg = "Failed to load BPF object";
-            if (!kernel_features.sk_storage && (err == -EINVAL || err == -ENOENT || err == -EOPNOTSUPP)) {
-                error_msg += " - BPF_MAP_TYPE_SK_STORAGE not supported on kernel " + kernel_features.kernel_version +
-                             ". Kernel 5.2+ required for network socket caching. "
-                             "See docs/COMPATIBILITY.md for supported kernel versions.";
-            }
 
             Error error = Error::bpf_error(err, error_msg);
             span.fail(error.to_string());
@@ -703,8 +514,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
         (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
         (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
-        (state.deny_port && !state.deny_port_reused) || (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) ||
-        (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
+        (state.deny_port && !state.deny_port_reused) || (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
+        (state.deny_ip_port_v6 && !state.deny_ip_port_v6_reused) ||
+        (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
         (state.net_ip_stats && !state.net_ip_stats_reused) || (state.net_port_stats && !state.net_port_stats_reused);
 
@@ -760,6 +572,12 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         if (state.deny_port) {
             TRY(check(try_pin(state.deny_port, kDenyPortPin, state.deny_port_reused)));
         }
+        if (state.deny_ip_port_v4) {
+            TRY(check(try_pin(state.deny_ip_port_v4, kDenyIpPortV4Pin, state.deny_ip_port_v4_reused)));
+        }
+        if (state.deny_ip_port_v6) {
+            TRY(check(try_pin(state.deny_ip_port_v6, kDenyIpPortV6Pin, state.deny_ip_port_v6_reused)));
+        }
         if (state.deny_cidr_v4) {
             TRY(check(try_pin(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
         }
@@ -795,440 +613,6 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 return fail(result.error());
             }
         }
-    }
-
-    return {};
-}
-
-Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permission, bool use_file_open,
-                        bool attach_network_hooks)
-{
-    const std::string inherited_trace_id = current_trace_id();
-    const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
-    ScopedSpan root_span("bpf.attach_all", trace_id, current_span_id());
-    state.attach_contract_valid = false;
-    state.file_hooks_expected = 0;
-    state.file_hooks_attached = 0;
-    state.exec_identity_hook_attached = false;
-    state.exec_identity_runtime_deps_hook_attached = false;
-    state.socket_connect_hook_attached = false;
-    state.socket_bind_hook_attached = false;
-
-    auto fail = [&root_span](const Error& error) -> Result<void> {
-        root_span.fail(error.to_string());
-        return error;
-    };
-
-    bpf_program* prog = nullptr;
-
-    {
-        ScopedSpan span("bpf.attach.execve", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_execve");
-        if (!prog) {
-            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_execve");
-            span.fail(error.to_string());
-            return fail(error);
-        }
-        auto result = attach_prog(prog, state);
-        if (!result) {
-            span.fail(result.error().to_string());
-            return fail(result.error());
-        }
-    }
-
-    if (lsm_enabled) {
-        ScopedSpan span("bpf.attach.file_hooks_lsm", trace_id, root_span.span_id());
-        state.file_hooks_expected = static_cast<uint8_t>((use_inode_permission ? 1 : 0) + (use_file_open ? 1 : 0));
-        if (state.file_hooks_expected > 0) {
-            if (use_inode_permission) {
-                prog = bpf_object__find_program_by_name(state.obj, "handle_inode_permission");
-                if (!prog) {
-                    Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_inode_permission");
-                    span.fail(error.to_string());
-                    return fail(error);
-                }
-                auto result = attach_prog(prog, state);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-                ++state.file_hooks_attached;
-            }
-            if (use_file_open) {
-                prog = bpf_object__find_program_by_name(state.obj, "handle_file_open");
-                if (!prog) {
-                    Error error(ErrorCode::BpfAttachFailed, "Requested LSM hook not found: handle_file_open");
-                    span.fail(error.to_string());
-                    return fail(error);
-                }
-                auto result = attach_prog(prog, state);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-                ++state.file_hooks_attached;
-            }
-            if (state.file_hooks_attached != state.file_hooks_expected) {
-                Error error(ErrorCode::BpfAttachFailed, "LSM file hook attach contract violated");
-                span.fail(error.to_string());
-                return fail(error);
-            }
-        }
-
-        ScopedSpan exec_span("bpf.attach.exec_identity_hook", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_check_security");
-        if (!prog) {
-            logger().log(
-                SLOG_WARN("Optional exec identity hook not found").field("program", "handle_bprm_check_security"));
-        } else {
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                logger().log(
-                    SLOG_WARN("Optional exec identity hook attach failed").field("error", result.error().to_string()));
-            } else {
-                state.exec_identity_hook_attached = true;
-            }
-        }
-
-        ScopedSpan deps_span("bpf.attach.exec_runtime_deps_hook", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_file_mmap");
-        if (!prog) {
-            logger().log(SLOG_WARN("Optional exec runtime deps hook not found").field("program", "handle_file_mmap"));
-        } else {
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                logger().log(SLOG_WARN("Optional exec runtime deps hook attach failed")
-                                 .field("error", result.error().to_string()));
-            } else {
-                state.exec_identity_runtime_deps_hook_attached = true;
-            }
-        }
-    } else {
-        ScopedSpan span("bpf.attach.file_hooks_tracepoint", trace_id, root_span.span_id());
-        state.file_hooks_expected = 1;
-        prog = bpf_object__find_program_by_name(state.obj, "handle_openat");
-        if (!prog) {
-            Error error(ErrorCode::BpfAttachFailed, "BPF file open program not found");
-            span.fail(error.to_string());
-            return fail(error);
-        }
-        auto result = attach_prog(prog, state);
-        if (!result) {
-            span.fail(result.error().to_string());
-            return fail(result.error());
-        }
-        state.file_hooks_attached = 1;
-    }
-
-    {
-        ScopedSpan span("bpf.attach.fork", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_fork");
-        if (!prog) {
-            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_fork");
-            span.fail(error.to_string());
-            return fail(error);
-        }
-        auto result = attach_prog(prog, state);
-        if (!result) {
-            span.fail(result.error().to_string());
-            return fail(result.error());
-        }
-    }
-
-    {
-        ScopedSpan span("bpf.attach.exit", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
-        if (!prog) {
-            Error error(ErrorCode::BpfAttachFailed, "BPF program not found: handle_exit");
-            span.fail(error.to_string());
-            return fail(error);
-        }
-        auto result = attach_prog(prog, state);
-        if (!result) {
-            span.fail(result.error().to_string());
-            return fail(result.error());
-        }
-    }
-
-    // Attach network LSM hooks if requested and available.
-    if (lsm_enabled && attach_network_hooks) {
-        ScopedSpan span("bpf.attach.network_hooks", trace_id, root_span.span_id());
-        prog = bpf_object__find_program_by_name(state.obj, "handle_socket_connect");
-        if (prog) {
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                logger().log(
-                    SLOG_WARN("Optional socket_connect hook attach failed").field("error", result.error().to_string()));
-            } else {
-                state.socket_connect_hook_attached = true;
-            }
-        }
-        prog = bpf_object__find_program_by_name(state.obj, "handle_socket_bind");
-        if (prog) {
-            auto result = attach_prog(prog, state);
-            if (!result) {
-                logger().log(
-                    SLOG_WARN("Optional socket_bind hook attach failed").field("error", result.error().to_string()));
-            } else {
-                state.socket_bind_hook_attached = true;
-            }
-        }
-    }
-
-    state.attach_contract_valid = true;
-
-    return {};
-}
-
-size_t map_entry_count(bpf_map* map)
-{
-    if (!map) {
-        return 0;
-    }
-    const size_t key_sz = bpf_map__key_size(map);
-    std::vector<uint8_t> key(key_sz);
-    std::vector<uint8_t> next_key(key_sz);
-    size_t count = 0;
-    int fd = bpf_map__fd(map);
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    while (!rc) {
-        ++count;
-        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-    return count;
-}
-
-static bool map_is_empty(bpf_map* map)
-{
-    if (!map) {
-        return true;
-    }
-    int fd = bpf_map__fd(map);
-    if (fd < 0) {
-        return false;
-    }
-    const size_t key_sz = bpf_map__key_size(map);
-    std::vector<uint8_t> key(key_sz);
-    errno = 0;
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    if (rc == 0) {
-        return false;
-    }
-    return errno == ENOENT;
-}
-
-Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
-{
-    if (!map) {
-        if (expected == 0) {
-            return {};
-        }
-        return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries", std::to_string(expected));
-    }
-    size_t actual = map_entry_count(map);
-    if (actual != expected) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Map entry count mismatch",
-                     "expected=" + std::to_string(expected) + " actual=" + std::to_string(actual));
-    }
-    return {};
-}
-
-Result<void> clear_map_entries(bpf_map* map)
-{
-    if (!map) {
-        return Error(ErrorCode::InvalidArgument, "Map is null");
-    }
-    int fd = bpf_map__fd(map);
-    const size_t key_sz = bpf_map__key_size(map);
-    std::vector<uint8_t> key(key_sz);
-    std::vector<uint8_t> next_key(key_sz);
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    while (!rc) {
-        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
-        bpf_map_delete_elem(fd, key.data());
-        if (!rc) {
-            key.swap(next_key);
-        }
-    }
-    return {};
-}
-
-// --- Shadow map support ---
-
-ShadowMap::~ShadowMap()
-{
-    if (fd_ >= 0) {
-        close(fd_);
-    }
-}
-
-ShadowMap& ShadowMap::operator=(ShadowMap&& o) noexcept
-{
-    if (this != &o) {
-        if (fd_ >= 0) {
-            close(fd_);
-        }
-        fd_ = o.fd_;
-        o.fd_ = -1;
-    }
-    return *this;
-}
-
-Result<ShadowMap> create_shadow_map(bpf_map* live_map)
-{
-    if (!live_map) {
-        return Error(ErrorCode::InvalidArgument, "Cannot create shadow for null map");
-    }
-
-    const auto type = static_cast<enum bpf_map_type>(bpf_map__type(live_map));
-    const auto key_size = bpf_map__key_size(live_map);
-    const auto value_size = bpf_map__value_size(live_map);
-    const auto max_entries = bpf_map__max_entries(live_map);
-    const auto flags = bpf_map__map_flags(live_map);
-
-    int fd = -1;
-#ifdef bpf_map_create_opts__last_field
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    opts.map_flags = flags;
-    fd = bpf_map_create(type, "shadow", key_size, value_size, max_entries, &opts);
-#else
-    fd = bpf_create_map_name(type, "shadow", static_cast<int>(key_size), static_cast<int>(value_size),
-                             static_cast<int>(max_entries), flags);
-#endif
-    if (fd < 0) {
-        return Error::system(errno, "Failed to create shadow map");
-    }
-    return ShadowMap(fd);
-}
-
-Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
-{
-    ShadowMapSet set;
-
-    auto mk = [](bpf_map* m) -> Result<ShadowMap> {
-        if (!m) {
-            return ShadowMap();
-        }
-        return create_shadow_map(m);
-    };
-
-    auto r = mk(state.deny_inode);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_inode = std::move(*r);
-
-    r = mk(state.deny_path);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_path = std::move(*r);
-
-    r = mk(state.allow_cgroup);
-    if (!r) {
-        return r.error();
-    }
-    set.allow_cgroup = std::move(*r);
-
-    r = mk(state.allow_exec_inode);
-    if (!r) {
-        return r.error();
-    }
-    set.allow_exec_inode = std::move(*r);
-
-    r = mk(state.deny_ipv4);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_ipv4 = std::move(*r);
-
-    r = mk(state.deny_ipv6);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_ipv6 = std::move(*r);
-
-    r = mk(state.deny_port);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_port = std::move(*r);
-
-    r = mk(state.deny_cidr_v4);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_cidr_v4 = std::move(*r);
-
-    r = mk(state.deny_cidr_v6);
-    if (!r) {
-        return r.error();
-    }
-    set.deny_cidr_v6 = std::move(*r);
-
-    return set;
-}
-
-size_t map_fd_entry_count(int fd, size_t key_size)
-{
-    if (fd < 0) {
-        return 0;
-    }
-    std::vector<uint8_t> key(key_size);
-    std::vector<uint8_t> next_key(key_size);
-    size_t count = 0;
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    while (!rc) {
-        ++count;
-        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-    return count;
-}
-
-Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
-{
-    if (!live_map || shadow_fd < 0) {
-        return {};
-    }
-
-    int live_fd = bpf_map__fd(live_map);
-    size_t key_sz = bpf_map__key_size(live_map);
-    size_t val_sz = bpf_map__value_size(live_map);
-
-    std::vector<uint8_t> key(key_sz);
-    std::vector<uint8_t> next_key(key_sz);
-    std::vector<uint8_t> val(val_sz);
-
-    // Phase 1: Upsert all shadow entries into live map
-    int rc = bpf_map_get_next_key(shadow_fd, nullptr, key.data());
-    while (!rc) {
-        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) == 0) {
-            if (bpf_map_update_elem(live_fd, key.data(), val.data(), BPF_ANY)) {
-                return Error::system(errno, "sync_from_shadow: upsert failed");
-            }
-        }
-        rc = bpf_map_get_next_key(shadow_fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-
-    // Phase 2: Delete stale entries from live map (present in live but not in shadow)
-    std::vector<std::vector<uint8_t>> stale_keys;
-    rc = bpf_map_get_next_key(live_fd, nullptr, key.data());
-    while (!rc) {
-        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) != 0) {
-            if (errno != ENOENT) {
-                return Error::system(errno, "sync_from_shadow: shadow lookup failed");
-            }
-            stale_keys.push_back(key);
-        }
-        rc = bpf_map_get_next_key(live_fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-    for (const auto& sk : stale_keys) {
-        bpf_map_delete_elem(live_fd, sk.data());
     }
 
     return {};
@@ -1490,53 +874,6 @@ Result<void> reset_block_stats_map(bpf_map* map)
 }
 
 // cppcheck-suppress unusedFunction
-Result<void> set_agent_config(BpfState& state, bool audit_only)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    cfg.audit_only = audit_only ? 1 : 0;
-    cfg.enforce_signal = kEnforceSignalTerm;
-    cfg.event_sample_rate = 1;
-    cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
-    cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
-    if (bpf_map_update_elem(bpf_map__fd(state.config_map), &key, &cfg, BPF_ANY)) {
-        return Error::system(errno, "Failed to configure BPF audit mode");
-    }
-    return {};
-}
-
-Result<void> ensure_layout_version(BpfState& state)
-{
-    if (!state.agent_meta) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Agent meta map not found");
-    }
-
-    uint32_t key = 0;
-    AgentMeta meta{};
-    int fd = bpf_map__fd(state.agent_meta);
-    if (bpf_map_lookup_elem(fd, &key, &meta) && errno != ENOENT) {
-        return Error::system(errno, "Failed to read agent_meta_map");
-    }
-    if (meta.layout_version == 0) {
-        meta.layout_version = kLayoutVersion;
-        if (bpf_map_update_elem(fd, &key, &meta, BPF_ANY)) {
-            return Error::system(errno, "Failed to set agent layout version");
-        }
-        return {};
-    }
-    if (meta.layout_version != kLayoutVersion) {
-        return Error(ErrorCode::LayoutVersionMismatch, "Pinned maps layout version mismatch",
-                     "found " + std::to_string(meta.layout_version) + ", expected " + std::to_string(kLayoutVersion) +
-                         ". Run 'sudo aegisbpf block clear' to reset pins.");
-    }
-    return {};
-}
-
-// cppcheck-suppress unusedFunction
 Result<bool> check_prereqs()
 {
     if (!std::filesystem::exists("/sys/fs/cgroup/cgroup.controllers")) {
@@ -1598,188 +935,6 @@ Result<void> set_exec_identity_mode(BpfState& state, bool enabled)
     uint8_t value = enabled ? 1 : 0;
     if (bpf_map_update_elem(bpf_map__fd(state.exec_identity_mode), &key, &value, BPF_ANY)) {
         return Error::system(errno, "Failed to update exec_identity_mode_map");
-    }
-    return {};
-}
-
-Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    int fd = bpf_map__fd(state.config_map);
-    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
-        if (errno != ENOENT) {
-            return Error::system(errno, "Failed to read agent config");
-        }
-        cfg.enforce_signal = kEnforceSignalTerm;
-        cfg.event_sample_rate = 1;
-        cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
-        cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
-    }
-
-    cfg.exec_identity_flags = flags;
-
-    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
-        return Error::system(errno, "Failed to set exec identity flags");
-    }
-    return {};
-}
-
-Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    AgentConfig normalized = config;
-    if (normalized.event_sample_rate == 0) {
-        normalized.event_sample_rate = 1;
-    }
-    if (normalized.sigkill_escalation_threshold == 0) {
-        normalized.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
-    }
-    if (normalized.sigkill_escalation_window_seconds == 0) {
-        normalized.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
-    }
-
-    // Preserve operator-controlled flags across daemon config updates.
-    uint32_t key = 0;
-    AgentConfig existing{};
-    int fd = bpf_map__fd(state.config_map);
-    if (bpf_map_lookup_elem(fd, &key, &existing) == 0) {
-        normalized.emergency_disable = existing.emergency_disable;
-        normalized.exec_identity_flags = existing.exec_identity_flags;
-    } else if (errno != ENOENT) {
-        return Error::system(errno, "Failed to read agent config");
-    }
-
-    // Derive empty-policy hints from pinned policy maps (optimization-only).
-    normalized.file_policy_empty = (map_is_empty(state.deny_inode) && map_is_empty(state.deny_path)) ? 1 : 0;
-    normalized.net_policy_empty =
-        (map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) && map_is_empty(state.deny_port) &&
-         map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6))
-            ? 1
-            : 0;
-    if (normalized.exec_identity_flags & kExecIdentityFlagProtectConnect) {
-        normalized.net_policy_empty = 0;
-    }
-
-    if (bpf_map_update_elem(fd, &key, &normalized, BPF_ANY)) {
-        return Error::system(errno, "Failed to configure BPF agent config");
-    }
-    return {};
-}
-
-Result<void> set_emergency_disable(BpfState& state, bool disable)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    int fd = bpf_map__fd(state.config_map);
-
-    // Read current config
-    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
-        if (errno != ENOENT) {
-            return Error::system(errno, "Failed to read agent config");
-        }
-        cfg.enforce_signal = kEnforceSignalTerm;
-        cfg.event_sample_rate = 1;
-        cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
-        cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
-    }
-
-    // Update emergency disable flag
-    cfg.emergency_disable = disable ? 1 : 0;
-
-    // Write back
-    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
-        return Error::system(errno, "Failed to set emergency disable");
-    }
-    return {};
-}
-
-Result<bool> read_emergency_disable(BpfState& state)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    int fd = bpf_map__fd(state.config_map);
-    if (bpf_map_lookup_elem(fd, &key, &cfg) == 0) {
-        return cfg.emergency_disable != 0;
-    }
-    if (errno == ENOENT) {
-        return false;
-    }
-    return Error::system(errno, "Failed to read agent config");
-}
-
-Result<void> refresh_policy_empty_hints(BpfState& state)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    const bool file_empty = map_is_empty(state.deny_inode) && map_is_empty(state.deny_path);
-    const bool net_empty = map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) &&
-                           map_is_empty(state.deny_port) && map_is_empty(state.deny_cidr_v4) &&
-                           map_is_empty(state.deny_cidr_v6);
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    int fd = bpf_map__fd(state.config_map);
-    if (bpf_map_lookup_elem(fd, &key, &cfg) && errno != ENOENT) {
-        return Error::system(errno, "Failed to read agent config");
-    }
-
-    cfg.file_policy_empty = file_empty ? 1 : 0;
-    cfg.net_policy_empty = net_empty ? 1 : 0;
-    if (cfg.exec_identity_flags & kExecIdentityFlagProtectConnect) {
-        cfg.net_policy_empty = 0;
-    }
-
-    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
-        return Error::system(errno, "Failed to update policy empty hints");
-    }
-    return {};
-}
-
-Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
-{
-    if (!state.config_map) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
-    }
-
-    uint32_t key = 0;
-    AgentConfig cfg{};
-    int fd = bpf_map__fd(state.config_map);
-
-    // Read current config
-    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
-        if (errno != ENOENT) {
-            return Error::system(errno, "Failed to read agent config");
-        }
-        cfg.enforce_signal = kEnforceSignalTerm;
-        cfg.event_sample_rate = 1;
-        cfg.sigkill_escalation_threshold = kSigkillEscalationThresholdDefault;
-        cfg.sigkill_escalation_window_seconds = kSigkillEscalationWindowSecondsDefault;
-    }
-
-    // Update deadline
-    cfg.deadman_deadline_ns = deadline_ns;
-
-    // Write back
-    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
-        return Error::system(errno, "Failed to update deadman deadline");
     }
     return {};
 }
@@ -1950,55 +1105,6 @@ Result<std::vector<InodeId>> read_survival_allowlist(BpfState& state)
         key = next_key;
     }
     return entries;
-}
-
-MapPressureReport check_map_pressure(const BpfState& state)
-{
-    // Map capacities must match bpf/aegis.bpf.c definitions
-    static constexpr size_t kMaxDenyInodes = 65536;
-    static constexpr size_t kMaxDenyPaths = 16384;
-    static constexpr size_t kMaxAllowCgroups = 1024;
-    static constexpr size_t kMaxAllowExecInodes = 65536;
-    static constexpr size_t kMaxDenyIpv4 = 65536;
-    static constexpr size_t kMaxDenyIpv6 = 65536;
-    static constexpr size_t kMaxDenyPorts = 4096;
-    static constexpr size_t kMaxDenyCidrV4 = 16384;
-    static constexpr size_t kMaxDenyCidrV6 = 16384;
-
-    MapPressureReport report{};
-    report.any_warning = false;
-    report.any_critical = false;
-    report.any_full = false;
-
-    auto add_map = [&](const char* name, bpf_map* map, size_t max_entries) {
-        if (!map) {
-            return;
-        }
-        size_t count = map_entry_count(map);
-        double util = max_entries > 0 ? static_cast<double>(count) / static_cast<double>(max_entries) : 0.0;
-        report.maps.push_back({name, count, max_entries, util});
-        if (util >= 1.0) {
-            report.any_full = true;
-        }
-        if (util >= 0.95) {
-            report.any_critical = true;
-        }
-        if (util >= 0.80) {
-            report.any_warning = true;
-        }
-    };
-
-    add_map("deny_inode", state.deny_inode, kMaxDenyInodes);
-    add_map("deny_path", state.deny_path, kMaxDenyPaths);
-    add_map("allow_cgroup", state.allow_cgroup, kMaxAllowCgroups);
-    add_map("allow_exec_inode", state.allow_exec_inode, kMaxAllowExecInodes);
-    add_map("deny_ipv4", state.deny_ipv4, kMaxDenyIpv4);
-    add_map("deny_ipv6", state.deny_ipv6, kMaxDenyIpv6);
-    add_map("deny_port", state.deny_port, kMaxDenyPorts);
-    add_map("deny_cidr_v4", state.deny_cidr_v4, kMaxDenyCidrV4);
-    add_map("deny_cidr_v6", state.deny_cidr_v6, kMaxDenyCidrV6);
-
-    return report;
 }
 
 } // namespace aegis

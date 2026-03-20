@@ -198,6 +198,55 @@ TEST(CmdNetworkDenyDelPortTest, RejectsInvalidProtocolAndDirection)
     EXPECT_EQ(cmd_network_deny_del_port(443, "tcp", "invalid"), 1);
 }
 
+TEST(CmdEmergencyToggleTest, RejectsMissingReason)
+{
+    EmergencyToggleOptions options{};
+    EXPECT_EQ(cmd_emergency_disable(options), 1);
+}
+
+TEST(CmdCapabilitiesTest, JsonOutputAddsTrailingNewline)
+{
+    TempDir temp_dir;
+    auto report_path = temp_dir.path() / "capabilities.json";
+    {
+        std::ofstream out(report_path);
+        ASSERT_TRUE(out.is_open());
+        out << "{\"runtime_state\":\"ENFORCE\"}";
+    }
+    ASSERT_EQ(::chmod(report_path.c_str(), 0644), 0);
+
+    ScopedEnvVar report_env("AEGIS_CAPABILITIES_REPORT_PATH", report_path.string());
+
+    testing::internal::CaptureStdout();
+    EXPECT_EQ(cmd_capabilities(true), 0);
+    const std::string stdout_output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(stdout_output, "{\"runtime_state\":\"ENFORCE\"}\n");
+}
+
+TEST(CmdExplainTest, JsonOutputReportsDenyPathMatch)
+{
+    TempDir temp_dir;
+    auto event_path = temp_dir.path() / "event.json";
+    auto policy_path = temp_dir.path() / "policy.conf";
+    {
+        std::ofstream out(event_path);
+        ASSERT_TRUE(out.is_open());
+        out << R"({"type":"block","path":"/usr/bin/dangerous","action":"BLOCK"})";
+    }
+    {
+        std::ofstream out(policy_path);
+        ASSERT_TRUE(out.is_open());
+        out << "version=1\n\n[deny_path]\n/usr/bin/dangerous\n";
+    }
+
+    testing::internal::CaptureStdout();
+    EXPECT_EQ(cmd_explain(event_path.string(), policy_path.string(), true), 0);
+    const std::string stdout_output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(stdout_output.find("\"inferred_rule\":\"deny_path\""), std::string::npos);
+    EXPECT_NE(stdout_output.find("\"deny_path\":true"), std::string::npos);
+    EXPECT_NE(stdout_output.find("\"path\":\"/usr/bin/dangerous\""), std::string::npos);
+}
+
 TEST(CmdPolicyApplySignedTest, RejectsRollbackBundleVersion)
 {
     auto keypair_result = generate_keypair();

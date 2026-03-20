@@ -1,0 +1,22 @@
+{
+  "type": "net_sendmsg_block",
+  "pid": 12350,
+  "ppid": 12345,
+  "start_time": 623456789,
+  "exec_id": "12350:623456789",
+  "trace_id": "12350:623456789",
+  "parent_start_time": 123456789,
+  "parent_exec_id": "12345:123456789",
+  "parent_trace_id": "12345:123456789",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+  "family": "ipv4",
+  "protocol": "udp",
+  "direction": "send",
+  "remote_ip": "10.0.0.3",
+  "remote_port": 53,
+  "local_port": 40000,
+  "rule_type": "cidr",
+  "action": "BLOCK",
+  "comm": "dns-client"
+}

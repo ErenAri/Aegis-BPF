@@ -162,7 +162,7 @@
     },
     "NetBlockEvent": {
       "type": "object",
-      "description": "Network block or audit event emitted on denied connect/bind attempts",
+      "description": "Network block or audit event emitted on denied connect, bind, listen, accept, or sendmsg attempts",
       "required": [
         "type",
         "pid",
@@ -181,7 +181,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["net_connect_block", "net_bind_block"],
+          "enum": ["net_connect_block", "net_bind_block", "net_listen_block", "net_accept_block", "net_sendmsg_block"],
           "description": "Event type identifier"
         },
         "pid": {
@@ -216,6 +216,10 @@
           "type": "string",
           "description": "Stable parent execution identifier (ppid:parent_start_time)"
         },
+        "parent_trace_id": {
+          "type": "string",
+          "description": "Parent correlation identifier (matches parent_exec_id)"
+        },
         "cgid": {
           "type": "integer",
           "minimum": 0,
@@ -226,39 +230,39 @@
           "description": "Full path of the cgroup"
         },
         "family": {
-          "type": "integer",
-          "enum": [2, 10],
-          "description": "Address family (2=AF_INET, 10=AF_INET6)"
+          "type": "string",
+          "enum": ["ipv4", "ipv6"],
+          "description": "Address family"
         },
         "protocol": {
-          "type": "integer",
-          "enum": [6, 17],
-          "description": "IP protocol (6=TCP, 17=UDP)"
+          "type": "string",
+          "pattern": "^(tcp|udp|[0-9]+)$",
+          "description": "IP protocol name or numeric value"
         },
         "direction": {
           "type": "string",
-          "enum": ["egress", "bind"],
-          "description": "Network direction (egress for connect, bind for listen)"
+          "enum": ["egress", "bind", "listen", "accept", "send"],
+          "description": "Network direction"
         },
         "remote_ip": {
           "type": "string",
-          "description": "Remote IP address (for connect events)"
+          "description": "Remote IP address (for connect/accept/send events)"
         },
         "remote_port": {
           "type": "integer",
           "minimum": 0,
           "maximum": 65535,
-          "description": "Remote port (for connect events)"
+          "description": "Remote port (for connect/accept/send events)"
         },
         "local_port": {
           "type": "integer",
           "minimum": 0,
           "maximum": 65535,
-          "description": "Local port (for bind events)"
+          "description": "Local port (for bind/listen/accept/send events)"
         },
         "rule_type": {
           "type": "string",
-          "enum": ["ip", "cidr", "port"],
+          "enum": ["ip", "cidr", "port", "ip_port", "identity"],
           "description": "Type of deny rule that matched"
         },
         "action": {
@@ -474,16 +478,81 @@
       "trace_id": "12347:323456789",
       "parent_start_time": 123456789,
       "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
       "cgid": 5678,
       "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
-      "family": 2,
-      "protocol": 6,
+      "family": "ipv4",
+      "protocol": "tcp",
       "direction": "egress",
       "remote_ip": "10.0.0.1",
       "remote_port": 443,
-      "rule_type": "ip",
+      "rule_type": "ip_port",
       "action": "TERM",
       "comm": "curl"
+    },
+    {
+      "type": "net_listen_block",
+      "pid": 12348,
+      "ppid": 12345,
+      "start_time": 423456789,
+      "exec_id": "12348:423456789",
+      "trace_id": "12348:423456789",
+      "parent_start_time": 123456789,
+      "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
+      "cgid": 5678,
+      "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "family": "ipv4",
+      "protocol": "tcp",
+      "direction": "listen",
+      "local_port": 8080,
+      "rule_type": "port",
+      "action": "BLOCK",
+      "comm": "python"
+    },
+    {
+      "type": "net_accept_block",
+      "pid": 12349,
+      "ppid": 12345,
+      "start_time": 523456789,
+      "exec_id": "12349:523456789",
+      "trace_id": "12349:523456789",
+      "parent_start_time": 123456789,
+      "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
+      "cgid": 5678,
+      "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "family": "ipv4",
+      "protocol": "tcp",
+      "direction": "accept",
+      "remote_ip": "10.0.0.2",
+      "remote_port": 51514,
+      "local_port": 8080,
+      "rule_type": "port",
+      "action": "TERM",
+      "comm": "nginx"
+    },
+    {
+      "type": "net_sendmsg_block",
+      "pid": 12350,
+      "ppid": 12345,
+      "start_time": 623456789,
+      "exec_id": "12350:623456789",
+      "trace_id": "12350:623456789",
+      "parent_start_time": 123456789,
+      "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
+      "cgid": 5678,
+      "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "family": "ipv4",
+      "protocol": "udp",
+      "direction": "send",
+      "remote_ip": "10.0.0.3",
+      "remote_port": 53,
+      "local_port": 40000,
+      "rule_type": "cidr",
+      "action": "BLOCK",
+      "comm": "dns-client"
     },
     {
       "type": "state_change",

@@ -1,10 +1,13 @@
 # AegisBPF Architecture
 
-This document describes the internal architecture of AegisBPF, an eBPF-based runtime security agent.
+This document describes the current internal architecture of AegisBPF, an
+eBPF-based runtime security agent.
 
 ## Overview
 
-AegisBPF uses eBPF (extended Berkeley Packet Filter) to monitor and optionally block process executions at the kernel level. It leverages the BPF LSM (Linux Security Module) hooks for enforcement and tracepoints for audit-only monitoring.
+AegisBPF uses eBPF to enforce file deny rules and selected network deny rules at
+the kernel boundary. It uses BPF LSM hooks for enforce-capable kernels and
+tracepoints for audit-only fallback when enforce-capable hooks are unavailable.
 
 ```
 +-----------------------------------------------------------------+
@@ -31,11 +34,12 @@ AegisBPF uses eBPF (extended Berkeley Packet Filter) to monitor and optionally b
 |  +---------------------------+-------------------------------+  |
 |  |                    BPF Subsystem                          |  |
 |  |  +-------------+  +-------------+  +---------------------+|  |
-|  |  | LSM Hook    |  | Tracepoint  |  |      BPF Maps       ||  |
+|  |  | LSM Hooks   |  | Tracepoints |  |      BPF Maps       ||  |
 |  |  | file_open   |  | sched_exec  |  |  +---------------+  ||  |
-|  |  |             |  |             |  |  | deny_inode    |  ||  |
-|  |  |  (enforce)  |  |  (audit)    |  |  | deny_path     |  ||  |
-|  |  |             |  |             |  |  | allow_cgroup  |  ||  |
+|  |  | inode_perm  |  | openat      |  |  | deny_inode    |  ||  |
+|  |  | connect     |  | fork / exit |  |  | deny_path     |  ||  |
+|  |  | bind/listen |  |             |  |  | net_* maps    |  ||  |
+|  |  | accept/send |  |             |  |  | allow_* maps  |  ||  |
 |  |  +------+------+  +------+------+  |  | events (ring) |  ||  |
 |  |         |                |         |  | block_stats   |  ||  |
 |  |         +----------------+---------+--+---------------+--+|  |
@@ -56,27 +60,41 @@ AegisBPF uses eBPF (extended Berkeley Packet Filter) to monitor and optionally b
 
 The BPF program runs in kernel context and implements:
 
-1. **LSM Hook (file_open)**
-   - Called on file open attempts
-   - Can return -EPERM to block access
-   - Checks deny_inode and allow_cgroup maps
+1. **File enforcement hooks**
+   - `file_open` and/or `inode_permission`
+   - Can return `-EPERM` to block file access
+   - Check deny and allow maps plus exec-identity state
    - Only active when BPF LSM is enabled
 
-2. **Tracepoints**
+2. **Network enforcement hooks**
+   - `socket_connect`, `socket_bind`, `socket_listen`, `socket_accept`,
+     `socket_sendmsg`
+   - Used for exact IP, CIDR, port, and exact IP:port deny logic
+   - `listen()` remains port-deny only in the current release
+   - These hooks are optional and may be disabled when the kernel does not
+     expose them
+
+3. **Tracepoints**
    - `sched_process_exec`: emits EXEC events for process executions
    - `sys_enter_openat`: emits audit-only BLOCK events for deny_path matches
    - Works without BPF LSM (audit-only paths)
 
-3. **BPF Maps**
+4. **BPF Maps**
    - `deny_inode`: Hash map of blocked (dev, inode) pairs
-   - `deny_path`: Hash map of blocked path hashes
+   - `deny_path`: Hash map of blocked paths
    - `allow_cgroup`: Hash map of allowed cgroup IDs
+   - `allow_exec_inode`: VERIFIED_EXEC allowlist map
+   - `deny_ipv4` / `deny_ipv6`: Exact IP deny maps
+   - `deny_cidr_v4` / `deny_cidr_v6`: CIDR deny maps
+   - `deny_port`: Port/protocol/direction deny map
+   - `deny_ip_port_v4` / `deny_ip_port_v6`: Exact remote IP:port deny maps
    - `events`: Ring buffer for sending events to userspace
    - `block_stats`: Global counters for blocks and drops
+   - `net_block_stats`, `net_ip_stats`, `net_port_stats`: Network counters
    - `deny_cgroup_stats`: Per-cgroup block counters
    - `deny_inode_stats`: Per-inode block counters
    - `deny_path_stats`: Per-path block counters
-   - `agent_meta`: Agent metadata (layout version)
+   - `agent_meta` / `agent_config`: Runtime metadata and posture config
 
 ### User Space
 
@@ -88,27 +106,40 @@ Entry point and CLI interface:
 - Dispatches to appropriate command handler
 - Manages signal handling for graceful shutdown
 
-#### src/bpf_ops.cpp
+#### BPF lifecycle modules
 
-BPF operations layer:
-- Loads BPF object file
-- Attaches programs to hooks
-- Manages map operations
-- Handles BPF filesystem pins
+- `src/bpf_ops.cpp`
+  - Owns object loading, map discovery, map sizing, pin reuse, and low-level
+    map operations
+- `src/bpf_attach.cpp`
+  - Owns attach orchestration and attach-contract state
+- `src/bpf_maps.cpp`
+  - Owns shadow-map helpers and map-pressure reporting
+- `src/bpf_integrity.cpp`
+  - Owns BPF object path resolution and integrity verification
+- `src/bpf_config.cpp`
+  - Owns agent config and agent-meta map updates
 
-Key functions:
-- `load_bpf()`: Load and optionally pin BPF objects
-- `attach_all()`: Attach programs to LSM/tracepoints
-- `add_deny_inode()`: Add entry to deny list
-- `read_block_stats_map()`: Read statistics
+#### Policy modules
 
-#### src/policy.cpp
+- `src/policy_parse.cpp`
+  - Parses INI-style policy files and validates syntax/semantics
+- `src/policy_runtime.cpp`
+  - Applies policy state to BPF maps, records applied policy, and handles
+    rollback
+- `src/policy.cpp`
+  - Handles export/write-facing policy helpers
 
-Policy file management:
-- Parses policy files (INI-style format)
-- Validates policy syntax and semantics
-- Applies policies to BPF maps
-- Handles policy rollback
+#### Daemon modules
+
+- `src/daemon.cpp`
+  - Startup orchestration, attach flow, capability report write, and event loop
+- `src/daemon_posture.cpp`
+  - Applied-policy requirement loading and capability report generation
+- `src/daemon_policy_gate.cpp`
+  - Enforce gating and audit-fallback decisions for policy requirements
+- `src/daemon_runtime.cpp`
+  - Runtime-state tracking, signal handling, and deadman heartbeat
 
 #### src/events.cpp
 
@@ -230,19 +261,25 @@ Error handling:
 
 ## BPF Map Pinning
 
-Maps are pinned to /sys/fs/bpf/aegis/ for persistence:
+Maps are pinned to `/sys/fs/bpf/aegisbpf/` for persistence:
 
 ```
-/sys/fs/bpf/aegis/
+/sys/fs/bpf/aegisbpf/
 +-- deny_inode          # Blocked inodes
 +-- deny_path           # Blocked paths
 +-- allow_cgroup        # Allowed cgroups
-+-- events              # Ring buffer (not pinned)
++-- allow_exec_inode    # VERIFIED_EXEC allowlist
++-- deny_ipv4 / deny_ipv6
++-- deny_cidr_v4 / deny_cidr_v6
++-- deny_port
++-- deny_ip_port_v4 / deny_ip_port_v6
 +-- block_stats         # Global counters
++-- net_block_stats     # Network counters
 +-- deny_cgroup_stats   # Per-cgroup stats
 +-- deny_inode_stats    # Per-inode stats
 +-- deny_path_stats     # Per-path stats
 +-- agent_meta          # Layout version
++-- agent_config        # Runtime config/posture
 ```
 
 Pinning allows:
@@ -278,10 +315,11 @@ Benefits:
 
 ## Concurrency Model
 
-- **Single-threaded main loop**: Ring buffer polling
+- **Single-threaded main loop**: ring buffer polling in the daemon
 - **Thread-safe caches**: CgroupPathCache and CwdCache use mutex
-- **Atomic counters**: std::atomic for journal error state
-- **No shared mutable state**: BPF operations are inherently safe
+- **Atomic runtime state**: runtime transitions and attach tunables use atomics
+- **Background heartbeat**: a dedicated deadman thread updates the kernel
+  deadline while the main loop remains single-threaded
 
 ## Security Considerations
 

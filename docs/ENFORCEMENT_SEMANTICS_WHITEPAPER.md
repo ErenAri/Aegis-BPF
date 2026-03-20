@@ -1,7 +1,7 @@
 # Enforcement Semantics Whitepaper (v1.0)
 
 Status: **published**  
-Applies to: `main` (2026-02-06)  
+Applies to: `main` (docs refreshed 2026-03-20)  
 Primary references: `docs/THREAT_MODEL.md`, `docs/POLICY_SEMANTICS.md`,
 `docs/BYPASS_CATALOG.md`, `docs/REFERENCE_ENFORCEMENT_SLICE.md`
 
@@ -14,8 +14,11 @@ and add/refresh evidence in the compliance suite.
 ### In-scope (ENFORCED)
 - **File deny** via BPF LSM (`file_open` / `inode_permission`) for configured
   rules (path/inode), as documented in `docs/POLICY_SEMANTICS.md`.
-- **Network deny** for configured connect/bind rules when LSM hooks are available
-  (see `docs/NETWORK_LAYER_DESIGN.md`).
+- **Network deny** for configured outbound exact IP, CIDR, port, and exact
+  IP:port rules on `connect()` and `sendmsg()`, plus port-deny `bind()` /
+  `listen()` coverage and accepted-peer `accept()` coverage when the
+  corresponding LSM hooks are available (see
+  `docs/NETWORK_LAYER_DESIGN.md`).
 
 ### Audited (AUDITED)
 - Tracepoint-based audit fallback for environments without enforce-capable LSM.
@@ -80,4 +83,3 @@ Any change to enforcement logic must:
 2) Update `docs/POLICY_SEMANTICS.md` or `docs/BYPASS_CATALOG.md` as needed.
 3) Add/refresh compliance suite evidence.
 4) Pass kernel‑matrix and e2e evidence gates.
-

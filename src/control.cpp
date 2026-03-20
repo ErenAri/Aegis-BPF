@@ -16,6 +16,7 @@
 #include <sstream>
 #include <thread>
 
+#include "json_scan.hpp"
 #include "logging.hpp"
 #include "sha256.hpp"
 #include "types.hpp"
@@ -55,217 +56,6 @@ bool parse_u32_env(const char* key, uint32_t& out)
     }
     out = static_cast<uint32_t>(v);
     return true;
-}
-
-bool find_json_value_pos(const std::string& json, const std::string& key, size_t& pos_out)
-{
-    const std::string needle = "\"" + key + "\"";
-    size_t pos = json.find(needle);
-    if (pos == std::string::npos) {
-        return false;
-    }
-    pos = json.find(':', pos + needle.size());
-    if (pos == std::string::npos) {
-        return false;
-    }
-    ++pos;
-    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
-        ++pos;
-    }
-    pos_out = pos;
-    return true;
-}
-
-bool extract_json_string_simple(const std::string& json, const std::string& key, std::string& out)
-{
-    size_t pos = 0;
-    if (!find_json_value_pos(json, key, pos)) {
-        return false;
-    }
-    if (pos >= json.size() || json[pos] != '"') {
-        return false;
-    }
-    ++pos;
-    std::string s;
-    while (pos < json.size()) {
-        char c = json[pos++];
-        if (c == '"') {
-            out = s;
-            return true;
-        }
-        if (c != '\\') {
-            s.push_back(c);
-            continue;
-        }
-        if (pos >= json.size()) {
-            return false;
-        }
-        char esc = json[pos++];
-        switch (esc) {
-            case '"':
-            case '\\':
-            case '/':
-                s.push_back(esc);
-                break;
-            case 'n':
-                s.push_back('\n');
-                break;
-            case 'r':
-                s.push_back('\r');
-                break;
-            case 't':
-                s.push_back('\t');
-                break;
-            case 'b':
-                s.push_back('\b');
-                break;
-            case 'f':
-                s.push_back('\f');
-                break;
-            case 'u': {
-                // Minimal \u00XX support (we never intentionally write non-ASCII here).
-                if (pos + 4 > json.size()) {
-                    return false;
-                }
-                unsigned int code = 0;
-                for (int i = 0; i < 4; ++i) {
-                    char h = json[pos++];
-                    code <<= 4;
-                    if (h >= '0' && h <= '9') {
-                        code |= static_cast<unsigned int>(h - '0');
-                    } else if (h >= 'a' && h <= 'f') {
-                        code |= static_cast<unsigned int>(10 + (h - 'a'));
-                    } else if (h >= 'A' && h <= 'F') {
-                        code |= static_cast<unsigned int>(10 + (h - 'A'));
-                    } else {
-                        return false;
-                    }
-                }
-                if (code <= 0x7f) {
-                    s.push_back(static_cast<char>(code));
-                } else {
-                    s.push_back('?');
-                }
-                break;
-            }
-            default:
-                return false;
-        }
-    }
-    return false;
-}
-
-bool extract_json_int64_simple(const std::string& json, const std::string& key, int64_t& out)
-{
-    size_t pos = 0;
-    if (!find_json_value_pos(json, key, pos)) {
-        return false;
-    }
-    bool neg = false;
-    if (pos < json.size() && json[pos] == '-') {
-        neg = true;
-        ++pos;
-    }
-    if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos]))) {
-        return false;
-    }
-    int64_t v = 0;
-    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
-        int digit = json[pos++] - '0';
-        if (v > (INT64_MAX - digit) / 10) {
-            return false;
-        }
-        v = v * 10 + digit;
-    }
-    out = neg ? -v : v;
-    return true;
-}
-
-bool extract_json_uint64_simple(const std::string& json, const std::string& key, uint64_t& out)
-{
-    size_t pos = 0;
-    if (!find_json_value_pos(json, key, pos)) {
-        return false;
-    }
-    if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos]))) {
-        return false;
-    }
-    uint64_t v = 0;
-    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
-        int digit = json[pos++] - '0';
-        if (v > (UINT64_MAX - static_cast<uint64_t>(digit)) / 10) {
-            return false;
-        }
-        v = v * 10 + static_cast<uint64_t>(digit);
-    }
-    out = v;
-    return true;
-}
-
-bool extract_json_bool_simple(const std::string& json, const std::string& key, bool& out)
-{
-    size_t pos = 0;
-    if (!find_json_value_pos(json, key, pos)) {
-        return false;
-    }
-    if (json.compare(pos, 4, "true") == 0) {
-        out = true;
-        return true;
-    }
-    if (json.compare(pos, 5, "false") == 0) {
-        out = false;
-        return true;
-    }
-    return false;
-}
-
-bool extract_json_int64_array_simple(const std::string& json, const std::string& key, std::vector<int64_t>& out)
-{
-    size_t pos = 0;
-    if (!find_json_value_pos(json, key, pos)) {
-        return false;
-    }
-    if (pos >= json.size() || json[pos] != '[') {
-        return false;
-    }
-    ++pos;
-    std::vector<int64_t> vals;
-    while (pos < json.size()) {
-        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
-            ++pos;
-        }
-        if (pos < json.size() && json[pos] == ']') {
-            out = vals;
-            return true;
-        }
-        bool neg = false;
-        if (pos < json.size() && json[pos] == '-') {
-            neg = true;
-            ++pos;
-        }
-        if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos]))) {
-            return false;
-        }
-        int64_t n = 0;
-        while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
-            int digit = json[pos++] - '0';
-            if (n > (INT64_MAX - digit) / 10) {
-                return false;
-            }
-            n = n * 10 + digit;
-        }
-        int64_t v = neg ? -n : n;
-
-        vals.push_back(v);
-
-        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) {
-            ++pos;
-        }
-        if (pos < json.size() && json[pos] == ',') {
-            ++pos;
-        }
-    }
-    return false;
 }
 
 } // namespace
@@ -387,28 +177,28 @@ Result<EmergencyControlState> read_emergency_control_state(const std::string& pa
     EmergencyControlState state{};
     {
         int64_t schema_version = 0;
-        if (extract_json_int64_simple(json, "schema_version", schema_version)) {
+        if (json_scan::extract_int64(json, "schema_version", schema_version)) {
             if (schema_version > 0 && schema_version <= INT32_MAX) {
                 state.schema_version = static_cast<int>(schema_version);
             }
         }
     }
-    extract_json_bool_simple(json, "enabled", state.enabled);
-    extract_json_int64_simple(json, "changed_at_unix", state.changed_at_unix);
+    json_scan::extract_bool(json, "enabled", state.enabled);
+    json_scan::extract_int64(json, "changed_at_unix", state.changed_at_unix);
     {
         uint64_t v = 0;
-        if (extract_json_uint64_simple(json, "uid", v) && v <= UINT32_MAX) {
+        if (json_scan::extract_uint64(json, "uid", v) && v <= UINT32_MAX) {
             state.uid = static_cast<uint32_t>(v);
         }
-        if (extract_json_uint64_simple(json, "pid", v) && v <= UINT32_MAX) {
+        if (json_scan::extract_uint64(json, "pid", v) && v <= UINT32_MAX) {
             state.pid = static_cast<uint32_t>(v);
         }
-        extract_json_uint64_simple(json, "transitions_total", state.transitions_total);
+        json_scan::extract_uint64(json, "transitions_total", state.transitions_total);
     }
-    extract_json_string_simple(json, "node_name", state.node_name);
-    extract_json_string_simple(json, "reason", state.reason);
-    extract_json_string_simple(json, "reason_sha256", state.reason_sha256);
-    extract_json_int64_array_simple(json, "transition_times_unix", state.transition_times_unix);
+    json_scan::extract_string(json, "node_name", state.node_name);
+    json_scan::extract_string(json, "reason", state.reason);
+    json_scan::extract_string(json, "reason_sha256", state.reason_sha256);
+    json_scan::extract_int64_array(json, "transition_times_unix", state.transition_times_unix);
     if (state.transition_times_unix.size() > kMaxStoredTransitionTimes) {
         state.transition_times_unix.erase(state.transition_times_unix.begin(),
                                           state.transition_times_unix.end() - kMaxStoredTransitionTimes);

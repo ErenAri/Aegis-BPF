@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'CMakeLists.txt'
+      - 'config/vendored_deps.json'
+      - 'sbom/**'
+      - 'scripts/check_vendored_dependencies.sh'
+      - 'scripts/generate_sbom.sh'
       - 'src/crypto.cpp'
       - 'docs/VENDORED_DEPENDENCIES.md'
   schedule:

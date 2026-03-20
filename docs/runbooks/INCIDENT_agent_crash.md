@@ -12,7 +12,7 @@
    - `journalctl -u aegisbpf -S -30m`
 3. Verify kernel/BPF readiness:
    - `aegisbpf health --json`
-4. Confirm pinned maps still present under `/sys/fs/bpf/aegis/`.
+4. Confirm pinned maps still present under `/sys/fs/bpf/aegisbpf/`.
 
 ## Resolution Procedures
 1. Restart service and verify health checks pass.

@@ -13,10 +13,12 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
+import re
 import sys
 
 cfg_path = pathlib.Path(sys.argv[1])
 cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+repo_root = cfg_path.resolve().parent.parent
 
 errors: list[str] = []
 
@@ -46,13 +48,48 @@ last_reviewed = dt.date.fromisoformat(str(entry["last_reviewed"]))
 today = dt.date.today()
 age_days = (today - last_reviewed).days
 
+doc_path = repo_root / "docs" / "VENDORED_DEPENDENCIES.md"
+if not doc_path.exists():
+    errors.append("docs/VENDORED_DEPENDENCIES.md not found")
+else:
+    doc_text = doc_path.read_text(encoding="utf-8")
+    if f"| TweetNaCl | `src/tweetnacl.c`, `src/tweetnacl.h` | {source} | {version} |" not in doc_text:
+        errors.append("docs/VENDORED_DEPENDENCIES.md does not match vendored TweetNaCl metadata")
+
+sbom_files = (
+    repo_root / "sbom" / "sbom.spdx.json",
+    repo_root / "sbom" / "sbom.cyclonedx.json",
+    repo_root / "sbom" / "sbom.txt",
+)
+for sbom_path in sbom_files:
+    if not sbom_path.exists():
+        errors.append(f"{sbom_path} not found")
+        continue
+    sbom_text = sbom_path.read_text(encoding="utf-8", errors="replace")
+    if version not in sbom_text:
+        errors.append(f"{sbom_path}: missing vendored TweetNaCl version {version}")
+
+sbom_script = repo_root / "scripts" / "generate_sbom.sh"
+if not sbom_script.exists():
+    errors.append("scripts/generate_sbom.sh not found")
+else:
+    script_text = sbom_script.read_text(encoding="utf-8")
+    match = re.search(r'TWEETNACL_VERSION="([^"]+)"', script_text)
+    if not match:
+        errors.append("scripts/generate_sbom.sh: missing TWEETNACL_VERSION assignment")
+    elif match.group(1) != version:
+        errors.append(
+            "scripts/generate_sbom.sh: "
+            f"TWEETNACL_VERSION={match.group(1)} does not match vendored metadata {version}"
+        )
+
 if age_days > review_interval:
     errors.append(
         f"tweetnacl review is stale: last_reviewed={last_reviewed.isoformat()} "
         f"age={age_days}d limit={review_interval}d"
     )
 
-tweetnacl_path = pathlib.Path("src/tweetnacl.c")
+tweetnacl_path = repo_root / "src" / "tweetnacl.c"
 if not tweetnacl_path.exists():
     errors.append("src/tweetnacl.c not found")
 else:

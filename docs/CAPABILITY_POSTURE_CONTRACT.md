@@ -11,12 +11,13 @@ and Helm defaults.
 - Runtime report: `/var/lib/aegisbpf/capabilities.json`
 - JSON schema: `config/schemas/capabilities_v1.json`
 - Posture evaluator: `scripts/evaluate_capability_posture.py`
-- Runtime producer: `src/daemon.cpp`
+- Runtime producer: `src/daemon.cpp`, `src/daemon_policy_gate.cpp`,
+  `src/daemon_posture.cpp`
 
 ## Schema Contract
 
 - `schema_version`: integer compatibility anchor (currently `1`)
-- `schema_semver`: semantic contract version (currently `1.2.0`)
+- `schema_semver`: semantic contract version (currently `1.5.0`)
 - Consumers must reject malformed payloads and treat unknown versions as
   non-compliant posture.
 

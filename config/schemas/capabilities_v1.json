@@ -84,7 +84,10 @@
         "lsm_bprm_check_security",
         "lsm_file_mmap",
         "lsm_socket_connect",
-        "lsm_socket_bind"
+        "lsm_socket_bind",
+        "lsm_socket_listen",
+        "lsm_socket_accept",
+        "lsm_socket_sendmsg"
       ],
       "properties": {
         "lsm_file_open": { "type": "boolean" },
@@ -92,7 +95,10 @@
         "lsm_bprm_check_security": { "type": "boolean" },
         "lsm_file_mmap": { "type": "boolean" },
         "lsm_socket_connect": { "type": "boolean" },
-        "lsm_socket_bind": { "type": "boolean" }
+        "lsm_socket_bind": { "type": "boolean" },
+        "lsm_socket_listen": { "type": "boolean" },
+        "lsm_socket_accept": { "type": "boolean" },
+        "lsm_socket_sendmsg": { "type": "boolean" }
       }
     },
     "policy": {

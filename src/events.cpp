@@ -105,7 +105,11 @@ void journal_send_net_block(const NetBlockEvent& ev, const std::string& payload,
     int priority = LOG_WARNING; // Network blocks are warnings by default
     std::string protocol = (ev.protocol == 6) ? "tcp" : (ev.protocol == 17) ? "udp" : std::to_string(ev.protocol);
     std::string family = (ev.family == 2) ? "ipv4" : "ipv6";
-    std::string direction = (ev.direction == 0) ? "egress" : "bind";
+    std::string direction = (ev.direction == 0)   ? "egress"
+                            : (ev.direction == 1) ? "bind"
+                            : (ev.direction == 2) ? "listen"
+                            : (ev.direction == 3) ? "accept"
+                                                  : "send";
     std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
     std::string action = to_string(ev.action, sizeof(ev.action));
 
@@ -263,8 +267,24 @@ void print_net_block_event(const NetBlockEvent& ev)
     std::string exec_id = build_exec_id(ev.pid, ev.start_time);
     std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
 
-    std::string event_type = (ev.direction == 0) ? "net_connect_block" : "net_bind_block";
-    std::string direction = (ev.direction == 0) ? "egress" : "bind";
+    std::string event_type;
+    std::string direction;
+    if (ev.direction == 0) {
+        event_type = "net_connect_block";
+        direction = "egress";
+    } else if (ev.direction == 1) {
+        event_type = "net_bind_block";
+        direction = "bind";
+    } else if (ev.direction == 2) {
+        event_type = "net_listen_block";
+        direction = "listen";
+    } else if (ev.direction == 3) {
+        event_type = "net_accept_block";
+        direction = "accept";
+    } else {
+        event_type = "net_sendmsg_block";
+        direction = "send";
+    }
 
     oss << "{\"type\":\"" << event_type << "\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
         << ",\"start_time\":" << ev.start_time;
@@ -284,16 +304,18 @@ void print_net_block_event(const NetBlockEvent& ev)
     oss << ",\"protocol\":\"" << protocol_to_string(ev.protocol) << "\"";
     oss << ",\"direction\":\"" << direction << "\"";
 
-    if (ev.direction == 0) {
-        // Egress (connect) - show remote address
+    if (ev.direction == 0 || ev.direction == 3 || ev.direction == 4) {
+        // Outbound/accepted socket events - show remote address
         if (ev.family == 2) {
             oss << ",\"remote_ip\":\"" << format_ipv4_addr(ev.remote_ipv4) << "\"";
         } else if (ev.family == 10) {
             oss << ",\"remote_ip\":\"" << format_ipv6_addr(ev.remote_ipv6) << "\"";
         }
         oss << ",\"remote_port\":" << ev.remote_port;
-    } else {
-        // Bind - show local port
+    }
+
+    if (ev.direction != 0) {
+        // Bind/listen - show local port
         oss << ",\"local_port\":" << ev.local_port;
     }
 
@@ -329,7 +351,9 @@ int handle_event(void* ctx, void* data, size_t)
         }
     } else if (e->type == EVENT_BLOCK) {
         print_block_event(e->block);
-    } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK) {
+    } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK ||
+               e->type == EVENT_NET_LISTEN_BLOCK || e->type == EVENT_NET_ACCEPT_BLOCK ||
+               e->type == EVENT_NET_SENDMSG_BLOCK) {
         print_net_block_event(e->net_block);
     }
     return 0;

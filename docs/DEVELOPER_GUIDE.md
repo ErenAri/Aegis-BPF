@@ -171,9 +171,12 @@ aegisbpf/
 |   +-- main.cpp            # Entry point
 |   +-- cli_*.cpp/hpp       # CLI command handlers
 |   +-- commands_*.cpp/hpp  # Command implementations
-|   +-- daemon.cpp/hpp      # Main daemon loop
-|   +-- bpf_ops.cpp/hpp     # BPF operations
-|   +-- policy.cpp/hpp      # Policy management
+|   +-- daemon.cpp/hpp      # Daemon startup + event loop orchestration
+|   +-- daemon_*.cpp/hpp    # Runtime state, posture, and gating modules
+|   +-- bpf_ops.cpp/hpp     # BPF load/discovery + low-level map ops
+|   +-- bpf_*.cpp/hpp       # Attach, config, integrity, and map helpers
+|   +-- policy.cpp/hpp      # Policy export/write helpers
+|   +-- policy_*.cpp/hpp    # Policy parse + runtime apply/rollback
 |   +-- network_ops.cpp/hpp # Network rule handling
 |   +-- crypto.cpp/hpp      # Ed25519 signing
 |   +-- events.cpp/hpp      # Event handling
@@ -203,7 +206,10 @@ aegisbpf/
 |---------|---------|
 | `cli_*.cpp` | CLI argument parsing and validation |
 | `commands_*.cpp` | Business logic for CLI commands |
-| `*_ops.cpp` | Low-level operations (BPF, network) |
+| `daemon_*.cpp` | Daemon runtime, posture, and enforce-gating helpers |
+| `bpf_*.cpp` | BPF lifecycle helpers (attach, config, integrity, maps) |
+| `policy_*.cpp` | Policy parsing and runtime application helpers |
+| `*_ops.cpp` | Low-level operations still exposed as stable entry points |
 | `*.hpp` | Header files (declarations) |
 | `test_*.cpp` | Unit test files |
 | `fuzz_*.cpp` | Fuzzing harnesses |

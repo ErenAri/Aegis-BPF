@@ -33,7 +33,7 @@ RUNTIME DEPENDENCIES
    Usage:       BPF program loading and management
 
 2. TweetNaCl
-   Version:     20140427
+   Version:     20140917
    Type:        Vendored Library
    License:     Public Domain
    Description: Compact cryptographic library (Ed25519 signatures)

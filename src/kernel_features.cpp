@@ -136,12 +136,6 @@ static bool check_ringbuf_support()
     return kernel_version_at_least(5, 8, 0);
 }
 
-static bool check_sk_storage_support()
-{
-    // BPF_MAP_TYPE_SK_STORAGE was added in kernel 5.2
-    return kernel_version_at_least(5, 2, 0);
-}
-
 static bool check_bpf_syscall()
 {
     // BPF syscall check - if we can read /proc/sys/kernel/unprivileged_bpf_disabled
@@ -175,7 +169,6 @@ Result<KernelFeatures> detect_kernel_features()
     features.bpf_syscall = check_bpf_syscall();
     features.ringbuf = check_ringbuf_support();
     features.tracepoints = check_tracepoints_available();
-    features.sk_storage = check_sk_storage_support();
     features.ima = check_ima_available();
     features.ima_appraisal = features.ima && check_ima_appraisal_enabled();
 
@@ -197,8 +190,14 @@ EnforcementCapability determine_capability(const KernelFeatures& features)
         return EnforcementCapability::Disabled;
     }
 
+    // The shipped BPF object uses ring buffer maps for event delivery, so
+    // ring buffer support is required for both enforce and audit operation.
+    if (!features.ringbuf) {
+        return EnforcementCapability::Disabled;
+    }
+
     // Check for full enforcement
-    if (features.bpf_lsm && features.ringbuf) {
+    if (features.bpf_lsm) {
         return EnforcementCapability::Full;
     }
 
@@ -240,9 +239,6 @@ std::string capability_explanation(const KernelFeatures& features, EnforcementCa
                     << "To enable, add 'lsm=bpf' (or 'lsm=landlock,lockdown,yama,bpf') "
                     << "to kernel boot parameters. ";
             }
-            if (!features.ringbuf) {
-                oss << "Ring buffer not available (requires kernel 5.8+). ";
-            }
             oss << "File access will be logged but not blocked.";
             break;
 
@@ -257,6 +253,12 @@ std::string capability_explanation(const KernelFeatures& features, EnforcementCa
             }
             if (!features.btf) {
                 missing.push_back("BTF (/sys/kernel/btf/vmlinux)");
+            }
+            if (!features.ringbuf) {
+                missing.push_back("ring buffer support (kernel 5.8+)");
+            }
+            if (!features.bpf_lsm && !features.tracepoints) {
+                missing.push_back("either BPF LSM or tracepoints");
             }
             for (size_t i = 0; i < missing.size(); ++i) {
                 if (i > 0)

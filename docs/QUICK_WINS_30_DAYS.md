@@ -54,7 +54,6 @@ Add to README.md:
 | Inode-first enforcement   | ✅       | ❌    | ❌       | ❌     |
 | PID reuse protection      | ✅       | ❌    | ❌       | ❌     |
 | Network policy (L3/L4)    | ✅       | ✅    | ✅       | ✅     |
-| Socket-level caching      | ✅       | ❌    | ❌       | ❌     |
 | **Operations**            |          |       |          |        |
 | Policy hot-reload         | <50ms    | N/A   | ~200ms   | N/A    |
 | Signed policies           | ✅       | ❌    | ❌       | ❌     |
@@ -68,7 +67,7 @@ Add to README.md:
 *Estimated from public benchmarks and documentation. Your mileage may vary.
 
 **Key Differentiators:**
-1. **Sub-30% overhead** via inode-first + socket caching (vs 40-50% typical)
+1. **Low-overhead inode-first enforcement** with fast policy reloads
 2. **PID reuse attack prevention** - unique among eBPF security tools
 3. **Signed policy bundles** with Ed25519 verification
 4. **Break-glass recovery** - failsafe for enforcement errors
@@ -359,7 +358,7 @@ sudo apt-get update && sudo apt-get install -y falco
    - Deadline: typically June
 
 3. **USENIX LISA 2026** (December):
-   - Title: "AegisBPF: Sub-30% Overhead Runtime Security via eBPF LSM"
+   - Title: "AegisBPF: Low-Overhead Runtime Security via eBPF LSM"
    - 20-minute talk
    - Deadline: typically July
 
@@ -519,7 +518,7 @@ Use remaining time to:
 - Prepare talk slides (if proposals accepted)
 - Fix bugs reported by new users
 - Update benchmarks based on Falco version changes
-- Plan next blog post ("Socket Caching: Near-Zero Network Overhead")
+- Plan next blog post ("Low-Overhead Network Policy in eBPF")
 
 ---
 

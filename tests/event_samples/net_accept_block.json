@@ -1,0 +1,22 @@
+{
+  "type": "net_accept_block",
+  "pid": 12349,
+  "ppid": 12345,
+  "start_time": 523456789,
+  "exec_id": "12349:523456789",
+  "trace_id": "12349:523456789",
+  "parent_start_time": 123456789,
+  "parent_exec_id": "12345:123456789",
+  "parent_trace_id": "12345:123456789",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+  "family": "ipv4",
+  "protocol": "tcp",
+  "direction": "accept",
+  "remote_ip": "10.0.0.2",
+  "remote_port": 51514,
+  "local_port": 8080,
+  "rule_type": "port",
+  "action": "TERM",
+  "comm": "nginx"
+}

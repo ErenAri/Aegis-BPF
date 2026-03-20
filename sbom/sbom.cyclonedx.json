@@ -42,7 +42,7 @@
     {
       "type": "library",
       "name": "TweetNaCl",
-      "version": "20140427",
+      "version": "20140917",
       "description": "Compact cryptographic library",
       "licenses": [
         {
@@ -51,7 +51,7 @@
           }
         }
       ],
-      "purl": "pkg:generic/tweetnacl@20140427"
+      "purl": "pkg:generic/tweetnacl@20140917"
     },
     {
       "type": "library",
@@ -89,7 +89,7 @@
       "ref": "pkg:github/aegisbpf/aegisbpf@v0.1.1-1-gf5eadef",
       "dependsOn": [
         "pkg:github/libbpf/libbpf@1.3.0",
-        "pkg:generic/tweetnacl@20140427"
+        "pkg:generic/tweetnacl@20140917"
       ]
     }
   ]

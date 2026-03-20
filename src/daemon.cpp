@@ -12,7 +12,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -20,16 +19,16 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <mutex>
 #include <thread>
 
 #include "bpf_ops.hpp"
+#include "daemon_policy_gate.hpp"
+#include "daemon_posture.hpp"
+#include "daemon_runtime.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
-#include "exec_identity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
-#include "policy.hpp"
 #include "seccomp.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
@@ -38,86 +37,7 @@
 namespace aegis {
 
 namespace {
-volatile sig_atomic_t g_exiting = 0;
-std::atomic<bool> g_heartbeat_running{false};
-std::atomic<int> g_forced_exit_code{0};
 Result<void> setup_agent_cgroup(BpfState& state);
-
-enum class RuntimeState { Enforce, AuditFallback, Degraded };
-
-struct RuntimeStateTracker {
-    RuntimeState current = RuntimeState::Enforce;
-    uint64_t transition_id = 0;
-    uint64_t degradation_count = 0;
-    bool strict_mode = false;
-    bool enforce_requested = false;
-};
-
-std::mutex g_runtime_state_mu;
-RuntimeStateTracker g_runtime_state;
-
-const char* runtime_state_name(RuntimeState state)
-{
-    switch (state) {
-        case RuntimeState::Enforce:
-            return "ENFORCE";
-        case RuntimeState::AuditFallback:
-            return "AUDIT_FALLBACK";
-        case RuntimeState::Degraded:
-            return "DEGRADED";
-    }
-    return "DEGRADED";
-}
-
-void reset_runtime_state(bool strict_mode, bool enforce_requested)
-{
-    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
-    g_runtime_state = RuntimeStateTracker{};
-    g_runtime_state.strict_mode = strict_mode;
-    g_runtime_state.enforce_requested = enforce_requested;
-}
-
-RuntimeStateTracker snapshot_runtime_state()
-{
-    std::lock_guard<std::mutex> lock(g_runtime_state_mu);
-    return g_runtime_state;
-}
-
-void emit_runtime_state_change(RuntimeState state, const std::string& reason_code, const std::string& detail)
-{
-    RuntimeStateTracker snapshot;
-    {
-        std::lock_guard<std::mutex> lock(g_runtime_state_mu);
-        g_runtime_state.current = state;
-        ++g_runtime_state.transition_id;
-        if (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded) {
-            ++g_runtime_state.degradation_count;
-        }
-        snapshot = g_runtime_state;
-    }
-
-    emit_state_change_event(runtime_state_name(state), reason_code, detail, snapshot.strict_mode,
-                            snapshot.transition_id, snapshot.degradation_count);
-
-    logger().log(SLOG_INFO("AEGIS_STATE_CHANGE")
-                     .field("event", "AEGIS_STATE_CHANGE")
-                     .field("event_version", static_cast<int64_t>(1))
-                     .field("state", runtime_state_name(state))
-                     .field("reason_code", reason_code)
-                     .field("detail", detail)
-                     .field("strict_mode", snapshot.strict_mode)
-                     .field("transition_id", static_cast<int64_t>(snapshot.transition_id))
-                     .field("degradation_count", static_cast<int64_t>(snapshot.degradation_count)));
-
-    if (snapshot.strict_mode && snapshot.enforce_requested &&
-        (state == RuntimeState::AuditFallback || state == RuntimeState::Degraded)) {
-        logger().log(SLOG_ERROR("Strict degrade mode triggered failure")
-                         .field("reason_code", reason_code)
-                         .field("state", runtime_state_name(state)));
-        g_forced_exit_code.store(1);
-        g_exiting = 1;
-    }
-}
 
 // Production defaults for daemon dependencies
 DaemonDeps make_default_deps()
@@ -137,11 +57,6 @@ DaemonDeps make_default_deps()
 }
 
 DaemonDeps g_deps = make_default_deps();
-
-void handle_signal(int)
-{
-    g_exiting = 1;
-}
 
 class ScopedEnvOverride {
   public:
@@ -172,132 +87,6 @@ class ScopedEnvOverride {
     bool had_previous_ = false;
     std::string previous_;
 };
-
-void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_threshold,
-                      uint32_t deny_rate_breach_limit)
-{
-    uint32_t sleep_interval = ttl_seconds / 2;
-    if (sleep_interval < 1) {
-        sleep_interval = 1;
-    }
-
-    uint64_t last_block_count = 0;
-    uint32_t rate_breach_count = 0;
-    bool deny_rate_state_emitted = false;
-    bool map_capacity_state_emitted = false;
-
-    // Seed initial block count
-    if (deny_rate_threshold > 0 && state->block_stats) {
-        auto stats = read_block_stats_map(state->block_stats);
-        if (stats) {
-            last_block_count = stats->blocks;
-        }
-    }
-
-    while (g_heartbeat_running.load() && !g_exiting) {
-        // Update deadman deadline
-        struct timespec ts {};
-        clock_gettime(CLOCK_BOOTTIME, &ts);
-        uint64_t now_ns = static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
-        uint64_t new_deadline = now_ns + (static_cast<uint64_t>(ttl_seconds) * 1000000000ULL);
-
-        auto result = update_deadman_deadline(*state, new_deadline);
-        if (!result) {
-            logger().log(SLOG_WARN("Failed to update deadman deadline").field("error", result.error().to_string()));
-        }
-
-        // Monitor deny rate and auto-revert to audit-only if threshold exceeded
-        if (deny_rate_threshold > 0 && state->block_stats) {
-            auto stats = read_block_stats_map(state->block_stats);
-            if (stats) {
-                uint64_t current_blocks = stats->blocks;
-                uint64_t delta = current_blocks - last_block_count;
-                double rate = static_cast<double>(delta) / static_cast<double>(sleep_interval);
-                if (rate > static_cast<double>(deny_rate_threshold)) {
-                    ++rate_breach_count;
-                    logger().log(SLOG_WARN("Deny rate exceeded threshold")
-                                     .field("rate", rate)
-                                     .field("threshold", static_cast<int64_t>(deny_rate_threshold))
-                                     .field("breach_count", static_cast<int64_t>(rate_breach_count))
-                                     .field("breach_limit", static_cast<int64_t>(deny_rate_breach_limit)));
-                    if (rate_breach_count >= deny_rate_breach_limit) {
-                        // Force audit-only mode
-                        AgentConfig cfg{};
-                        cfg.audit_only = 1;
-                        cfg.deadman_enabled = 1;
-                        cfg.deadman_deadline_ns = new_deadline;
-                        cfg.deadman_ttl_seconds = ttl_seconds;
-                        cfg.event_sample_rate = 1;
-                        auto revert_result = set_agent_config_full(*state, cfg);
-                        if (revert_result) {
-                            logger().log(SLOG_ERROR("Auto-revert: deny rate exceeded threshold, switched to audit-only")
-                                             .field("rate", rate)
-                                             .field("threshold", static_cast<int64_t>(deny_rate_threshold)));
-                            if (!deny_rate_state_emitted) {
-                                deny_rate_state_emitted = true;
-                                emit_runtime_state_change(RuntimeState::AuditFallback, "DENY_RATE_THRESHOLD_EXCEEDED",
-                                                          "rate=" + std::to_string(rate) +
-                                                              ",threshold=" + std::to_string(deny_rate_threshold));
-                            }
-                        } else {
-                            logger().log(
-                                SLOG_ERROR("Auto-revert failed").field("error", revert_result.error().to_string()));
-                        }
-                        // Disable further rate checking after revert
-                        deny_rate_threshold = 0;
-                    }
-                } else {
-                    rate_breach_count = 0;
-                }
-                last_block_count = current_blocks;
-            }
-        }
-
-        // Check map pressure and log warnings
-        auto pressure = check_map_pressure(*state);
-        if (pressure.any_full) {
-            for (const auto& m : pressure.maps) {
-                if (m.utilization >= 1.0) {
-                    logger().log(SLOG_ERROR("Map at capacity - new entries will be rejected")
-                                     .field("map", m.name)
-                                     .field("entries", static_cast<int64_t>(m.entry_count))
-                                     .field("max_entries", static_cast<int64_t>(m.max_entries)));
-                    if (!map_capacity_state_emitted) {
-                        map_capacity_state_emitted = true;
-                        emit_runtime_state_change(RuntimeState::Degraded, "MAP_CAPACITY_EXCEEDED",
-                                                  "map=" + m.name + ",entries=" + std::to_string(m.entry_count) +
-                                                      ",max=" + std::to_string(m.max_entries));
-                    }
-                }
-            }
-        } else if (pressure.any_critical) {
-            for (const auto& m : pressure.maps) {
-                if (m.utilization >= 0.95) {
-                    logger().log(SLOG_ERROR("Map near capacity")
-                                     .field("map", m.name)
-                                     .field("entries", static_cast<int64_t>(m.entry_count))
-                                     .field("max_entries", static_cast<int64_t>(m.max_entries))
-                                     .field("utilization_pct", static_cast<int64_t>(m.utilization * 100)));
-                }
-            }
-        } else if (pressure.any_warning) {
-            for (const auto& m : pressure.maps) {
-                if (m.utilization >= 0.80) {
-                    logger().log(SLOG_WARN("Map utilization high")
-                                     .field("map", m.name)
-                                     .field("entries", static_cast<int64_t>(m.entry_count))
-                                     .field("max_entries", static_cast<int64_t>(m.max_entries))
-                                     .field("utilization_pct", static_cast<int64_t>(m.utilization * 100)));
-                }
-            }
-        }
-
-        // Sleep for TTL/2, but check exit flags more frequently.
-        for (uint32_t i = 0; i < sleep_interval && g_heartbeat_running.load() && !g_exiting; ++i) {
-            sleep(1);
-        }
-    }
-}
 
 Result<void> setup_agent_cgroup(BpfState& state)
 {
@@ -345,275 +134,6 @@ const char* enforce_signal_name(uint8_t signal)
         default:
             return "sigterm";
     }
-}
-
-std::string applied_policy_path_from_env()
-{
-    const char* env = std::getenv("AEGIS_POLICY_APPLIED_PATH");
-    if (env && *env) {
-        return std::string(env);
-    }
-    return kPolicyAppliedPath;
-}
-
-std::string capabilities_report_path_from_env()
-{
-    const char* env = std::getenv("AEGIS_CAPABILITIES_REPORT_PATH");
-    if (env && *env) {
-        return std::string(env);
-    }
-    return kCapabilitiesReportPath;
-}
-
-void on_exec_identity_event(void* user_ctx, const ExecEvent& ev)
-{
-    auto* enforcer = static_cast<ExecIdentityEnforcer*>(user_ctx);
-    if (!enforcer) {
-        return;
-    }
-    enforcer->on_exec(ev);
-}
-
-Result<bool> read_exec_identity_mode_enabled(const BpfState& state)
-{
-    if (!state.exec_identity_mode) {
-        return Error(ErrorCode::BpfMapOperationFailed, "Exec identity mode map not available");
-    }
-    uint32_t key = 0;
-    uint8_t value = 0;
-    if (bpf_map_lookup_elem(bpf_map__fd(state.exec_identity_mode), &key, &value) == 0) {
-        return value != 0;
-    }
-    if (errno == ENOENT) {
-        return false;
-    }
-    return Error::system(errno, "Failed to read exec identity mode map");
-}
-
-struct AppliedPolicyRequirements {
-    bool snapshot_present = false;
-    bool parse_ok = false;
-    bool network_required = false;
-    bool network_connect_required = false;
-    bool network_bind_required = false;
-    bool exec_identity_required = false;
-    bool exec_allowlist_required = false;             // [allow_binary_hash]
-    bool verified_exec_required = false;              // [protect_connect]/[protect_path]
-    bool verified_exec_runtime_deps_required = false; // [protect_runtime_deps]
-    bool protect_connect = false;
-    bool protect_runtime_deps = false;
-    bool ima_appraisal_required = false; // [require_ima_appraisal]
-    size_t protect_path_count = 0;
-    size_t network_rule_count = 0;
-    std::vector<std::string> allow_binary_hashes;
-};
-
-Result<AppliedPolicyRequirements> load_applied_policy_requirements(const std::string& policy_path)
-{
-    AppliedPolicyRequirements req{};
-    std::error_code ec;
-    req.snapshot_present = std::filesystem::exists(policy_path, ec);
-    if (ec) {
-        return Error(ErrorCode::IoError, "Failed to check applied policy snapshot", ec.message());
-    }
-    if (!req.snapshot_present) {
-        req.parse_ok = false;
-        return req;
-    }
-
-    PolicyIssues issues;
-    auto parsed = parse_policy_file(policy_path, issues);
-    if (!parsed) {
-        if (!issues.errors.empty()) {
-            return Error(ErrorCode::PolicyParseFailed, "Failed to parse applied policy snapshot",
-                         issues.errors.front());
-        }
-        return parsed.error();
-    }
-
-    req.parse_ok = true;
-    req.allow_binary_hashes = parsed->allow_binary_hashes;
-    req.exec_allowlist_required = !req.allow_binary_hashes.empty();
-    req.protect_connect = parsed->protect_connect;
-    req.protect_runtime_deps = parsed->protect_runtime_deps;
-    req.ima_appraisal_required = parsed->require_ima_appraisal;
-    req.protect_path_count = parsed->protect_paths.size();
-    req.verified_exec_required = req.protect_connect || req.protect_path_count > 0;
-    req.verified_exec_runtime_deps_required = req.verified_exec_required && req.protect_runtime_deps;
-    req.exec_identity_required = req.exec_allowlist_required || req.verified_exec_required;
-    req.network_rule_count =
-        parsed->network.deny_ips.size() + parsed->network.deny_cidrs.size() + parsed->network.deny_ports.size();
-
-    if (!parsed->network.deny_ips.empty() || !parsed->network.deny_cidrs.empty()) {
-        req.network_connect_required = true;
-    }
-    for (const auto& port_rule : parsed->network.deny_ports) {
-        if (port_rule.direction == 0 || port_rule.direction == 2) {
-            req.network_connect_required = true;
-        }
-        if (port_rule.direction == 1 || port_rule.direction == 2) {
-            req.network_bind_required = true;
-        }
-    }
-    if (parsed->protect_connect) {
-        req.network_connect_required = true;
-    }
-    req.network_required = req.network_connect_required || req.network_bind_required;
-    return req;
-}
-
-Result<void> write_capabilities_report(const std::string& output_path, const KernelFeatures& features,
-                                       EnforcementCapability capability, bool audit_only, bool lsm_enabled,
-                                       bool file_open_hook_attached, bool inode_permission_hook_attached,
-                                       const BpfState& state, const std::string& applied_policy_path,
-                                       const AppliedPolicyRequirements& policy_req, bool kernel_exec_identity_enabled,
-                                       size_t kernel_exec_identity_entries,
-                                       size_t userspace_exec_identity_allowlist_size,
-                                       const RuntimeStateTracker& runtime_state)
-{
-    std::error_code ec;
-    const std::filesystem::path report_path(output_path);
-    const std::filesystem::path parent = report_path.parent_path();
-    if (!parent.empty()) {
-        std::filesystem::create_directories(parent, ec);
-        if (ec) {
-            return Error(ErrorCode::IoError, "Failed to create capabilities report directory", ec.message());
-        }
-    }
-
-    const bool bpffs = check_bpffs_mounted();
-    const bool core_supported = features.btf && features.bpf_syscall;
-    const bool network_requirements_met =
-        (!policy_req.network_connect_required || state.socket_connect_hook_attached) &&
-        (!policy_req.network_bind_required || state.socket_bind_hook_attached);
-    const bool network_enforce_ready = !policy_req.network_required || network_requirements_met;
-    const bool exec_identity_base_requirements_met =
-        !policy_req.exec_identity_required || kernel_exec_identity_enabled || audit_only;
-    const bool exec_runtime_deps_requirements_met =
-        !policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached || audit_only;
-    const bool ima_requirements_met = !policy_req.ima_appraisal_required || features.ima_appraisal || audit_only;
-    const bool exec_identity_requirements_met =
-        exec_identity_base_requirements_met && exec_runtime_deps_requirements_met;
-    const bool exec_identity_enforce_ready =
-        (!policy_req.exec_identity_required || kernel_exec_identity_enabled) &&
-        (!policy_req.verified_exec_runtime_deps_required || state.exec_identity_runtime_deps_hook_attached);
-    const bool ima_enforce_ready = !policy_req.ima_appraisal_required || features.ima_appraisal;
-
-    std::vector<std::string> enforce_blockers;
-    if (capability != EnforcementCapability::Full) {
-        enforce_blockers.emplace_back("CAPABILITY_AUDIT_ONLY");
-    }
-    if (!lsm_enabled) {
-        enforce_blockers.emplace_back("BPF_LSM_DISABLED");
-    }
-    if (!core_supported) {
-        enforce_blockers.emplace_back("CORE_UNSUPPORTED");
-    }
-    if (!bpffs) {
-        enforce_blockers.emplace_back("BPFFS_UNMOUNTED");
-    }
-    if (!network_enforce_ready) {
-        enforce_blockers.emplace_back("NETWORK_HOOK_UNAVAILABLE");
-    }
-    if (!exec_identity_enforce_ready) {
-        enforce_blockers.emplace_back("EXEC_IDENTITY_UNAVAILABLE");
-    }
-    if (policy_req.verified_exec_runtime_deps_required && !state.exec_identity_runtime_deps_hook_attached) {
-        enforce_blockers.emplace_back("EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE");
-    }
-    if (!ima_enforce_ready) {
-        enforce_blockers.emplace_back("IMA_APPRAISAL_UNAVAILABLE");
-    }
-    const bool enforce_capable = enforce_blockers.empty();
-
-    return atomic_write_stream(output_path, [&](std::ostream& out) -> bool {
-        out << "{\n";
-        out << "  \"schema_version\": 1,\n";
-        out << "  \"schema_semver\": \"" << kCapabilitiesSchemaSemver << "\",\n";
-        out << "  \"generated_at_unix\": " << static_cast<int64_t>(std::time(nullptr)) << ",\n";
-        out << "  \"kernel_version\": \"" << json_escape(features.kernel_version) << "\",\n";
-        out << "  \"capability\": \"" << json_escape(capability_name(capability)) << "\",\n";
-        out << "  \"audit_only\": " << (audit_only ? "true" : "false") << ",\n";
-        out << "  \"enforce_capable\": " << (enforce_capable ? "true" : "false") << ",\n";
-        out << "  \"enforce_blockers\": [";
-        for (size_t i = 0; i < enforce_blockers.size(); ++i) {
-            if (i > 0) {
-                out << ", ";
-            }
-            out << "\"" << json_escape(enforce_blockers[i]) << "\"";
-        }
-        out << "],\n";
-        out << "  \"runtime_state\": \"" << runtime_state_name(runtime_state.current) << "\",\n";
-        out << "  \"lsm_enabled\": " << (lsm_enabled ? "true" : "false") << ",\n";
-        out << "  \"core_supported\": " << (core_supported ? "true" : "false") << ",\n";
-        out << "  \"features\": {\n";
-        out << "    \"bpf_lsm\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
-        out << "    \"cgroup_v2\": " << (features.cgroup_v2 ? "true" : "false") << ",\n";
-        out << "    \"btf\": " << (features.btf ? "true" : "false") << ",\n";
-        out << "    \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
-        out << "    \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
-        out << "    \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
-        out << "    \"bpffs\": " << (bpffs ? "true" : "false") << ",\n";
-        out << "    \"ima\": " << (features.ima ? "true" : "false") << ",\n";
-        out << "    \"ima_appraisal\": " << (features.ima_appraisal ? "true" : "false") << "\n";
-        out << "  },\n";
-        out << "  \"hooks\": {\n";
-        out << "    \"lsm_file_open\": " << (file_open_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"lsm_inode_permission\": " << (inode_permission_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"lsm_bprm_check_security\": " << (state.exec_identity_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"lsm_file_mmap\": " << (state.exec_identity_runtime_deps_hook_attached ? "true" : "false")
-            << ",\n";
-        out << "    \"lsm_socket_connect\": " << (state.socket_connect_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"lsm_socket_bind\": " << (state.socket_bind_hook_attached ? "true" : "false") << "\n";
-        out << "  },\n";
-        out << "  \"policy\": {\n";
-        out << "    \"applied_path\": \"" << json_escape(applied_policy_path) << "\",\n";
-        out << "    \"snapshot_present\": " << (policy_req.snapshot_present ? "true" : "false") << ",\n";
-        out << "    \"parse_ok\": " << (policy_req.parse_ok ? "true" : "false") << ",\n";
-        out << "    \"network_rule_count\": " << static_cast<int64_t>(policy_req.network_rule_count) << ",\n";
-        out << "    \"protect_path_count\": " << static_cast<int64_t>(policy_req.protect_path_count) << ",\n";
-        out << "    \"protect_connect\": " << (policy_req.protect_connect ? "true" : "false") << ",\n";
-        out << "    \"protect_runtime_deps\": " << (policy_req.protect_runtime_deps ? "true" : "false") << ",\n";
-        out << "    \"require_ima_appraisal\": " << (policy_req.ima_appraisal_required ? "true" : "false") << ",\n";
-        out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
-            << "\n";
-        out << "  },\n";
-        out << "  \"requirements\": {\n";
-        out << "    \"network_enforcement_required\": " << (policy_req.network_required ? "true" : "false") << ",\n";
-        out << "    \"network_connect_required\": " << (policy_req.network_connect_required ? "true" : "false")
-            << ",\n";
-        out << "    \"network_bind_required\": " << (policy_req.network_bind_required ? "true" : "false") << ",\n";
-        out << "    \"exec_identity_required\": " << (policy_req.exec_identity_required ? "true" : "false") << ",\n";
-        out << "    \"exec_allowlist_required\": " << (policy_req.exec_allowlist_required ? "true" : "false") << ",\n";
-        out << "    \"verified_exec_required\": " << (policy_req.verified_exec_required ? "true" : "false") << ",\n";
-        out << "    \"verified_exec_runtime_deps_required\": "
-            << (policy_req.verified_exec_runtime_deps_required ? "true" : "false") << ",\n";
-        out << "    \"ima_appraisal_required\": " << (policy_req.ima_appraisal_required ? "true" : "false") << "\n";
-        out << "  },\n";
-        out << "  \"requirements_met\": {\n";
-        out << "    \"network\": " << (network_requirements_met ? "true" : "false") << ",\n";
-        out << "    \"exec_identity\": " << (exec_identity_requirements_met ? "true" : "false") << ",\n";
-        out << "    \"exec_runtime_deps\": " << (exec_runtime_deps_requirements_met ? "true" : "false") << ",\n";
-        out << "    \"ima_appraisal\": " << (ima_requirements_met ? "true" : "false") << "\n";
-        out << "  },\n";
-        out << "  \"exec_identity\": {\n";
-        out << "    \"kernel_enabled\": " << (kernel_exec_identity_enabled ? "true" : "false") << ",\n";
-        out << "    \"kernel_allow_exec_inode_entries\": " << static_cast<int64_t>(kernel_exec_identity_entries)
-            << ",\n";
-        out << "    \"runtime_deps_hook_attached\": "
-            << (state.exec_identity_runtime_deps_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"userspace_fallback_allowlist_entries\": "
-            << static_cast<int64_t>(userspace_exec_identity_allowlist_size) << "\n";
-        out << "  },\n";
-        out << "  \"state_transitions\": {\n";
-        out << "    \"total\": " << static_cast<int64_t>(runtime_state.transition_id) << ",\n";
-        out << "    \"degradation_total\": " << static_cast<int64_t>(runtime_state.degradation_count) << ",\n";
-        out << "    \"strict_mode\": " << (runtime_state.strict_mode ? "true" : "false") << ",\n";
-        out << "    \"enforce_requested\": " << (runtime_state.enforce_requested ? "true" : "false") << "\n";
-        out << "  }\n";
-        out << "}\n";
-        return out.good();
-    });
 }
 
 Result<void> validate_attach_contract(const BpfState& state, bool lsm_enabled, bool use_inode_permission,
@@ -840,11 +360,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         root_span.fail(message);
         return 1;
     };
-    g_exiting = 0;
-    g_forced_exit_code.store(0);
 
     const bool enforce_requested = !audit_only;
-    reset_runtime_state(strict_degrade, enforce_requested);
+    reset_runtime_control(strict_degrade, enforce_requested);
 
     // Check for break-glass mode FIRST
     bool break_glass_active = g_deps.detect_break_glass();
@@ -967,7 +485,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
                                       "kernel supports enforce-capable mode");
         }
     }
-    if (g_forced_exit_code.load() != 0) {
+    if (forced_exit_code() != 0) {
         return fail("Strict degrade mode triggered failure");
     }
 
@@ -1111,340 +629,37 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         return fail(attach_contract_result.error().to_string());
     }
 
-    std::unique_ptr<ExecIdentityEnforcer> exec_identity_enforcer;
-    EventCallbacks event_callbacks{};
-    bool kernel_exec_identity_enabled = false;
-    size_t kernel_exec_identity_entries = 0;
     const std::string applied_policy_path = applied_policy_path_from_env();
     const std::string capabilities_report_path = capabilities_report_path_from_env();
-    AppliedPolicyRequirements policy_req{};
-    {
-        auto req_result = load_applied_policy_requirements(applied_policy_path);
-        if (!req_result) {
-            // In audit-only mode we can continue without evaluating policy requirements. This keeps
-            // the daemon able to emit a capability report even if the applied policy snapshot exists
-            // but is unreadable (e.g., root-owned on a shared host).
-            //
-            // In enforce mode we must fail closed because we cannot safely gate enforcement without
-            // knowing what policy requirements are active.
-            if (!audit_only) {
-                logger().log(SLOG_ERROR("Failed to evaluate applied policy requirements")
-                                 .field("path", applied_policy_path)
-                                 .field("error", req_result.error().to_string()));
-                return fail(req_result.error().to_string());
-            }
-
-            logger().log(SLOG_WARN("Failed to evaluate applied policy requirements; continuing in audit-only mode")
-                             .field("path", applied_policy_path)
-                             .field("error", req_result.error().to_string()));
-            std::error_code ec;
-            policy_req.snapshot_present = std::filesystem::exists(applied_policy_path, ec);
-            if (ec) {
-                policy_req.snapshot_present = false;
-            }
-            policy_req.parse_ok = false;
-            policy_req.network_required = false;
-            policy_req.network_connect_required = false;
-            policy_req.network_bind_required = false;
-            policy_req.exec_identity_required = false;
-            policy_req.exec_allowlist_required = false;
-            policy_req.verified_exec_required = false;
-            policy_req.verified_exec_runtime_deps_required = false;
-            policy_req.protect_connect = false;
-            policy_req.protect_runtime_deps = false;
-            policy_req.ima_appraisal_required = false;
-            policy_req.protect_path_count = 0;
-            policy_req.network_rule_count = 0;
-            policy_req.allow_binary_hashes.clear();
-        } else {
-            policy_req = *req_result;
-        }
-
-        if (policy_req.network_required) {
-            const bool connect_ok = !policy_req.network_connect_required || state.socket_connect_hook_attached;
-            const bool bind_ok = !policy_req.network_bind_required || state.socket_bind_hook_attached;
-            if (!connect_ok || !bind_ok) {
-                if (!audit_only) {
-                    const std::string detail =
-                        "connect_required=" + std::string(policy_req.network_connect_required ? "true" : "false") +
-                        ",bind_required=" + std::string(policy_req.network_bind_required ? "true" : "false") +
-                        ",connect_hook_attached=" + std::string(state.socket_connect_hook_attached ? "true" : "false") +
-                        ",bind_hook_attached=" + std::string(state.socket_bind_hook_attached ? "true" : "false");
-
-                    if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                        audit_only = true;
-                        config.audit_only = 1;
-                        auto update_result = g_deps.set_agent_config_full(state, config);
-                        if (!update_result) {
-                            logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                             .field("error", update_result.error().to_string()));
-                            return fail(update_result.error().to_string());
-                        }
-
-                        emit_runtime_state_change(RuntimeState::AuditFallback, "NETWORK_HOOK_UNAVAILABLE",
-                                                  "enforce requested; falling back to audit-only mode");
-                        logger().log(SLOG_WARN("Network policy hooks unavailable; falling back to audit-only mode")
-                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                         .field("policy", applied_policy_path)
-                                         .field("detail", detail));
-                        if (g_forced_exit_code.load() != 0) {
-                            return fail("Strict degrade mode triggered failure");
-                        }
-                    } else {
-                        emit_runtime_state_change(RuntimeState::Degraded, "NETWORK_HOOK_UNAVAILABLE", detail);
-                        logger().log(SLOG_ERROR("Network policy requires unavailable kernel hooks")
-                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                         .field("policy", applied_policy_path)
-                                         .field("connect_required", policy_req.network_connect_required)
-                                         .field("bind_required", policy_req.network_bind_required)
-                                         .field("connect_hook_attached", state.socket_connect_hook_attached)
-                                         .field("bind_hook_attached", state.socket_bind_hook_attached));
-                        return fail("Network policy is active but required kernel hooks are unavailable");
-                    }
-                } else {
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "NETWORK_HOOK_UNAVAILABLE",
-                                              "audit mode fallback for missing network hooks");
-                    logger().log(SLOG_WARN("Network policy hooks unavailable; running in audit-only fallback")
-                                     .field("policy", applied_policy_path)
-                                     .field("connect_required", policy_req.network_connect_required)
-                                     .field("bind_required", policy_req.network_bind_required)
-                                     .field("connect_hook_attached", state.socket_connect_hook_attached)
-                                     .field("bind_hook_attached", state.socket_bind_hook_attached));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                }
-            }
-        }
-
-        if (policy_req.ima_appraisal_required && !features.ima_appraisal) {
-            const std::string detail = "ima_available=" + std::string(features.ima ? "true" : "false") +
-                                       ",ima_appraisal=" + std::string(features.ima_appraisal ? "true" : "false");
-            if (!audit_only) {
-                if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                    audit_only = true;
-                    config.audit_only = 1;
-                    auto update_result = g_deps.set_agent_config_full(state, config);
-                    if (!update_result) {
-                        logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                         .field("error", update_result.error().to_string()));
-                        return fail(update_result.error().to_string());
-                    }
-
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "IMA_APPRAISAL_UNAVAILABLE",
-                                              "enforce requested; falling back to audit-only mode");
-                    logger().log(SLOG_WARN("IMA appraisal requirement unmet; falling back to audit-only mode")
-                                     .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                     .field("policy", applied_policy_path)
-                                     .field("detail", detail));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                } else {
-                    emit_runtime_state_change(RuntimeState::Degraded, "IMA_APPRAISAL_UNAVAILABLE", detail);
-                    logger().log(SLOG_ERROR("Policy requires IMA appraisal but it is unavailable")
-                                     .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                     .field("policy", applied_policy_path)
-                                     .field("ima_available", features.ima)
-                                     .field("ima_appraisal", features.ima_appraisal));
-                    return fail("Policy requires IMA appraisal but it is unavailable on this node");
-                }
-            } else {
-                emit_runtime_state_change(RuntimeState::AuditFallback, "IMA_APPRAISAL_UNAVAILABLE",
-                                          "audit mode fallback for missing IMA appraisal");
-                logger().log(SLOG_WARN("IMA appraisal requirement unmet; running in audit-only fallback")
-                                 .field("policy", applied_policy_path)
-                                 .field("detail", detail));
-                if (g_forced_exit_code.load() != 0) {
-                    return fail("Strict degrade mode triggered failure");
-                }
-            }
-        }
-
-        if (policy_req.exec_identity_required) {
-            kernel_exec_identity_entries = map_entry_count(state.allow_exec_inode);
-
-            auto exec_mode_result = read_exec_identity_mode_enabled(state);
-            if (!exec_mode_result) {
-                logger().log(SLOG_ERROR("Failed to read exec identity kernel mode state")
-                                 .field("error", exec_mode_result.error().to_string()));
-                return fail(exec_mode_result.error().to_string());
-            }
-
-            const bool kernel_hook_ready = lsm_enabled && state.exec_identity_hook_attached &&
-                                           state.exec_identity_mode != nullptr && *exec_mode_result;
-            kernel_exec_identity_enabled = kernel_hook_ready;
-
-            const bool runtime_deps_hook_ready = state.exec_identity_runtime_deps_hook_attached;
-
-            if (policy_req.verified_exec_required && !kernel_hook_ready) {
-                const std::string detail = "bprm_check_security_hook_attached=" +
-                                           std::string(state.exec_identity_hook_attached ? "true" : "false") +
-                                           ",exec_mode_enabled=" + std::string(*exec_mode_result ? "true" : "false");
-                if (!audit_only) {
-                    if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                        audit_only = true;
-                        config.audit_only = 1;
-                        auto update_result = g_deps.set_agent_config_full(state, config);
-                        if (!update_result) {
-                            logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                             .field("error", update_result.error().to_string()));
-                            return fail(update_result.error().to_string());
-                        }
-
-                        emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                                  "enforce requested; falling back to audit-only mode");
-                        logger().log(SLOG_WARN("Verified-exec enforcement unavailable; falling back to audit-only mode")
-                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                         .field("policy", applied_policy_path)
-                                         .field("detail", detail));
-                        if (g_forced_exit_code.load() != 0) {
-                            return fail("Strict degrade mode triggered failure");
-                        }
-                    } else {
-                        emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE", detail);
-                        logger().log(SLOG_ERROR("Verified-exec enforcement requires kernel exec identity hook")
-                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                         .field("policy", applied_policy_path)
-                                         .field("lsm_enabled", lsm_enabled)
-                                         .field("hook_attached", state.exec_identity_hook_attached)
-                                         .field("exec_mode_enabled", *exec_mode_result));
-                        return fail("Verified-exec policy is active but kernel exec identity is unavailable");
-                    }
-                } else {
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                              "audit mode fallback for missing exec identity hook");
-                    logger().log(SLOG_WARN("Verified-exec enforcement unavailable; running in audit-only fallback")
-                                     .field("policy", applied_policy_path)
-                                     .field("detail", detail));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                }
-            }
-
-            if (policy_req.verified_exec_runtime_deps_required && !runtime_deps_hook_ready) {
-                const std::string detail =
-                    "file_mmap_hook_attached=" +
-                    std::string(state.exec_identity_runtime_deps_hook_attached ? "true" : "false");
-                if (!audit_only) {
-                    if (enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                        audit_only = true;
-                        config.audit_only = 1;
-                        auto update_result = g_deps.set_agent_config_full(state, config);
-                        if (!update_result) {
-                            logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                             .field("error", update_result.error().to_string()));
-                            return fail(update_result.error().to_string());
-                        }
-
-                        emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE",
-                                                  "enforce requested; falling back to audit-only mode");
-                        logger().log(
-                            SLOG_WARN("Runtime dependency trust hook unavailable; falling back to audit-only mode")
-                                .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                .field("policy", applied_policy_path)
-                                .field("detail", detail));
-                        if (g_forced_exit_code.load() != 0) {
-                            return fail("Strict degrade mode triggered failure");
-                        }
-                    } else {
-                        emit_runtime_state_change(RuntimeState::Degraded, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE", detail);
-                        logger().log(SLOG_ERROR("Runtime dependency trust requires file_mmap hook")
-                                         .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                                         .field("policy", applied_policy_path)
-                                         .field("hook_attached", state.exec_identity_runtime_deps_hook_attached));
-                        return fail("Runtime dependency trust is required but file_mmap hook is unavailable");
-                    }
-                } else {
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_RUNTIME_DEPS_HOOK_UNAVAILABLE",
-                                              "audit mode fallback for missing runtime dependency trust hook");
-                    logger().log(SLOG_WARN("Runtime dependency trust hook unavailable; running in audit-only fallback")
-                                     .field("policy", applied_policy_path)
-                                     .field("detail", detail));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                }
-            }
-
-            if (policy_req.exec_allowlist_required) {
-                const bool allowlist_ready = kernel_hook_ready && kernel_exec_identity_entries > 0;
-                if (allowlist_ready) {
-                    logger().log(
-                        SLOG_INFO("Kernel exec allowlist enforcement enabled")
-                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries))
-                            .field("policy", applied_policy_path));
-                } else if (!audit_only && enforce_gate_mode == EnforceGateMode::AuditFallback) {
-                    audit_only = true;
-                    config.audit_only = 1;
-                    auto update_result = g_deps.set_agent_config_full(state, config);
-                    if (!update_result) {
-                        logger().log(SLOG_ERROR("Failed to switch to audit-only mode")
-                                         .field("error", update_result.error().to_string()));
-                        return fail(update_result.error().to_string());
-                    }
-
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                              "enforce requested; userspace audit fallback enabled");
-                    exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
-                        policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
-                    event_callbacks.on_exec = on_exec_identity_event;
-                    event_callbacks.user_ctx = exec_identity_enforcer.get();
-                    logger().log(
-                        SLOG_WARN("Falling back to userspace exec allowlist checks in audit mode")
-                            .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
-                            .field("kernel_hook_attached", state.exec_identity_hook_attached)
-                            .field("exec_mode_enabled", *exec_mode_result)
-                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                } else if (!audit_only) {
-                    emit_runtime_state_change(RuntimeState::Degraded, "EXEC_IDENTITY_UNAVAILABLE",
-                                              "kernel hook and allowlist prerequisites not satisfied");
-                    logger().log(
-                        SLOG_ERROR("Exec allowlist policy requires kernel hook and populated allowlist")
-                            .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                            .field("policy", applied_policy_path)
-                            .field("lsm_enabled", lsm_enabled)
-                            .field("hook_attached", state.exec_identity_hook_attached)
-                            .field("exec_mode_enabled", *exec_mode_result)
-                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                    return fail("Exec allowlist policy is active but kernel enforcement is unavailable");
-                } else {
-                    emit_runtime_state_change(RuntimeState::AuditFallback, "EXEC_IDENTITY_UNAVAILABLE",
-                                              "userspace audit fallback enabled");
-                    exec_identity_enforcer = std::make_unique<ExecIdentityEnforcer>(
-                        policy_req.allow_binary_hashes, audit_only, allow_unknown_binary_identity, enforce_signal);
-                    event_callbacks.on_exec = on_exec_identity_event;
-                    event_callbacks.user_ctx = exec_identity_enforcer.get();
-                    logger().log(
-                        SLOG_WARN("Falling back to userspace exec allowlist checks in audit mode")
-                            .field("policy_hashes", static_cast<int64_t>(policy_req.allow_binary_hashes.size()))
-                            .field("allow_unknown_binary_identity", allow_unknown_binary_identity)
-                            .field("kernel_hook_attached", state.exec_identity_hook_attached)
-                            .field("allow_exec_inode_entries", static_cast<int64_t>(kernel_exec_identity_entries)));
-                    if (g_forced_exit_code.load() != 0) {
-                        return fail("Strict degrade mode triggered failure");
-                    }
-                }
-            }
-        }
+    auto gate_result = evaluate_policy_gate(state, features, applied_policy_path, audit_only, lsm_enabled,
+                                            allow_unknown_binary_identity, enforce_signal, enforce_gate_mode, config,
+                                            g_deps.set_agent_config_full);
+    if (!gate_result) {
+        return fail(gate_result.error().to_string());
     }
+    auto gate = std::move(*gate_result);
+    audit_only = gate.audit_only;
+    config = gate.config;
+    const bool kernel_exec_identity_enabled = gate.kernel_exec_identity_enabled;
+    const size_t kernel_exec_identity_entries = gate.kernel_exec_identity_entries;
+    auto& exec_identity_enforcer = gate.exec_identity_enforcer;
+    auto& event_callbacks = gate.event_callbacks;
 
     {
         const bool file_open_hook_attached = lsm_enabled && use_file_open;
         const bool inode_permission_hook_attached = lsm_enabled && use_inode_permission;
         RuntimeStateTracker runtime_state = snapshot_runtime_state();
+        CapabilityReportRuntimeState report_runtime_state{};
+        report_runtime_state.current = runtime_state_name(runtime_state.current);
+        report_runtime_state.transition_id = runtime_state.transition_id;
+        report_runtime_state.degradation_count = runtime_state.degradation_count;
+        report_runtime_state.strict_mode = runtime_state.strict_mode;
+        report_runtime_state.enforce_requested = runtime_state.enforce_requested;
         auto report_result = write_capabilities_report(
             capabilities_report_path, features, cap, audit_only, lsm_enabled, file_open_hook_attached,
-            inode_permission_hook_attached, state, applied_policy_path, policy_req, kernel_exec_identity_enabled,
-            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0,
-            runtime_state);
+            inode_permission_hook_attached, state, applied_policy_path, gate.policy_requirements,
+            kernel_exec_identity_enabled, kernel_exec_identity_entries,
+            exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0, report_runtime_state);
         if (!report_result) {
             logger().log(SLOG_WARN("Failed to write capability report")
                              .field("path", capabilities_report_path)
@@ -1503,8 +718,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     // Start heartbeat thread if deadman switch is enabled
     std::thread heartbeat;
     if (deadman_ttl > 0) {
-        g_heartbeat_running.store(true);
-        heartbeat = std::thread(heartbeat_thread, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit);
+        start_deadman_heartbeat(heartbeat, &state, deadman_ttl, deny_rate_threshold, deny_rate_breach_limit);
         logger().log(SLOG_INFO("Deadman switch heartbeat started")
                          .field("ttl_seconds", static_cast<int64_t>(deadman_ttl))
                          .field("deny_rate_threshold", static_cast<int64_t>(deny_rate_threshold))
@@ -1513,13 +727,13 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
 
     int err = 0;
     ScopedSpan event_loop_span("daemon.event_loop", trace_id, root_span.span_id());
-    while (!g_exiting) {
+    while (!exit_requested()) {
         err = ring_buffer__poll(rb.get(), 250);
         if (err == -EINTR) {
             err = 0;
             // Signal interruptions (including SIGINT and scheduler stop/continue)
             // should not force an immediate shutdown. Respect the normal loop
-            // exit condition via g_exiting instead.
+            // exit condition via exit_requested() instead.
             continue;
         }
         if (err < 0) {
@@ -1532,13 +746,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     // Stop heartbeat thread
-    if (deadman_ttl > 0 && heartbeat.joinable()) {
-        g_heartbeat_running.store(false);
-        heartbeat.join();
+    if (deadman_ttl > 0) {
+        stop_deadman_heartbeat(heartbeat);
     }
 
     logger().log(SLOG_INFO("Agent stopped"));
-    if (g_forced_exit_code.load() != 0) {
+    if (forced_exit_code() != 0) {
         return fail("Strict degrade mode triggered failure");
     }
     if (err < 0) {

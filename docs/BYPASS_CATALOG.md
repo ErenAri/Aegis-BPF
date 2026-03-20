@@ -12,8 +12,6 @@ classified as accepted, mitigated, or roadmap to keep claims defensible.
   - Out of scope by threat model. Kernel modules or root can bypass policy.
 - **Non-LSM enforcement paths when BPF LSM is unavailable**
   - Tracepoint fallback is audit-only; syscall deny is not possible.
-- **Inbound network surfaces (`accept`, `listen`, `sendmsg`)**
-  - Not enforced in current release; no block guarantees.
 - **Privileged container escape with host-level capabilities**
   - Treated as root-equivalent in scope definition.
 
@@ -28,11 +26,16 @@ classified as accepted, mitigated, or roadmap to keep claims defensible.
 - **Bind-mount aliases**
   - Enforcement is inode-driven; path telemetry can differ by namespace.
   - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (bind‑mount alias scenarios).
+- **Outbound message sends (`sendmsg`)**
+  - Covered by the same remote endpoint deny semantics as `connect()` when the
+    kernel exposes `socket_sendmsg`.
+  - Evidence: `docs/NETWORK_LAYER_DESIGN.md`, `docs/POLICY_SEMANTICS.md`.
 
 ## Roadmap (planned mitigation or coverage expansion)
 
-- **Inbound network enforcement**
-  - Add hooks and semantics for `accept`/`listen` surfaces.
+- **Pre-accept inbound policy coverage**
+  - Add earlier inbound filtering or richer hook coverage before `accept()`
+    returns the socket to user space.
 - **Broader filesystem matrix**
   - Extend validation beyond ext4/xfs to additional FS types.
 - **Namespace-specific path views**

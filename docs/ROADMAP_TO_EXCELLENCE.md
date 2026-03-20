@@ -53,7 +53,7 @@
   | Policy reload       | <50ms    | N/A   | 200ms    | N/A    |
   ```
 - [ ] Add **benchmark CI workflow** comparing against latest Falco/Tetragon releases
-- [ ] Document **performance optimization techniques** used (socket caching, inode-first, etc.)
+- [ ] Document **performance optimization techniques** used (inode-first lookups, compact deny maps, event sampling, etc.)
 
 **Artifacts:**
 - `docs/PERFORMANCE_COMPARISON.md`
@@ -108,11 +108,11 @@
 
 **Actions:**
 - [ ] **Write research paper** (8-12 pages):
-  - Title: *"AegisBPF: Kernel-Level Security Enforcement with Sub-Microsecond Overhead Using eBPF LSM Hooks and Per-Socket Caching"*
+  - Title: *"AegisBPF: Kernel-Level Security Enforcement with Low Overhead Using eBPF LSM Hooks and Inode-First Policy Evaluation"*
   - Sections:
-    1. Abstract: Problem (runtime security overhead), solution (BPF LSM + inode-first + socket caching)
+    1. Abstract: Problem (runtime security overhead), solution (BPF LSM + inode-first policy evaluation)
     2. Background: eBPF, LSM, existing approaches
-    3. Architecture: Design decisions (why inode-first, why socket storage)
+    3. Architecture: Design decisions (why inode-first, why current map layout)
     4. Implementation: Key techniques (PID reuse prevention, dynamic survival binary scanning)
     5. Evaluation: Performance vs Falco/Tetragon, security validation
     6. Related Work: Comparison to Falco, Tetragon, Tracee, AppArmor, SELinux
@@ -125,7 +125,7 @@
   - Or arXiv preprint for immediate visibility
 - [ ] Create **tech blog series** (5 posts):
   1. "Preventing PID Reuse Attacks in eBPF"
-  2. "Socket Caching: Near-Zero Overhead Network Policy"
+  2. "Low-Overhead Network Policy in eBPF"
   3. "Inode-First Enforcement: Why Path Lookups Are Too Slow"
   4. "Dynamic Survival Binary Discovery Across Distros"
   5. "Building Production-Grade eBPF: Lessons from 178 Tests"

@@ -1,6 +1,6 @@
 # AegisBPF
 
-**AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file access using Linux Security Modules (LSM). It provides kernel-level enforcement with minimal overhead.
+**AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
@@ -23,6 +23,8 @@
 │                         │ LSM hooks (enforce/audit) │                         │
 │                         │ file_open/inode_permission│                         │
 │                         │ socket_connect/socket_bind│                         │
+│                         │ socket_listen/socket_accept│                        │
+│                         │ socket_sendmsg            │                         │
 │                         └────────────┬──────────────┘                         │
 │                         ┌────────────┴─────────────┐                          │
 │                         │ Tracepoint fallback      │                          │
@@ -36,7 +38,8 @@
 - **Kernel-level blocking** - Uses BPF LSM hooks to block file opens before they complete
 - **Inode-based rules** - Block by device:inode for reliable identification across renames
 - **Path-based rules** - Block by file path for human-readable policies
-- **Dual-stack network policy** - Deny IPv4 and IPv6 IP/CIDR/port rules in kernel hooks
+- **Dual-stack network policy** - Deny IPv4/IPv6 exact IP, CIDR, port, and IP:port rules in kernel hooks
+- **Broader network hook coverage** - `connect()`, `bind()`, port-oriented `listen()`, accepted-peer `accept()`, and outbound `sendmsg()` when the corresponding kernel hooks are available
 - **Cgroup allowlisting** - Exempt trusted workloads from deny rules
 - **Audit mode** - Monitor without blocking (works without BPF LSM)
 - **Emergency kill switch** - Single-command enforcement bypass that preserves audit/telemetry and emits an auditable trail
@@ -60,8 +63,10 @@ Current flagship contract:
 > cgroup-scoped workloads, with safe rollback and signed policy provenance.
 
 Current scope labels:
-- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), network
-  deny for configured connect/bind rules when LSM hooks are available
+- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), outbound
+  network deny for configured `connect()` / `sendmsg()` rules, port-oriented
+  `bind()` / `listen()` deny, and accepted-peer `accept()` deny when those LSM
+  hooks are available
 - `AUDITED`: tracepoint fallback path (no syscall deny), detailed metrics mode
 - `PLANNED`: broader runtime surfaces beyond current documented hooks
 
@@ -70,6 +75,7 @@ Current scope labels:
 **Latest Validation Snapshot:**
 - Independent environment validation: 2026-02-07 (Google Cloud Platform, kernel 6.8.0-1045-gcp)
 - Local full regression run: 2026-02-15 (`ctest --test-dir build-prod --output-on-failure --timeout 180`)
+- Latest focused maintenance verification: 2026-03-20 (daemon/policy/metrics/command suites plus contract checks after modular refactors)
 
 | Test Category | Result | Details                                                                                                                       |
 |---------------|--------|-------------------------------------------------------------------------------------------------------------------------------|
@@ -156,6 +162,8 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  |  | inode_permission       | | (audit when no BPF LSM)   | |       |
 |  |  | bprm_check_security    | +---------------------------+ |       |
 |  |  | socket_connect / bind  |                               |       |
+|  |  | socket_listen / accept |                               |       |
+|  |  | socket_sendmsg         |                               |       |
 |  |  +------------------------+                               |       |
 |  |                                                           |       |
 |  |  +------------------------------------------------------+ |       |
@@ -233,6 +241,24 @@ sudo ./build/aegisbpf run --enforce --lsm-hook=both
 # Increase ring buffer and sample events to reduce drops under heavy load
 sudo ./build/aegisbpf run --audit --ringbuf-bytes=67108864 --event-sample-rate=10
 ```
+
+## Code Layout
+
+Recent maintenance work split the old hotspot files into narrower modules:
+
+- Daemon orchestration stays in `src/daemon.cpp`, with capability reporting in
+  `src/daemon_posture.cpp`, runtime-state and heartbeat handling in
+  `src/daemon_runtime.cpp`, and enforce gating in
+  `src/daemon_policy_gate.cpp`.
+- BPF lifecycle code stays in `src/bpf_ops.cpp`, with attach orchestration in
+  `src/bpf_attach.cpp`, map and shadow helpers in `src/bpf_maps.cpp`,
+  integrity checks in `src/bpf_integrity.cpp`, and config/agent-meta handling
+  in `src/bpf_config.cpp`.
+- Policy parsing and runtime application now live in `src/policy_parse.cpp`
+  and `src/policy_runtime.cpp`.
+- Monitoring-facing commands were split into focused modules such as
+  `src/commands_health.cpp`, `src/commands_probe.cpp`,
+  `src/commands_explain.cpp`, and `src/commands_metrics.cpp`.
 
 ## How It Works
 
@@ -527,7 +553,7 @@ For production, set `AEGIS_POLICY` to a signed policy bundle path (for example
                      |
            +---------+---------+
            |     BPF Maps      |
-           | /sys/fs/bpf/aegis/|
+           |/sys/fs/bpf/aegisbpf/|
            |                   |
            | deny_* allow_*    |
            | deny_ipv4/ipv6    |

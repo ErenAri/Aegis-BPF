@@ -17,6 +17,7 @@
 #include "bpf_ops.hpp"
 #include "crypto.hpp"
 #include "logging.hpp"
+#include "network_ops.hpp"
 #include "policy.hpp"
 #include "sha256.hpp"
 #include "tracing.hpp"
@@ -104,6 +105,7 @@ int cmd_policy_validate(const std::string& path, bool verbose)
         std::cout << "  Network deny IPs: " << policy.network.deny_ips.size() << "\n";
         std::cout << "  Network deny CIDRs: " << policy.network.deny_cidrs.size() << "\n";
         std::cout << "  Network deny ports: " << policy.network.deny_ports.size() << "\n";
+        std::cout << "  Network deny IP:ports: " << policy.network.deny_ip_ports.size() << "\n";
     }
 
     if (verbose) {
@@ -144,6 +146,12 @@ int cmd_policy_validate(const std::string& path, bool verbose)
                     std::string proto = (pr.protocol == 6) ? "tcp" : (pr.protocol == 17) ? "udp" : "any";
                     std::string dir = (pr.direction == 0) ? "egress" : (pr.direction == 1) ? "bind" : "both";
                     std::cout << "  - port " << pr.port << " (" << proto << ", " << dir << ")\n";
+                }
+            }
+            if (!policy.network.deny_ip_ports.empty()) {
+                std::cout << "\nNetwork deny IP:ports:\n";
+                for (const auto& rule : policy.network.deny_ip_ports) {
+                    std::cout << "  - " << format_ip_port_rule(rule) << "\n";
                 }
             }
         }
@@ -430,6 +438,7 @@ int cmd_policy_dry_run(const std::string& path, const std::string& sha256, const
         std::cout << "  Network deny IPs: " << policy.network.deny_ips.size() << "\n";
         std::cout << "  Network deny CIDRs: " << policy.network.deny_cidrs.size() << "\n";
         std::cout << "  Network deny ports: " << policy.network.deny_ports.size() << "\n";
+        std::cout << "  Network deny IP:ports: " << policy.network.deny_ip_ports.size() << "\n";
     }
 
     if (!issues.warnings.empty()) {

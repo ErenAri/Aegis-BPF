@@ -16,7 +16,7 @@ Policy sections:
 - `[protect_runtime_deps]` -> require runtime executable mappings to preserve `VERIFIED_EXEC`
 - `[require_ima_appraisal]` -> require IMA appraisal capability for enforce posture
 - `[allow_cgroup]` -> cgroup exemptions (`/sys/fs/cgroup/...` or `cgid:<id>`)
-- `[deny_ip]`, `[deny_cidr]`, `[deny_port]` -> network deny rules
+- `[deny_ip]`, `[deny_cidr]`, `[deny_port]`, `[deny_ip_port]` -> network deny rules
 - `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
 - `[allow_binary_hash]` -> policy-apply exec inode allowlist enforced at `bprm_check_security`
 
@@ -144,11 +144,19 @@ audit fallback and operator readability.
 ## Network rule semantics
 
 `socket_connect` match order:
-1. Exact IP deny (`deny_ipv4` / `deny_ipv6`)
-2. CIDR deny (`deny_cidr_v4` / `deny_cidr_v6` LPM trie)
-3. Port deny (`deny_port`) with protocol+direction matching
+1. Exact IP:port deny (`deny_ip_port_v4` / `deny_ip_port_v6`)
+2. Exact IP deny (`deny_ipv4` / `deny_ipv6`)
+3. CIDR deny (`deny_cidr_v4` / `deny_cidr_v6` LPM trie)
+4. Port deny (`deny_port`) with protocol+direction matching
 
-`socket_bind` currently applies port deny logic only.
+`socket_sendmsg` uses the same outbound match order when the kernel exposes the
+`socket_sendmsg` hook. The remote tuple comes from `msg_name` when provided or
+from connected-socket state otherwise.
+
+`socket_accept` uses the same remote match order as `socket_connect` for the
+accepted peer tuple, then falls back to local-port deny on the accepted socket.
+
+`socket_bind` and `socket_listen` continue to apply port deny logic only.
 
 IPv6:
 - IPv6 exact and CIDR matching are enforced in connect hooks.

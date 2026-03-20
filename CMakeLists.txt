@@ -159,19 +159,34 @@ set(AEGIS_SOURCES
     src/cli_policy.cpp
     src/cli_run.cpp
     src/commands_block_allow.cpp
+    src/commands_emergency.cpp
+    src/commands_explain.cpp
+    src/commands_health.cpp
     src/commands_network.cpp
     src/commands_policy.cpp
+    src/commands_probe.cpp
+    src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
     src/control.cpp
     src/daemon.cpp
+    src/daemon_policy_gate.cpp
+    src/daemon_posture.cpp
+    src/daemon_runtime.cpp
+    src/bpf_attach.cpp
+    src/bpf_config.cpp
+    src/bpf_integrity.cpp
+    src/bpf_maps.cpp
     src/bpf_ops.cpp
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
+    src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
     src/policy.cpp
+    src/policy_parse.cpp
+    src/policy_runtime.cpp
     src/seccomp.cpp
     src/sha256.cpp
     src/tweetnacl.c
@@ -186,22 +201,37 @@ set(AEGIS_HEADERS
     src/cli_policy.hpp
     src/cli_run.hpp
     src/commands_block_allow.hpp
+    src/commands_emergency.hpp
+    src/commands_explain.hpp
+    src/commands_health.hpp
     src/commands_keys_survival.hpp
+    src/commands_metrics.hpp
     src/commands_monitoring.hpp
     src/commands_network.hpp
     src/commands_policy.hpp
+    src/commands_probe.hpp
     src/commands.hpp
     src/control.hpp
     src/daemon.hpp
+    src/daemon_policy_gate.hpp
+    src/daemon_posture.hpp
+    src/daemon_runtime.hpp
     src/daemon_test_hooks.hpp
+    src/bpf_attach.hpp
+    src/bpf_config.hpp
+    src/bpf_integrity.hpp
+    src/bpf_maps.hpp
     src/bpf_ops.hpp
     src/crypto.hpp
     src/exec_identity.hpp
     src/events.hpp
+    src/json_scan.hpp
     src/kernel_features.hpp
     src/logging.hpp
     src/network_ops.hpp
     src/policy.hpp
+    src/policy_parse.hpp
+    src/policy_runtime.hpp
     src/result.hpp
     src/seccomp.hpp
     src/sha256.hpp
@@ -253,19 +283,34 @@ target_compile_definitions(aegisbpf PRIVATE
 set(AEGIS_LIB_SOURCES
     src/binary_scan.cpp
     src/commands_block_allow.cpp
+    src/commands_emergency.cpp
+    src/commands_explain.cpp
+    src/commands_health.cpp
     src/commands_network.cpp
     src/commands_policy.cpp
+    src/commands_probe.cpp
+    src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
     src/control.cpp
     src/daemon.cpp
+    src/daemon_policy_gate.cpp
+    src/daemon_posture.cpp
+    src/daemon_runtime.cpp
+    src/bpf_attach.cpp
+    src/bpf_config.cpp
+    src/bpf_integrity.cpp
+    src/bpf_maps.cpp
     src/bpf_ops.cpp
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
+    src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
     src/policy.cpp
+    src/policy_parse.cpp
+    src/policy_runtime.cpp
     src/seccomp.cpp
     src/sha256.cpp
     src/tweetnacl.c
@@ -328,6 +373,7 @@ if(BUILD_TESTING)
         tests/test_sha256.cpp
         tests/test_policy.cpp
         tests/test_network.cpp
+        tests/test_json_scan.cpp
         tests/test_metrics.cpp
         tests/test_bpf_integrity.cpp
         tests/test_tracing.cpp
@@ -410,7 +456,7 @@ if(BUILD_TESTING)
     add_test(
         NAME metrics_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_metrics_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/commands_monitoring.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/commands_metrics.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/config/prometheus/alerts.yml
             ${CMAKE_CURRENT_SOURCE_DIR}/config/grafana/dashboard.json
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/man/aegisbpf.1.md
@@ -435,6 +481,17 @@ if(BUILD_TESTING)
         NAME support_policy_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_support_policy.py
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/SUPPORT_POLICY.md
+    )
+
+    add_test(
+        NAME vendored_dependency_contract
+        COMMAND ${BASH} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_vendored_dependencies.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/config/vendored_deps.json
+    )
+
+    add_test(
+        NAME feature_surface_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_feature_surface_contract.py
     )
 
     add_test(

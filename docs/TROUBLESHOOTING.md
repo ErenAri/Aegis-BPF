@@ -167,7 +167,7 @@ deny_inode_map not found
 1. Clear pins and restart:
    ```bash
    sudo aegisbpf block clear
-   sudo rm -rf /sys/fs/bpf/aegis/
+   sudo rm -rf /sys/fs/bpf/aegisbpf/
    sudo aegisbpf run
    ```
 
@@ -348,7 +348,7 @@ sudo bpftool prog list
 sudo bpftool map list
 
 # Dump map contents
-sudo bpftool map dump pinned /sys/fs/bpf/aegis/deny_inode
+sudo bpftool map dump pinned /sys/fs/bpf/aegisbpf/deny_inode
 
 # Trace BPF program execution
 sudo bpftool prog tracelog

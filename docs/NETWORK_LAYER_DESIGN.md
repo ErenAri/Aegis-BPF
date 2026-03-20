@@ -1,5 +1,13 @@
 # AegisBPF Network Layer Design
 
+Status: Reference design for the shipped network layer plus future extensions.
+
+Current implementation ships exact IP, CIDR, port, and IP:port deny rules, plus
+port-deny `socket_listen` coverage, richer `socket_accept` remote-peer
+coverage, and outbound `socket_sendmsg` coverage when the corresponding kernel
+hooks are available.
+Bloom-filter fast paths in this document are not implemented today.
+
 ## Executive Summary
 
 This document specifies the architecture for adding network monitoring and enforcement capabilities to AegisBPF. The design extends the existing file access control framework to provide egress/ingress network policy enforcement using LSM socket hooks, maintaining consistency with existing patterns while adding network-specific functionality.
@@ -35,8 +43,10 @@ This document specifies the architecture for adding network monitoring and enfor
 |                              |  | LSM: socket_connect                  |
 | [NEW - NETWORK]              |  | LSM: socket_bind                     |
 | deny_ipv4                    |  | LSM: socket_listen                   |
-| deny_ipv6                    |  | LSM: socket_sendmsg (optional)       |
-| deny_port                    |  |                                      |
+| deny_ipv6                    |  | LSM: socket_accept                   |
+| deny_port                    |  | LSM: socket_sendmsg (optional)       |
+| deny_ip_port_v4              |  |                                      |
+| deny_ip_port_v6              |  |                                      |
 | deny_cidr_v4                 |  |                                      |
 | deny_cidr_v6                 |  |                                      |
 | net_block_stats              |  |                                      |
@@ -114,6 +124,8 @@ enum event_type {
     EVENT_NET_CONNECT_BLOCK = 10,
     EVENT_NET_BIND_BLOCK = 11,
     EVENT_NET_LISTEN_BLOCK = 12,
+    EVENT_NET_ACCEPT_BLOCK = 13,
+    EVENT_NET_SENDMSG_BLOCK = 14,
 };
 ```
 
@@ -134,7 +146,7 @@ struct net_block_event {
     __u8 protocol;      // IPPROTO_TCP, IPPROTO_UDP
     __u16 local_port;
     __u16 remote_port;
-    __u8 direction;     // 0=egress, 1=ingress/bind
+    __u8 direction;     // 0=egress, 1=bind, 2=listen, 3=accept, 4=send
     __u8 _pad;
 
     union {
@@ -277,6 +289,8 @@ struct net_stats_entry {
     __u64 connect_blocks;
     __u64 bind_blocks;
     __u64 listen_blocks;
+    __u64 accept_blocks;
+    __u64 sendmsg_blocks;
     __u64 ringbuf_drops;
 };
 

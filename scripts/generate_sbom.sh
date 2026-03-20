@@ -27,7 +27,7 @@ LIBBPF_VERSION=$(pkg-config --modversion libbpf 2>/dev/null || echo "unknown")
 LIBSYSTEMD_VERSION=$(pkg-config --modversion libsystemd 2>/dev/null || echo "not installed")
 
 # Vendored dependencies
-TWEETNACL_VERSION="20140427"  # TweetNaCl version
+TWEETNACL_VERSION="20140917"  # TweetNaCl version
 
 # FetchContent dependencies
 GTEST_VERSION="1.14.0"

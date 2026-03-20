@@ -6,6 +6,7 @@
 #include "commands_network.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 
 #include "bpf_ops.hpp"
@@ -175,6 +176,51 @@ int cmd_network_deny_add_port(uint16_t port, const std::string& protocol_str, co
     return 0;
 }
 
+int cmd_network_deny_add_ip_port(const std::string& rule_text)
+{
+    const std::string trace_id = make_span_id("trace-net-deny-add-ip-port");
+    ScopedSpan span("cli.network_deny_add_ip_port", trace_id);
+
+    auto rule_result = parse_ip_port_rule(rule_text);
+    if (!rule_result) {
+        logger().log(SLOG_ERROR("Failed to parse deny IP:port rule")
+                         .field("rule", rule_text)
+                         .field("error", rule_result.error().to_string()));
+        return fail_span(span, rule_result.error().to_string());
+    }
+
+    auto rlimit_result = bump_memlock_rlimit();
+    if (!rlimit_result) {
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
+        return fail_span(span, rlimit_result.error().to_string());
+    }
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
+        return fail_span(span, load_result.error().to_string());
+    }
+
+    auto add_result = add_deny_ip_port(state, *rule_result);
+    if (!add_result) {
+        logger().log(SLOG_ERROR("Failed to add deny IP:port")
+                         .field("rule", format_ip_port_rule(*rule_result))
+                         .field("error", add_result.error().to_string()));
+        return fail_span(span, add_result.error().to_string());
+    }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(
+            SLOG_ERROR("Failed to refresh policy empty hints").field("error", hints_result.error().to_string()));
+        return fail_span(span, hints_result.error().to_string());
+    }
+
+    logger().log(SLOG_INFO("Added deny IP:port").field("rule", format_ip_port_rule(*rule_result)));
+    return 0;
+}
+
 int cmd_network_deny_del_ip(const std::string& ip)
 {
     const std::string trace_id = make_span_id("trace-net-deny-del-ip");
@@ -293,6 +339,50 @@ int cmd_network_deny_del_port(uint16_t port, const std::string& protocol_str, co
     return 0;
 }
 
+int cmd_network_deny_del_ip_port(const std::string& rule_text)
+{
+    const std::string trace_id = make_span_id("trace-net-deny-del-ip-port");
+    ScopedSpan span("cli.network_deny_del_ip_port", trace_id);
+
+    auto rule_result = parse_ip_port_rule(rule_text);
+    if (!rule_result) {
+        logger().log(SLOG_ERROR("Failed to parse deny IP:port rule")
+                         .field("rule", rule_text)
+                         .field("error", rule_result.error().to_string()));
+        return fail_span(span, rule_result.error().to_string());
+    }
+
+    auto rlimit_result = bump_memlock_rlimit();
+    if (!rlimit_result) {
+        logger().log(SLOG_ERROR("Failed to raise memlock rlimit").field("error", rlimit_result.error().to_string()));
+        return fail_span(span, rlimit_result.error().to_string());
+    }
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
+        return fail_span(span, load_result.error().to_string());
+    }
+
+    auto del_result = del_deny_ip_port(state, *rule_result);
+    if (!del_result) {
+        logger().log(SLOG_ERROR("Failed to remove deny IP:port")
+                         .field("rule", format_ip_port_rule(*rule_result))
+                         .field("error", del_result.error().to_string()));
+        return fail_span(span, del_result.error().to_string());
+    }
+
+    auto hints_result = refresh_policy_empty_hints(state);
+    if (!hints_result) {
+        logger().log(SLOG_WARN("Failed to refresh policy empty hints after delete")
+                         .field("error", hints_result.error().to_string()));
+    }
+
+    logger().log(SLOG_INFO("Removed deny IP:port").field("rule", format_ip_port_rule(*rule_result)));
+    return 0;
+}
+
 int cmd_network_deny_list()
 {
     const std::string trace_id = make_span_id("trace-net-deny-list");
@@ -352,6 +442,28 @@ int cmd_network_deny_list()
         }
     }
 
+    std::cout << "\nDenied IP:Port Rules:" << '\n';
+    if (state.deny_ip_port_v4) {
+        auto rules_result = list_deny_ip_port_v4(state);
+        if (rules_result) {
+            for (const auto& rule : *rules_result) {
+                IpPortRule formatted{.ip = format_ipv4(rule.addr), .port = rule.port, .protocol = rule.protocol};
+                std::cout << "  " << format_ip_port_rule(formatted) << '\n';
+            }
+        }
+    }
+    if (state.deny_ip_port_v6) {
+        auto rules_result = list_deny_ip_port_v6(state);
+        if (rules_result) {
+            for (const auto& rule : *rules_result) {
+                Ipv6Key ip{};
+                std::memcpy(ip.addr, rule.addr, sizeof(ip.addr));
+                IpPortRule formatted{.ip = format_ipv6(ip), .port = rule.port, .protocol = rule.protocol};
+                std::cout << "  " << format_ip_port_rule(formatted) << '\n';
+            }
+        }
+    }
+
     return 0;
 }
 
@@ -381,6 +493,12 @@ int cmd_network_deny_clear()
     }
     if (state.deny_port) {
         clear_map_entries(state.deny_port);
+    }
+    if (state.deny_ip_port_v4) {
+        clear_map_entries(state.deny_ip_port_v4);
+    }
+    if (state.deny_ip_port_v6) {
+        clear_map_entries(state.deny_ip_port_v6);
     }
 
     auto hints_result = refresh_policy_empty_hints(state);

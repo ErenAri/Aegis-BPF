@@ -1,0 +1,20 @@
+{
+  "type": "net_listen_block",
+  "pid": 12348,
+  "ppid": 12345,
+  "start_time": 423456789,
+  "exec_id": "12348:423456789",
+  "trace_id": "12348:423456789",
+  "parent_start_time": 123456789,
+  "parent_exec_id": "12345:123456789",
+  "parent_trace_id": "12345:123456789",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+  "family": "ipv4",
+  "protocol": "tcp",
+  "direction": "listen",
+  "local_port": 8080,
+  "rule_type": "port",
+  "action": "BLOCK",
+  "comm": "python"
+}

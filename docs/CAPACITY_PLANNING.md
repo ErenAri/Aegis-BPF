@@ -22,11 +22,9 @@ AegisBPF uses kernel BPF maps with **fixed maximum sizes**. Understanding these 
 |----------|-------------|---------|------------------|--------------|
 | `deny_inode_map` | **65,536** | Exact inode blocking | ~16 bytes | ~1 MB |
 | `deny_path_map` | 16,384 | Path-based blocking | ~264 bytes | ~4 MB |
-| `deny_bloom_map` | 16,384 | Fast path bloom filter | ~8 bytes | ~128 KB |
-| `deny_exact_map` | 65,536 | Exact SHA256 matching | ~40 bytes | ~2.5 MB |
 | `deny_inode_stats_map` | 65,536 | Block event counters | ~16 bytes | ~1 MB |
 
-**Total File Enforcement:** ~9 MB kernel memory
+**Total File Enforcement:** ~6 MB kernel memory
 
 ### Network Enforcement Maps
 
@@ -35,6 +33,8 @@ AegisBPF uses kernel BPF maps with **fixed maximum sizes**. Understanding these 
 | `deny_ipv4_map` | 65,536 | IPv4 address blocking | ~8 bytes | ~512 KB |
 | `deny_ipv6_map` | 65,536 | IPv6 address blocking | ~20 bytes | ~1.3 MB |
 | `deny_port_map` | 4,096 | Port blocking | ~8 bytes | ~32 KB |
+| `deny_ip_port_v4_map` | 4,096 | IPv4 remote endpoint blocking | ~12 bytes | ~48 KB |
+| `deny_ip_port_v6_map` | 4,096 | IPv6 remote endpoint blocking | ~24 bytes | ~96 KB |
 | `deny_cidr_v4_map` | 16,384 | IPv4 CIDR ranges | ~12 bytes | ~192 KB |
 | `deny_cidr_v6_map` | 16,384 | IPv6 CIDR ranges | ~24 bytes | ~384 KB |
 | `net_ip_stats_map` | 16,384 | Connection stats | ~24 bytes | ~384 KB |
@@ -590,4 +590,3 @@ sudo aegisbpf allow cgroup add /service-b.slice
 **Last Updated:** 2026-02-07
 **Next Review:** Quarterly
 **Maintained By:** SRE Team + Platform Engineering
-
