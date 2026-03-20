@@ -126,6 +126,31 @@ version=2
     EXPECT_EQ(result->network.deny_ports.size(), 1u);
 }
 
+TEST_F(PolicyTest, ParsePolicyWithIpPortRules)
+{
+    std::string content = R"(
+version=2
+
+[deny_ip_port]
+10.0.0.5:443:tcp
+[2001:db8::5]:8443:udp
+10.0.0.5:443:tcp
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    ASSERT_EQ(result->network.deny_ip_ports.size(), 2u);
+    EXPECT_EQ(result->network.deny_ip_ports[0].ip, "10.0.0.5");
+    EXPECT_EQ(result->network.deny_ip_ports[0].port, 443u);
+    EXPECT_EQ(result->network.deny_ip_ports[0].protocol, 6u);
+    EXPECT_EQ(result->network.deny_ip_ports[1].ip, "2001:db8::5");
+    EXPECT_EQ(result->network.deny_ip_ports[1].port, 8443u);
+    EXPECT_EQ(result->network.deny_ip_ports[1].protocol, 17u);
+}
+
 TEST_F(PolicyTest, ParsePolicyWithAllowBinaryHash)
 {
     std::string content = R"(

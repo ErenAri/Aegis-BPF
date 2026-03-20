@@ -435,13 +435,6 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
         kernel_features = features_result.value();
 
-        // Warn if socket storage is not supported
-        if (!kernel_features.sk_storage) {
-            logger().log(SLOG_WARN("Socket caching not available (kernel < 5.2)")
-                             .field("kernel_version", kernel_features.kernel_version)
-                             .field("impact",
-                                    "BPF program load may fail. Kernel 5.2+ required for optimal network performance"));
-        }
     }
 
     {
@@ -470,6 +463,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
         state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
         state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
+        state.deny_ip_port_v4 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4");
+        state.deny_ip_port_v6 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6");
         state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
         state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
@@ -562,6 +557,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             span.fail(r.error().to_string());
             return fail(r.error());
         }
+        r = try_set_max(state.deny_ip_port_v4, max_net, "deny_ip_port_v4");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
+        r = try_set_max(state.deny_ip_port_v6, max_net, "deny_ip_port_v6");
+        if (!r) {
+            span.fail(r.error().to_string());
+            return fail(r.error());
+        }
     }
 
     if (reuse_pins) {
@@ -623,6 +628,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse_optional(state.deny_ipv4, kDenyIpv4Pin, state.deny_ipv4_reused)));
         TRY(check(try_reuse_optional(state.deny_ipv6, kDenyIpv6Pin, state.deny_ipv6_reused)));
         TRY(check(try_reuse_optional(state.deny_port, kDenyPortPin, state.deny_port_reused)));
+        TRY(check(try_reuse_optional(state.deny_ip_port_v4, kDenyIpPortV4Pin, state.deny_ip_port_v4_reused)));
+        TRY(check(try_reuse_optional(state.deny_ip_port_v6, kDenyIpPortV6Pin, state.deny_ip_port_v6_reused)));
         TRY(check(try_reuse_optional(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
         TRY(check(try_reuse_optional(state.deny_cidr_v6, kDenyCidrV6Pin, state.deny_cidr_v6_reused)));
         TRY(check(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused)));
@@ -683,13 +690,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         if (err) {
             cleanup_bpf(state);
 
-            // Provide helpful error message for SK_STORAGE compatibility issues
             std::string error_msg = "Failed to load BPF object";
-            if (!kernel_features.sk_storage && (err == -EINVAL || err == -ENOENT || err == -EOPNOTSUPP)) {
-                error_msg += " - BPF_MAP_TYPE_SK_STORAGE not supported on kernel " + kernel_features.kernel_version +
-                             ". Kernel 5.2+ required for network socket caching. "
-                             "See docs/COMPATIBILITY.md for supported kernel versions.";
-            }
 
             Error error = Error::bpf_error(err, error_msg);
             span.fail(error.to_string());
@@ -703,8 +704,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
         (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
         (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
-        (state.deny_port && !state.deny_port_reused) || (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) ||
-        (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
+        (state.deny_port && !state.deny_port_reused) || (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
+        (state.deny_ip_port_v6 && !state.deny_ip_port_v6_reused) ||
+        (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
         (state.net_ip_stats && !state.net_ip_stats_reused) || (state.net_port_stats && !state.net_port_stats_reused);
 
@@ -759,6 +761,12 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
         if (state.deny_port) {
             TRY(check(try_pin(state.deny_port, kDenyPortPin, state.deny_port_reused)));
+        }
+        if (state.deny_ip_port_v4) {
+            TRY(check(try_pin(state.deny_ip_port_v4, kDenyIpPortV4Pin, state.deny_ip_port_v4_reused)));
+        }
+        if (state.deny_ip_port_v6) {
+            TRY(check(try_pin(state.deny_ip_port_v6, kDenyIpPortV6Pin, state.deny_ip_port_v6_reused)));
         }
         if (state.deny_cidr_v4) {
             TRY(check(try_pin(state.deny_cidr_v4, kDenyCidrV4Pin, state.deny_cidr_v4_reused)));
@@ -1155,6 +1163,18 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
         return r.error();
     }
     set.deny_port = std::move(*r);
+
+    r = mk(state.deny_ip_port_v4);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_ip_port_v4 = std::move(*r);
+
+    r = mk(state.deny_ip_port_v6);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_ip_port_v6 = std::move(*r);
 
     r = mk(state.deny_cidr_v4);
     if (!r) {
@@ -1661,6 +1681,7 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
     normalized.file_policy_empty = (map_is_empty(state.deny_inode) && map_is_empty(state.deny_path)) ? 1 : 0;
     normalized.net_policy_empty =
         (map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) && map_is_empty(state.deny_port) &&
+         map_is_empty(state.deny_ip_port_v4) && map_is_empty(state.deny_ip_port_v6) &&
          map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6))
             ? 1
             : 0;
@@ -1731,7 +1752,8 @@ Result<void> refresh_policy_empty_hints(BpfState& state)
 
     const bool file_empty = map_is_empty(state.deny_inode) && map_is_empty(state.deny_path);
     const bool net_empty = map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) &&
-                           map_is_empty(state.deny_port) && map_is_empty(state.deny_cidr_v4) &&
+                           map_is_empty(state.deny_port) && map_is_empty(state.deny_ip_port_v4) &&
+                           map_is_empty(state.deny_ip_port_v6) && map_is_empty(state.deny_cidr_v4) &&
                            map_is_empty(state.deny_cidr_v6);
 
     uint32_t key = 0;
@@ -1962,6 +1984,8 @@ MapPressureReport check_map_pressure(const BpfState& state)
     static constexpr size_t kMaxDenyIpv4 = 65536;
     static constexpr size_t kMaxDenyIpv6 = 65536;
     static constexpr size_t kMaxDenyPorts = 4096;
+    static constexpr size_t kMaxDenyIpPortV4 = 4096;
+    static constexpr size_t kMaxDenyIpPortV6 = 4096;
     static constexpr size_t kMaxDenyCidrV4 = 16384;
     static constexpr size_t kMaxDenyCidrV6 = 16384;
 
@@ -1995,6 +2019,8 @@ MapPressureReport check_map_pressure(const BpfState& state)
     add_map("deny_ipv4", state.deny_ipv4, kMaxDenyIpv4);
     add_map("deny_ipv6", state.deny_ipv6, kMaxDenyIpv6);
     add_map("deny_port", state.deny_port, kMaxDenyPorts);
+    add_map("deny_ip_port_v4", state.deny_ip_port_v4, kMaxDenyIpPortV4);
+    add_map("deny_ip_port_v6", state.deny_ip_port_v6, kMaxDenyIpPortV6);
     add_map("deny_cidr_v4", state.deny_cidr_v4, kMaxDenyCidrV4);
     add_map("deny_cidr_v6", state.deny_cidr_v6, kMaxDenyCidrV6);
 

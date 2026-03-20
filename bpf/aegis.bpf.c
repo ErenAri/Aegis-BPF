@@ -63,8 +63,6 @@
 #define MAX_PROCESS_TREE_ENTRIES 65536
 #define MAX_ALLOW_CGROUP_ENTRIES 1024
 #define MAX_SURVIVAL_ALLOWLIST_ENTRIES 256
-#define MAX_DENY_BLOOM_ENTRIES 16384
-#define MAX_DENY_EXACT_ENTRIES 65536
 #define MAX_DENY_INODE_ENTRIES 65536
 #define MAX_DENY_PATH_ENTRIES 16384
 #define MAX_DENY_CGROUP_STATS_ENTRIES 4096
@@ -76,6 +74,8 @@
 #define MAX_DENY_IPV4_ENTRIES 65536
 #define MAX_DENY_IPV6_ENTRIES 65536
 #define MAX_DENY_PORT_ENTRIES 4096
+#define MAX_DENY_IP_PORT_V4_ENTRIES 4096
+#define MAX_DENY_IP_PORT_V6_ENTRIES 4096
 #define MAX_DENY_CIDR_V4_ENTRIES 16384
 #define MAX_DENY_CIDR_V6_ENTRIES 16384
 #define MAX_NET_IP_STATS_ENTRIES 16384
@@ -272,21 +272,6 @@ struct {
 } agent_meta_map SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_BLOOM_FILTER);
-    __uint(max_entries, MAX_DENY_BLOOM_ENTRIES);
-    __uint(key_size, 0);
-    __uint(value_size, sizeof(__u64));
-    __uint(map_extra, 5);
-} deny_bloom SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_DENY_EXACT_ENTRIES);
-    __type(key, __u64);
-    __type(value, __u8);
-} deny_exact SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_INODE_ENTRIES);
     __type(key, struct inode_id);
@@ -371,6 +356,34 @@ struct {
     __type(key, struct port_key);
     __type(value, __u8);
 } deny_port SEC(".maps");
+
+struct ip_port_key_v4 {
+    __be32 addr;
+    __u16 port;
+    __u8 protocol; /* 0=any, 6=tcp, 17=udp */
+    __u8 _pad;
+};
+
+struct ip_port_key_v6 {
+    __u8 addr[16];
+    __u16 port;
+    __u8 protocol; /* 0=any, 6=tcp, 17=udp */
+    __u8 _pad;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_DENY_IP_PORT_V4_ENTRIES);
+    __type(key, struct ip_port_key_v4);
+    __type(value, __u8);
+} deny_ip_port_v4 SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_DENY_IP_PORT_V6_ENTRIES);
+    __type(key, struct ip_port_key_v6);
+    __type(value, __u8);
+} deny_ip_port_v6 SEC(".maps");
 
 /* IPv4 CIDR deny list - LPM trie for prefix matching */
 struct ipv4_lpm_key {
@@ -868,6 +881,36 @@ static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 dir
 
     key.protocol = 0;  /* both + any protocol */
     return bpf_map_lookup_elem(&deny_port, &key) != NULL;
+}
+
+static __always_inline int ip_port_rule_matches_v4(__be32 addr, __u16 port, __u8 protocol)
+{
+    struct ip_port_key_v4 key = {
+        .addr = addr,
+        .port = port,
+        .protocol = protocol,
+    };
+
+    if (bpf_map_lookup_elem(&deny_ip_port_v4, &key))
+        return 1;
+
+    key.protocol = 0; /* any protocol */
+    return bpf_map_lookup_elem(&deny_ip_port_v4, &key) != NULL;
+}
+
+static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key *addr, __u16 port, __u8 protocol)
+{
+    struct ip_port_key_v6 key = {
+        .port = port,
+        .protocol = protocol,
+    };
+    __builtin_memcpy(key.addr, addr->addr, sizeof(key.addr));
+
+    if (bpf_map_lookup_elem(&deny_ip_port_v6, &key))
+        return 1;
+
+    key.protocol = 0; /* any protocol */
+    return bpf_map_lookup_elem(&deny_ip_port_v6, &key) != NULL;
 }
 
 /* ============================================================================
@@ -1570,14 +1613,22 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     }
 
     if (family == AF_INET) {
-        /* Check 1: Exact IPv4 match */
+        /* Check 1: Exact IPv4+port match */
+        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+            increment_net_ip_stat_v4(remote_ip_v4);
+            increment_net_port_stat(remote_port);
+        }
+
+        /* Check 2: Exact IPv4 match */
         if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
         }
 
-        /* Check 2: IPv4 CIDR match via LPM trie */
+        /* Check 3: IPv4 CIDR match via LPM trie */
         if (!matched) {
             struct ipv4_lpm_key lpm_key = {
                 .prefixlen = 32,
@@ -1590,14 +1641,22 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
             }
         }
     } else {
-        /* Check 1: Exact IPv6 match */
+        /* Check 1: Exact IPv6+port match */
+        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+            increment_net_ip_stat_v6(&remote_ip_v6);
+            increment_net_port_stat(remote_port);
+        }
+
+        /* Check 2: Exact IPv6 match */
         if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);
         }
 
-        /* Check 2: IPv6 CIDR match via LPM trie */
+        /* Check 3: IPv6 CIDR match via LPM trie */
         if (!matched) {
             struct ipv6_lpm_key lpm_key = {
                 .prefixlen = 128,
@@ -1612,7 +1671,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
     }
 
-    /* Check 3: Port match (protocol/direction aware) */
+    /* Check 4: Port match (protocol/direction aware) */
     if (!matched) {
         if (port_rule_matches(remote_port, protocol, 0)) {
             matched = 1;

@@ -56,6 +56,12 @@ Result<void> add_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uin
 Result<void> del_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uint8_t direction);
 Result<std::vector<PortKey>> list_deny_ports(BpfState& state);
 
+// Exact IP:port deny operations
+Result<void> add_deny_ip_port(BpfState& state, const IpPortRule& rule);
+Result<void> del_deny_ip_port(BpfState& state, const IpPortRule& rule);
+Result<std::vector<IpPortV4Key>> list_deny_ip_port_v4(BpfState& state);
+Result<std::vector<IpPortV6Key>> list_deny_ip_port_v6(BpfState& state);
+
 // Network statistics
 Result<NetBlockStats> read_net_block_stats(BpfState& state);
 Result<std::vector<std::pair<std::string, uint64_t>>> read_net_ip_stats(BpfState& state);
@@ -69,16 +75,19 @@ Result<void> clear_network_maps(BpfState& state);
 Result<void> add_deny_ip_to_fds(int ipv4_fd, int ipv6_fd, const std::string& ip);
 Result<void> add_deny_cidr_to_fds(int cidr_v4_fd, int cidr_v6_fd, const std::string& cidr);
 Result<void> add_deny_port_to_fd(int port_fd, uint16_t port, uint8_t protocol, uint8_t direction);
+Result<void> add_deny_ip_port_to_fds(int ip_port_v4_fd, int ip_port_v6_fd, const IpPortRule& rule);
 
 // Utility functions
 bool parse_ipv4(const std::string& ip_str, uint32_t& ip_be);
 bool parse_ipv6(const std::string& ip_str, Ipv6Key& ip);
 bool parse_cidr_v4(const std::string& cidr_str, uint32_t& ip_be, uint8_t& prefix_len);
 bool parse_cidr_v6(const std::string& cidr_str, Ipv6Key& ip, uint8_t& prefix_len);
+Result<IpPortRule> parse_ip_port_rule(const std::string& rule_text);
 std::string format_ipv4(uint32_t ip_be);
 std::string format_ipv6(const Ipv6Key& ip);
 std::string format_cidr_v4(uint32_t ip_be, uint8_t prefix_len);
 std::string format_cidr_v6(const Ipv6Key& ip, uint8_t prefix_len);
+std::string format_ip_port_rule(const IpPortRule& rule);
 std::string protocol_name(uint8_t protocol);
 std::string_view direction_name(uint8_t direction) noexcept;
 

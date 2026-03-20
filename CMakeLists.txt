@@ -438,6 +438,17 @@ if(BUILD_TESTING)
     )
 
     add_test(
+        NAME vendored_dependency_contract
+        COMMAND ${BASH} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_vendored_dependencies.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/config/vendored_deps.json
+    )
+
+    add_test(
+        NAME feature_surface_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_feature_surface_contract.py
+    )
+
+    add_test(
         NAME failure_modes_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_failure_modes_contract.py
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_policy.cpp

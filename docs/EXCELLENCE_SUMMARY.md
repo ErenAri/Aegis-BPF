@@ -171,7 +171,7 @@ git push
 
 **Your Unique Advantages:**
 - ✅ PID reuse protection (unique in industry)
-- ✅ Socket caching (near-zero network overhead)
+- ✅ Runtime posture gating + fail-safe degrade modes
 - ✅ Inode-first enforcement (faster than path lookups)
 - ✅ Signed policy bundles (supply chain security)
 - ✅ Break-glass recovery (operational safety)

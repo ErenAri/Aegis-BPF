@@ -244,8 +244,8 @@ to confuse forensic analysis.
 causing legitimate deny rules to be silently dropped or new rules to fail
 insertion.
 
-**Mitigations (planned Phase 5):**
-- **Map pressure monitoring:** Prometheus metrics will track map utilization ratios and alert when maps approach capacity.
+**Mitigations:**
+- **Map pressure monitoring:** The daemon logs warning/critical/full utilization states, emits degraded runtime posture on capacity exhaustion, and exports map utilization/capacity metrics for alerting.
 - **Entry count verification:** Post-apply verification (`verify_map_entry_count()`) already confirms that map contents match expected counts after every policy application.
 - **Configurable map sizes:** `set_max_deny_inodes()`, `set_max_deny_paths()`, and `set_max_network_entries()` allow capacity tuning at build time.
 - **Shadow map validation:** The shadow-then-sync policy application path validates entry counts in shadow maps before touching live maps.

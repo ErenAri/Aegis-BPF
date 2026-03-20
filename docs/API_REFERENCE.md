@@ -72,6 +72,7 @@ struct NetworkPolicy {
     std::vector<std::string> deny_ips;     // IPv4/IPv6 addresses
     std::vector<std::string> deny_cidrs;   // CIDR ranges (e.g., "10.0.0.0/8")
     std::vector<PortRule> deny_ports;      // Port rules
+    std::vector<IpPortRule> deny_ip_ports; // Exact remote IP:port tuples
     bool enabled = false;                  // Auto-set when rules added
 };
 ```
@@ -85,6 +86,18 @@ struct PortRule {
     uint16_t port;       // Port number (1-65535)
     uint8_t protocol;    // 0=any, 6=tcp, 17=udp
     uint8_t direction;   // 0=egress, 1=bind, 2=both
+};
+```
+
+### IpPortRule
+
+Exact remote endpoint blocking rule for `connect()`.
+
+```cpp
+struct IpPortRule {
+    std::string ip;      // IPv4 or IPv6 address
+    uint16_t port;       // Remote port (1-65535)
+    uint8_t protocol;    // 0=any, 6=tcp, 17=udp
 };
 ```
 
@@ -458,6 +471,10 @@ fd00::/8
 22:tcp:bind
 443:tcp:egress
 53:any:both
+
+[deny_ip_port]
+10.0.0.5:443:tcp
+[2001:db8::5]:8443:udp
 ```
 
 ### policy_apply
@@ -654,7 +671,6 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b);
 | `deny_path_map` | HASH | `PathKey` | `u8` | 16,384 |
 | `allow_cgroup_map` | HASH | `u64` (cgid) | `u8` | 1,024 |
 | `survival_allowlist` | HASH | `InodeId` | `u8` | 256 |
-| `deny_bloom` | BLOOM_FILTER | - | `u64` | 16,384 |
 
 ### Network Maps
 
@@ -663,6 +679,8 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b);
 | `deny_ipv4` | HASH | `__be32` | `u8` | 65,536 |
 | `deny_ipv6` | HASH | `Ipv6Key` | `u8` | 65,536 |
 | `deny_port` | HASH | `PortKey` | `u8` | 4,096 |
+| `deny_ip_port_v4` | HASH | `IpPortV4Key` | `u8` | 4,096 |
+| `deny_ip_port_v6` | HASH | `IpPortV6Key` | `u8` | 4,096 |
 | `deny_cidr_v4` | LPM_TRIE | `Ipv4LpmKey` | `u8` | 16,384 |
 | `deny_cidr_v6` | LPM_TRIE | `Ipv6LpmKey` | `u8` | 16,384 |
 
@@ -821,6 +839,8 @@ inline constexpr uint32_t kLayoutVersion = 1;
 +-- deny_ipv4            # IPv4 deny list
 +-- deny_ipv6            # IPv6 deny list
 +-- deny_port            # Port deny list
++-- deny_ip_port_v4      # IPv4 IP:port deny list
++-- deny_ip_port_v6      # IPv6 IP:port deny list
 +-- deny_cidr_v4         # IPv4 CIDR trie
 +-- deny_cidr_v6         # IPv6 CIDR trie
 +-- net_block_stats      # Network statistics

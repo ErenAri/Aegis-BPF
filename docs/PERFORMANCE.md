@@ -55,6 +55,8 @@ total_memory ≈ bpf_maps + ring_buffer + per_cpu_arrays + userspace_heap
 | `deny_ipv4_map` | 4 B | 1 B | 16384 | ~68 B |
 | `deny_ipv6_map` | 16 B | 1 B | 16384 | ~80 B |
 | `deny_port_map` | 4 B | 1 B | 4096 | ~68 B |
+| `deny_ip_port_v4_map` | 8 B | 1 B | 4096 | ~72 B |
+| `deny_ip_port_v6_map` | 20 B | 1 B | 4096 | ~84 B |
 | `deny_cidr_v4_map` (LPM) | 8 B | 1 B | 16384 | ~100 B |
 | `deny_cidr_v6_map` (LPM) | 20 B | 1 B | 16384 | ~110 B |
 | `block_stats` | 4 B | 16 B | 1 | per-CPU array |

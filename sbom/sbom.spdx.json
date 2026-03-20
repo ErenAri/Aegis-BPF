@@ -47,7 +47,7 @@
     {
       "SPDXID": "SPDXRef-Package-TweetNaCl",
       "name": "TweetNaCl",
-      "versionInfo": "20140427",
+      "versionInfo": "20140917",
       "downloadLocation": "https://tweetnacl.cr.yp.to/software.html",
       "filesAnalyzed": false,
       "licenseConcluded": "Public-Domain",

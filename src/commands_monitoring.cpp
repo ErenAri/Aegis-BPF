@@ -45,6 +45,8 @@ constexpr uint64_t MAX_ALLOW_EXEC_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV4_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV6_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PORT_ENTRIES = 4096;
+constexpr uint64_t MAX_DENY_IP_PORT_V4_ENTRIES = 4096;
+constexpr uint64_t MAX_DENY_IP_PORT_V6_ENTRIES = 4096;
 constexpr uint64_t MAX_DENY_CIDR_V4_ENTRIES = 16384;
 constexpr uint64_t MAX_DENY_CIDR_V6_ENTRIES = 16384;
 
@@ -638,9 +640,12 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     append_metric_header(oss, "aegisbpf_net_rules_total", "gauge", "Number of active network deny rules by type");
     uint64_t ip_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv4)) +
                              static_cast<uint64_t>(safe_map_entry_count(state.deny_ipv6));
+    uint64_t ip_port_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_ip_port_v4)) +
+                                  static_cast<uint64_t>(safe_map_entry_count(state.deny_ip_port_v6));
     uint64_t cidr_rule_count = static_cast<uint64_t>(safe_map_entry_count(state.deny_cidr_v4)) +
                                static_cast<uint64_t>(safe_map_entry_count(state.deny_cidr_v6));
     append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "ip"}}, ip_rule_count);
+    append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "ip_port"}}, ip_port_rule_count);
     append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "cidr"}}, cidr_rule_count);
     append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "port"}}, safe_map_entry_count(state.deny_port));
 
@@ -665,6 +670,12 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         double port_util = calculate_map_utilization(state.deny_port, MAX_DENY_PORT_ENTRIES);
         append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_port"}}, port_util);
     }
+    if (state.deny_ip_port_v4 || state.deny_ip_port_v6) {
+        double ip_port_v4_util = calculate_map_utilization(state.deny_ip_port_v4, MAX_DENY_IP_PORT_V4_ENTRIES);
+        double ip_port_v6_util = calculate_map_utilization(state.deny_ip_port_v6, MAX_DENY_IP_PORT_V6_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_ip_port_v4"}}, ip_port_v4_util);
+        append_metric_sample(oss, "aegisbpf_map_utilization", {{"map", "deny_ip_port_v6"}}, ip_port_v6_util);
+    }
     if (state.deny_cidr_v4 || state.deny_cidr_v6) {
         double cidr_v4_util = calculate_map_utilization(state.deny_cidr_v4, MAX_DENY_CIDR_V4_ENTRIES);
         double cidr_v6_util = calculate_map_utilization(state.deny_cidr_v6, MAX_DENY_CIDR_V6_ENTRIES);
@@ -684,6 +695,10 @@ int cmd_metrics(const std::string& out_path, bool detailed)
     }
     if (state.deny_port) {
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_port"}}, MAX_DENY_PORT_ENTRIES);
+    }
+    if (state.deny_ip_port_v4 || state.deny_ip_port_v6) {
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ip_port_v4"}}, MAX_DENY_IP_PORT_V4_ENTRIES);
+        append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_ip_port_v6"}}, MAX_DENY_IP_PORT_V6_ENTRIES);
     }
     if (state.deny_cidr_v4 || state.deny_cidr_v6) {
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_cidr_v4"}}, MAX_DENY_CIDR_V4_ENTRIES);
@@ -899,10 +914,12 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     }
     report.required_pins_ok = true;
 
-    const std::array<std::pair<bpf_map*, const char*>, 8> optional_network_maps = {{
+    const std::array<std::pair<bpf_map*, const char*>, 10> optional_network_maps = {{
         {state.deny_ipv4, kDenyIpv4Pin},
         {state.deny_ipv6, kDenyIpv6Pin},
         {state.deny_port, kDenyPortPin},
+        {state.deny_ip_port_v4, kDenyIpPortV4Pin},
+        {state.deny_ip_port_v6, kDenyIpPortV6Pin},
         {state.deny_cidr_v4, kDenyCidrV4Pin},
         {state.deny_cidr_v6, kDenyCidrV6Pin},
         {state.net_block_stats, kNetBlockStatsPin},
@@ -1802,7 +1819,6 @@ int cmd_probe()
     out << "  \"bpf_syscall\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
     out << "  \"ringbuf\": " << (features.ringbuf ? "true" : "false") << ",\n";
     out << "  \"tracepoints\": " << (features.tracepoints ? "true" : "false") << ",\n";
-    out << "  \"sk_storage\": " << (features.sk_storage ? "true" : "false") << ",\n";
     out << "  \"bpffs_mounted\": " << (check_bpffs_mounted() ? "true" : "false") << ",\n";
     out << "  \"capability\": \"" << json_escape(capability_name(cap)) << "\",\n";
     out << "  \"can_enforce_files\": " << (features.bpf_lsm ? "true" : "false") << ",\n";

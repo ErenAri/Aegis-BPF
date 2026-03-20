@@ -1,5 +1,9 @@
 # AegisBPF Network Layer Design
 
+Status: Reference design for the shipped network layer plus future extensions.
+
+Current implementation ships exact IP, CIDR, port, and IP:port deny rules. Bloom-filter fast paths in this document are not implemented today.
+
 ## Executive Summary
 
 This document specifies the architecture for adding network monitoring and enforcement capabilities to AegisBPF. The design extends the existing file access control framework to provide egress/ingress network policy enforcement using LSM socket hooks, maintaining consistency with existing patterns while adding network-specific functionality.

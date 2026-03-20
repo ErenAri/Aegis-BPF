@@ -33,6 +33,8 @@ inline constexpr const char* kBpfObjInstallPath = "/usr/lib/aegisbpf/aegis.bpf.o
 inline constexpr const char* kDenyIpv4Pin = "/sys/fs/bpf/aegisbpf/deny_ipv4";
 inline constexpr const char* kDenyIpv6Pin = "/sys/fs/bpf/aegisbpf/deny_ipv6";
 inline constexpr const char* kDenyPortPin = "/sys/fs/bpf/aegisbpf/deny_port";
+inline constexpr const char* kDenyIpPortV4Pin = "/sys/fs/bpf/aegisbpf/deny_ip_port_v4";
+inline constexpr const char* kDenyIpPortV6Pin = "/sys/fs/bpf/aegisbpf/deny_ip_port_v6";
 inline constexpr const char* kDenyCidrV4Pin = "/sys/fs/bpf/aegisbpf/deny_cidr_v4";
 inline constexpr const char* kDenyCidrV6Pin = "/sys/fs/bpf/aegisbpf/deny_cidr_v6";
 inline constexpr const char* kNetBlockStatsPin = "/sys/fs/bpf/aegisbpf/net_block_stats";
@@ -160,6 +162,20 @@ struct PortKeyHash {
     }
 };
 
+struct IpPortV4Key {
+    uint32_t addr; /* Network byte order */
+    uint16_t port;
+    uint8_t protocol; /* 0=any, 6=tcp, 17=udp */
+    uint8_t pad;
+};
+
+struct IpPortV6Key {
+    uint8_t addr[16];
+    uint16_t port;
+    uint8_t protocol; /* 0=any, 6=tcp, 17=udp */
+    uint8_t pad;
+};
+
 struct Ipv4LpmKey {
     uint32_t prefixlen;
     uint32_t addr; /* Network byte order */
@@ -257,14 +273,14 @@ struct PortRule {
 struct IpPortRule {
     std::string ip;
     uint16_t port;
-    uint8_t protocol;
+    uint8_t protocol; /* 0=any, 6=tcp, 17=udp */
 };
 
 struct NetworkPolicy {
     std::vector<std::string> deny_ips;     /* Exact IPv4/IPv6 addresses */
     std::vector<std::string> deny_cidrs;   /* CIDR ranges */
     std::vector<PortRule> deny_ports;      /* Port rules */
-    std::vector<IpPortRule> deny_ip_ports; /* IP:port combos */
+    std::vector<IpPortRule> deny_ip_ports; /* Exact remote IP:port tuples */
     bool enabled = false;
 };
 
@@ -308,6 +324,8 @@ static_assert(sizeof(AgentConfig) == 32, "AgentConfig size changed — update BP
 static_assert(sizeof(AgentMeta) == 4, "AgentMeta size changed — update BPF struct");
 static_assert(sizeof(BlockStats) == 16, "BlockStats size changed — update BPF struct");
 static_assert(sizeof(PortKey) == 4, "PortKey size changed — update BPF struct");
+static_assert(sizeof(IpPortV4Key) == 8, "IpPortV4Key size changed — update BPF struct");
+static_assert(sizeof(IpPortV6Key) == 20, "IpPortV6Key size changed — update BPF struct");
 static_assert(sizeof(Ipv4LpmKey) == 8, "Ipv4LpmKey size changed — update BPF struct");
 static_assert(sizeof(Ipv6LpmKey) == 20, "Ipv6LpmKey size changed — update BPF struct");
 static_assert(sizeof(NetBlockStats) == 24, "NetBlockStats size changed — update BPF struct");

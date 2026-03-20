@@ -135,6 +135,11 @@ static bool parse_port_rule(const std::string& str, PortRule& rule)
     return true;
 }
 
+static std::string canonical_ip_port_rule_key(const IpPortRule& rule)
+{
+    return rule.ip + "|" + std::to_string(rule.port) + "|" + std::to_string(rule.protocol);
+}
+
 Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 {
     std::ifstream in(path);
@@ -153,6 +158,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     std::unordered_set<std::string> deny_ip_seen;
     std::unordered_set<std::string> deny_cidr_seen;
     std::unordered_set<std::string> deny_port_seen;
+    std::unordered_set<std::string> deny_ip_port_seen;
     std::string line;
     size_t line_no = 0;
 
@@ -170,6 +176,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                                                                    "deny_ip",
                                                                    "deny_cidr",
                                                                    "deny_port",
+                                                                   "deny_ip_port",
                                                                    "deny_binary_hash",
                                                                    "allow_binary_hash",
                                                                    "scan_paths"};
@@ -344,6 +351,21 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             if (deny_port_seen.insert(trimmed).second) {
                 policy.network.deny_ports.push_back(rule);
+                policy.network.enabled = true;
+            }
+            continue;
+        }
+
+        if (section == "deny_ip_port") {
+            auto rule_result = parse_ip_port_rule(trimmed);
+            if (!rule_result) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": invalid IP:port rule '" + trimmed +
+                                        "'");
+                continue;
+            }
+            std::string key = canonical_ip_port_rule_key(*rule_result);
+            if (deny_ip_port_seen.insert(key).second) {
+                policy.network.deny_ip_ports.push_back(*rule_result);
                 policy.network.enabled = true;
             }
             continue;
@@ -532,6 +554,12 @@ Result<void> reset_policy_maps(BpfState& state)
     }
     if (state.deny_port) {
         TRY(clear_map_entries(state.deny_port));
+    }
+    if (state.deny_ip_port_v4) {
+        TRY(clear_map_entries(state.deny_ip_port_v4));
+    }
+    if (state.deny_ip_port_v6) {
+        TRY(clear_map_entries(state.deny_ip_port_v6));
     }
     if (state.deny_cidr_v4) {
         TRY(clear_map_entries(state.deny_cidr_v4));
@@ -750,6 +778,15 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                                      .field("error", result.error().message()));
                 }
             }
+            for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
+                auto result =
+                    add_deny_ip_port_to_fds(shadows.deny_ip_port_v4.fd(), shadows.deny_ip_port_v6.fd(), ip_port_rule);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny IP:port to shadow")
+                                     .field("rule", format_ip_port_rule(ip_port_rule))
+                                     .field("error", result.error().message()));
+                }
+            }
         }
 
         // Verify shadow map entry counts before touching live maps
@@ -808,6 +845,8 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 TRY(sync_from_shadow(state.deny_ipv4, shadows.deny_ipv4.fd()));
                 TRY(sync_from_shadow(state.deny_ipv6, shadows.deny_ipv6.fd()));
                 TRY(sync_from_shadow(state.deny_port, shadows.deny_port.fd()));
+                TRY(sync_from_shadow(state.deny_ip_port_v4, shadows.deny_ip_port_v4.fd()));
+                TRY(sync_from_shadow(state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()));
                 TRY(sync_from_shadow(state.deny_cidr_v4, shadows.deny_cidr_v4.fd()));
                 TRY(sync_from_shadow(state.deny_cidr_v6, shadows.deny_cidr_v6.fd()));
             }
@@ -927,10 +966,19 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                                      .field("error", result.error().message()));
                 }
             }
+            for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
+                auto result = add_deny_ip_port(state, ip_port_rule);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny IP:port")
+                                     .field("rule", format_ip_port_rule(ip_port_rule))
+                                     .field("error", result.error().message()));
+                }
+            }
             logger().log(SLOG_INFO("Network policy applied")
                              .field("deny_ips", static_cast<int64_t>(policy.network.deny_ips.size()))
                              .field("deny_cidrs", static_cast<int64_t>(policy.network.deny_cidrs.size()))
-                             .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size())));
+                             .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size()))
+                             .field("deny_ip_ports", static_cast<int64_t>(policy.network.deny_ip_ports.size())));
         }
     }
 
@@ -1013,6 +1061,31 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
             if (!policy.network.deny_ports.empty() && state.deny_port) {
                 auto v = verify_map_entry_count(state.deny_port, policy.network.deny_ports.size());
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+            size_t expected_ip_port_v4 = 0;
+            size_t expected_ip_port_v6 = 0;
+            for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
+                uint32_t ip_be = 0;
+                Ipv6Key ipv6{};
+                if (parse_ipv4(ip_port_rule.ip, ip_be)) {
+                    ++expected_ip_port_v4;
+                } else if (parse_ipv6(ip_port_rule.ip, ipv6)) {
+                    ++expected_ip_port_v6;
+                }
+            }
+            if (expected_ip_port_v4 > 0 && state.deny_ip_port_v4) {
+                auto v = verify_map_entry_count(state.deny_ip_port_v4, expected_ip_port_v4);
+                if (!v) {
+                    span.fail(v.error().to_string());
+                    return fail(v.error());
+                }
+            }
+            if (expected_ip_port_v6 > 0 && state.deny_ip_port_v6) {
+                auto v = verify_map_entry_count(state.deny_ip_port_v6, expected_ip_port_v6);
                 if (!v) {
                     span.fail(v.error().to_string());
                     return fail(v.error());
