@@ -456,7 +456,7 @@ if(BUILD_TESTING)
     add_test(
         NAME metrics_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_metrics_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/commands_monitoring.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/commands_metrics.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/config/prometheus/alerts.yml
             ${CMAKE_CURRENT_SOURCE_DIR}/config/grafana/dashboard.json
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/man/aegisbpf.1.md

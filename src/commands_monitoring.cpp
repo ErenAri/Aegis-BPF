@@ -22,8 +22,6 @@ constexpr uint64_t MAX_ALLOW_EXEC_INODE_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV4_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_IPV6_ENTRIES = 65536;
 constexpr uint64_t MAX_DENY_PORT_ENTRIES = 4096;
-constexpr uint64_t MAX_DENY_IP_PORT_V4_ENTRIES = 4096;
-constexpr uint64_t MAX_DENY_IP_PORT_V6_ENTRIES = 4096;
 constexpr uint64_t MAX_DENY_CIDR_V4_ENTRIES = 16384;
 constexpr uint64_t MAX_DENY_CIDR_V6_ENTRIES = 16384;
 

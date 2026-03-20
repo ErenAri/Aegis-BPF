@@ -1,4 +1,5 @@
 // cppcheck-suppress-file missingIncludeSystem
+// cppcheck-suppress-file syntaxError
 #include <gtest/gtest.h>
 
 #include <limits>

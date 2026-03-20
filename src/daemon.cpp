@@ -640,7 +640,6 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     auto gate = std::move(*gate_result);
     audit_only = gate.audit_only;
     config = gate.config;
-    auto& policy_req = gate.policy_requirements;
     const bool kernel_exec_identity_enabled = gate.kernel_exec_identity_enabled;
     const size_t kernel_exec_identity_entries = gate.kernel_exec_identity_entries;
     auto& exec_identity_enforcer = gate.exec_identity_enforcer;
@@ -658,9 +657,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         report_runtime_state.enforce_requested = runtime_state.enforce_requested;
         auto report_result = write_capabilities_report(
             capabilities_report_path, features, cap, audit_only, lsm_enabled, file_open_hook_attached,
-            inode_permission_hook_attached, state, applied_policy_path, policy_req, kernel_exec_identity_enabled,
-            kernel_exec_identity_entries, exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0,
-            report_runtime_state);
+            inode_permission_hook_attached, state, applied_policy_path, gate.policy_requirements,
+            kernel_exec_identity_enabled, kernel_exec_identity_entries,
+            exec_identity_enforcer ? exec_identity_enforcer->allowlist_size() : 0, report_runtime_state);
         if (!report_result) {
             logger().log(SLOG_WARN("Failed to write capability report")
                              .field("path", capabilities_report_path)

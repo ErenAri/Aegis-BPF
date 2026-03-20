@@ -130,8 +130,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         }
 
         {
-            ScopedSpan span("bpf.attach.exec_identity_hook", trace_id, root_span.span_id());
-            (void)span;
+            ScopedSpan exec_identity_span("bpf.attach.exec_identity_hook", trace_id, root_span.span_id());
+            (void)exec_identity_span;
             bpf_program* prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_check_security");
             if (!prog) {
                 logger().log(
@@ -143,8 +143,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         }
 
         {
-            ScopedSpan span("bpf.attach.exec_runtime_deps_hook", trace_id, root_span.span_id());
-            (void)span;
+            ScopedSpan exec_runtime_deps_span("bpf.attach.exec_runtime_deps_hook", trace_id, root_span.span_id());
+            (void)exec_runtime_deps_span;
             bpf_program* prog = bpf_object__find_program_by_name(state.obj, "handle_file_mmap");
             if (!prog) {
                 logger().log(
