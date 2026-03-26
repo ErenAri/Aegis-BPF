@@ -1,0 +1,107 @@
+name: BPF Coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bpf/**'
+  pull_request:
+    paths:
+      - 'bpf/**'
+  workflow_dispatch:
+
+jobs:
+  bpf-coverage:
+    name: bpf-coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build \
+            python3 python3-pip linux-tools-common 2>/dev/null || true
+          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+
+      - name: Check BPF tooling availability
+        id: bpf_check
+        run: |
+          if [[ -f /sys/kernel/btf/vmlinux ]] && bpftool version >/dev/null 2>&1; then
+            echo "bpf_ready=true" >> "$GITHUB_OUTPUT"
+            echo "BTF available and bpftool works: $(bpftool version 2>&1 | head -1)"
+          else
+            echo "bpf_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping — BTF or working bpftool not available on this runner"
+          fi
+
+      - name: Build BPF object with debug info
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=OFF
+          cmake --build build --target bpf_skel
+
+      - name: Analyze BPF program sections
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          echo "=== BPF Program Section Analysis ==="
+          llvm-objdump -h build/aegis.bpf.o 2>/dev/null | grep -E '^\s+[0-9]' || true
+
+          echo ""
+          echo "=== BPF Programs ==="
+          llvm-objdump -d build/aegis.bpf.o 2>/dev/null | grep -E '^[0-9a-f]+ <' || true
+
+          echo ""
+          echo "=== Instruction Counts Per Program ==="
+          python3 << 'PYEOF'
+          import subprocess, re, json
+
+          result = subprocess.run(
+              ["llvm-objdump", "-d", "build/aegis.bpf.o"],
+              capture_output=True, text=True
+          )
+
+          programs = {}
+          current = None
+          count = 0
+
+          for line in result.stdout.splitlines():
+              m = re.match(r'^[0-9a-f]+ <(.+)>:', line)
+              if m:
+                  if current:
+                      programs[current] = count
+                  current = m.group(1)
+                  count = 0
+              elif current and re.match(r'^\s+[0-9a-f]+:', line):
+                  count += 1
+
+          if current:
+              programs[current] = count
+
+          total = sum(programs.values())
+          print(f"Total BPF instructions: {total}")
+          print(f"Programs: {len(programs)}")
+          for name, insns in sorted(programs.items(), key=lambda x: -x[1]):
+              pct = (insns / total * 100) if total else 0
+              print(f"  {name}: {insns} instructions ({pct:.1f}%)")
+
+          with open("build/bpf_coverage_summary.json", "w") as f:
+              json.dump({"programs": programs, "total_instructions": total}, f, indent=2)
+          PYEOF
+
+      - name: Upload BPF coverage summary
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpf-coverage-summary
+          path: build/bpf_coverage_summary.json

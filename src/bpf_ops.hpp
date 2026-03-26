@@ -66,6 +66,16 @@ class BpfState {
             config_map_reused = other.config_map_reused;
             survival_allowlist_reused = other.survival_allowlist_reused;
 
+            // Diagnostics and process cache
+            diagnostics = other.diagnostics;
+            dead_processes = other.dead_processes;
+
+            // Quality improvement maps
+            hook_latency = other.hook_latency;
+            event_approver_inode = other.event_approver_inode;
+            event_approver_path = other.event_approver_path;
+            priority_events = other.priority_events;
+
             // Network maps
             deny_ipv4 = other.deny_ipv4;
             deny_ipv6 = other.deny_ipv6;
@@ -113,6 +123,12 @@ class BpfState {
             other.agent_meta = nullptr;
             other.config_map = nullptr;
             other.survival_allowlist = nullptr;
+            other.diagnostics = nullptr;
+            other.dead_processes = nullptr;
+            other.hook_latency = nullptr;
+            other.event_approver_inode = nullptr;
+            other.event_approver_path = nullptr;
+            other.priority_events = nullptr;
             other.deny_ipv4 = nullptr;
             other.deny_ipv6 = nullptr;
             other.deny_port = nullptr;
@@ -202,6 +218,16 @@ class BpfState {
 
     // Survival allowlist map
     bpf_map* survival_allowlist = nullptr;
+
+    // Diagnostics and process cache maps
+    bpf_map* diagnostics = nullptr;
+    bpf_map* dead_processes = nullptr;
+
+    // Quality improvement maps (latency, filtering, priority pipeline)
+    bpf_map* hook_latency = nullptr;
+    bpf_map* event_approver_inode = nullptr;
+    bpf_map* event_approver_path = nullptr;
+    bpf_map* priority_events = nullptr;
 
     // Network maps
     bpf_map* deny_ipv4 = nullptr;

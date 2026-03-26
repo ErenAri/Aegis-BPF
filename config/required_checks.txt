@@ -24,3 +24,11 @@ dependency-review
 codeql
 gitleaks
 semgrep
+veristat
+bpf-compile (clang-15)
+bpf-compile (clang-16)
+bpf-compile (clang-17)
+bpf-compile (clang-18)
+cross-compile-arm64
+kernel-bpf-test
+bpf-coverage

@@ -8,6 +8,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #include <array>
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <numeric>
 #include <set>
+#include <vector>
 
 #include "bpf_integrity.hpp"
 #include "kernel_features.hpp"
@@ -202,7 +204,39 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
     {
         ScopedSpan span("bpf.open_object", trace_id, root_span.span_id());
-        state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
+
+        // Check for custom BTF path when kernel doesn't have built-in BTF.
+        // This enables CO-RE on older kernels using BTFHub-generated minimized BTFs.
+        struct bpf_object_open_opts open_opts = {};
+        open_opts.sz = sizeof(open_opts);
+        std::string btf_custom_path;
+
+        if (access("/sys/kernel/btf/vmlinux", F_OK) != 0) {
+            // Try to find a matching BTF file for this kernel
+            struct utsname uname_buf = {};
+            if (uname(&uname_buf) == 0) {
+                const std::string kernel_release = uname_buf.release;
+                const std::vector<std::string> btf_search_paths = {
+                    "/usr/lib/aegisbpf/btfs/" + kernel_release + ".btf",
+                    "/etc/aegisbpf/btfs/" + kernel_release + ".btf",
+                };
+                for (const auto& path : btf_search_paths) {
+                    if (access(path.c_str(), R_OK) == 0) {
+                        btf_custom_path = path;
+                        open_opts.btf_custom_path = btf_custom_path.c_str();
+                        logger().log(LogLevel::Info, "Using custom BTF: " + btf_custom_path);
+                        break;
+                    }
+                }
+                if (btf_custom_path.empty()) {
+                    logger().log(LogLevel::Warn, "No kernel BTF at /sys/kernel/btf/vmlinux and no custom BTF "
+                                                 "found for kernel " +
+                                                     kernel_release);
+                }
+            }
+        }
+
+        state.obj = bpf_object__open_file(obj_path.c_str(), &open_opts);
         const int open_err = libbpf_get_error(state.obj);
         if (open_err) {
             state.obj = nullptr;
@@ -253,6 +287,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             state.config_map = bpf_object__find_map_by_name(state.obj, ".bss");
         }
         state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
+
+        // Diagnostics and process cache maps (optional)
+        state.diagnostics = bpf_object__find_map_by_name(state.obj, "diagnostics");
+        state.dead_processes = bpf_object__find_map_by_name(state.obj, "dead_processes");
+
+        // Quality improvement maps (optional)
+        state.hook_latency = bpf_object__find_map_by_name(state.obj, "hook_latency");
+        state.event_approver_inode = bpf_object__find_map_by_name(state.obj, "event_approver_inode");
+        state.event_approver_path = bpf_object__find_map_by_name(state.obj, "event_approver_path");
+        state.priority_events = bpf_object__find_map_by_name(state.obj, "priority_events");
 
         // Network maps (optional)
         state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");

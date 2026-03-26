@@ -6,10 +6,13 @@
   "type": "object",
   "oneOf": [
     { "$ref": "#/$defs/ExecEvent" },
+    { "$ref": "#/$defs/ExecArgvEvent" },
     { "$ref": "#/$defs/BlockEvent" },
     { "$ref": "#/$defs/NetBlockEvent" },
     { "$ref": "#/$defs/StateChangeEvent" },
-    { "$ref": "#/$defs/ControlChangeEvent" }
+    { "$ref": "#/$defs/ControlChangeEvent" },
+    { "$ref": "#/$defs/DiagEvent" },
+    { "$ref": "#/$defs/ForensicBlockEvent" }
   ],
   "$defs": {
     "ExecEvent": {
@@ -58,6 +61,75 @@
           "type": "string",
           "maxLength": 16,
           "description": "Command name (truncated to 16 characters)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExecArgvEvent": {
+      "type": "object",
+      "description": "Full argv capture event - emitted immediately after exec event with complete argument list",
+      "required": ["type", "pid", "start_time", "argc", "argv"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "exec_argv",
+          "description": "Event type identifier"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process ID (matches preceding exec event)"
+        },
+        "start_time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process start time (matches preceding exec event)"
+        },
+        "argc": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of captured arguments"
+        },
+        "argv": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Captured command-line arguments (may be truncated)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagEvent": {
+      "type": "object",
+      "description": "Diagnostic event from the diagnostics ring buffer for debug/operational monitoring",
+      "required": ["type", "diag_type", "timestamp"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "diag",
+          "description": "Event type identifier"
+        },
+        "diag_type": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Diagnostic event type (1=map_pressure, 2=hook_error, 3=process_eviction)"
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Boot-time nanosecond timestamp"
+        },
+        "data1": {
+          "type": "integer",
+          "description": "Type-specific data field 1"
+        },
+        "data2": {
+          "type": "integer",
+          "description": "Type-specific data field 2"
+        },
+        "msg": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Optional diagnostic message"
         }
       },
       "additionalProperties": false
@@ -436,6 +508,131 @@
         }
       },
       "additionalProperties": false
+    },
+    "ForensicBlockEvent": {
+      "type": "object",
+      "description": "Forensic block event - enriched block event with UID/GID and exec identity context, emitted via priority ring buffer",
+      "required": [
+        "type",
+        "pid",
+        "ppid",
+        "start_time",
+        "parent_start_time",
+        "cgid",
+        "cgroup_path",
+        "ino",
+        "dev",
+        "uid",
+        "gid",
+        "action",
+        "comm"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "forensic_block",
+          "description": "Event type identifier"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process ID that attempted the access"
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Parent process ID"
+        },
+        "start_time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Process start time"
+        },
+        "exec_id": {
+          "type": "string",
+          "description": "Stable execution identifier (pid:start_time)"
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Correlation identifier for cross-signal tracing"
+        },
+        "parent_start_time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Parent process start time"
+        },
+        "parent_exec_id": {
+          "type": "string",
+          "description": "Stable parent execution identifier (ppid:parent_start_time)"
+        },
+        "parent_trace_id": {
+          "type": "string",
+          "description": "Parent correlation identifier"
+        },
+        "cgid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cgroup ID"
+        },
+        "cgroup_path": {
+          "type": "string",
+          "description": "Full path of the cgroup"
+        },
+        "ino": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inode number of the blocked file"
+        },
+        "dev": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Device number of the blocked file"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "User ID of the process"
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Group ID of the process"
+        },
+        "exec_ino": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inode of the binary that triggered the block"
+        },
+        "exec_dev": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Device of the binary that triggered the block"
+        },
+        "exec_stage": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Exec identity verification stage"
+        },
+        "verified_exec": {
+          "type": "boolean",
+          "description": "Whether the binary is exec-identity verified"
+        },
+        "exec_identity_known": {
+          "type": "boolean",
+          "description": "Whether exec identity was available"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["AUDIT", "INT", "TERM", "KILL", "BLOCK"],
+          "description": "Action taken"
+        },
+        "comm": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Command name (truncated to 16 characters)"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": [
@@ -449,6 +646,13 @@
       "cgid": 5678,
       "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
       "comm": "bash"
+    },
+    {
+      "type": "exec_argv",
+      "pid": 12345,
+      "start_time": 123456789,
+      "argc": 3,
+      "argv": ["/usr/bin/curl", "-s", "https://example.com"]
     },
     {
       "type": "block",
@@ -581,6 +785,30 @@
       "storm_transitions_in_window": 1,
       "storm_threshold": 10,
       "storm_window_seconds": 60
+    },
+    {
+      "type": "forensic_block",
+      "pid": 12351,
+      "ppid": 12345,
+      "start_time": 723456789,
+      "exec_id": "12351:723456789",
+      "trace_id": "12351:723456789",
+      "parent_start_time": 123456789,
+      "parent_exec_id": "12345:123456789",
+      "parent_trace_id": "12345:123456789",
+      "cgid": 5678,
+      "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "ino": 654321,
+      "dev": 259,
+      "uid": 1000,
+      "gid": 1000,
+      "exec_ino": 111222,
+      "exec_dev": 259,
+      "exec_stage": 2,
+      "verified_exec": false,
+      "exec_identity_known": true,
+      "action": "KILL",
+      "comm": "malware"
     }
   ]
 }

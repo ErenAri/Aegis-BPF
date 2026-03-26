@@ -2,7 +2,26 @@
 """Validate that current implementation claims match the shipped feature surface."""
 
 from pathlib import Path
+import re
 import sys
+
+
+def _read_with_includes(path: Path) -> str:
+    """Read a file, inlining local #include \"...\" headers for BPF sources."""
+    content = path.read_text(encoding="utf-8")
+    if path.suffix not in (".c", ".h"):
+        return content
+    include_re = re.compile(r'^#include\s+"([^"]+)"', re.MULTILINE)
+    parts: list[str] = []
+    last = 0
+    for m in include_re.finditer(content):
+        parts.append(content[last:m.start()])
+        header = path.parent / m.group(1)
+        if header.exists():
+            parts.append(header.read_text(encoding="utf-8"))
+        last = m.end()
+    parts.append(content[last:])
+    return "".join(parts)
 
 
 def forbid(text: str, path: Path, needles: list[str], errors: list[str]) -> None:
@@ -57,16 +76,24 @@ def main() -> int:
             "Exact IP and CIDR rules do not apply to `listen()` decisions in this release.",
         ],
         root / "config" / "schemas" / "capabilities_v1.json": ["lsm_socket_accept", "lsm_socket_sendmsg"],
-        root / "config" / "event-schema.json": ["net_accept_block", "net_sendmsg_block", "\"accept\"", "\"send\""],
+        root / "config" / "event-schema.json": ["net_accept_block", "net_sendmsg_block", "\"accept\"", "\"send\"",
+                                                "forensic_block"],
         root / "docs" / "THREAT_MODEL.md": ["socket_accept", "socket_sendmsg"],
+        root / "docs" / "BPF_MAP_SCHEMA.md": ["hook_latency", "event_approver_inode", "event_approver_path",
+                                               "priority_events", "forensic_event"],
+        root / "src" / "selftest.hpp": ["run_startup_selftests"],
+        root / "src" / "map_monitor.hpp": ["check_map_capacity"],
+        root / "src" / "proc_scan.hpp": ["reconcile_proc_tree"],
+        root / "src" / "plugin.hpp": ["PluginManager", "Plugin"],
+        root / "src" / "rule_engine.hpp": ["RuleEngine", "DetectionRule"],
     }
 
     for path, needles in forbidden_checks.items():
-        text = path.read_text(encoding="utf-8")
+        text = _read_with_includes(path)
         forbid(text, path, needles, errors)
 
     for path, needles in required_checks.items():
-        text = path.read_text(encoding="utf-8")
+        text = _read_with_includes(path)
         require(text, path, needles, errors)
 
     if errors:

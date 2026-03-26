@@ -339,6 +339,65 @@ void print_net_block_event(const NetBlockEvent& ev)
 #endif
 }
 
+void print_exec_argv_event(const ExecArgvEvent& ev)
+{
+    std::ostringstream oss;
+    oss << "{\"type\":\"exec_argv\",\"pid\":" << ev.pid << ",\"start_time\":" << ev.start_time
+        << ",\"argc\":" << ev.argc << ",\"argv\":[";
+
+    // Parse null-separated argv buffer
+    int offset = 0;
+    for (int i = 0; i < ev.argc && offset < ev.total_len; i++) {
+        if (i > 0)
+            oss << ",";
+        std::string arg;
+        while (offset < ev.total_len && ev.argv[offset] != '\0') {
+            arg += ev.argv[offset];
+            offset++;
+        }
+        offset++; // skip null separator
+        oss << "\"" << json_escape(arg) << "\"";
+    }
+
+    oss << "]}";
+
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << oss.str() << '\n';
+    }
+}
+
+void print_forensic_event(const ForensicEvent& ev)
+{
+    std::ostringstream oss;
+    std::string cgpath = resolve_cgroup_path(ev.cgid);
+    std::string comm = to_string(ev.comm, sizeof(ev.comm));
+    std::string action = to_string(ev.action, sizeof(ev.action));
+    std::string exec_id = build_exec_id(ev.pid, ev.start_time);
+    std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
+
+    oss << "{\"type\":\"forensic_block\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
+        << ",\"start_time\":" << ev.start_time;
+    if (!exec_id.empty()) {
+        oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
+    }
+    oss << ",\"parent_start_time\":" << ev.parent_start_time;
+    if (!parent_exec_id.empty()) {
+        oss << ",\"parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+        oss << ",\"parent_trace_id\":\"" << json_escape(parent_exec_id) << "\"";
+    }
+    oss << ",\"cgid\":" << ev.cgid << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"" << ",\"ino\":" << ev.ino
+        << ",\"dev\":" << ev.dev << ",\"uid\":" << ev.uid << ",\"gid\":" << ev.gid << ",\"exec_ino\":" << ev.exec_ino
+        << ",\"exec_dev\":" << ev.exec_dev << ",\"exec_stage\":" << static_cast<int>(ev.exec_stage)
+        << ",\"verified_exec\":" << (ev.verified_exec ? "true" : "false")
+        << ",\"exec_identity_known\":" << (ev.exec_identity_known ? "true" : "false") << ",\"action\":\""
+        << json_escape(action) << "\"" << ",\"comm\":\"" << json_escape(comm) << "\"}";
+
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << oss.str() << '\n';
+    }
+}
+
 // cppcheck-suppress constParameterPointer
 int handle_event(void* ctx, void* data, size_t)
 {
@@ -349,12 +408,37 @@ int handle_event(void* ctx, void* data, size_t)
         if (callbacks && callbacks->on_exec) {
             callbacks->on_exec(callbacks->user_ctx, e->exec);
         }
+    } else if (e->type == EVENT_EXEC_ARGV) {
+        print_exec_argv_event(e->exec_argv);
     } else if (e->type == EVENT_BLOCK) {
         print_block_event(e->block);
     } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK ||
                e->type == EVENT_NET_LISTEN_BLOCK || e->type == EVENT_NET_ACCEPT_BLOCK ||
                e->type == EVENT_NET_SENDMSG_BLOCK) {
         print_net_block_event(e->net_block);
+    } else if (e->type == EVENT_FORENSIC_BLOCK) {
+        print_forensic_event(e->forensic);
+    }
+    return 0;
+}
+
+// cppcheck-suppress constParameterPointer
+int handle_diag_event(void* /* ctx */, void* data, size_t)
+{
+    const auto* ev = static_cast<const DiagEvent*>(data);
+    std::string msg = to_string(ev->msg, sizeof(ev->msg));
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"diag\",\"diag_type\":" << ev->type << ",\"timestamp\":" << ev->timestamp
+        << ",\"data1\":" << ev->data1 << ",\"data2\":" << ev->data2;
+    if (!msg.empty()) {
+        oss << ",\"msg\":\"" << json_escape(msg) << "\"";
+    }
+    oss << "}";
+
+    // Diagnostics always go to stdout (debug stream)
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << oss.str() << '\n';
     }
     return 0;
 }

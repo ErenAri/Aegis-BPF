@@ -40,6 +40,8 @@ inline constexpr const char* kDenyCidrV6Pin = "/sys/fs/bpf/aegisbpf/deny_cidr_v6
 inline constexpr const char* kNetBlockStatsPin = "/sys/fs/bpf/aegisbpf/net_block_stats";
 inline constexpr const char* kNetIpStatsPin = "/sys/fs/bpf/aegisbpf/net_ip_stats";
 inline constexpr const char* kNetPortStatsPin = "/sys/fs/bpf/aegisbpf/net_port_stats";
+inline constexpr const char* kDiagnosticsPin = "/sys/fs/bpf/aegisbpf/diagnostics";
+inline constexpr const char* kDeadProcessesPin = "/sys/fs/bpf/aegisbpf/dead_processes";
 
 // Break-glass detection paths
 inline constexpr const char* kBreakGlassPath = "/etc/aegisbpf/break_glass";
@@ -77,6 +79,8 @@ inline constexpr uint8_t kExecIdentityFlagTrustRuntimeDeps = 1u << 3;
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
     EVENT_BLOCK = 2,
+    EVENT_EXEC_ARGV = 3,
+    EVENT_FORENSIC_BLOCK = 4,
     EVENT_NET_CONNECT_BLOCK = 10,
     EVENT_NET_BIND_BLOCK = 11,
     EVENT_NET_LISTEN_BLOCK = 12,
@@ -84,7 +88,35 @@ enum EventType : uint32_t {
     EVENT_NET_SENDMSG_BLOCK = 14,
 };
 
+enum DiagType : uint32_t {
+    DIAG_MAP_PRESSURE = 1,
+    DIAG_HOOK_ERROR = 2,
+    DIAG_PROCESS_EVICTION = 3,
+};
+
+enum HookId : uint32_t {
+    HOOK_FILE_OPEN = 0,
+    HOOK_INODE_PERMISSION = 1,
+    HOOK_BPRM_CHECK = 2,
+    HOOK_FILE_MMAP = 3,
+    HOOK_SOCKET_CONNECT = 4,
+    HOOK_SOCKET_BIND = 5,
+    HOOK_SOCKET_LISTEN = 6,
+    HOOK_SOCKET_ACCEPT = 7,
+    HOOK_SOCKET_SENDMSG = 8,
+    HOOK_EXECVE = 9,
+    HOOK_MAX = 16,
+};
+
 enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
+
+inline constexpr size_t kMaxArgvSize = 256;
+
+// New map pin paths for quality improvements
+inline constexpr const char* kHookLatencyPin = "/sys/fs/bpf/aegisbpf/hook_latency";
+inline constexpr const char* kEventApproverInodePin = "/sys/fs/bpf/aegisbpf/event_approver_inode";
+inline constexpr const char* kEventApproverPathPin = "/sys/fs/bpf/aegisbpf/event_approver_path";
+inline constexpr const char* kPriorityEventsPin = "/sys/fs/bpf/aegisbpf/priority_events";
 
 struct ExecEvent {
     uint32_t pid;
@@ -92,6 +124,55 @@ struct ExecEvent {
     uint64_t start_time;
     uint64_t cgid;
     char comm[16];
+};
+
+struct ExecArgvEvent {
+    uint32_t pid;
+    uint32_t _pad;
+    uint64_t start_time;
+    uint16_t argc;
+    uint16_t total_len;
+    uint32_t _pad2;
+    char argv[kMaxArgvSize]; /* null-separated argument strings */
+};
+
+struct DiagEvent {
+    uint32_t type; /* DiagType */
+    uint32_t _pad;
+    uint64_t timestamp;
+    uint32_t data1;
+    uint32_t data2;
+    char msg[64];
+};
+
+struct HookLatencyEntry {
+    uint64_t total_ns;
+    uint64_t count;
+    uint64_t max_ns;
+    uint64_t min_ns;
+};
+
+struct ForensicEvent {
+    uint32_t type; /* EVENT_FORENSIC_BLOCK */
+    uint32_t pid;
+    uint32_t ppid;
+    uint32_t _pad;
+    uint64_t start_time;
+    uint64_t parent_start_time;
+    uint64_t cgid;
+    char comm[16];
+    uint64_t ino;
+    uint32_t dev;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t _pad2;
+    uint64_t exec_ino;
+    uint32_t exec_dev;
+    uint8_t exec_stage;
+    uint8_t verified_exec;
+    uint8_t exec_identity_known;
+    uint8_t _pad3;
+    char action[8];
 };
 
 struct BlockEvent {
@@ -130,8 +211,10 @@ struct Event {
     uint32_t type;
     union {
         ExecEvent exec;
+        ExecArgvEvent exec_argv;
         BlockEvent block;
         NetBlockEvent net_block;
+        ForensicEvent forensic;
     };
 };
 
@@ -335,10 +418,15 @@ static_assert(sizeof(IpPortV6Key) == 20, "IpPortV6Key size changed — update BP
 static_assert(sizeof(Ipv4LpmKey) == 8, "Ipv4LpmKey size changed — update BPF struct");
 static_assert(sizeof(Ipv6LpmKey) == 20, "Ipv6LpmKey size changed — update BPF struct");
 static_assert(sizeof(NetBlockStats) == 48, "NetBlockStats size changed — update BPF struct");
+static_assert(sizeof(ExecArgvEvent) == 280, "ExecArgvEvent size changed — update BPF struct");
+static_assert(sizeof(DiagEvent) == 88, "DiagEvent size changed — update BPF struct");
+static_assert(sizeof(HookLatencyEntry) == 32, "HookLatencyEntry size changed — update BPF struct");
+static_assert(sizeof(ForensicEvent) == 104, "ForensicEvent size changed — update BPF struct");
 
 // Critical field offset assertions — ensure wire-compatible layout.
 static_assert(offsetof(BlockEvent, path) == 68, "BlockEvent::path offset changed");
 static_assert(offsetof(NetBlockEvent, remote_ipv4) == 56, "NetBlockEvent::remote_ipv4 offset changed");
 static_assert(offsetof(AgentConfig, deadman_deadline_ns) == 8, "AgentConfig::deadman_deadline_ns offset changed");
+static_assert(offsetof(ExecArgvEvent, argv) == 24, "ExecArgvEvent::argv offset changed");
 
 } // namespace aegis

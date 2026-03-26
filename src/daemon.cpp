@@ -29,7 +29,10 @@
 #include "events.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
+#include "map_monitor.hpp"
+#include "proc_scan.hpp"
 #include "seccomp.hpp"
+#include "selftest.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -110,7 +113,7 @@ Result<void> setup_agent_cgroup(BpfState& state)
         return Error::system(errno, "stat failed for " + std::string(kAgentCgroup));
     }
 
-    uint64_t cgid = static_cast<uint64_t>(st.st_ino);
+    auto cgid = static_cast<uint64_t>(st.st_ino);
 
     TRY(bump_memlock_rlimit());
 
@@ -675,6 +678,49 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_CREATE_FAILED", "ring_buffer__new returned null");
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
         return fail("Failed to create ring buffer");
+    }
+
+    // Attach diagnostics ring buffer to the same polling group
+    if (state.diagnostics) {
+        int diag_rc = ring_buffer__add(rb.get(), bpf_map__fd(state.diagnostics), handle_diag_event, nullptr);
+        if (diag_rc < 0) {
+            logger().log(SLOG_WARN("Failed to attach diagnostics ring buffer, continuing without it"));
+        }
+    }
+
+    // Attach priority ring buffer for forensic/security-critical events
+    if (state.priority_events) {
+        int pri_rc = ring_buffer__add(rb.get(), bpf_map__fd(state.priority_events), handle_event,
+                                      event_callbacks.on_exec ? &event_callbacks : nullptr);
+        if (pri_rc < 0) {
+            logger().log(SLOG_WARN("Failed to attach priority ring buffer, continuing without it"));
+        }
+    }
+
+    // Run startup self-tests
+    {
+        auto selftest_result = run_startup_selftests(state);
+        if (!selftest_result) {
+            logger().log(SLOG_WARN("Startup self-tests failed").field("error", selftest_result.error().to_string()));
+        }
+    }
+
+    // Reconcile process tree from /proc
+    {
+        auto proc_result = reconcile_proc_tree(state);
+        if (!proc_result) {
+            logger().log(
+                SLOG_WARN("Process tree reconciliation failed").field("error", proc_result.error().to_string()));
+        }
+    }
+
+    // Initial map capacity check
+    {
+        auto map_report = check_map_capacity(state);
+        if (map_report.any_above_threshold) {
+            logger().log(SLOG_WARN("Map capacity warning at startup")
+                             .field("maps_checked", static_cast<int64_t>(map_report.maps_checked)));
+        }
     }
 
     // Apply seccomp filter after all initialization is complete

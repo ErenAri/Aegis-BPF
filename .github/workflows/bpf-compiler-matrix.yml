@@ -1,0 +1,108 @@
+name: BPF Compiler Matrix
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'bpf/**'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - 'bpf/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  bpf-compile-matrix:
+    name: bpf-compile (clang-${{ matrix.clang_version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - clang_version: 15
+            runner: ubuntu-22.04
+          - clang_version: 16
+            runner: ubuntu-22.04
+          - clang_version: 17
+            runner: ubuntu-24.04
+          - clang_version: 18
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM ${{ matrix.clang_version }}
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          CODENAME=$(lsb_release -cs)
+          echo "deb http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${{ matrix.clang_version }} main" | \
+            sudo tee /etc/apt/sources.list.d/llvm-${{ matrix.clang_version }}.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-${{ matrix.clang_version }} \
+            llvm-${{ matrix.clang_version }} \
+            libbpf-dev \
+            pkg-config \
+            cmake \
+            ninja-build \
+            linux-tools-common 2>/dev/null || true
+          # Try multiple strategies to get a working bpftool
+          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+
+      - name: Check BPF tooling availability
+        id: bpf_check
+        run: |
+          if [[ -f /sys/kernel/btf/vmlinux ]] && bpftool version >/dev/null 2>&1; then
+            echo "bpf_ready=true" >> "$GITHUB_OUTPUT"
+            echo "BTF available and bpftool works: $(bpftool version 2>&1 | head -1)"
+          else
+            echo "bpf_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping — BTF or working bpftool not available on this runner"
+          fi
+
+      - name: Configure with clang-${{ matrix.clang_version }}
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_COMPILER=clang-${{ matrix.clang_version }} \
+            -DCMAKE_CXX_COMPILER=clang++-${{ matrix.clang_version }}
+        env:
+          CLANG: clang-${{ matrix.clang_version }}
+
+      - name: Build BPF object
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          # Build BPF object (the primary gate for this matrix)
+          cmake --build build --target bpf_obj
+          # Skeleton generation may fail on older bpftool (memcmp kfunc); non-fatal
+          cmake --build build --target bpf_skel || echo "::warning::Skeleton generation failed (expected on older bpftool)"
+
+      - name: Verify BPF object
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          echo "=== BPF object info (clang-${{ matrix.clang_version }}) ==="
+          file build/aegis.bpf.o
+          size build/aegis.bpf.o
+
+          if command -v bpftool >/dev/null 2>&1; then
+            echo ""
+            echo "=== BPF programs ==="
+            bpftool btf dump file build/aegis.bpf.o 2>/dev/null | head -20 || true
+          fi
+
+      - name: Run veristat (if available)
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: |
+          if [[ -x scripts/veristat_check.sh ]]; then
+            bash scripts/veristat_check.sh build/aegis.bpf.o || true
+          fi

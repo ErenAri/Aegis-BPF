@@ -95,6 +95,11 @@ The BPF program runs in kernel context and implements:
    - `deny_inode_stats`: Per-inode block counters
    - `deny_path_stats`: Per-path block counters
    - `agent_meta` / `agent_config`: Runtime metadata and posture config
+   - `diagnostics`: Separate ring buffer for debug/operational events
+   - `dead_processes`: LRU cache of recently exited process metadata
+   - `hook_latency`: Per-CPU array tracking per-hook overhead (total_ns, count, min, max)
+   - `event_approver_inode` / `event_approver_path`: Pre-filtering maps to suppress known-noisy events in-kernel
+   - `priority_events`: Dedicated 4 MB ring buffer for forensic security events
 
 ### User Space
 
@@ -168,6 +173,40 @@ SHA256 implementation:
 Seccomp filter:
 - Applies syscall allowlist after initialization
 - Reduces attack surface if agent is compromised
+
+#### Quality & Observability modules
+
+- `src/selftest.cpp`
+  - Startup self-tests validating map accessibility, config readability,
+    ring buffer FD, and process_tree write cycle
+- `src/map_monitor.cpp`
+  - Iterates BPF map entries to compute usage ratios and warns when
+    approaching configured capacity limits
+- `src/proc_scan.cpp`
+  - Scans /proc at startup to populate `process_tree` with processes
+    that existed before the daemon started
+
+#### Security modules
+
+- `src/bpf_signing.cpp`
+  - SHA-256 hash verification of BPF object files before loading
+  - Ed25519 signature preparation (placeholder for full signing infra)
+  - Break-glass override via `AEGIS_ALLOW_UNSIGNED_BPF`
+- `src/binary_hash.cpp`
+  - Integrity verification for allow-listed binaries via SHA-256
+  - Recursive directory scanning for executable files
+
+#### Extension modules
+
+- `src/rule_engine.cpp`
+  - JSON-based detection rule definitions with comm/path matching
+  - Severity levels (info, low, medium, high, critical)
+  - Thread-safe hot-reload via `reload_rules()`
+- `src/plugin.cpp`
+  - Abstract `Plugin` interface with virtual `on_exec`, `on_block`,
+    `on_net_block`, `on_exec_argv` handlers
+  - `PluginManager` for registration, lifecycle, and dispatch
+  - Built-in `JsonLoggerPlugin` delegates to existing print functions
 
 #### src/logging.hpp
 

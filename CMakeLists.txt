@@ -35,7 +35,59 @@ if(NOT SKIP_BPF_BUILD)
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBBPF REQUIRED libbpf)
+option(STATIC_LIBBPF "Build and statically link libbpf from source" OFF)
+
+if(STATIC_LIBBPF)
+    include(FetchContent)
+    include(ExternalProject)
+
+    set(LIBBPF_VERSION "1.5.0" CACHE STRING "libbpf version to build from source")
+
+    FetchContent_Declare(
+        libbpf_src
+        URL https://github.com/libbpf/libbpf/archive/refs/tags/v${LIBBPF_VERSION}.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        TIMEOUT 60
+    )
+    FetchContent_MakeAvailable(libbpf_src)
+
+    set(LIBBPF_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/libbpf-build)
+    set(LIBBPF_STATIC_LIB ${LIBBPF_BUILD_DIR}/libbpf.a)
+    set(LIBBPF_SRC_DIR ${libbpf_src_SOURCE_DIR}/src)
+
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBELF REQUIRED libelf)
+
+    add_custom_command(
+        OUTPUT ${LIBBPF_STATIC_LIB}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${LIBBPF_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E env
+            "BUILD_STATIC_ONLY=1"
+            "OBJDIR=${LIBBPF_BUILD_DIR}"
+            "DESTDIR=${LIBBPF_BUILD_DIR}/install"
+            "PREFIX="
+            make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install
+        DEPENDS ${LIBBPF_SRC_DIR}/Makefile
+        COMMENT "Building libbpf ${LIBBPF_VERSION} (static)"
+        VERBATIM
+    )
+    add_custom_target(libbpf_static DEPENDS ${LIBBPF_STATIC_LIB})
+
+    add_library(libbpf_imported STATIC IMPORTED GLOBAL)
+    set_target_properties(libbpf_imported PROPERTIES
+        IMPORTED_LOCATION ${LIBBPF_BUILD_DIR}/install/lib64/libbpf.a
+    )
+    add_dependencies(libbpf_imported libbpf_static)
+
+    set(LIBBPF_INCLUDE_DIRS ${LIBBPF_BUILD_DIR}/install/include)
+    set(LIBBPF_LIBRARY_DIRS "")
+    set(LIBBPF_LIBRARIES libbpf_imported ${LIBELF_LIBRARIES})
+    message(STATUS "Using static libbpf ${LIBBPF_VERSION} (built from source)")
+else()
+    pkg_check_modules(LIBBPF REQUIRED libbpf)
+    message(STATUS "Using system libbpf")
+endif()
+
 pkg_check_modules(SYSTEMD QUIET libsystemd)
 
 # Compiler flags
@@ -118,7 +170,13 @@ if(NOT SKIP_BPF_BUILD)
     add_custom_command(
         OUTPUT ${BPF_OBJECT}
         COMMAND ${CLANG} -g -O2 -target bpf -D__TARGET_ARCH_${BPF_TARGET_ARCH} ${BPF_INCLUDE_FLAGS} -c ${BPF_SOURCE} -o ${BPF_OBJECT}
-        DEPENDS ${BPF_SOURCE} ${VMLINUX_HEADER}
+        DEPENDS ${BPF_SOURCE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis_common.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis_exec.bpf.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis_file.bpf.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis_process.bpf.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis_net.bpf.h
+                ${VMLINUX_HEADER}
         VERBATIM
     )
 
@@ -129,6 +187,9 @@ if(NOT SKIP_BPF_BUILD)
         DEPENDS ${BPF_OBJECT}
         VERBATIM
     )
+
+    # Target for just the BPF object (no skeleton generation)
+    add_custom_target(bpf_obj DEPENDS ${BPF_OBJECT})
 
     set_source_files_properties(${SKELETON_HEADER} PROPERTIES GENERATED TRUE)
     add_custom_target(bpf_skel DEPENDS ${SKELETON_HEADER})
@@ -184,6 +245,8 @@ set(AEGIS_SOURCES
     src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
+    src/otlp_exporter.cpp
+    src/socket_api.cpp
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
@@ -191,6 +254,13 @@ set(AEGIS_SOURCES
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
+    src/selftest.cpp
+    src/map_monitor.cpp
+    src/proc_scan.cpp
+    src/bpf_signing.cpp
+    src/binary_hash.cpp
+    src/rule_engine.cpp
+    src/plugin.cpp
 )
 
 set(AEGIS_HEADERS
@@ -239,6 +309,13 @@ set(AEGIS_HEADERS
     src/tweetnacl.h
     src/types.hpp
     src/utils.hpp
+    src/selftest.hpp
+    src/map_monitor.hpp
+    src/proc_scan.hpp
+    src/bpf_signing.hpp
+    src/binary_hash.hpp
+    src/rule_engine.hpp
+    src/plugin.hpp
 )
 
 # Build main executable
@@ -308,6 +385,8 @@ set(AEGIS_LIB_SOURCES
     src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
+    src/otlp_exporter.cpp
+    src/socket_api.cpp
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
@@ -315,6 +394,13 @@ set(AEGIS_LIB_SOURCES
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
+    src/selftest.cpp
+    src/map_monitor.cpp
+    src/proc_scan.cpp
+    src/bpf_signing.cpp
+    src/binary_hash.cpp
+    src/rule_engine.cpp
+    src/plugin.cpp
 )
 
 add_library(aegisbpf_lib STATIC ${AEGIS_LIB_SOURCES} ${AEGIS_HEADERS})
@@ -389,6 +475,36 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(aegisbpf_test DISCOVERY_MODE PRE_TEST)
+
+    # BPF_PROG_RUN kernel-side tests (require BPF object + root/CAP_BPF)
+    if(NOT SKIP_BPF_BUILD)
+        add_executable(aegisbpf_bpf_test tests/bpf/test_bpf_prog_run.cpp)
+        target_link_libraries(aegisbpf_bpf_test PRIVATE
+            ${LIBBPF_LIBRARIES}
+            GTest::gtest
+            GTest::gtest_main
+        )
+        target_include_directories(aegisbpf_bpf_test PRIVATE
+            ${LIBBPF_INCLUDE_DIRS}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        target_link_directories(aegisbpf_bpf_test PRIVATE ${LIBBPF_LIBRARY_DIRS})
+        target_compile_definitions(aegisbpf_bpf_test PRIVATE
+            AEGIS_BPF_OBJ_PATH="${BPF_OBJECT}"
+        )
+        add_dependencies(aegisbpf_bpf_test bpf_skel)
+
+        # These tests require root and a BPF-capable kernel, so don't auto-discover
+        # them into the default ctest run. They run in the kernel-matrix CI job.
+        add_test(
+            NAME bpf_prog_run
+            COMMAND aegisbpf_bpf_test
+        )
+        set_tests_properties(bpf_prog_run PROPERTIES
+            LABELS "bpf;kernel"
+            ENVIRONMENT "AEGIS_BPF_OBJ_TEST_PATH=${BPF_OBJECT}"
+        )
+    endif()
 
     # E2E bypass tests (require root)
     add_executable(aegisbpf_bypass_test tests/e2e/test_bypasses.cpp)
@@ -492,6 +608,14 @@ if(BUILD_TESTING)
     add_test(
         NAME feature_surface_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_feature_surface_contract.py
+    )
+
+    add_test(
+        NAME bpf_map_schema_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/validate_bpf_map_schema.py
+    )
+    set_tests_properties(bpf_map_schema_contract PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
     add_test(
@@ -652,8 +776,13 @@ set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_SET_DESTDIR ON)
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0")
+if(STATIC_LIBBPF)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1")
+    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf")
+else()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0")
+    set(CPACK_RPM_PACKAGE_REQUIRES "libbpf")
+endif()
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
-set(CPACK_RPM_PACKAGE_REQUIRES "libbpf")
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __brp_strip /bin/true\n%global __brp_strip_static_archive /bin/true")
 include(CPack)

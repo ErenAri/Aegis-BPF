@@ -7,16 +7,23 @@
 # =============================================================================
 FROM ubuntu:24.04 AS builder
 
+# Build argument: set to ON for zero-dependency static binary
+ARG STATIC_LIBBPF=ON
+
 # Install build dependencies
+# When STATIC_LIBBPF=ON, libelf-dev is needed (libbpf builds from source)
+# When STATIC_LIBBPF=OFF, libbpf-dev provides the shared library
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     llvm \
     bpftool \
     libbpf-dev \
+    libelf-dev \
     libsystemd-dev \
     pkg-config \
     cmake \
     ninja-build \
+    make \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -33,6 +40,7 @@ COPY packaging/ ./packaging/
 RUN cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF \
+    -DSTATIC_LIBBPF=${STATIC_LIBBPF} \
     && cmake --build build
 
 # =============================================================================
@@ -41,8 +49,10 @@ RUN cmake -S . -B build -G Ninja \
 FROM ubuntu:24.04 AS runtime
 
 # Install minimal runtime dependencies
+# When built with STATIC_LIBBPF=ON (default), libbpf is statically linked
+# and only libelf + zlib are needed at runtime (pulled in by libsystemd0).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libbpf1 \
+    libelf1t64 \
     libsystemd0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean

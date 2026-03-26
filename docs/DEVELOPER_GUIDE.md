@@ -166,7 +166,12 @@ cmake --build build --target fuzz_policy fuzz_bundle fuzz_network
 ```
 aegisbpf/
 +-- bpf/                    # BPF kernel code
-|   +-- aegis.bpf.c         # Main BPF program
+|   +-- aegis.bpf.c         # Main BPF program (includes subsystem headers)
+|   +-- aegis_common.h      # Shared types, constants, and helper functions
+|   +-- aegis_file.bpf.h    # File access LSM hooks (file_open, inode_permission)
+|   +-- aegis_exec.bpf.h    # Exec hooks (execve, bprm_check, file_mmap)
+|   +-- aegis_net.bpf.h     # Network LSM hooks (connect, bind, listen, accept, sendmsg)
+|   +-- aegis_process.bpf.h # Process lifecycle (fork, exit, process_tree)
 +-- src/                    # User-space C++ code
 |   +-- main.cpp            # Entry point
 |   +-- cli_*.cpp/hpp       # CLI command handlers
@@ -184,6 +189,13 @@ aegisbpf/
 |   +-- sha256.cpp/hpp      # SHA256 implementation
 |   +-- tweetnacl.c/h       # TweetNaCl crypto library
 |   +-- utils.cpp/hpp       # Utility functions
+|   +-- selftest.cpp/hpp    # Startup self-tests (map, ringbuf, config validation)
+|   +-- map_monitor.cpp/hpp # BPF map capacity monitoring and warnings
+|   +-- proc_scan.cpp/hpp   # /proc reconciliation for process_tree
+|   +-- bpf_signing.cpp/hpp # BPF object hash verification and signing
+|   +-- binary_hash.cpp/hpp # Binary allow-list hash verification
+|   +-- rule_engine.cpp/hpp # Hot-loadable JSON detection rules
+|   +-- plugin.cpp/hpp      # Event handler plugin system
 |   +-- types.hpp           # Data structures
 |   +-- result.hpp          # Error handling
 |   +-- logging.hpp         # Logging infrastructure

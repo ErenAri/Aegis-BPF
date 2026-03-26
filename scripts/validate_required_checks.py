@@ -15,6 +15,11 @@ WORKFLOW_FILES = [
     Path(".github/workflows/perf.yml"),
     Path(".github/workflows/release-readiness.yml"),
     Path(".github/workflows/release-branch-guard.yml"),
+    Path(".github/workflows/bpf-compiler-matrix.yml"),
+    Path(".github/workflows/bpf-coverage.yml"),
+    Path(".github/workflows/kernel-bpf-test.yml"),
+    Path(".github/workflows/multi-arch.yml"),
+    Path(".github/workflows/veristat.yml"),
 ]
 
 MATRIX_REF_RE = re.compile(r"\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
