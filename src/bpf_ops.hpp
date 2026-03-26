@@ -298,6 +298,12 @@ Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf
 Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map);
 Result<void> reset_block_stats_map(bpf_map* map);
 
+// Backpressure telemetry (aggregates per-CPU PERCPU_ARRAY counters)
+Result<BackpressureStats> read_backpressure_stats(BpfState& state);
+
+// Hook latency telemetry (reads PERCPU_ARRAY and aggregates per hook)
+Result<std::vector<std::pair<uint32_t, HookLatencyEntry>>> read_hook_latency_entries(BpfState& state);
+
 // Survival allowlist operations
 Result<void> populate_survival_allowlist(BpfState& state);
 Result<void> add_survival_entry(BpfState& state, const InodeId& id);

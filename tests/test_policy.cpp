@@ -447,6 +447,50 @@ TEST_F(PolicyTest, ApplyRejectsConflictingHashOptions)
     EXPECT_EQ(result.error().code(), ErrorCode::InvalidArgument);
 }
 
+TEST_F(PolicyTest, ParseKernelSecuritySections)
+{
+    std::string content = R"(
+version=1
+
+[deny_path]
+/usr/bin/dangerous
+
+[deny_ptrace]
+
+[deny_module_load]
+
+[deny_bpf]
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    ASSERT_TRUE(result);
+    EXPECT_FALSE(issues.has_errors());
+    EXPECT_TRUE(result->deny_ptrace);
+    EXPECT_TRUE(result->deny_module_load);
+    EXPECT_TRUE(result->deny_bpf);
+    EXPECT_EQ(result->deny_paths.size(), 1u);
+}
+
+TEST_F(PolicyTest, KernelSecuritySectionsDefaultFalse)
+{
+    std::string content = R"(
+version=1
+
+[deny_path]
+/usr/bin/dangerous
+)";
+    std::string path = CreateTestPolicy(content);
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+
+    ASSERT_TRUE(result);
+    EXPECT_FALSE(result->deny_ptrace);
+    EXPECT_FALSE(result->deny_module_load);
+    EXPECT_FALSE(result->deny_bpf);
+}
+
 // --- Golden vector tests ---
 
 TEST_F(PolicyTest, GoldenDenyPathBasic)

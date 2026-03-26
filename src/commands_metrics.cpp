@@ -455,6 +455,73 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         }
     }
 
+    // Backpressure telemetry (Aquila dual-path pipeline)
+    if (state.backpressure) {
+        auto bp_result = read_backpressure_stats(state);
+        if (bp_result) {
+            const auto& bp = *bp_result;
+            append_metric_header(oss, "aegisbpf_backpressure_events_total", "counter",
+                                 "Total events generated across all BPF hooks");
+            append_metric_sample(oss, "aegisbpf_backpressure_events_total", bp.seq_total);
+            append_metric_header(oss, "aegisbpf_backpressure_priority_submitted_total", "counter",
+                                 "Events submitted to priority ring buffer");
+            append_metric_sample(oss, "aegisbpf_backpressure_priority_submitted_total", bp.priority_submitted);
+            append_metric_header(oss, "aegisbpf_backpressure_priority_drops_total", "counter",
+                                 "Priority buffer reservation failures");
+            append_metric_sample(oss, "aegisbpf_backpressure_priority_drops_total", bp.priority_drops);
+            append_metric_header(oss, "aegisbpf_backpressure_telemetry_drops_total", "counter",
+                                 "Telemetry buffer reservation failures");
+            append_metric_sample(oss, "aegisbpf_backpressure_telemetry_drops_total", bp.telemetry_drops);
+        }
+    }
+
+    // Hook latency telemetry
+    if (state.hook_latency) {
+        auto latency_result = read_hook_latency_entries(state);
+        if (latency_result) {
+            const auto& entries = *latency_result;
+            if (!entries.empty()) {
+                // Map hook IDs to human-readable names
+                auto hook_name = [](uint32_t id) -> std::string {
+                    switch (id) {
+                        case 0: return "file_open";
+                        case 1: return "inode_permission";
+                        case 2: return "bprm_check";
+                        case 3: return "file_mmap";
+                        case 4: return "socket_connect";
+                        case 5: return "socket_bind";
+                        case 6: return "socket_listen";
+                        case 7: return "socket_accept";
+                        case 8: return "socket_sendmsg";
+                        case 9: return "execve";
+                        case 10: return "ptrace";
+                        case 11: return "module_load";
+                        case 12: return "bpf";
+                        default: return "hook_" + std::to_string(id);
+                    }
+                };
+                append_metric_header(oss, "aegisbpf_hook_latency_total_ns", "counter",
+                                     "Cumulative hook latency in nanoseconds");
+                for (const auto& [id, entry] : entries) {
+                    append_metric_sample(oss, "aegisbpf_hook_latency_total_ns", {{"hook", hook_name(id)}},
+                                         entry.total_ns);
+                }
+                append_metric_header(oss, "aegisbpf_hook_invocations_total", "counter",
+                                     "Total hook invocation count");
+                for (const auto& [id, entry] : entries) {
+                    append_metric_sample(oss, "aegisbpf_hook_invocations_total", {{"hook", hook_name(id)}},
+                                         entry.count);
+                }
+                append_metric_header(oss, "aegisbpf_hook_latency_max_ns", "gauge",
+                                     "Maximum single hook invocation latency in nanoseconds");
+                for (const auto& [id, entry] : entries) {
+                    append_metric_sample(oss, "aegisbpf_hook_latency_max_ns", {{"hook", hook_name(id)}},
+                                         entry.max_ns);
+                }
+            }
+        }
+    }
+
     append_metric_header(oss, "aegisbpf_deny_inode_entries", "gauge", "Number of deny inode entries");
     append_metric_sample(oss, "aegisbpf_deny_inode_entries", safe_map_entry_count(state.deny_inode));
     append_metric_header(oss, "aegisbpf_deny_path_entries", "gauge", "Number of deny path entries");
@@ -529,6 +596,28 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_cidr_v4"}}, MAX_DENY_CIDR_V4_ENTRIES);
         append_metric_sample(oss, "aegisbpf_map_capacity", {{"map", "deny_cidr_v6"}}, MAX_DENY_CIDR_V6_ENTRIES);
     }
+
+    // Attach contract metrics: which hooks are actually attached
+    append_metric_header(oss, "aegisbpf_hook_attached", "gauge",
+                         "Whether a BPF hook is attached (1=attached, 0=not attached)");
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "ptrace"}},
+                         static_cast<uint64_t>(state.ptrace_hook_attached ? 1 : 0));
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "module_load"}},
+                         static_cast<uint64_t>(state.module_load_hook_attached ? 1 : 0));
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "bpf"}},
+                         static_cast<uint64_t>(state.bpf_hook_attached ? 1 : 0));
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "socket_connect"}},
+                         static_cast<uint64_t>(state.socket_connect_hook_attached ? 1 : 0));
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "socket_bind"}},
+                         static_cast<uint64_t>(state.socket_bind_hook_attached ? 1 : 0));
+    append_metric_sample(oss, "aegisbpf_hook_attached", {{"hook", "exec_identity"}},
+                         static_cast<uint64_t>(state.exec_identity_hook_attached ? 1 : 0));
+    append_metric_header(oss, "aegisbpf_file_hooks_attached", "gauge",
+                         "Number of file access hooks currently attached");
+    append_metric_sample(oss, "aegisbpf_file_hooks_attached", static_cast<uint64_t>(state.file_hooks_attached));
+    append_metric_header(oss, "aegisbpf_file_hooks_expected", "gauge",
+                         "Number of file access hooks expected by attach contract");
+    append_metric_sample(oss, "aegisbpf_file_hooks_expected", static_cast<uint64_t>(state.file_hooks_expected));
 
     const EmergencyControlConfig control_cfg = emergency_control_config_from_env();
     EmergencyControlState control_state{};
