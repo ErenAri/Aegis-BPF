@@ -119,6 +119,32 @@ Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags)
     return {};
 }
 
+Result<void> set_kernel_security_flags(BpfState& state, bool deny_ptrace, bool deny_module_load, bool deny_bpf)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Config map not found");
+    }
+
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    int fd = bpf_map__fd(state.config_map);
+    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
+        if (errno != ENOENT) {
+            return Error::system(errno, "Failed to read agent config");
+        }
+        cfg = default_agent_config();
+    }
+
+    cfg.deny_ptrace = deny_ptrace ? 1 : 0;
+    cfg.deny_module_load = deny_module_load ? 1 : 0;
+    cfg.deny_bpf = deny_bpf ? 1 : 0;
+
+    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
+        return Error::system(errno, "Failed to set kernel security flags");
+    }
+    return {};
+}
+
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 {
     if (!state.config_map) {

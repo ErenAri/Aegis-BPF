@@ -125,7 +125,10 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                                                                    "deny_ip_port",
                                                                    "deny_binary_hash",
                                                                    "allow_binary_hash",
-                                                                   "scan_paths"};
+                                                                   "scan_paths",
+                                                                   "deny_ptrace",
+                                                                   "deny_module_load",
+                                                                   "deny_bpf"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -148,6 +151,15 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             if (section == "require_ima_appraisal") {
                 policy.require_ima_appraisal = true;
+            }
+            if (section == "deny_ptrace") {
+                policy.deny_ptrace = true;
+            }
+            if (section == "deny_module_load") {
+                policy.deny_module_load = true;
+            }
+            if (section == "deny_bpf") {
+                policy.deny_bpf = true;
             }
             continue;
         }
@@ -216,6 +228,24 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
         if (section == "require_ima_appraisal") {
             issues.warnings.push_back("line " + std::to_string(line_no) +
                                       ": [require_ima_appraisal] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "deny_ptrace") {
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [deny_ptrace] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "deny_module_load") {
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [deny_module_load] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "deny_bpf") {
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [deny_bpf] does not take entries; ignoring '" + trimmed + "'");
             continue;
         }
 

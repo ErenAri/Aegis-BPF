@@ -106,6 +106,9 @@ enum event_type {
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_KERNEL_PTRACE_BLOCK = 20,
+    EVENT_KERNEL_MODULE_BLOCK = 21,
+    EVENT_KERNEL_BPF_BLOCK = 22,
 };
 
 /* Exec hook stages for multi-hook correlation */
@@ -249,6 +252,20 @@ struct net_block_event {
     char rule_type[16]; /* "ip", "port", "cidr", "ip_port", "identity" */
 };
 
+/* Kernel security event: ptrace, module load, BPF program load blocks */
+struct kernel_block_event {
+    __u32 pid;
+    __u32 ppid;
+    __u64 start_time;
+    __u64 parent_start_time;
+    __u64 cgid;
+    char comm[16];
+    __u32 target_pid;   /* target PID for ptrace, 0 otherwise */
+    __u32 _pad;
+    char action[8];     /* "AUDIT", "TERM", "KILL", or "BLOCK" */
+    char rule_type[16]; /* "ptrace", "module", "bpf" */
+};
+
 struct event {
     __u32 type;
     union {
@@ -256,6 +273,7 @@ struct event {
         struct exec_argv_event exec_argv;
         struct block_event block;
         struct net_block_event net_block;
+        struct kernel_block_event kernel_block;
     };
 };
 
@@ -283,6 +301,10 @@ struct agent_config {
     __u32 event_sample_rate;
     __u32 sigkill_escalation_threshold;  /* SIGKILL after N denies in window */
     __u32 sigkill_escalation_window_seconds;  /* Escalation window size */
+    __u8 deny_ptrace;        /* block ptrace attachment (MITRE T1055.008) */
+    __u8 deny_module_load;   /* block kernel module loading (MITRE T1547.006) */
+    __u8 deny_bpf;           /* block unauthorized BPF program load (MITRE T1562) */
+    __u8 _pad_kernel;
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -303,6 +325,10 @@ volatile struct agent_config agent_cfg = {
     .event_sample_rate = 1,
     .sigkill_escalation_threshold = SIGKILL_ESCALATION_THRESHOLD_DEFAULT,
     .sigkill_escalation_window_seconds = 30,
+    .deny_ptrace = 0,
+    .deny_module_load = 0,
+    .deny_bpf = 0,
+    ._pad_kernel = 0,
 };
 
 struct agent_meta {
@@ -951,6 +977,9 @@ enum hook_id {
     HOOK_SOCKET_ACCEPT = 7,
     HOOK_SOCKET_SENDMSG = 8,
     HOOK_EXECVE = 9,
+    HOOK_PTRACE = 10,
+    HOOK_MODULE_LOAD = 11,
+    HOOK_BPF = 12,
 };
 
 static __always_inline void record_hook_latency(__u32 hook, __u64 start_ns)

@@ -10,5 +10,6 @@
 #include "aegis_file.bpf.h"
 #include "aegis_process.bpf.h"
 #include "aegis_net.bpf.h"
+#include "aegis_kernel.bpf.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";

@@ -78,6 +78,9 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     state.socket_listen_hook_attached = false;
     state.socket_accept_hook_attached = false;
     state.socket_sendmsg_hook_attached = false;
+    state.ptrace_hook_attached = false;
+    state.module_load_hook_attached = false;
+    state.bpf_hook_attached = false;
 
     auto fail = [&root_span](const Error& error) -> Result<void> {
         root_span.fail(error.to_string());
@@ -206,6 +209,24 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_sendmsg");
         attach_optional_program(state, prog, state.socket_sendmsg_hook_attached,
                                 "Optional socket_sendmsg hook attach failed");
+    }
+
+    // Kernel security hooks (ptrace, module load, bpf) - all optional
+    if (lsm_enabled) {
+        ScopedSpan span("bpf.attach.kernel_security_hooks", trace_id, root_span.span_id());
+        (void)span;
+
+        bpf_program* ptrace_prog = bpf_object__find_program_by_name(state.obj, "handle_ptrace_access_check");
+        attach_optional_program(state, ptrace_prog, state.ptrace_hook_attached,
+                                "Optional ptrace hook attach failed");
+
+        bpf_program* module_prog = bpf_object__find_program_by_name(state.obj, "handle_locked_down");
+        attach_optional_program(state, module_prog, state.module_load_hook_attached,
+                                "Optional module load hook attach failed");
+
+        bpf_program* bpf_prog = bpf_object__find_program_by_name(state.obj, "handle_bpf");
+        attach_optional_program(state, bpf_prog, state.bpf_hook_attached,
+                                "Optional BPF hook attach failed");
     }
 
     state.attach_contract_valid = true;

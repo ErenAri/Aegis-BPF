@@ -86,6 +86,9 @@ enum EventType : uint32_t {
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_KERNEL_PTRACE_BLOCK = 20,
+    EVENT_KERNEL_MODULE_BLOCK = 21,
+    EVENT_KERNEL_BPF_BLOCK = 22,
 };
 
 enum DiagType : uint32_t {
@@ -105,6 +108,9 @@ enum HookId : uint32_t {
     HOOK_SOCKET_ACCEPT = 7,
     HOOK_SOCKET_SENDMSG = 8,
     HOOK_EXECVE = 9,
+    HOOK_PTRACE = 10,
+    HOOK_MODULE_LOAD = 11,
+    HOOK_BPF = 12,
     HOOK_MAX = 16,
 };
 
@@ -207,6 +213,20 @@ struct NetBlockEvent {
     char rule_type[16]; /* "ip", "port", "cidr", "ip_port", "identity" */
 };
 
+/// Kernel security block event: ptrace, module load, BPF program load.
+struct KernelBlockEvent {
+    uint32_t pid;
+    uint32_t ppid;
+    uint64_t start_time;
+    uint64_t parent_start_time;
+    uint64_t cgid;
+    char comm[16];
+    uint32_t target_pid; /* target PID for ptrace, 0 otherwise */
+    uint32_t _pad;
+    char action[8];      /* "AUDIT", "TERM", "KILL", or "BLOCK" */
+    char rule_type[16];  /* "ptrace", "module", "bpf" */
+};
+
 struct Event {
     uint32_t type;
     union {
@@ -215,6 +235,7 @@ struct Event {
         BlockEvent block;
         NetBlockEvent net_block;
         ForensicEvent forensic;
+        KernelBlockEvent kernel_block;
     };
 };
 
@@ -347,6 +368,10 @@ struct AgentConfig {
     uint32_t event_sample_rate;
     uint32_t sigkill_escalation_threshold;      /* SIGKILL after N denies in window */
     uint32_t sigkill_escalation_window_seconds; /* Escalation window size */
+    uint8_t deny_ptrace;       /* block ptrace attachment (MITRE T1055.008) */
+    uint8_t deny_module_load;  /* block kernel module loading (MITRE T1547.006) */
+    uint8_t deny_bpf;          /* block unauthorized BPF program load (MITRE T1562) */
+    uint8_t _pad_kernel;
 };
 
 struct AgentMeta {
@@ -389,6 +414,10 @@ struct Policy {
     std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
     std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
     std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)
+    // Kernel security hooks (MITRE ATT&CK coverage)
+    bool deny_ptrace = false;       // block ptrace (T1055.008)
+    bool deny_module_load = false;  // block kernel module loading (T1547.006)
+    bool deny_bpf = false;          // block unauthorized BPF program loading (T1562)
 };
 
 struct PolicyIssues {
@@ -409,7 +438,7 @@ static_assert(sizeof(BlockEvent) == 336, "BlockEvent size changed — update BPF
 static_assert(sizeof(NetBlockEvent) == 104, "NetBlockEvent size changed — update BPF struct");
 static_assert(sizeof(InodeId) == 16, "InodeId size changed — update BPF struct");
 static_assert(sizeof(PathKey) == 256, "PathKey size changed — update BPF struct");
-static_assert(sizeof(AgentConfig) == 32, "AgentConfig size changed — update BPF struct");
+static_assert(sizeof(AgentConfig) == 40, "AgentConfig size changed — update BPF struct");
 static_assert(sizeof(AgentMeta) == 4, "AgentMeta size changed — update BPF struct");
 static_assert(sizeof(BlockStats) == 16, "BlockStats size changed — update BPF struct");
 static_assert(sizeof(PortKey) == 4, "PortKey size changed — update BPF struct");

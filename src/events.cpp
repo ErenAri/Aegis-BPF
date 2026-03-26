@@ -427,6 +427,46 @@ void print_forensic_event(const ForensicEvent& ev)
     }
 }
 
+void print_kernel_block_event(const KernelBlockEvent& ev)
+{
+    std::ostringstream oss;
+    std::string cgpath = resolve_cgroup_path(ev.cgid);
+    std::string action = to_string(ev.action, sizeof(ev.action));
+    std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
+    std::string comm = to_string(ev.comm, sizeof(ev.comm));
+    std::string exec_id = build_exec_id(ev.pid, ev.start_time);
+    std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
+
+    std::string event_type = "kernel_" + rule_type + "_block";
+
+    oss << "{\"type\":\"" << event_type << "\""
+        << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid << ",\"start_time\":" << ev.start_time;
+    if (!exec_id.empty()) {
+        oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
+    }
+    oss << ",\"parent_start_time\":" << ev.parent_start_time;
+    if (!parent_exec_id.empty()) {
+        oss << ",\"parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+        oss << ",\"parent_trace_id\":\"" << json_escape(parent_exec_id) << "\"";
+    }
+    oss << ",\"cgid\":" << ev.cgid << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"";
+
+    if (ev.target_pid != 0) {
+        oss << ",\"target_pid\":" << ev.target_pid;
+    }
+
+    oss << ",\"rule_type\":\"" << json_escape(rule_type) << "\""
+        << ",\"action\":\"" << json_escape(action) << "\""
+        << ",\"comm\":\"" << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
+
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << oss.str() << '\n';
+    }
+}
+
 // cppcheck-suppress constParameterPointer
 int handle_event(void* ctx, void* data, size_t)
 {
@@ -447,6 +487,9 @@ int handle_event(void* ctx, void* data, size_t)
         print_net_block_event(e->net_block);
     } else if (e->type == EVENT_FORENSIC_BLOCK) {
         print_forensic_event(e->forensic);
+    } else if (e->type == EVENT_KERNEL_PTRACE_BLOCK || e->type == EVENT_KERNEL_MODULE_BLOCK ||
+               e->type == EVENT_KERNEL_BPF_BLOCK) {
+        print_kernel_block_event(e->kernel_block);
     }
     return 0;
 }
