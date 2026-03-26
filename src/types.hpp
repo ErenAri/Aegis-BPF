@@ -253,6 +253,14 @@ struct NetBlockStats {
     uint64_t ringbuf_drops;
 };
 
+/// Dual-path backpressure telemetry (Aquila pattern).
+struct BackpressureStats {
+    uint64_t seq_total;          ///< Monotonic total events generated
+    uint64_t priority_submitted; ///< Events submitted to priority buffer
+    uint64_t priority_drops;     ///< Priority buffer reservation failures
+    uint64_t telemetry_drops;    ///< Telemetry buffer reservation failures
+};
+
 struct PortKey {
     uint16_t port;
     uint8_t protocol;  /* 0=any, 6=tcp, 17=udp */

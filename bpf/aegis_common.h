@@ -492,6 +492,22 @@ struct {
     __uint(max_entries, PRIORITY_RINGBUF_SIZE);
 } priority_events SEC(".maps");
 
+/* Backpressure telemetry: tracks event sequence numbers and drop counts
+ * for guaranteed-delivery accounting (Aquila dual-path pattern). */
+struct backpressure_stats {
+    __u64 seq_total;          /* monotonic total events generated */
+    __u64 priority_submitted; /* events submitted to priority buffer */
+    __u64 priority_drops;     /* priority buffer reservation failures */
+    __u64 telemetry_drops;    /* telemetry buffer reservation failures (expected under load) */
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct backpressure_stats);
+} backpressure SEC(".maps");
+
 /* ============================================================================
  * Network Maps
  * ============================================================================ */
@@ -650,6 +666,63 @@ static __always_inline void increment_ringbuf_drops(void)
     struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->ringbuf_drops, 1);
+}
+
+/*
+ * Dual-path backpressure helpers (Aquila pattern).
+ *
+ * Security-critical events (blocks, kernel security) are routed through
+ * priority_events first. If the priority buffer is full, they fall back to
+ * the main events buffer. Telemetry events (exec) always use the main buffer.
+ *
+ * This ensures that under extreme load, forensic and enforcement events are
+ * preserved while high-volume telemetry is shed first.
+ */
+static __always_inline void bp_record_priority_submit(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->priority_submitted, 1);
+    }
+}
+
+static __always_inline void bp_record_priority_drop(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->priority_drops, 1);
+    }
+}
+
+static __always_inline void bp_record_telemetry(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp)
+        __sync_fetch_and_add(&bp->seq_total, 1);
+}
+
+static __always_inline void bp_record_telemetry_drop(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->telemetry_drops, 1);
+    }
+}
+
+/*
+ * Reserve an event from the priority ring buffer for security-critical events.
+ * Returns NULL if the priority buffer is full (caller should fall back to main buffer).
+ */
+static __always_inline struct event *priority_event_reserve(void)
+{
+    return bpf_ringbuf_reserve(&priority_events, sizeof(struct event), 0);
 }
 
 static __always_inline void increment_cgroup_stat(__u64 cgid)

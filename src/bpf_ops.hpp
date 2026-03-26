@@ -87,6 +87,7 @@ class BpfState {
             net_block_stats = other.net_block_stats;
             net_ip_stats = other.net_ip_stats;
             net_port_stats = other.net_port_stats;
+            backpressure = other.backpressure;
             deny_ipv4_reused = other.deny_ipv4_reused;
             deny_ipv6_reused = other.deny_ipv6_reused;
             deny_port_reused = other.deny_port_reused;
@@ -142,6 +143,7 @@ class BpfState {
             other.net_block_stats = nullptr;
             other.net_ip_stats = nullptr;
             other.net_port_stats = nullptr;
+            other.backpressure = nullptr;
 
             // Reset reuse flags
             other.inode_reused = false;
@@ -246,6 +248,7 @@ class BpfState {
     bpf_map* net_block_stats = nullptr;
     bpf_map* net_ip_stats = nullptr;
     bpf_map* net_port_stats = nullptr;
+    bpf_map* backpressure = nullptr;
 
     // Network reuse flags
     bool deny_ipv4_reused = false;

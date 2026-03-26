@@ -309,6 +309,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
+        state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||

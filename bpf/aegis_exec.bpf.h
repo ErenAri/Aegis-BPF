@@ -89,9 +89,10 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
 
     bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
 
-    /* Send exec event */
+    /* Send exec event (telemetry — main buffer, shed-able under load) */
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
+        bp_record_telemetry_drop();
         record_hook_latency(HOOK_EXECVE, _start_ns);
         return 0;
     }
@@ -103,6 +104,7 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     e->exec.cgid = cgid;
     bpf_get_current_comm(e->exec.comm, sizeof(e->exec.comm));
     bpf_ringbuf_submit(e, 0);
+    bp_record_telemetry();
 
     /* Capture full argv into a separate event */
     struct event *ae = bpf_ringbuf_reserve(&events, sizeof(*ae), 0);

@@ -125,12 +125,16 @@ int BPF_PROG(handle_file_open, struct file *file)
     /* Optional signal in enforce mode (always deny with -EPERM). */
     maybe_send_enforce_signal(enforce_signal);
 
-    /* Send block event */
+    /* Send block event via priority buffer (dual-path backpressure) */
     if (!should_emit_event(sample_rate)) {
         record_hook_latency(HOOK_FILE_OPEN, _start_ns);
         return -EPERM;
     }
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    /* Try priority buffer first for enforce events, fall back to main */
+    struct event *e = priority_event_reserve();
+    int used_priority = (e != NULL);
+    if (!e)
+        e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
         fill_block_event_process_info(&e->block, pid, task);
@@ -141,8 +145,11 @@ int BPF_PROG(handle_file_open, struct file *file)
         __builtin_memset(e->block.path, 0, sizeof(e->block.path));
         set_action_string(e->block.action, 0, enforce_signal);
         bpf_ringbuf_submit(e, 0);
+        if (used_priority)
+            bp_record_priority_submit();
     } else {
         increment_ringbuf_drops();
+        bp_record_priority_drop();
     }
 
     record_hook_latency(HOOK_FILE_OPEN, _start_ns);
