@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload BPF coverage summary
         if: steps.bpf_check.outputs.bpf_ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bpf-coverage-summary
           path: build/bpf_coverage_summary.json

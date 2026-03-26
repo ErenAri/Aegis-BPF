@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload veristat baseline
         if: steps.bpf_check.outputs.bpf_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veristat-baseline
           path: config/veristat_baseline.json
