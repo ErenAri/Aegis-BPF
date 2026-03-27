@@ -11,12 +11,14 @@ FROM ubuntu:24.04 AS builder
 ARG STATIC_LIBBPF=ON
 
 # Install build dependencies
+# Ubuntu 24.04 exposes bpftool via linux-tools-common rather than a concrete
+# bpftool package, so install the provider directly.
 # When STATIC_LIBBPF=ON, libelf-dev is needed (libbpf builds from source)
 # When STATIC_LIBBPF=OFF, libbpf-dev provides the shared library
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     llvm \
-    bpftool \
+    linux-tools-common \
     libbpf-dev \
     libelf-dev \
     libsystemd-dev \
