@@ -52,7 +52,8 @@ if(STATIC_LIBBPF)
     FetchContent_MakeAvailable(libbpf_src)
 
     set(LIBBPF_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/libbpf-build)
-    set(LIBBPF_STATIC_LIB ${LIBBPF_BUILD_DIR}/libbpf.a)
+    set(LIBBPF_INSTALL_DIR ${LIBBPF_BUILD_DIR}/install)
+    set(LIBBPF_STATIC_LIB ${LIBBPF_INSTALL_DIR}/lib64/libbpf.a)
     set(LIBBPF_SRC_DIR ${libbpf_src_SOURCE_DIR}/src)
 
     find_package(PkgConfig REQUIRED)
@@ -64,7 +65,7 @@ if(STATIC_LIBBPF)
         COMMAND ${CMAKE_COMMAND} -E env
             "BUILD_STATIC_ONLY=1"
             "OBJDIR=${LIBBPF_BUILD_DIR}"
-            "DESTDIR=${LIBBPF_BUILD_DIR}/install"
+            "DESTDIR=${LIBBPF_INSTALL_DIR}"
             "PREFIX="
             make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install
         DEPENDS ${LIBBPF_SRC_DIR}/Makefile
@@ -75,11 +76,11 @@ if(STATIC_LIBBPF)
 
     add_library(libbpf_imported STATIC IMPORTED GLOBAL)
     set_target_properties(libbpf_imported PROPERTIES
-        IMPORTED_LOCATION ${LIBBPF_BUILD_DIR}/install/lib64/libbpf.a
+        IMPORTED_LOCATION ${LIBBPF_STATIC_LIB}
     )
     add_dependencies(libbpf_imported libbpf_static)
 
-    set(LIBBPF_INCLUDE_DIRS ${LIBBPF_BUILD_DIR}/install/include)
+    set(LIBBPF_INCLUDE_DIRS ${LIBBPF_INSTALL_DIR}/include)
     set(LIBBPF_LIBRARY_DIRS "")
     set(LIBBPF_LIBRARIES libbpf_imported ${LIBELF_LIBRARIES})
     message(STATUS "Using static libbpf ${LIBBPF_VERSION} (built from source)")
