@@ -9,16 +9,18 @@ FROM ubuntu:24.04 AS builder
 
 # Build argument: set to ON for zero-dependency static binary
 ARG STATIC_LIBBPF=ON
+ARG TARGETARCH
+ARG BPFTOOL_VERSION=v7.7.0
 
 # Install build dependencies
-# Ubuntu 24.04 exposes bpftool via linux-tools-common rather than a concrete
-# bpftool package, so install the provider directly.
+# Ubuntu 24.04 only provides bpftool through wrapper scripts. Use the official
+# static bpftool release instead so Docker builds are deterministic across
+# hosted-runner kernels and target architectures.
 # When STATIC_LIBBPF=ON, libelf-dev is needed (libbpf builds from source)
 # When STATIC_LIBBPF=OFF, libbpf-dev provides the shared library
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     llvm \
-    linux-tools-common \
     libbpf-dev \
     libelf-dev \
     libsystemd-dev \
@@ -26,8 +28,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ninja-build \
     make \
+    curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64|arm64) bpftool_arch="${TARGETARCH}" ;; \
+        *) echo "Unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    bpftool_base="bpftool-${BPFTOOL_VERSION}-${bpftool_arch}.tar.gz"; \
+    curl -fsSLo "/tmp/${bpftool_base}" \
+        "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/${bpftool_base}"; \
+    curl -fsSLo "/tmp/${bpftool_base}.sha256sum" \
+        "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/${bpftool_base}.sha256sum"; \
+    (cd /tmp && sha256sum -c "${bpftool_base}.sha256sum"); \
+    tar -xzf "/tmp/${bpftool_base}" -C /usr/local/bin bpftool; \
+    chmod +x /usr/local/bin/bpftool; \
+    rm -f "/tmp/${bpftool_base}" "/tmp/${bpftool_base}.sha256sum"
 
 WORKDIR /build
 
