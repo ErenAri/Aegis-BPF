@@ -653,6 +653,32 @@ struct dead_process_info {
 
 ## Quality & Observability
 
+### `backpressure`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_PERCPU_ARRAY` |
+| Key            | `__u32` (index, always 0) |
+| Value          | `struct backpressure_stats` (32 bytes) |
+| Max entries    | 1 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/backpressure` |
+| Access         | BPF: read/write; Userspace: read |
+| Lifecycle      | Zeroed on load, incremented on every event submission attempt |
+
+Dual-path backpressure telemetry. Tracks total event sequence numbers,
+priority ring buffer submissions and drops, and telemetry ring buffer drops.
+Per-CPU to avoid contention.
+
+**Value struct:**
+```c
+struct backpressure_stats {
+    __u64 seq_total;            /* Total events generated */
+    __u64 priority_submitted;   /* Events submitted to priority ring buffer */
+    __u64 priority_drops;       /* Priority ring buffer submission failures */
+    __u64 telemetry_drops;      /* Telemetry ring buffer submission failures */
+};
+```
+
 ### `hook_latency`
 
 | Property       | Value |

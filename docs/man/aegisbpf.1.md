@@ -204,6 +204,16 @@ Exported metrics:
 - `aegisbpf_net_blocks_total{type}`
 - `aegisbpf_net_ringbuf_drops_total`
 - `aegisbpf_net_rules_total{type}`
+- `aegisbpf_backpressure_events_total`
+- `aegisbpf_backpressure_priority_submitted_total`
+- `aegisbpf_backpressure_priority_drops_total`
+- `aegisbpf_backpressure_telemetry_drops_total`
+- `aegisbpf_hook_latency_total_ns{hook}`
+- `aegisbpf_hook_invocations_total{hook}`
+- `aegisbpf_hook_latency_max_ns{hook}`
+- `aegisbpf_hook_attached{hook}`
+- `aegisbpf_file_hooks_attached`
+- `aegisbpf_file_hooks_expected`
 
 High-cardinality metrics (only with **--detailed**):
 - `aegisbpf_blocks_by_cgroup_total{cgroup_id,cgroup_path}`
