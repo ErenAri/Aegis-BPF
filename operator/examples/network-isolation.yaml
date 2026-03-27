@@ -1,0 +1,28 @@
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: network-isolation
+  namespace: production
+spec:
+  mode: enforce
+  selector:
+    matchLabels:
+      tier: backend
+  networkRules:
+    deny:
+      # Block access to metadata service (cloud credential theft)
+      - ip: "169.254.169.254"
+        protocol: tcp
+        direction: outbound
+      # Block outbound to known C2 ranges
+      - cidr: "198.51.100.0/24"
+        protocol: tcp
+        direction: outbound
+      # Block direct Redis access from non-cache pods
+      - port: 6379
+        protocol: tcp
+        direction: outbound
+      # Block outbound SSH
+      - port: 22
+        protocol: tcp
+        direction: outbound

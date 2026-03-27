@@ -106,6 +106,9 @@ enum event_type {
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_KERNEL_PTRACE_BLOCK = 20,
+    EVENT_KERNEL_MODULE_BLOCK = 21,
+    EVENT_KERNEL_BPF_BLOCK = 22,
 };
 
 /* Exec hook stages for multi-hook correlation */
@@ -249,6 +252,20 @@ struct net_block_event {
     char rule_type[16]; /* "ip", "port", "cidr", "ip_port", "identity" */
 };
 
+/* Kernel security event: ptrace, module load, BPF program load blocks */
+struct kernel_block_event {
+    __u32 pid;
+    __u32 ppid;
+    __u64 start_time;
+    __u64 parent_start_time;
+    __u64 cgid;
+    char comm[16];
+    __u32 target_pid;   /* target PID for ptrace, 0 otherwise */
+    __u32 _pad;
+    char action[8];     /* "AUDIT", "TERM", "KILL", or "BLOCK" */
+    char rule_type[16]; /* "ptrace", "module", "bpf" */
+};
+
 struct event {
     __u32 type;
     union {
@@ -256,6 +273,7 @@ struct event {
         struct exec_argv_event exec_argv;
         struct block_event block;
         struct net_block_event net_block;
+        struct kernel_block_event kernel_block;
     };
 };
 
@@ -283,6 +301,10 @@ struct agent_config {
     __u32 event_sample_rate;
     __u32 sigkill_escalation_threshold;  /* SIGKILL after N denies in window */
     __u32 sigkill_escalation_window_seconds;  /* Escalation window size */
+    __u8 deny_ptrace;        /* block ptrace attachment (MITRE T1055.008) */
+    __u8 deny_module_load;   /* block kernel module loading (MITRE T1547.006) */
+    __u8 deny_bpf;           /* block unauthorized BPF program load (MITRE T1562) */
+    __u8 _pad_kernel;
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -303,6 +325,10 @@ volatile struct agent_config agent_cfg = {
     .event_sample_rate = 1,
     .sigkill_escalation_threshold = SIGKILL_ESCALATION_THRESHOLD_DEFAULT,
     .sigkill_escalation_window_seconds = 30,
+    .deny_ptrace = 0,
+    .deny_module_load = 0,
+    .deny_bpf = 0,
+    ._pad_kernel = 0,
 };
 
 struct agent_meta {
@@ -466,6 +492,22 @@ struct {
     __uint(max_entries, PRIORITY_RINGBUF_SIZE);
 } priority_events SEC(".maps");
 
+/* Backpressure telemetry: tracks event sequence numbers and drop counts
+ * for guaranteed-delivery accounting (Aquila dual-path pattern). */
+struct backpressure_stats {
+    __u64 seq_total;          /* monotonic total events generated */
+    __u64 priority_submitted; /* events submitted to priority buffer */
+    __u64 priority_drops;     /* priority buffer reservation failures */
+    __u64 telemetry_drops;    /* telemetry buffer reservation failures (expected under load) */
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct backpressure_stats);
+} backpressure SEC(".maps");
+
 /* ============================================================================
  * Network Maps
  * ============================================================================ */
@@ -624,6 +666,63 @@ static __always_inline void increment_ringbuf_drops(void)
     struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->ringbuf_drops, 1);
+}
+
+/*
+ * Dual-path backpressure helpers (Aquila pattern).
+ *
+ * Security-critical events (blocks, kernel security) are routed through
+ * priority_events first. If the priority buffer is full, they fall back to
+ * the main events buffer. Telemetry events (exec) always use the main buffer.
+ *
+ * This ensures that under extreme load, forensic and enforcement events are
+ * preserved while high-volume telemetry is shed first.
+ */
+static __always_inline void bp_record_priority_submit(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->priority_submitted, 1);
+    }
+}
+
+static __always_inline void bp_record_priority_drop(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->priority_drops, 1);
+    }
+}
+
+static __always_inline void bp_record_telemetry(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp)
+        __sync_fetch_and_add(&bp->seq_total, 1);
+}
+
+static __always_inline void bp_record_telemetry_drop(void)
+{
+    __u32 zero = 0;
+    struct backpressure_stats *bp = bpf_map_lookup_elem(&backpressure, &zero);
+    if (bp) {
+        __sync_fetch_and_add(&bp->seq_total, 1);
+        __sync_fetch_and_add(&bp->telemetry_drops, 1);
+    }
+}
+
+/*
+ * Reserve an event from the priority ring buffer for security-critical events.
+ * Returns NULL if the priority buffer is full (caller should fall back to main buffer).
+ */
+static __always_inline struct event *priority_event_reserve(void)
+{
+    return bpf_ringbuf_reserve(&priority_events, sizeof(struct event), 0);
 }
 
 static __always_inline void increment_cgroup_stat(__u64 cgid)
@@ -951,6 +1050,9 @@ enum hook_id {
     HOOK_SOCKET_ACCEPT = 7,
     HOOK_SOCKET_SENDMSG = 8,
     HOOK_EXECVE = 9,
+    HOOK_PTRACE = 10,
+    HOOK_MODULE_LOAD = 11,
+    HOOK_BPF = 12,
 };
 
 static __always_inline void record_hook_latency(__u32 hook, __u64 start_ns)

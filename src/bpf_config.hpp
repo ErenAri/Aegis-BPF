@@ -12,6 +12,7 @@ class BpfState;
 
 Result<void> set_agent_config(BpfState& state, bool audit_only);
 Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags);
+Result<void> set_kernel_security_flags(BpfState& state, bool deny_ptrace, bool deny_module_load, bool deny_bpf);
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config);
 Result<void> set_emergency_disable(BpfState& state, bool disable);
 Result<bool> read_emergency_disable(BpfState& state);

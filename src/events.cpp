@@ -7,6 +7,7 @@
 #include <cstring>
 #include <sstream>
 
+#include "k8s_identity.hpp"
 #include "logging.hpp"
 #include "utils.hpp"
 
@@ -157,6 +158,29 @@ void journal_send_control_change(const std::string& payload, const std::string& 
 }
 #endif
 
+namespace {
+/// Append Kubernetes identity fields to a JSON stream if running in K8s.
+/// Must be called before the closing '}' of the JSON object.
+void append_k8s_identity(std::ostringstream& oss, uint32_t pid)
+{
+    const auto& cache = k8s_identity_cache();
+    if (!cache.is_kubernetes())
+        return;
+
+    std::string cid = parse_container_id_from_proc(pid);
+    if (cid.empty())
+        return;
+
+    if (const auto* id = cache.lookup_by_container(cid)) {
+        oss << ",\"k8s_pod\":\"" << json_escape(id->pod_name) << "\"";
+        oss << ",\"k8s_namespace\":\"" << json_escape(id->namespace_name) << "\"";
+        if (!id->service_account.empty()) {
+            oss << ",\"k8s_service_account\":\"" << json_escape(id->service_account) << "\"";
+        }
+    }
+}
+} // namespace
+
 void print_exec_event(const ExecEvent& ev)
 {
     std::ostringstream oss;
@@ -170,7 +194,9 @@ void print_exec_event(const ExecEvent& ev)
         oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
     }
     oss << ",\"cgid\":" << ev.cgid << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"" << ",\"comm\":\""
-        << json_escape(comm) << "\"}";
+        << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
@@ -212,7 +238,9 @@ void print_block_event(const BlockEvent& ev)
         oss << ",\"resolved_path\":\"" << json_escape(resolved_path) << "\"";
     }
     oss << ",\"ino\":" << ev.ino << ",\"dev\":" << ev.dev << ",\"action\":\"" << json_escape(action) << "\",\"comm\":\""
-        << json_escape(comm) << "\"}";
+        << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
@@ -320,7 +348,9 @@ void print_net_block_event(const NetBlockEvent& ev)
     }
 
     oss << ",\"rule_type\":\"" << json_escape(rule_type) << "\"" << ",\"action\":\"" << json_escape(action) << "\""
-        << ",\"comm\":\"" << json_escape(comm) << "\"}";
+        << ",\"comm\":\"" << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
 
     std::string payload = oss.str();
     if (sink_wants_stdout(g_event_sink)) {
@@ -391,7 +421,48 @@ void print_forensic_event(const ForensicEvent& ev)
         << ",\"exec_dev\":" << ev.exec_dev << ",\"exec_stage\":" << static_cast<int>(ev.exec_stage)
         << ",\"verified_exec\":" << (ev.verified_exec ? "true" : "false")
         << ",\"exec_identity_known\":" << (ev.exec_identity_known ? "true" : "false") << ",\"action\":\""
-        << json_escape(action) << "\"" << ",\"comm\":\"" << json_escape(comm) << "\"}";
+        << json_escape(action) << "\"" << ",\"comm\":\"" << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
+
+    if (sink_wants_stdout(g_event_sink)) {
+        std::cout << oss.str() << '\n';
+    }
+}
+
+void print_kernel_block_event(const KernelBlockEvent& ev)
+{
+    std::ostringstream oss;
+    std::string cgpath = resolve_cgroup_path(ev.cgid);
+    std::string action = to_string(ev.action, sizeof(ev.action));
+    std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
+    std::string comm = to_string(ev.comm, sizeof(ev.comm));
+    std::string exec_id = build_exec_id(ev.pid, ev.start_time);
+    std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
+
+    std::string event_type = "kernel_" + rule_type + "_block";
+
+    oss << "{\"type\":\"" << event_type << "\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
+        << ",\"start_time\":" << ev.start_time;
+    if (!exec_id.empty()) {
+        oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
+        oss << ",\"trace_id\":\"" << json_escape(exec_id) << "\"";
+    }
+    oss << ",\"parent_start_time\":" << ev.parent_start_time;
+    if (!parent_exec_id.empty()) {
+        oss << ",\"parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+        oss << ",\"parent_trace_id\":\"" << json_escape(parent_exec_id) << "\"";
+    }
+    oss << ",\"cgid\":" << ev.cgid << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"";
+
+    if (ev.target_pid != 0) {
+        oss << ",\"target_pid\":" << ev.target_pid;
+    }
+
+    oss << ",\"rule_type\":\"" << json_escape(rule_type) << "\"" << ",\"action\":\"" << json_escape(action) << "\""
+        << ",\"comm\":\"" << json_escape(comm) << "\"";
+    append_k8s_identity(oss, ev.pid);
+    oss << "}";
 
     if (sink_wants_stdout(g_event_sink)) {
         std::cout << oss.str() << '\n';
@@ -418,6 +489,9 @@ int handle_event(void* ctx, void* data, size_t)
         print_net_block_event(e->net_block);
     } else if (e->type == EVENT_FORENSIC_BLOCK) {
         print_forensic_event(e->forensic);
+    } else if (e->type == EVENT_KERNEL_PTRACE_BLOCK || e->type == EVENT_KERNEL_MODULE_BLOCK ||
+               e->type == EVENT_KERNEL_BPF_BLOCK) {
+        print_kernel_block_event(e->kernel_block);
     }
     return 0;
 }

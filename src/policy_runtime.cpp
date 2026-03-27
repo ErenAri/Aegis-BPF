@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "binary_scan.hpp"
+#include "bpf_config.hpp"
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
@@ -728,6 +729,23 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                          .field("protect_connect", policy.protect_connect)
                          .field("protect_runtime_deps", policy.protect_runtime_deps)
                          .field("protect_paths", static_cast<int64_t>(policy.protect_paths.size())));
+    }
+
+    // Set kernel security flags (MITRE ATT&CK hooks)
+    if (policy.deny_ptrace || policy.deny_module_load || policy.deny_bpf) {
+        ScopedSpan span("policy.set_kernel_security_flags", root_span.trace_id(), root_span.span_id());
+        auto ksec_result =
+            set_kernel_security_flags(state, policy.deny_ptrace, policy.deny_module_load, policy.deny_bpf);
+        if (!ksec_result) {
+            span.fail(ksec_result.error().to_string());
+            logger().log(
+                SLOG_WARN("Failed to set kernel security flags").field("error", ksec_result.error().to_string()));
+        } else {
+            logger().log(SLOG_INFO("Kernel security flags updated")
+                             .field("deny_ptrace", policy.deny_ptrace)
+                             .field("deny_module_load", policy.deny_module_load)
+                             .field("deny_bpf", policy.deny_bpf));
+        }
     }
 
     {

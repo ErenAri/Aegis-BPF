@@ -1,0 +1,21 @@
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: block-sensitive-files
+  namespace: production
+spec:
+  mode: enforce
+  selector:
+    matchLabels:
+      app: api-server
+    matchNamespaces:
+      - production
+  fileRules:
+    deny:
+      - path: /etc/shadow
+      - path: /etc/passwd
+      - path: /etc/gshadow
+      - path: /root/.ssh/id_rsa
+    protect:
+      - path: /var/lib/secrets
+      - path: /etc/ssl/private

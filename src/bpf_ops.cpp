@@ -309,6 +309,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
+        state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
@@ -810,6 +811,74 @@ Result<BlockStats> read_block_stats_map(bpf_map* map)
     for (const auto& v : vals) {
         out.blocks += v.blocks;
         out.ringbuf_drops += v.ringbuf_drops;
+    }
+    return out;
+}
+
+Result<BackpressureStats> read_backpressure_stats(BpfState& state)
+{
+    if (!state.backpressure) {
+        return BackpressureStats{};
+    }
+    int fd = bpf_map__fd(state.backpressure);
+    int cpu_cnt = libbpf_num_possible_cpus();
+    if (cpu_cnt <= 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Failed to get CPU count");
+    }
+    std::vector<BackpressureStats> vals(cpu_cnt);
+    uint32_t key = 0;
+    if (bpf_map_lookup_elem(fd, &key, vals.data())) {
+        if (errno == ENOENT) {
+            return BackpressureStats{};
+        }
+        return Error::system(errno, "Failed to read backpressure stats");
+    }
+    BackpressureStats out{};
+    for (const auto& v : vals) {
+        out.seq_total += v.seq_total;
+        out.priority_submitted += v.priority_submitted;
+        out.priority_drops += v.priority_drops;
+        out.telemetry_drops += v.telemetry_drops;
+    }
+    return out;
+}
+
+Result<std::vector<std::pair<uint32_t, HookLatencyEntry>>> read_hook_latency_entries(BpfState& state)
+{
+    if (!state.hook_latency) {
+        return std::vector<std::pair<uint32_t, HookLatencyEntry>>{};
+    }
+    int fd = bpf_map__fd(state.hook_latency);
+    int cpu_cnt = libbpf_num_possible_cpus();
+    if (cpu_cnt <= 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Failed to get CPU count");
+    }
+    std::vector<HookLatencyEntry> vals(cpu_cnt);
+    std::vector<std::pair<uint32_t, HookLatencyEntry>> out;
+
+    for (uint32_t hook = 0; hook < static_cast<uint32_t>(HOOK_MAX); ++hook) {
+        if (bpf_map_lookup_elem(fd, &hook, vals.data())) {
+            continue; // Hook not active or not yet recorded
+        }
+        HookLatencyEntry agg{};
+        agg.min_ns = UINT64_MAX;
+        for (const auto& v : vals) {
+            agg.total_ns += v.total_ns;
+            agg.count += v.count;
+            if (v.max_ns > agg.max_ns) {
+                agg.max_ns = v.max_ns;
+            }
+            if (v.count > 0 && v.min_ns < agg.min_ns) {
+                agg.min_ns = v.min_ns;
+            }
+        }
+        if (agg.count == 0) {
+            continue;
+        }
+        if (agg.min_ns == UINT64_MAX) {
+            agg.min_ns = 0;
+        }
+        out.emplace_back(hook, agg);
     }
     return out;
 }

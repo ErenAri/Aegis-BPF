@@ -1,0 +1,35 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aegis-operator-role
+rules:
+  # AegisPolicy CRDs
+  - apiGroups: ["aegisbpf.io"]
+    resources: ["aegispolicies", "aegisclusterpolicies"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["aegisbpf.io"]
+    resources: ["aegispolicies/status", "aegisclusterpolicies/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["aegisbpf.io"]
+    resources: ["aegispolicies/finalizers", "aegisclusterpolicies/finalizers"]
+    verbs: ["update"]
+  # ConfigMaps for policy distribution
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Namespaces (ensure aegisbpf-system exists)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+  # Pods for identity resolution
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Events for recording
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
