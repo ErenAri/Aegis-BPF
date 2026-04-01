@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774636291186,
+  "lastUpdate": 1775061685611,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -31878,6 +31878,102 @@ window.BENCHMARK_DATA = {
             "value": 66.30877275410212,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.30636952958052 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc853fbd56d7789f41a82ae89c82e1dcb1fef262",
+          "message": "Merge pull request #69 from ErenAri/claude/quirky-aryabhata\n\nfeat: add benchmarks, GitOps, and …",
+          "timestamp": "2026-04-01T19:25:30+03:00",
+          "tree_id": "84462ff4206bf5d94c5158841d09310f3ad481e4",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/fc853fbd56d7789f41a82ae89c82e1dcb1fef262"
+        },
+        "date": 1775061684383,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1493.085670761322,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1492.9803419414745 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3613.338889247143,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3612.740579280217 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20695.67879170484,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20694.226683944224 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157149.3210184766,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157139.23919995484 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1252365.1079393418,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1252133.9171126955 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4998645.339307078,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4998317.261648736 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4786.896532284079,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4793.358849860267 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33481.771718545824,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33483.396461844764 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 274079.4094358164,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 274046.70434171293 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 820528.2117854176,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 820617.2197586248 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.49711202947422,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.49285692727824 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.80513175289815,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.796380224843325 ns\nthreads: 1"
           }
         ]
       }
