@@ -41,8 +41,11 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     __u16 family = 0;
     if (bpf_probe_read_kernel(&family, sizeof(family), &address->sa_family)) {
+        /* Fail-open on parse error: never deny a syscall because we
+         * couldn't read the sockaddr.  This matches file-hook behavior
+         * and avoids denying legitimate traffic on kernel edge cases. */
         record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-        return enforcement_result();
+        return 0;
     }
 
     if (family != AF_INET && family != AF_INET6) {
@@ -57,7 +60,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address)) {
             record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         remote_ip_v4 = sin.sin_addr.s_addr;
         remote_port = bpf_ntohs(sin.sin_port);
@@ -65,7 +68,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address)) {
             record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         remote_port = bpf_ntohs(sin6.sin6_port);
         __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
@@ -288,7 +291,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     __u16 family = 0;
     if (bpf_probe_read_kernel(&family, sizeof(family), &address->sa_family)) {
         record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-        return enforcement_result();
+        return 0;  /* fail-open on parse error */
     }
 
     if (family != AF_INET && family != AF_INET6) {
@@ -302,14 +305,14 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address)) {
             record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         bind_port = bpf_ntohs(sin.sin_port);
     } else {
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address)) {
             record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         bind_port = bpf_ntohs(sin6.sin6_port);
     }
@@ -823,7 +826,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     if (msg_name) {
         if (bpf_probe_read_kernel(&family, sizeof(family), msg_name)) {
             record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
 
         if (family == AF_INET) {
@@ -834,7 +837,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             }
             if (bpf_probe_read_kernel(&sin, sizeof(sin), msg_name)) {
                 record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-                return enforcement_result();
+                return 0;  /* fail-open on parse error */
             }
             remote_ip_v4 = sin.sin_addr.s_addr;
             remote_port = bpf_ntohs(sin.sin_port);
@@ -846,7 +849,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             }
             if (bpf_probe_read_kernel(&sin6, sizeof(sin6), msg_name)) {
                 record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-                return enforcement_result();
+                return 0;  /* fail-open on parse error */
             }
             remote_port = bpf_ntohs(sin6.sin6_port);
             __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));

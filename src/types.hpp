@@ -380,6 +380,7 @@ struct AgentConfig {
     uint8_t deny_module_load;                   /* block kernel module loading (MITRE T1547.006) */
     uint8_t deny_bpf;                           /* block unauthorized BPF program load (MITRE T1562) */
     uint8_t _pad_kernel;
+    uint64_t policy_generation; /* monotonic generation for atomic policy commits */
 };
 
 struct AgentMeta {
@@ -446,7 +447,7 @@ static_assert(sizeof(BlockEvent) == 336, "BlockEvent size changed — update BPF
 static_assert(sizeof(NetBlockEvent) == 104, "NetBlockEvent size changed — update BPF struct");
 static_assert(sizeof(InodeId) == 16, "InodeId size changed — update BPF struct");
 static_assert(sizeof(PathKey) == 256, "PathKey size changed — update BPF struct");
-static_assert(sizeof(AgentConfig) == 40, "AgentConfig size changed — update BPF struct");
+static_assert(sizeof(AgentConfig) == 48, "AgentConfig size changed — update BPF struct");
 static_assert(sizeof(AgentMeta) == 4, "AgentMeta size changed — update BPF struct");
 static_assert(sizeof(BlockStats) == 16, "BlockStats size changed — update BPF struct");
 static_assert(sizeof(PortKey) == 4, "PortKey size changed — update BPF struct");

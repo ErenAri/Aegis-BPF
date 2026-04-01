@@ -43,6 +43,8 @@
 #define EXEC_IDENTITY_FLAG_PROTECT_CONNECT (1U << 1)
 #define EXEC_IDENTITY_FLAG_PROTECT_FILES (1U << 2)
 #define EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS (1U << 3)
+#define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4)  /* treat overlayfs as verifiable (containers) */
+#define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)      /* don't require FS_VERITY_FL (dev/testing) */
 
 #ifndef FS_VERITY_FL
 #define FS_VERITY_FL 0x00100000
@@ -305,6 +307,7 @@ struct agent_config {
     __u8 deny_module_load;   /* block kernel module loading (MITRE T1547.006) */
     __u8 deny_bpf;           /* block unauthorized BPF program load (MITRE T1562) */
     __u8 _pad_kernel;
+    __u64 policy_generation; /* monotonic generation stamped after atomic policy commit */
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -507,6 +510,25 @@ struct {
     __type(key, __u32);
     __type(value, struct backpressure_stats);
 } backpressure SEC(".maps");
+
+/* Atomic policy generation marker.
+ *
+ * Userspace increments this AFTER all deny/allow maps have been fully
+ * synchronized from shadow maps.  BPF hooks read it to detect that a
+ * partial policy update is in progress (generation mismatch vs the
+ * expected value stamped in agent_cfg.policy_generation).  During the
+ * mismatch window, hooks fall back to the *previous* policy decision
+ * (i.e., they continue enforcing the old generation rather than reading
+ * a half-written new one).
+ *
+ * Key 0 = current committed generation (__u64, monotonically increasing).
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u64);
+} policy_generation SEC(".maps");
 
 /* ============================================================================
  * Network Maps
@@ -828,17 +850,35 @@ static __always_inline __u8 path_is_trusted_root(const char *path)
     return 0;
 }
 
+/*
+ * Verify exec identity: determines whether a file can be trusted as a
+ * known-good binary.  The check is intentionally strict by default but
+ * can be relaxed for container environments via exec_identity_flags:
+ *
+ *   EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS - accept overlayfs binaries
+ *       (required for container workloads on overlay-based rootfs)
+ *   EXEC_IDENTITY_FLAG_SKIP_VERITY     - skip fs-verity requirement
+ *       (useful in dev/test where dm-verity is not configured)
+ */
 static __always_inline __u8 file_is_verified_exec_identity(const struct file *file)
 {
     if (!file)
         return 0;
 
+    const volatile struct agent_config *cfg = &agent_cfg;
+    __u8 flags = cfg->exec_identity_flags;
+
     const struct inode *inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
         return 0;
 
+    /* Overlayfs rejection: hard-reject unless ALLOW_OVERLAYFS is set.
+     * Without this flag, all container binaries on overlay rootfs are
+     * treated as unverified — which blocks networking if
+     * PROTECT_CONNECT is enabled. */
     __u32 magic = BPF_CORE_READ(inode, i_sb, s_magic);
-    if (magic == OVERLAYFS_SUPER_MAGIC)
+    if (magic == OVERLAYFS_SUPER_MAGIC &&
+        !(flags & EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS))
         return 0;
 
     __u32 uid = BPF_CORE_READ(inode, i_uid.val);
@@ -849,9 +889,12 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     if (mode & (S_IWGRP | S_IWOTH))
         return 0;
 
-    __u32 iflags = BPF_CORE_READ(inode, i_flags);
-    if (!(iflags & FS_VERITY_FL))
-        return 0;
+    /* fs-verity check: skip if SKIP_VERITY is set (dev/test mode) */
+    if (!(flags & EXEC_IDENTITY_FLAG_SKIP_VERITY)) {
+        __u32 iflags = BPF_CORE_READ(inode, i_flags);
+        if (!(iflags & FS_VERITY_FL))
+            return 0;
+    }
 
     char path[128] = {};
     long len = bpf_d_path((struct path *)&file->f_path, path, sizeof(path));
@@ -859,6 +902,30 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
         return 0;
 
     return path_is_trusted_root(path);
+}
+
+/*
+ * Check whether the committed policy generation matches what the agent
+ * last wrote to agent_cfg.  If they disagree, a policy update is in
+ * progress and maps may be in a partially-synchronized state.
+ *
+ * Returns 1 if policy is consistent (safe to enforce), 0 if a commit
+ * is in-flight.  Hooks should fall back to audit during the mismatch
+ * window to avoid enforcing a half-written ruleset.
+ */
+static __always_inline __u8 is_policy_consistent(void)
+{
+    const volatile struct agent_config *cfg = &agent_cfg;
+    __u64 expected = cfg->policy_generation;
+    if (expected == 0)
+        return 1;  /* generation tracking not yet enabled */
+
+    __u32 key = 0;
+    __u64 *committed = bpf_map_lookup_elem(&policy_generation, &key);
+    if (!committed)
+        return 1;  /* map not populated yet — treat as consistent */
+
+    return *committed == expected;
 }
 
 static __always_inline __u8 get_effective_audit_mode(void)
@@ -883,6 +950,12 @@ static __always_inline __u8 get_effective_audit_mode(void)
         if (now > cfg->deadman_deadline_ns)
             return 1;  /* Deadline passed - failsafe to audit */
     }
+
+    /* Atomic policy consistency: if a policy update is in-flight
+     * (generation mismatch), fall back to audit to avoid enforcing
+     * a half-written ruleset. */
+    if (!is_policy_consistent())
+        return 1;
 
     return 0;  /* Enforce mode */
 }

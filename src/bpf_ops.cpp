@@ -20,6 +20,7 @@
 #include <set>
 #include <vector>
 
+#include "bpf_attach.hpp"
 #include "bpf_integrity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
@@ -139,22 +140,8 @@ void BpfState::cleanup()
     cleanup_bpf(*this);
 }
 
-static Result<void> attach_prog(bpf_program* prog, BpfState& state)
-{
-    const char* sec = bpf_program__section_name(prog);
-    const bool is_lsm = sec && (std::strncmp(sec, "lsm/", 4) == 0 || std::strncmp(sec, "lsm.s/", 6) == 0);
-
-    bpf_link* link = is_lsm ? bpf_program__attach_lsm(prog) : bpf_program__attach(prog);
-    int err = libbpf_get_error(link);
-    if (err || !link) {
-        if (err == 0) {
-            err = -EINVAL;
-        }
-        return Error::bpf_error(err, "Failed to attach BPF program");
-    }
-    state.links.push_back(link);
-    return {};
-}
+// attach_prog() is now defined once in bpf_attach.cpp and declared in
+// bpf_attach.hpp.  All call-sites in this file use the shared version.
 
 void set_ringbuf_bytes(uint32_t bytes)
 {
@@ -310,6 +297,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
         state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
+        state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||

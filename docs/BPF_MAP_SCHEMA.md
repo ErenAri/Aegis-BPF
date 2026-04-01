@@ -749,6 +749,24 @@ pressure for known-noisy files.
 Path-based event pre-filtering. Same pattern as `event_approver_inode` but
 keyed on path for cases where inode resolution is unavailable.
 
+### `policy_generation`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_ARRAY` |
+| Key            | `__u32` (always 0) |
+| Value          | `__u64` (monotonic generation counter) |
+| Max entries    | 1 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/policy_generation` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Updated after policy shadow→live sync |
+
+Atomic policy commit marker. Userspace bumps `agent_cfg.policy_generation`
+before syncing shadow maps to live, then writes the matching value here after
+all maps are fully synchronized. BPF hooks compare
+`agent_cfg.policy_generation` against the committed value in this map; a
+mismatch forces audit mode to avoid enforcing a half-written ruleset.
+
 ### `priority_events`
 
 | Property       | Value |

@@ -280,4 +280,40 @@ Result<void> update_deadman_deadline(BpfState& state, uint64_t deadline_ns)
     return {};
 }
 
+Result<uint64_t> bump_policy_generation(BpfState& state)
+{
+    if (!state.config_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "config_map not available");
+    }
+
+    int fd = bpf_map__fd(state.config_map);
+    uint32_t key = 0;
+    AgentConfig cfg{};
+    if (bpf_map_lookup_elem(fd, &key, &cfg)) {
+        return Error::system(errno, "Failed to read agent config for generation bump");
+    }
+
+    cfg.policy_generation += 1;
+
+    if (bpf_map_update_elem(fd, &key, &cfg, BPF_ANY)) {
+        return Error::system(errno, "Failed to write bumped policy generation");
+    }
+
+    return cfg.policy_generation;
+}
+
+Result<void> commit_policy_generation(BpfState& state, uint64_t generation)
+{
+    if (!state.policy_generation_map) {
+        return {}; // map not present (older BPF object) — skip
+    }
+
+    int fd = bpf_map__fd(state.policy_generation_map);
+    uint32_t key = 0;
+    if (bpf_map_update_elem(fd, &key, &generation, BPF_ANY)) {
+        return Error::system(errno, "Failed to commit policy generation to map");
+    }
+    return {};
+}
+
 } // namespace aegis

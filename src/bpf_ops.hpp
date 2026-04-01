@@ -249,6 +249,7 @@ class BpfState {
     bpf_map* net_ip_stats = nullptr;
     bpf_map* net_port_stats = nullptr;
     bpf_map* backpressure = nullptr;
+    bpf_map* policy_generation_map = nullptr;
 
     // Network reuse flags
     bool deny_ipv4_reused = false;
