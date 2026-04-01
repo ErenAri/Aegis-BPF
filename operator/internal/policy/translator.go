@@ -5,6 +5,7 @@ package policy
 import (
 	"crypto/sha256"
 	"fmt"
+	"sort"
 	"strings"
 
 	v1alpha1 "github.com/ErenAri/aegis-operator/api/v1alpha1"
@@ -187,7 +188,14 @@ func MergePolicies(policies []TranslateResult) TranslateResult {
 		}
 	}
 
-	for section, entries := range sections {
+	sortedSections := make([]string, 0, len(sections))
+	for section := range sections {
+		sortedSections = append(sortedSections, section)
+	}
+	sort.Strings(sortedSections)
+
+	for _, section := range sortedSections {
+		entries := sections[section]
 		combined.WriteString(section + "\n")
 		for _, entry := range entries {
 			combined.WriteString(entry + "\n")

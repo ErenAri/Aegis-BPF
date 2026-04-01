@@ -1,0 +1,109 @@
+# FluxCD Kustomization for AegisBPF policy management.
+# Watches a Git repo for AegisPolicy CRDs and reconciles them.
+#
+# Prerequisites:
+#   1. AegisBPF operator installed (CRDs registered)
+#   2. Flux installed (flux bootstrap github ...)
+#   3. Git repo with AegisPolicy manifests in policies/ directory
+#
+# Usage:
+#   flux create source git aegisbpf-policies \
+#     --url=https://github.com/your-org/aegisbpf-policies \
+#     --branch=main \
+#     --interval=1m
+#   kubectl apply -f fluxcd-kustomization.yaml
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: aegisbpf-policies
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/your-org/aegisbpf-policies
+  ref:
+    branch: main
+  # Optional: verify commits are signed.
+  # verify:
+  #   mode: head
+  #   secretRef:
+  #     name: aegisbpf-cosign-key
+
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: aegisbpf-cluster-policies
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 2m
+  sourceRef:
+    kind: GitRepository
+    name: aegisbpf-policies
+  path: ./cluster-policies
+  prune: false          # Never auto-delete security policies
+  wait: true
+  timeout: 3m
+  healthChecks:
+    - apiVersion: aegisbpf.io/v1alpha1
+      kind: AegisClusterPolicy
+      name: "*"
+  # Post-deploy notification.
+  patches:
+    - patch: |
+        - op: add
+          path: /metadata/annotations/fluxcd.io~1reconciled-at
+          value: "placeholder"
+      target:
+        group: aegisbpf.io
+        version: v1alpha1
+        kind: AegisClusterPolicy
+
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: aegisbpf-namespace-policies
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 2m
+  sourceRef:
+    kind: GitRepository
+    name: aegisbpf-policies
+  path: ./namespace-policies
+  prune: false
+  wait: true
+  timeout: 3m
+
+---
+# Flux alert: notify on policy sync events.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: aegisbpf-policy-alerts
+  namespace: flux-system
+spec:
+  summary: AegisBPF policy sync
+  eventSeverity: info
+  eventSources:
+    - kind: Kustomization
+      name: aegisbpf-cluster-policies
+    - kind: Kustomization
+      name: aegisbpf-namespace-policies
+  providerRef:
+    name: aegisbpf-slack
+
+---
+# Slack provider for policy change notifications.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: aegisbpf-slack
+  namespace: flux-system
+spec:
+  type: slack
+  channel: aegisbpf-alerts
+  secretRef:
+    name: slack-webhook-url
