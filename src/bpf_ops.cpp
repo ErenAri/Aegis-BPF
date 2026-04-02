@@ -421,6 +421,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse_optional(state.net_block_stats, kNetBlockStatsPin, state.net_block_stats_reused)));
         TRY(check(try_reuse_optional(state.net_ip_stats, kNetIpStatsPin, state.net_ip_stats_reused)));
         TRY(check(try_reuse_optional(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused)));
+
+        // Cgroup-scoped deny maps (optional — reuse flags are not tracked in BpfState
+        // because these maps are always rebuilt from policy; the pins exist purely for
+        // post-crash introspection via bpftool)
+        {
+            bool dummy = false;
+            try_reuse_optional(state.deny_cgroup_inode, kDenyCgroupInodePin, dummy);
+            try_reuse_optional(state.deny_cgroup_ipv4, kDenyCgroupIpv4Pin, dummy);
+            try_reuse_optional(state.deny_cgroup_port, kDenyCgroupPortPin, dummy);
+        }
     }
 
     {
@@ -583,6 +593,21 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
         if (state.net_port_stats) {
             TRY(check(try_pin(state.net_port_stats, kNetPortStatsPin, state.net_port_stats_reused)));
+        }
+
+        // Cgroup-scoped deny maps (best-effort pin; use a dummy reuse flag since
+        // these are rebuilt from policy on every apply)
+        {
+            bool dummy = false;
+            if (state.deny_cgroup_inode) {
+                try_pin(state.deny_cgroup_inode, kDenyCgroupInodePin, dummy);
+            }
+            if (state.deny_cgroup_ipv4) {
+                try_pin(state.deny_cgroup_ipv4, kDenyCgroupIpv4Pin, dummy);
+            }
+            if (state.deny_cgroup_port) {
+                try_pin(state.deny_cgroup_port, kDenyCgroupPortPin, dummy);
+            }
         }
     }
 
