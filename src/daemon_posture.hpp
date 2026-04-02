@@ -29,6 +29,10 @@ struct AppliedPolicyRequirements {
     size_t protect_path_count = 0;
     size_t network_rule_count = 0;
     std::vector<std::string> allow_binary_hashes;
+    // Cgroup-scoped deny rule counts (v6+ policies)
+    size_t cgroup_deny_inode_count = 0;
+    size_t cgroup_deny_ip_count = 0;
+    size_t cgroup_deny_port_count = 0;
 };
 
 struct CapabilityReportRuntimeState {

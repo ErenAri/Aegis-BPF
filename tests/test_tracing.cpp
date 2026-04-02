@@ -680,7 +680,7 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
     buffer << report.rdbuf();
     const std::string payload = buffer.str();
     EXPECT_NE(payload.find("\"schema_version\": 1"), std::string::npos);
-    EXPECT_NE(payload.find("\"schema_semver\": \"1.5.0\""), std::string::npos);
+    EXPECT_NE(payload.find("\"schema_semver\": \"1.6.0\""), std::string::npos);
     EXPECT_NE(payload.find("\"features\""), std::string::npos);
     EXPECT_NE(payload.find("\"ima\""), std::string::npos);
     EXPECT_NE(payload.find("\"ima_appraisal\""), std::string::npos);
