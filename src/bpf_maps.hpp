@@ -44,6 +44,10 @@ struct ShadowMapSet {
     ShadowMap deny_ip_port_v6;
     ShadowMap deny_cidr_v4;
     ShadowMap deny_cidr_v6;
+    // Cgroup-scoped deny maps
+    ShadowMap deny_cgroup_inode;
+    ShadowMap deny_cgroup_ipv4;
+    ShadowMap deny_cgroup_port;
 };
 
 Result<ShadowMap> create_shadow_map(bpf_map* live_map);

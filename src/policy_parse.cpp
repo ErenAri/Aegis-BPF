@@ -111,6 +111,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     std::unordered_set<std::string> deny_hash_seen;
     std::unordered_set<std::string> allow_hash_seen;
+    std::unordered_set<std::string> cgroup_deny_inode_seen;
+    std::unordered_set<std::string> cgroup_deny_ip_seen;
+    std::unordered_set<std::string> cgroup_deny_port_seen;
 
     static const std::unordered_set<std::string> valid_sections = {"deny_path",
                                                                    "deny_inode",
@@ -125,7 +128,10 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                                                                    "deny_ip_port",
                                                                    "deny_binary_hash",
                                                                    "allow_binary_hash",
-                                                                   "scan_paths"};
+                                                                   "scan_paths",
+                                                                   "cgroup_deny_inode",
+                                                                   "cgroup_deny_ip",
+                                                                   "cgroup_deny_port"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -373,6 +379,77 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             continue;
         }
 
+        if (section == "cgroup_deny_inode") {
+            // Format: <cgroup_path_or_cgid> <dev>:<ino>
+            auto sep = trimmed.find(' ');
+            if (sep == std::string::npos) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": cgroup_deny_inode expects '<cgroup> <dev>:<ino>'");
+                continue;
+            }
+            std::string cgroup_str = trim(trimmed.substr(0, sep));
+            std::string inode_str = trim(trimmed.substr(sep + 1));
+            InodeId id{};
+            if (!parse_inode_id(inode_str, id)) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": invalid inode format in cgroup_deny_inode (dev:ino)");
+                continue;
+            }
+            std::string dedup_key = cgroup_str + "|" + inode_to_string(id);
+            if (cgroup_deny_inode_seen.insert(dedup_key).second) {
+                policy.cgroup.deny_inodes.push_back({cgroup_str, id});
+                policy.cgroup.enabled = true;
+            }
+            continue;
+        }
+
+        if (section == "cgroup_deny_ip") {
+            // Format: <cgroup_path_or_cgid> <ipv4_address>
+            auto sep = trimmed.find(' ');
+            if (sep == std::string::npos) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": cgroup_deny_ip expects '<cgroup> <ipv4>'");
+                continue;
+            }
+            std::string cgroup_str = trim(trimmed.substr(0, sep));
+            std::string ip_str = trim(trimmed.substr(sep + 1));
+            uint32_t ip_be;
+            if (!parse_ipv4(ip_str, ip_be)) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": cgroup_deny_ip only supports IPv4; invalid address '" + ip_str + "'");
+                continue;
+            }
+            std::string dedup_key = cgroup_str + "|" + ip_str;
+            if (cgroup_deny_ip_seen.insert(dedup_key).second) {
+                policy.cgroup.deny_ips.push_back({cgroup_str, ip_str});
+                policy.cgroup.enabled = true;
+            }
+            continue;
+        }
+
+        if (section == "cgroup_deny_port") {
+            // Format: <cgroup_path_or_cgid> <port>[:<proto>[:<dir>]]
+            auto sep = trimmed.find(' ');
+            if (sep == std::string::npos) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": cgroup_deny_port expects '<cgroup> <port>[:<proto>[:<dir>]]'");
+                continue;
+            }
+            std::string cgroup_str = trim(trimmed.substr(0, sep));
+            std::string port_str = trim(trimmed.substr(sep + 1));
+            PortRule rule{};
+            if (!parse_port_rule(port_str, rule)) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": invalid port rule '" + port_str + "'");
+                continue;
+            }
+            std::string dedup_key = cgroup_str + "|" + port_str;
+            if (cgroup_deny_port_seen.insert(dedup_key).second) {
+                policy.cgroup.deny_ports.push_back({cgroup_str, rule});
+                policy.cgroup.enabled = true;
+            }
+            continue;
+        }
+
         if (section == "scan_paths") {
             if (trimmed.empty() || trimmed.front() != '/') {
                 issues.warnings.push_back("line " + std::to_string(line_no) + ": scan_paths entry should be absolute");
@@ -385,7 +462,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     if (policy.version == 0) {
         issues.errors.push_back("missing header key: version");
     }
-    if (policy.version < 1 || policy.version > 5) {
+    if (policy.version < 1 || policy.version > 6) {
         issues.errors.push_back("unsupported policy version: " + std::to_string(policy.version));
     }
 
@@ -407,6 +484,10 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     if (policy.protect_runtime_deps && !policy.protect_connect && policy.protect_paths.empty()) {
         issues.errors.push_back("[protect_runtime_deps] requires [protect_connect] or [protect_path]");
+    }
+
+    if (policy.cgroup.enabled && policy.version < 6) {
+        issues.errors.push_back("[cgroup_deny_*] sections require version=6 or higher");
     }
 
     if (!issues.errors.empty()) {

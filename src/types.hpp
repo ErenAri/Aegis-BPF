@@ -321,6 +321,33 @@ struct NetworkPolicy {
     bool enabled = false;
 };
 
+// Cgroup-scoped deny rules — each pairs a cgroup identifier with a rule.
+// The cgroup is specified as a path (resolved to cgid at apply time) or a
+// numeric cgid.  These are parsed from [cgroup_deny_inode], [cgroup_deny_ip],
+// and [cgroup_deny_port] policy sections (v6+).
+
+struct CgroupDenyInodeRule {
+    std::string cgroup; /* path or "cgid:<N>" */
+    InodeId inode;
+};
+
+struct CgroupDenyIpRule {
+    std::string cgroup; /* path or "cgid:<N>" */
+    std::string ip;     /* IPv4 address string */
+};
+
+struct CgroupDenyPortRule {
+    std::string cgroup; /* path or "cgid:<N>" */
+    PortRule port;
+};
+
+struct CgroupPolicy {
+    std::vector<CgroupDenyInodeRule> deny_inodes;
+    std::vector<CgroupDenyIpRule> deny_ips;
+    std::vector<CgroupDenyPortRule> deny_ports;
+    bool enabled = false;
+};
+
 struct Policy {
     int version = 0;
     std::vector<std::string> deny_paths;
@@ -334,6 +361,7 @@ struct Policy {
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;
+    CgroupPolicy cgroup;                          // per-cgroup scoped deny rules (v6+)
     std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
     std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
     std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)

@@ -154,6 +154,17 @@ Result<void> reset_policy_maps(BpfState& state)
         TRY(clear_map_entries(state.deny_cidr_v6));
     }
 
+    // Cgroup-scoped deny maps
+    if (state.deny_cgroup_inode) {
+        TRY(clear_map_entries(state.deny_cgroup_inode));
+    }
+    if (state.deny_cgroup_ipv4) {
+        TRY(clear_map_entries(state.deny_cgroup_ipv4));
+    }
+    if (state.deny_cgroup_port) {
+        TRY(clear_map_entries(state.deny_cgroup_port));
+    }
+
     std::error_code ec;
     std::filesystem::remove(kDenyDbPath, ec);
     return {};
@@ -373,6 +384,60 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
         }
 
+        if (policy.cgroup.enabled) {
+            ScopedSpan span("policy.populate_shadow_cgroup", root_span.trace_id(), root_span.span_id());
+            for (const auto& rule : policy.cgroup.deny_inodes) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_inode")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result = add_cgroup_deny_inode_to_fd(shadows.deny_cgroup_inode.fd(), *cgid_result, rule.inode);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny inode to shadow")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& rule : policy.cgroup.deny_ips) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_ip")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result = add_cgroup_deny_ipv4_to_fd(shadows.deny_cgroup_ipv4.fd(), *cgid_result, rule.ip);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny IPv4 to shadow")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("ip", rule.ip)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& rule : policy.cgroup.deny_ports) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_port")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result = add_cgroup_deny_port_to_fd(shadows.deny_cgroup_port.fd(), *cgid_result, rule.port);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny port to shadow")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", result.error().message()));
+                }
+            }
+            logger().log(SLOG_INFO("Cgroup-scoped policy populated in shadow")
+                             .field("deny_inodes", static_cast<int64_t>(policy.cgroup.deny_inodes.size()))
+                             .field("deny_ips", static_cast<int64_t>(policy.cgroup.deny_ips.size()))
+                             .field("deny_ports", static_cast<int64_t>(policy.cgroup.deny_ports.size())));
+        }
+
         {
             ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
             size_t shadow_inode_count =
@@ -431,6 +496,12 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 TRY(sync_from_shadow(state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()));
                 TRY(sync_from_shadow(state.deny_cidr_v4, shadows.deny_cidr_v4.fd()));
                 TRY(sync_from_shadow(state.deny_cidr_v6, shadows.deny_cidr_v6.fd()));
+            }
+
+            if (policy.cgroup.enabled) {
+                TRY(sync_from_shadow(state.deny_cgroup_inode, shadows.deny_cgroup_inode.fd()));
+                TRY(sync_from_shadow(state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()));
+                TRY(sync_from_shadow(state.deny_cgroup_port, shadows.deny_cgroup_port.fd()));
             }
 
             logger().log(SLOG_INFO("Shadow maps synced to live maps"));
@@ -559,6 +630,61 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                              .field("deny_cidrs", static_cast<int64_t>(policy.network.deny_cidrs.size()))
                              .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size()))
                              .field("deny_ip_ports", static_cast<int64_t>(policy.network.deny_ip_ports.size())));
+        }
+
+        if (policy.cgroup.enabled) {
+            ScopedSpan span("policy.apply_cgroup_rules", root_span.trace_id(), root_span.span_id());
+            for (const auto& rule : policy.cgroup.deny_inodes) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_inode")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result =
+                    add_cgroup_deny_inode_to_fd(bpf_map__fd(state.deny_cgroup_inode), *cgid_result, rule.inode);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny inode")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& rule : policy.cgroup.deny_ips) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_ip")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result = add_cgroup_deny_ipv4_to_fd(bpf_map__fd(state.deny_cgroup_ipv4), *cgid_result, rule.ip);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny IPv4")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("ip", rule.ip)
+                                     .field("error", result.error().message()));
+                }
+            }
+            for (const auto& rule : policy.cgroup.deny_ports) {
+                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+                if (!cgid_result) {
+                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_port")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", cgid_result.error().message()));
+                    continue;
+                }
+                auto result = add_cgroup_deny_port_to_fd(bpf_map__fd(state.deny_cgroup_port), *cgid_result, rule.port);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add cgroup deny port")
+                                     .field("cgroup", rule.cgroup)
+                                     .field("error", result.error().message()));
+                }
+            }
+            logger().log(SLOG_INFO("Cgroup-scoped policy applied directly")
+                             .field("deny_inodes", static_cast<int64_t>(policy.cgroup.deny_inodes.size()))
+                             .field("deny_ips", static_cast<int64_t>(policy.cgroup.deny_ips.size()))
+                             .field("deny_ports", static_cast<int64_t>(policy.cgroup.deny_ports.size())));
         }
     }
 

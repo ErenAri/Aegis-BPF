@@ -743,5 +743,142 @@ TEST_F(PolicyRollbackTest, RollbackControlPathCompletesWithinFiveSecondsUnderLoa
     EXPECT_LT(elapsed.count(), 5000) << "rollback control path exceeded 5s target: " << elapsed.count() << "ms";
 }
 
+TEST_F(PolicyTest, ParseCgroupDenyInodeRules)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_inode]
+cgid:12345 259:67890
+cgid:12345 260:11111
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->version, 6);
+    EXPECT_TRUE(result->cgroup.enabled);
+    ASSERT_EQ(result->cgroup.deny_inodes.size(), 2u);
+    EXPECT_EQ(result->cgroup.deny_inodes[0].cgroup, "cgid:12345");
+    EXPECT_EQ(result->cgroup.deny_inodes[0].inode.dev, 259u);
+    EXPECT_EQ(result->cgroup.deny_inodes[0].inode.ino, 67890u);
+    EXPECT_EQ(result->cgroup.deny_inodes[1].cgroup, "cgid:12345");
+    EXPECT_EQ(result->cgroup.deny_inodes[1].inode.dev, 260u);
+    EXPECT_EQ(result->cgroup.deny_inodes[1].inode.ino, 11111u);
+}
+
+TEST_F(PolicyTest, ParseCgroupDenyIpRules)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_ip]
+cgid:100 10.0.0.1
+cgid:200 192.168.1.5
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_TRUE(result->cgroup.enabled);
+    ASSERT_EQ(result->cgroup.deny_ips.size(), 2u);
+    EXPECT_EQ(result->cgroup.deny_ips[0].cgroup, "cgid:100");
+    EXPECT_EQ(result->cgroup.deny_ips[0].ip, "10.0.0.1");
+    EXPECT_EQ(result->cgroup.deny_ips[1].cgroup, "cgid:200");
+    EXPECT_EQ(result->cgroup.deny_ips[1].ip, "192.168.1.5");
+}
+
+TEST_F(PolicyTest, ParseCgroupDenyPortRules)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_port]
+cgid:100 443:tcp:egress
+cgid:200 8080:udp:both
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_TRUE(result->cgroup.enabled);
+    ASSERT_EQ(result->cgroup.deny_ports.size(), 2u);
+    EXPECT_EQ(result->cgroup.deny_ports[0].cgroup, "cgid:100");
+    EXPECT_EQ(result->cgroup.deny_ports[0].port.port, 443);
+    EXPECT_EQ(result->cgroup.deny_ports[0].port.protocol, 6);
+    EXPECT_EQ(result->cgroup.deny_ports[0].port.direction, 0);
+    EXPECT_EQ(result->cgroup.deny_ports[1].cgroup, "cgid:200");
+    EXPECT_EQ(result->cgroup.deny_ports[1].port.port, 8080);
+    EXPECT_EQ(result->cgroup.deny_ports[1].port.protocol, 17);
+    EXPECT_EQ(result->cgroup.deny_ports[1].port.direction, 2);
+}
+
+TEST_F(PolicyTest, CgroupSectionsRequireVersion6)
+{
+    std::string path = CreateTestPolicy(R"(
+version=5
+
+[cgroup_deny_inode]
+cgid:1 259:100
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(issues.errors.empty());
+    bool found = false;
+    for (const auto& err : issues.errors) {
+        if (err.find("version=6") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "Expected version=6 error message";
+}
+
+TEST_F(PolicyTest, CgroupDenyInodeBadFormat)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_inode]
+cgid:1
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    EXPECT_FALSE(result);
+}
+
+TEST_F(PolicyTest, CgroupDenyIpRejectsIpv6)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_ip]
+cgid:1 2001:db8::1
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    EXPECT_FALSE(result);
+}
+
+TEST_F(PolicyTest, CgroupDenyDeduplicates)
+{
+    std::string path = CreateTestPolicy(R"(
+version=6
+
+[cgroup_deny_inode]
+cgid:1 259:100
+cgid:1 259:100
+)");
+
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    ASSERT_TRUE(result) << "Parse failed: " << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_EQ(result->cgroup.deny_inodes.size(), 1u);
+}
+
 } // namespace
 } // namespace aegis

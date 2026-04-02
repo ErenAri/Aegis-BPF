@@ -303,6 +303,13 @@ Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
 Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
 Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id);
 
+// Cgroup-scoped deny operations (FD-based for shadow or live maps)
+Result<void> add_cgroup_deny_inode_to_fd(int map_fd, uint64_t cgid, const InodeId& inode);
+Result<void> add_cgroup_deny_ipv4_to_fd(int map_fd, uint64_t cgid, const std::string& ip);
+Result<void> add_cgroup_deny_port_to_fd(int map_fd, uint64_t cgid, const PortRule& rule);
+// Resolve a cgroup identifier (path or "cgid:<N>") to a numeric cgroup ID.
+Result<uint64_t> resolve_cgroup_identifier(const std::string& cgroup_str);
+
 // System checks
 bool kernel_bpf_lsm_enabled();
 Result<void> bump_memlock_rlimit();

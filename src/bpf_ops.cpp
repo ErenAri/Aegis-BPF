@@ -22,6 +22,7 @@
 #include "bpf_integrity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
+#include "network_ops.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
 
@@ -734,6 +735,65 @@ Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& 
     uint8_t one = 1;
     if (bpf_map_update_elem(allow_exec_inode_fd, &id, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update shadow allow_exec_inode_map");
+    }
+    return {};
+}
+
+// --- Cgroup-scoped deny operations ---
+
+Result<uint64_t> resolve_cgroup_identifier(const std::string& cgroup_str)
+{
+    if (cgroup_str.rfind("cgid:", 0) == 0) {
+        std::string id_str = cgroup_str.substr(5);
+        uint64_t cgid = 0;
+        if (!parse_uint64(id_str, cgid)) {
+            return Error(ErrorCode::InvalidArgument, "Invalid cgid value", id_str);
+        }
+        return cgid;
+    }
+    return path_to_cgid(cgroup_str);
+}
+
+Result<void> add_cgroup_deny_inode_to_fd(int map_fd, uint64_t cgid, const InodeId& inode)
+{
+    CgroupInodeKey key{};
+    key.cgid = cgid;
+    key.inode = inode;
+    uint8_t one = 1;
+    if (bpf_map_update_elem(map_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_cgroup_inode map");
+    }
+    return {};
+}
+
+Result<void> add_cgroup_deny_ipv4_to_fd(int map_fd, uint64_t cgid, const std::string& ip)
+{
+    uint32_t ip_be = 0;
+    if (!parse_ipv4(ip, ip_be)) {
+        return Error(ErrorCode::InvalidArgument, "Invalid IPv4 address for cgroup deny", ip);
+    }
+    CgroupIpv4Key key{};
+    key.cgid = cgid;
+    key.addr = ip_be;
+    key._pad = 0;
+    uint8_t one = 1;
+    if (bpf_map_update_elem(map_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_cgroup_ipv4 map");
+    }
+    return {};
+}
+
+Result<void> add_cgroup_deny_port_to_fd(int map_fd, uint64_t cgid, const PortRule& rule)
+{
+    CgroupPortKey key{};
+    key.cgid = cgid;
+    key.port = rule.port;
+    key.protocol = rule.protocol;
+    key.direction = rule.direction;
+    key._pad = 0;
+    uint8_t one = 1;
+    if (bpf_map_update_elem(map_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_cgroup_port map");
     }
     return {};
 }

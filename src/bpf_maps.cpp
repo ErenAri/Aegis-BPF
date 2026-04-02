@@ -189,6 +189,25 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
     }
     set.deny_cidr_v6 = std::move(*r);
 
+    // Cgroup-scoped deny maps
+    r = mk(state.deny_cgroup_inode);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_cgroup_inode = std::move(*r);
+
+    r = mk(state.deny_cgroup_ipv4);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_cgroup_ipv4 = std::move(*r);
+
+    r = mk(state.deny_cgroup_port);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_cgroup_port = std::move(*r);
+
     return set;
 }
 
