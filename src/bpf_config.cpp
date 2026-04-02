@@ -41,14 +41,15 @@ AgentConfig default_agent_config()
 
 bool file_policy_maps_empty(const BpfState& state)
 {
-    return map_is_empty(state.deny_inode) && map_is_empty(state.deny_path);
+    return map_is_empty(state.deny_inode) && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
 }
 
 bool net_policy_maps_empty(const BpfState& state)
 {
     return map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) && map_is_empty(state.deny_port) &&
            map_is_empty(state.deny_ip_port_v4) && map_is_empty(state.deny_ip_port_v6) &&
-           map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6);
+           map_is_empty(state.deny_cidr_v4) && map_is_empty(state.deny_cidr_v6) &&
+           map_is_empty(state.deny_cgroup_ipv4) && map_is_empty(state.deny_cgroup_port);
 }
 
 } // namespace
