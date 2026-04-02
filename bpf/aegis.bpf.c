@@ -7,32 +7,34 @@
  */
 
 #include "vmlinux.h"
+
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+
 #include <asm-generic/errno-base.h>
 
 #ifndef SIGINT
-#define SIGINT 2
+#    define SIGINT 2
 #endif
 #ifndef SIGKILL
-#define SIGKILL 9
+#    define SIGKILL 9
 #endif
 #ifndef SIGTERM
-#define SIGTERM 15
+#    define SIGTERM 15
 #endif
 #ifndef AF_INET
-#define AF_INET 2
+#    define AF_INET 2
 #endif
 #ifndef AF_INET6
-#define AF_INET6 10
+#    define AF_INET6 10
 #endif
 #define DENY_PATH_MAX 256
 #ifndef MAY_EXEC
-#define MAY_EXEC 0x01
-#define MAY_WRITE 0x02
-#define MAY_READ 0x04
+#    define MAY_EXEC 0x01
+#    define MAY_WRITE 0x02
+#    define MAY_READ 0x04
 #endif
 #define SIGKILL_ESCALATION_THRESHOLD_DEFAULT 5
 #define SIGKILL_ESCALATION_WINDOW_NS_DEFAULT (30ULL * 1000000000ULL)
@@ -42,23 +44,23 @@
 #define EXEC_IDENTITY_FLAG_PROTECT_CONNECT (1U << 1)
 #define EXEC_IDENTITY_FLAG_PROTECT_FILES (1U << 2)
 #define EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS (1U << 3)
-#define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4)  /* treat overlayfs as verifiable (containers) */
-#define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)      /* don't require FS_VERITY_FL (dev/testing) */
+#define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4) /* treat overlayfs as verifiable (containers) */
+#define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)     /* don't require FS_VERITY_FL (dev/testing) */
 
 #ifndef FS_VERITY_FL
-#define FS_VERITY_FL 0x00100000
+#    define FS_VERITY_FL 0x00100000
 #endif
 #ifndef OVERLAYFS_SUPER_MAGIC
-#define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#    define OVERLAYFS_SUPER_MAGIC 0x794c7630
 #endif
 #ifndef S_IWGRP
-#define S_IWGRP 00020
+#    define S_IWGRP 00020
 #endif
 #ifndef S_IWOTH
-#define S_IWOTH 00002
+#    define S_IWOTH 00002
 #endif
 #ifndef PROT_EXEC
-#define PROT_EXEC 0x4
+#    define PROT_EXEC 0x4
 #endif
 
 /* BPF Map Size Constants */
@@ -70,7 +72,7 @@
 #define MAX_DENY_CGROUP_STATS_ENTRIES 4096
 #define MAX_DENY_PATH_STATS_ENTRIES 16384
 #define MAX_DENY_INODE_STATS_ENTRIES 65536
-#define RINGBUF_SIZE_BYTES (1 << 24)  /* 16MB default */
+#define RINGBUF_SIZE_BYTES (1 << 24) /* 16MB default */
 
 /* Network Map Size Constants */
 #define MAX_DENY_IPV4_ENTRIES 65536
@@ -103,11 +105,11 @@ struct process_info {
     __u32 ppid;
     __u64 start_time;
     __u64 parent_start_time;
-    __u8 verified_exec;            /* 1 if exec identity is VERIFIED_EXEC */
-    __u8 exec_identity_known;      /* 1 if verified_exec has been computed for current image */
-    __u8 pending_untrusted_args;   /* set on execve() entry for interpreter -c/-e style exec */
-    __u8 env_shebang_active;       /* set when a script uses #!/usr/bin/env ... */
-    __u8 env_shebang_script_ok;    /* script VERIFIED_EXEC result carried to next exec */
+    __u8 verified_exec;          /* 1 if exec identity is VERIFIED_EXEC */
+    __u8 exec_identity_known;    /* 1 if verified_exec has been computed for current image */
+    __u8 pending_untrusted_args; /* set on execve() entry for interpreter -c/-e style exec */
+    __u8 env_shebang_active;     /* set when a script uses #!/usr/bin/env ... */
+    __u8 env_shebang_script_ok;  /* script VERIFIED_EXEC result carried to next exec */
     __u8 _pad;
 };
 
@@ -139,11 +141,11 @@ struct net_block_event {
     __u64 parent_start_time;
     __u64 cgid;
     char comm[16];
-    __u8 family;        /* AF_INET=2 or AF_INET6=10 */
-    __u8 protocol;      /* IPPROTO_TCP=6, IPPROTO_UDP=17 */
+    __u8 family;   /* AF_INET=2 or AF_INET6=10 */
+    __u8 protocol; /* IPPROTO_TCP=6, IPPROTO_UDP=17 */
     __u16 local_port;
     __u16 remote_port;
-    __u8 direction;     /* 0=egress (connect), 1=bind, 2=listen, 3=accept, 4=send */
+    __u8 direction; /* 0=egress (connect), 1=bind, 2=listen, 3=accept, 4=send */
     __u8 _pad;
     __be32 remote_ipv4;
     __u8 remote_ipv6[16];
@@ -174,17 +176,19 @@ struct agent_config {
     __u8 audit_only;
     __u8 deadman_enabled;
     __u8 break_glass_active;
-    __u8 enforce_signal;  /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
-    __u8 emergency_disable;  /* bypass enforcement (force AUDIT) when set */
-    __u8 file_policy_empty;  /* optimization hint: no file deny rules loaded */
-    __u8 net_policy_empty;   /* optimization hint: no network deny rules loaded */
+    __u8 enforce_signal;       /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
+    __u8 emergency_disable;    /* bypass enforcement (force AUDIT) when set */
+    __u8 file_policy_empty;    /* optimization hint: no file deny rules loaded */
+    __u8 net_policy_empty;     /* optimization hint: no network deny rules loaded */
     __u8 exec_identity_flags;  /* exec-identity policy + enforcement flags */
-    __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
+    __u64 deadman_deadline_ns; /* ktime_get_boot_ns() deadline */
     __u32 deadman_ttl_seconds;
     __u32 event_sample_rate;
-    __u32 sigkill_escalation_threshold;  /* SIGKILL after N denies in window */
-    __u32 sigkill_escalation_window_seconds;  /* Escalation window size */
-    __u64 policy_generation;  /* monotonic generation stamped after atomic policy commit */
+    __u32 sigkill_escalation_threshold;      /* SIGKILL after N denies in window */
+    __u32 sigkill_escalation_window_seconds; /* Escalation window size */
+    __u64 policy_generation;                 /* monotonic generation stamped after atomic policy commit */
+    __u8 deadman_fail_static;                /* 1 = keep enforcement on deadman expiry (fail-static) */
+    __u8 _reserved[7];                       /* alignment padding */
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -206,6 +210,8 @@ volatile struct agent_config agent_cfg = {
     .sigkill_escalation_threshold = SIGKILL_ESCALATION_THRESHOLD_DEFAULT,
     .sigkill_escalation_window_seconds = 30,
     .policy_generation = 0,
+    .deadman_fail_static = 0,
+    ._reserved = {0},
 };
 
 struct agent_meta {
@@ -220,7 +226,7 @@ struct block_stats_entry {
 /* Key for process-specific maps that prevents PID reuse attacks */
 struct process_key {
     __u32 pid;
-    __u64 start_time;  /* task->start_time to uniquely identify process lifecycle */
+    __u64 start_time; /* task->start_time to uniquely identify process lifecycle */
 };
 
 struct signal_escalation_state {
@@ -438,7 +444,7 @@ struct {
 
 /* Per-IP block statistics */
 struct net_ip_key {
-    __u8 family;  /* AF_INET=2, AF_INET6=10 */
+    __u8 family; /* AF_INET=2, AF_INET6=10 */
     __u8 _pad[3];
     __u8 addr[16];
 };
@@ -535,7 +541,7 @@ struct {
 static __always_inline void increment_block_stats(void)
 {
     __u32 zero = 0;
-    struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
+    struct block_stats_entry* stats = bpf_map_lookup_elem(&block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->blocks, 1);
 }
@@ -543,7 +549,7 @@ static __always_inline void increment_block_stats(void)
 static __always_inline void increment_ringbuf_drops(void)
 {
     __u32 zero = 0;
-    struct block_stats_entry *stats = bpf_map_lookup_elem(&block_stats, &zero);
+    struct block_stats_entry* stats = bpf_map_lookup_elem(&block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->ringbuf_drops, 1);
 }
@@ -551,7 +557,7 @@ static __always_inline void increment_ringbuf_drops(void)
 static __always_inline void increment_cgroup_stat(__u64 cgid)
 {
     __u64 zero64 = 0;
-    __u64 *cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
+    __u64* cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
     if (!cg_stat) {
         bpf_map_update_elem(&deny_cgroup_stats, &cgid, &zero64, BPF_NOEXIST);
         cg_stat = bpf_map_lookup_elem(&deny_cgroup_stats, &cgid);
@@ -560,10 +566,10 @@ static __always_inline void increment_cgroup_stat(__u64 cgid)
         __sync_fetch_and_add(cg_stat, 1);
 }
 
-static __always_inline void increment_inode_stat(const struct inode_id *key)
+static __always_inline void increment_inode_stat(const struct inode_id* key)
 {
     __u64 zero64 = 0;
-    __u64 *ino_stat = bpf_map_lookup_elem(&deny_inode_stats, key);
+    __u64* ino_stat = bpf_map_lookup_elem(&deny_inode_stats, key);
     if (!ino_stat) {
         bpf_map_update_elem(&deny_inode_stats, key, &zero64, BPF_NOEXIST);
         ino_stat = bpf_map_lookup_elem(&deny_inode_stats, key);
@@ -572,10 +578,10 @@ static __always_inline void increment_inode_stat(const struct inode_id *key)
         __sync_fetch_and_add(ino_stat, 1);
 }
 
-static __always_inline void increment_path_stat(const struct path_key *key)
+static __always_inline void increment_path_stat(const struct path_key* key)
 {
     __u64 zero64 = 0;
-    __u64 *path_stat = bpf_map_lookup_elem(&deny_path_stats, key);
+    __u64* path_stat = bpf_map_lookup_elem(&deny_path_stats, key);
     if (!path_stat) {
         bpf_map_update_elem(&deny_path_stats, key, &zero64, BPF_NOEXIST);
         path_stat = bpf_map_lookup_elem(&deny_path_stats, key);
@@ -584,10 +590,9 @@ static __always_inline void increment_path_stat(const struct path_key *key)
         __sync_fetch_and_add(path_stat, 1);
 }
 
-static __always_inline struct process_info *get_or_create_process_info(
-    __u32 pid, struct task_struct *task)
+static __always_inline struct process_info* get_or_create_process_info(__u32 pid, struct task_struct* task)
 {
-    struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
+    struct process_info* pi = bpf_map_lookup_elem(&process_tree, &pid);
     if (task) {
         if (!pi) {
             struct process_info info = {};
@@ -608,15 +613,15 @@ static __always_inline struct process_info *get_or_create_process_info(
     return pi;
 }
 
-static __always_inline void fill_block_event_process_info(
-    struct block_event *block, __u32 pid, struct task_struct *task)
+static __always_inline void fill_block_event_process_info(struct block_event* block, __u32 pid,
+                                                          struct task_struct* task)
 {
     block->pid = pid;
     block->ppid = 0;
     block->start_time = 0;
     block->parent_start_time = 0;
 
-    struct process_info *pi = get_or_create_process_info(pid, task);
+    struct process_info* pi = get_or_create_process_info(pid, task);
     if (pi) {
         block->ppid = pi->ppid;
         block->start_time = pi->start_time;
@@ -624,9 +629,9 @@ static __always_inline void fill_block_event_process_info(
     }
 }
 
-static __always_inline __u8 current_verified_exec(__u32 pid, struct task_struct *task)
+static __always_inline __u8 current_verified_exec(__u32 pid, struct task_struct* task)
 {
-    struct process_info *pi = get_or_create_process_info(pid, task);
+    struct process_info* pi = get_or_create_process_info(pid, task);
     if (!pi)
         return 0;
     if (!pi->exec_identity_known)
@@ -634,7 +639,7 @@ static __always_inline __u8 current_verified_exec(__u32 pid, struct task_struct 
     return pi->verified_exec ? 1 : 0;
 }
 
-static __always_inline __u8 path_is_trusted_root(const char *path)
+static __always_inline __u8 path_is_trusted_root(const char* path)
 {
     if (!path)
         return 0;
@@ -651,21 +656,20 @@ static __always_inline __u8 path_is_trusted_root(const char *path)
     return 0;
 }
 
-static __always_inline __u8 file_is_verified_exec_identity(const struct file *file)
+static __always_inline __u8 file_is_verified_exec_identity(const struct file* file)
 {
     if (!file)
         return 0;
 
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
     __u8 flags = cfg->exec_identity_flags;
 
-    const struct inode *inode = BPF_CORE_READ(file, f_inode);
+    const struct inode* inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
         return 0;
 
     __u32 magic = BPF_CORE_READ(inode, i_sb, s_magic);
-    if (magic == OVERLAYFS_SUPER_MAGIC &&
-        !(flags & EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS))
+    if (magic == OVERLAYFS_SUPER_MAGIC && !(flags & EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS))
         return 0;
 
     __u32 uid = BPF_CORE_READ(inode, i_uid.val);
@@ -683,7 +687,7 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     }
 
     char path[128] = {};
-    long len = bpf_d_path((struct path *)&file->f_path, path, sizeof(path));
+    long len = bpf_d_path((struct path*)&file->f_path, path, sizeof(path));
     if (len < 0)
         return 0;
 
@@ -695,20 +699,20 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
  * before copying maps, so committed != expected → audit-only until commit. */
 static __always_inline __u8 is_policy_consistent(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
     __u64 expected = cfg->policy_generation;
     if (expected == 0)
-        return 1;  /* generation 0 means feature not yet activated */
+        return 1; /* generation 0 means feature not yet activated */
     __u32 key = 0;
-    __u64 *committed = bpf_map_lookup_elem(&policy_generation, &key);
+    __u64* committed = bpf_map_lookup_elem(&policy_generation, &key);
     if (!committed)
-        return 1;  /* map not populated yet — don't force audit */
+        return 1; /* map not populated yet — don't force audit */
     return *committed == expected;
 }
 
 static __always_inline __u8 get_effective_audit_mode(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
 
     /* Emergency disable always forces audit-only (bypass enforcement). */
     if (cfg->emergency_disable)
@@ -722,11 +726,13 @@ static __always_inline __u8 get_effective_audit_mode(void)
     if (cfg->audit_only)
         return 1;
 
-    /* Deadman switch: if enabled and deadline passed, revert to audit */
+    /* Deadman switch: if enabled and deadline passed, behavior depends on mode.
+     * fail-open (default): revert to audit-only
+     * fail-static: keep enforcement with last known good policy */
     if (cfg->deadman_enabled) {
         __u64 now = bpf_ktime_get_boot_ns();
-        if (now > cfg->deadman_deadline_ns)
-            return 1;  /* Deadline passed - failsafe to audit */
+        if (now > cfg->deadman_deadline_ns && !cfg->deadman_fail_static)
+            return 1; /* Deadline passed and fail-open — revert to audit */
     }
 
     /* Policy generation mismatch: maps are mid-update — force audit to
@@ -734,15 +740,15 @@ static __always_inline __u8 get_effective_audit_mode(void)
     if (!is_policy_consistent())
         return 1;
 
-    return 0;  /* Enforce mode */
+    return 0; /* Enforce mode */
 }
 
 static __always_inline __u8 get_effective_enforce_signal(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
 
-    if (cfg->enforce_signal == 0 || cfg->enforce_signal == SIGINT ||
-        cfg->enforce_signal == SIGKILL || cfg->enforce_signal == SIGTERM)
+    if (cfg->enforce_signal == 0 || cfg->enforce_signal == SIGINT || cfg->enforce_signal == SIGKILL ||
+        cfg->enforce_signal == SIGTERM)
         return cfg->enforce_signal;
 
     return SIGTERM;
@@ -764,7 +770,7 @@ static __always_inline int enforcement_result(void)
 
 static __always_inline __u32 get_sigkill_escalation_threshold(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
     if (cfg->sigkill_escalation_threshold == 0)
         return SIGKILL_ESCALATION_THRESHOLD_DEFAULT;
     return cfg->sigkill_escalation_threshold;
@@ -772,14 +778,14 @@ static __always_inline __u32 get_sigkill_escalation_threshold(void)
 
 static __always_inline __u64 get_sigkill_escalation_window_ns(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
     if (cfg->sigkill_escalation_window_seconds == 0)
         return SIGKILL_ESCALATION_WINDOW_NS_DEFAULT;
     return (__u64)cfg->sigkill_escalation_window_seconds * 1000000000ULL;
 }
 
-static __always_inline __u8 runtime_enforce_signal(
-    __u8 configured_signal, __u32 pid, __u64 start_time, __u32 threshold, __u64 window_ns)
+static __always_inline __u8 runtime_enforce_signal(__u8 configured_signal, __u32 pid, __u64 start_time, __u32 threshold,
+                                                   __u64 window_ns)
 {
     if (configured_signal != SIGKILL)
         return configured_signal;
@@ -794,8 +800,7 @@ static __always_inline __u8 runtime_enforce_signal(
     };
 
     __u64 now = bpf_ktime_get_boot_ns();
-    struct signal_escalation_state *state =
-        bpf_map_lookup_elem(&enforce_signal_state, &key);
+    struct signal_escalation_state* state = bpf_map_lookup_elem(&enforce_signal_state, &key);
     if (!state) {
         struct signal_escalation_state new_state = {
             .window_start_ns = now,
@@ -808,8 +813,7 @@ static __always_inline __u8 runtime_enforce_signal(
         return SIGTERM;
     }
 
-    if (now < state->window_start_ns ||
-        (now - state->window_start_ns) > window_ns) {
+    if (now < state->window_start_ns || (now - state->window_start_ns) > window_ns) {
         state->window_start_ns = now;
         state->strikes = 1;
         if (threshold <= 1)
@@ -849,7 +853,7 @@ static __always_inline void set_action_string(char action[8], __u8 audit, __u8 s
 
 static __always_inline __u32 get_event_sample_rate(void)
 {
-    const volatile struct agent_config *cfg = &agent_cfg;
+    const volatile struct agent_config* cfg = &agent_cfg;
     return cfg->event_sample_rate ? cfg->event_sample_rate : 1;
 }
 
@@ -866,13 +870,13 @@ static __always_inline int is_cgroup_allowed(__u64 cgid)
 }
 
 /* Check cgroup-scoped deny for an inode.  Returns rule flags byte or 0. */
-static __always_inline __u8 cgroup_inode_denied(__u64 cgid, const struct inode_id *id)
+static __always_inline __u8 cgroup_inode_denied(__u64 cgid, const struct inode_id* id)
 {
     struct cgroup_inode_key key = {
         .cgid = cgid,
         .inode = *id,
     };
-    __u8 *v = bpf_map_lookup_elem(&deny_cgroup_inode, &key);
+    __u8* v = bpf_map_lookup_elem(&deny_cgroup_inode, &key);
     return v ? *v : 0;
 }
 
@@ -901,16 +905,16 @@ static __always_inline int cgroup_port_denied(__u64 cgid, __u16 port, __u8 proto
     if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
         return 1;
 
-    key.protocol = 0;  /* any protocol */
+    key.protocol = 0; /* any protocol */
     if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
         return 1;
 
-    key.direction = 2;  /* both directions */
+    key.direction = 2; /* both directions */
     key.protocol = protocol;
     if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
         return 1;
 
-    key.protocol = 0;  /* both + any protocol */
+    key.protocol = 0; /* both + any protocol */
     return bpf_map_lookup_elem(&deny_cgroup_port, &key) != NULL;
 }
 
@@ -921,7 +925,7 @@ static __always_inline int cgroup_port_denied(__u64 cgid, __u16 port, __u8 proto
 static __always_inline void increment_net_connect_stats(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->connect_blocks, 1);
 }
@@ -929,7 +933,7 @@ static __always_inline void increment_net_connect_stats(void)
 static __always_inline void increment_net_bind_stats(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->bind_blocks, 1);
 }
@@ -937,7 +941,7 @@ static __always_inline void increment_net_bind_stats(void)
 static __always_inline void increment_net_listen_stats(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->listen_blocks, 1);
 }
@@ -945,7 +949,7 @@ static __always_inline void increment_net_listen_stats(void)
 static __always_inline void increment_net_accept_stats(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->accept_blocks, 1);
 }
@@ -953,7 +957,7 @@ static __always_inline void increment_net_accept_stats(void)
 static __always_inline void increment_net_sendmsg_stats(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->sendmsg_blocks, 1);
 }
@@ -961,7 +965,7 @@ static __always_inline void increment_net_sendmsg_stats(void)
 static __always_inline void increment_net_ringbuf_drops(void)
 {
     __u32 zero = 0;
-    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    struct net_stats_entry* stats = bpf_map_lookup_elem(&net_block_stats, &zero);
     if (stats)
         __sync_fetch_and_add(&stats->ringbuf_drops, 1);
 }
@@ -976,7 +980,7 @@ static __always_inline void increment_net_ip_stat_v4(__be32 ip)
     __builtin_memcpy(key.addr, &ip, sizeof(ip));
 
     __u64 zero64 = 0;
-    __u64 *ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
+    __u64* ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
     if (!ip_stat) {
         bpf_map_update_elem(&net_ip_stats, &key, &zero64, BPF_NOEXIST);
         ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
@@ -985,7 +989,7 @@ static __always_inline void increment_net_ip_stat_v4(__be32 ip)
         __sync_fetch_and_add(ip_stat, 1);
 }
 
-static __always_inline void increment_net_ip_stat_v6(const struct ipv6_key *ip)
+static __always_inline void increment_net_ip_stat_v6(const struct ipv6_key* ip)
 {
     struct net_ip_key key = {
         .family = AF_INET6,
@@ -995,7 +999,7 @@ static __always_inline void increment_net_ip_stat_v6(const struct ipv6_key *ip)
     __builtin_memcpy(key.addr, ip->addr, sizeof(key.addr));
 
     __u64 zero64 = 0;
-    __u64 *ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
+    __u64* ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
     if (!ip_stat) {
         bpf_map_update_elem(&net_ip_stats, &key, &zero64, BPF_NOEXIST);
         ip_stat = bpf_map_lookup_elem(&net_ip_stats, &key);
@@ -1007,7 +1011,7 @@ static __always_inline void increment_net_ip_stat_v6(const struct ipv6_key *ip)
 static __always_inline void increment_net_port_stat(__u16 port)
 {
     __u64 zero64 = 0;
-    __u64 *port_stat = bpf_map_lookup_elem(&net_port_stats, &port);
+    __u64* port_stat = bpf_map_lookup_elem(&net_port_stats, &port);
     if (!port_stat) {
         bpf_map_update_elem(&net_port_stats, &port, &zero64, BPF_NOEXIST);
         port_stat = bpf_map_lookup_elem(&net_port_stats, &port);
@@ -1016,15 +1020,15 @@ static __always_inline void increment_net_port_stat(__u16 port)
         __sync_fetch_and_add(port_stat, 1);
 }
 
-static __always_inline void fill_net_block_event_process_info(
-    struct net_block_event *ev, __u32 pid, struct task_struct *task)
+static __always_inline void fill_net_block_event_process_info(struct net_block_event* ev, __u32 pid,
+                                                              struct task_struct* task)
 {
     ev->pid = pid;
     ev->ppid = 0;
     ev->start_time = 0;
     ev->parent_start_time = 0;
 
-    struct process_info *pi = get_or_create_process_info(pid, task);
+    struct process_info* pi = get_or_create_process_info(pid, task);
     if (pi) {
         ev->ppid = pi->ppid;
         ev->start_time = pi->start_time;
@@ -1043,7 +1047,7 @@ static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 dir
     if (bpf_map_lookup_elem(&deny_port, &key))
         return 1;
 
-    key.protocol = 0;  /* any protocol */
+    key.protocol = 0; /* any protocol */
     if (bpf_map_lookup_elem(&deny_port, &key))
         return 1;
 
@@ -1052,7 +1056,7 @@ static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 dir
     if (bpf_map_lookup_elem(&deny_port, &key))
         return 1;
 
-    key.protocol = 0;  /* both + any protocol */
+    key.protocol = 0; /* both + any protocol */
     return bpf_map_lookup_elem(&deny_port, &key) != NULL;
 }
 
@@ -1071,7 +1075,7 @@ static __always_inline int ip_port_rule_matches_v4(__be32 addr, __u16 port, __u8
     return bpf_map_lookup_elem(&deny_ip_port_v4, &key) != NULL;
 }
 
-static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key *addr, __u16 port, __u8 protocol)
+static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key* addr, __u16 port, __u8 protocol)
 {
     struct ip_port_key_v6 key = {
         .port = port,
@@ -1091,15 +1095,15 @@ static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key *addr, 
  * ============================================================================ */
 
 SEC("tracepoint/syscalls/sys_enter_execve")
-int handle_execve(struct trace_event_raw_sys_enter *ctx)
+int handle_execve(struct trace_event_raw_sys_enter* ctx)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
 
     /* Collect process info from task or existing entry */
     struct process_info info = {};
-    struct process_info *existing = bpf_map_lookup_elem(&process_tree, &pid);
+    struct process_info* existing = bpf_map_lookup_elem(&process_tree, &pid);
     if (existing) {
         info = *existing;
     }
@@ -1119,8 +1123,8 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
 
     /* Track interpreter "-c"/"-e" execs as untrusted code execution. */
     info.pending_untrusted_args = 0;
-    const char *filename_ptr = (const char *)ctx->args[0];
-    const char *const *argv = (const char *const *)ctx->args[1];
+    const char* filename_ptr = (const char*)ctx->args[0];
+    const char* const* argv = (const char* const*)ctx->args[1];
     if (filename_ptr && argv) {
         char filename[64] = {};
         long fn_len = bpf_probe_read_user_str(filename, sizeof(filename), filename_ptr);
@@ -1133,7 +1137,7 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
                 if (filename[i] == '/')
                     base_off = i + 1;
             }
-            char *base = &filename[base_off];
+            char* base = &filename[base_off];
             int rem = (int)sizeof(filename) - base_off;
             __u8 is_bash = (rem >= 5) && (__builtin_memcmp(base, "bash", 4) == 0) && (base[4] == '\0');
             __u8 is_dash = (rem >= 5) && (__builtin_memcmp(base, "dash", 4) == 0) && (base[4] == '\0');
@@ -1144,17 +1148,15 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
             __u8 is_perl = (rem >= 5) && (__builtin_memcmp(base, "perl", 4) == 0) && (base[4] == '\0');
             __u8 is_ruby = (rem >= 5) && (__builtin_memcmp(base, "ruby", 4) == 0) && (base[4] == '\0');
 
-            const char *arg1_ptr = NULL;
+            const char* arg1_ptr = NULL;
             bpf_probe_read_user(&arg1_ptr, sizeof(arg1_ptr), &argv[1]);
             if (arg1_ptr) {
                 char arg1[4] = {};
                 long a1_len = bpf_probe_read_user_str(arg1, sizeof(arg1), arg1_ptr);
                 if (a1_len > 0) {
-                    if ((is_shell || is_python) &&
-                        arg1[0] == '-' && arg1[1] == 'c' && arg1[2] == '\0') {
+                    if ((is_shell || is_python) && arg1[0] == '-' && arg1[1] == 'c' && arg1[2] == '\0') {
                         info.pending_untrusted_args = 1;
-                    } else if ((is_node || is_perl || is_ruby) &&
-                               arg1[0] == '-' && arg1[1] == 'e' && arg1[2] == '\0') {
+                    } else if ((is_node || is_perl || is_ruby) && arg1[0] == '-' && arg1[1] == 'e' && arg1[2] == '\0') {
                         info.pending_untrusted_args = 1;
                     }
                 }
@@ -1165,7 +1167,7 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     bpf_map_update_elem(&process_tree, &pid, &info, BPF_ANY);
 
     /* Send exec event */
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e)
         return 0;
 
@@ -1182,14 +1184,14 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
 static __always_inline __u8 exec_identity_mode_enabled(void)
 {
     __u32 key = 0;
-    __u8 *v = bpf_map_lookup_elem(&exec_identity_mode_map, &key);
+    __u8* v = bpf_map_lookup_elem(&exec_identity_mode_map, &key);
     if (!v)
         return 0;
     return *v ? 1 : 0;
 }
 
 SEC("lsm/bprm_check_security")
-int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
+int BPF_PROG(handle_bprm_check_security, struct linux_binprm* bprm)
 {
     if (!bprm)
         return 0;
@@ -1199,15 +1201,15 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    struct task_struct *task = bpf_get_current_task_btf();
-    struct process_info *pi = get_or_create_process_info(pid, task);
+    struct task_struct* task = bpf_get_current_task_btf();
+    struct process_info* pi = get_or_create_process_info(pid, task);
 
     /* Direct field reads from the trusted bprm pointer preserve pointer typing
      * for verifier-sensitive helpers (e.g., bpf_d_path()).
      */
-    struct file *file = bprm->file;
-    struct file *executable = bprm->executable;
-    struct file *interpreter = bprm->interpreter;
+    struct file* file = bprm->file;
+    struct file* executable = bprm->executable;
+    struct file* interpreter = bprm->interpreter;
 
     __u8 verified = 0;
     if (interpreter) {
@@ -1220,12 +1222,11 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
          * We carry the script VERIFIED_EXEC result to the next exec and require
          * both that script_ok and the final interpreter binary are VERIFIED_EXEC.
          */
-        const char *interp = bprm->interp;
+        const char* interp = bprm->interp;
         if (interp) {
             char interp_path[32] = {};
             long n = bpf_probe_read_kernel_str(interp_path, sizeof(interp_path), interp);
-            if (n > 0 && __builtin_memcmp(interp_path, "/usr/bin/env", 12) == 0 &&
-                interp_path[12] == '\0') {
+            if (n > 0 && __builtin_memcmp(interp_path, "/usr/bin/env", 12) == 0 && interp_path[12] == '\0') {
                 verified = 0;
                 if (pi) {
                     pi->env_shebang_active = 1;
@@ -1263,7 +1264,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     if (!file)
         return 0;
 
-    const struct inode *inode = BPF_CORE_READ(file, f_inode);
+    const struct inode* inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
         return 0;
 
@@ -1294,7 +1295,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_BLOCK;
             fill_block_event_process_info(&e->block, pid, task);
@@ -1332,7 +1333,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
         fill_block_event_process_info(&e->block, pid, task);
@@ -1351,7 +1352,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
 }
 
 SEC("lsm/file_mmap")
-int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigned long prot, unsigned long flags)
+int BPF_PROG(handle_file_mmap, struct file* file, unsigned long reqprot, unsigned long prot, unsigned long flags)
 {
     (void)reqprot;
     (void)flags;
@@ -1370,8 +1371,8 @@ int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigne
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
-    struct process_info *pi = get_or_create_process_info(pid, task);
+    struct task_struct* task = bpf_get_current_task_btf();
+    struct process_info* pi = get_or_create_process_info(pid, task);
     if (!pi || !pi->exec_identity_known || !pi->verified_exec)
         return 0;
 
@@ -1388,7 +1389,7 @@ int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigne
 }
 
 SEC("lsm/file_open")
-int BPF_PROG(handle_file_open, struct file *file)
+int BPF_PROG(handle_file_open, struct file* file)
 {
     if (!file)
         return 0;
@@ -1397,7 +1398,7 @@ int BPF_PROG(handle_file_open, struct file *file)
         return 0;
 
     /* Get inode info early for survival check */
-    const struct inode *inode = BPF_CORE_READ(file, f_inode);
+    const struct inode* inode = BPF_CORE_READ(file, f_inode);
     if (!inode)
         return 0;
 
@@ -1411,14 +1412,13 @@ int BPF_PROG(handle_file_open, struct file *file)
     __u8 cg_rule = cgroup_inode_denied(cgid, &key);
 
     /* Then check global deny list */
-    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    __u8* rule = bpf_map_lookup_elem(&deny_inode_map, &key);
 
     if (!rule && !cg_rule)
         return 0;
 
     const __u8 rule_flags = cg_rule ? cg_rule : (rule ? *rule : 0);
-    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) &&
-                              !(rule_flags & RULE_FLAG_DENY_ALWAYS);
+    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) && !(rule_flags & RULE_FLAG_DENY_ALWAYS);
 
     /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
@@ -1429,7 +1429,7 @@ int BPF_PROG(handle_file_open, struct file *file)
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     if (protect_only) {
         if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_PROTECT_FILES))
             return 0;
@@ -1450,7 +1450,7 @@ int BPF_PROG(handle_file_open, struct file *file)
         /* Send block event */
         if (!should_emit_event(sample_rate))
             return 0;
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_BLOCK;
             fill_block_event_process_info(&e->block, pid, task);
@@ -1492,7 +1492,7 @@ int BPF_PROG(handle_file_open, struct file *file)
     /* Send block event */
     if (!should_emit_event(sample_rate))
         return -EPERM;
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
         fill_block_event_process_info(&e->block, pid, task);
@@ -1510,7 +1510,7 @@ int BPF_PROG(handle_file_open, struct file *file)
     return -EPERM;
 }
 
-static __always_inline int handle_inode_permission_impl(struct inode *inode, int mask)
+static __always_inline int handle_inode_permission_impl(struct inode* inode, int mask)
 {
     if (!inode)
         return 0;
@@ -1529,14 +1529,13 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     __u8 cg_rule = cgroup_inode_denied(cgid, &key);
 
     /* Then check global deny list */
-    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    __u8* rule = bpf_map_lookup_elem(&deny_inode_map, &key);
 
     if (!rule && !cg_rule)
         return 0;
 
     const __u8 rule_flags = cg_rule ? cg_rule : (rule ? *rule : 0);
-    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) &&
-                              !(rule_flags & RULE_FLAG_DENY_ALWAYS);
+    const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) && !(rule_flags & RULE_FLAG_DENY_ALWAYS);
 
     /* Survival allowlist - always allow critical binaries */
     if (bpf_map_lookup_elem(&survival_allowlist, &key))
@@ -1547,7 +1546,7 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     if (protect_only) {
         if (!(agent_cfg.exec_identity_flags & EXEC_IDENTITY_FLAG_PROTECT_FILES))
             return 0;
@@ -1568,7 +1567,7 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         /* Send block event */
         if (!should_emit_event(sample_rate))
             return 0;
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_BLOCK;
             fill_block_event_process_info(&e->block, pid, task);
@@ -1610,7 +1609,7 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     /* Send block event */
     if (!should_emit_event(sample_rate))
         return -EPERM;
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
         fill_block_event_process_info(&e->block, pid, task);
@@ -1629,15 +1628,15 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
 }
 
 SEC("lsm/inode_permission")
-int BPF_PROG(handle_inode_permission, struct inode *inode, int mask)
+int BPF_PROG(handle_inode_permission, struct inode* inode, int mask)
 {
     return handle_inode_permission_impl(inode, mask);
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat")
-int handle_openat(struct trace_event_raw_sys_enter *ctx)
+int handle_openat(struct trace_event_raw_sys_enter* ctx)
 {
-    const char *filename = (const char *)ctx->args[1];
+    const char* filename = (const char*)ctx->args[1];
     if (!filename)
         return 0;
 
@@ -1656,7 +1655,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     __u64 cgid = bpf_get_current_cgroup_id();
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u32 sample_rate = get_event_sample_rate();
 
     /* Skip allowed cgroups */
@@ -1671,7 +1670,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     /* Send block event (audit only - tracepoints can't block) */
     if (!should_emit_event(sample_rate))
         return 0;
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_BLOCK;
         fill_block_event_process_info(&e->block, pid, task);
@@ -1690,11 +1689,11 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("tracepoint/sched/sched_process_fork")
-int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
+int handle_fork(struct trace_event_raw_sched_process_fork* ctx)
 {
     __u32 child_pid = ctx->child_pid;
     __u32 parent_pid = ctx->parent_pid;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
 
     struct process_info info = {};
     info.pid = child_pid;
@@ -1703,7 +1702,7 @@ int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
     info.parent_start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     /* Inherit exec identity status from parent; fork preserves the image. */
-    struct process_info *parent = bpf_map_lookup_elem(&process_tree, &parent_pid);
+    struct process_info* parent = bpf_map_lookup_elem(&process_tree, &parent_pid);
     if (parent) {
         info.verified_exec = parent->verified_exec;
         info.exec_identity_known = parent->exec_identity_known;
@@ -1716,12 +1715,12 @@ int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 }
 
 SEC("tracepoint/sched/sched_process_exit")
-int handle_exit(struct trace_event_raw_sched_process_template *ctx)
+int handle_exit(struct trace_event_raw_sched_process_template* ctx)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
 
     /* Get start_time before deleting process_tree entry */
-    struct process_info *pi = bpf_map_lookup_elem(&process_tree, &pid);
+    struct process_info* pi = bpf_map_lookup_elem(&process_tree, &pid);
     if (pi) {
         struct process_key key = {
             .pid = pid,
@@ -1739,8 +1738,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
  * ============================================================================ */
 
 SEC("lsm/socket_connect")
-int BPF_PROG(handle_socket_connect, struct socket *sock,
-             struct sockaddr *address, int addrlen)
+int BPF_PROG(handle_socket_connect, struct socket* sock, struct sockaddr* address, int addrlen)
 {
     if (!sock || !address)
         return 0;
@@ -1771,13 +1769,13 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (family == AF_INET) {
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address))
-            return 0;  /* fail-open on parse error */
+            return 0; /* fail-open on parse error */
         remote_ip_v4 = sin.sin_addr.s_addr;
         remote_port = bpf_ntohs(sin.sin_port);
     } else {
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address))
-            return 0;  /* fail-open on parse error */
+            return 0; /* fail-open on parse error */
         remote_port = bpf_ntohs(sin6.sin6_port);
         __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
     }
@@ -1790,8 +1788,8 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     if ((exec_flags & EXEC_IDENTITY_FLAG_PROTECT_CONNECT)) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        struct task_struct *task = bpf_get_current_task_btf();
-        struct process_info *pi = get_or_create_process_info(pid, task);
+        struct task_struct* task = bpf_get_current_task_btf();
+        struct process_info* pi = get_or_create_process_info(pid, task);
         __u8 verified = (pi && pi->exec_identity_known && pi->verified_exec) ? 1 : 0;
         if (!verified) {
             matched = 1;
@@ -1887,7 +1885,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (audit) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
+        struct task_struct* task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         /* Update global network block stats */
@@ -1898,7 +1896,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_NET_CONNECT_BLOCK;
             fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -1908,7 +1906,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
             e->net_block.protocol = protocol;
             e->net_block.local_port = 0;
             e->net_block.remote_port = remote_port;
-            e->net_block.direction = 0;  /* egress */
+            e->net_block.direction = 0; /* egress */
             e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
             if (family == AF_INET6)
                 __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
@@ -1925,7 +1923,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -1950,7 +1948,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_NET_CONNECT_BLOCK;
         fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -1960,7 +1958,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         e->net_block.protocol = protocol;
         e->net_block.local_port = 0;
         e->net_block.remote_port = remote_port;
-        e->net_block.direction = 0;  /* egress */
+        e->net_block.direction = 0; /* egress */
         e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
         if (family == AF_INET6)
             __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
@@ -1977,8 +1975,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 }
 
 SEC("lsm/socket_bind")
-int BPF_PROG(handle_socket_bind, struct socket *sock,
-             struct sockaddr *address, int addrlen)
+int BPF_PROG(handle_socket_bind, struct socket* sock, struct sockaddr* address, int addrlen)
 {
     if (!sock || !address)
         return 0;
@@ -2007,12 +2004,12 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (family == AF_INET) {
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address))
-            return 0;  /* fail-open on parse error */
+            return 0; /* fail-open on parse error */
         bind_port = bpf_ntohs(sin.sin_port);
     } else {
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address))
-            return 0;  /* fail-open on parse error */
+            return 0; /* fail-open on parse error */
         bind_port = bpf_ntohs(sin6.sin6_port);
     }
 
@@ -2029,7 +2026,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (audit) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
+        struct task_struct* task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         /* Update statistics */
@@ -2041,7 +2038,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_NET_BIND_BLOCK;
             fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2051,7 +2048,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
             e->net_block.protocol = protocol;
             e->net_block.local_port = bind_port;
             e->net_block.remote_port = 0;
-            e->net_block.direction = 1;  /* bind */
+            e->net_block.direction = 1; /* bind */
             e->net_block.remote_ipv4 = 0;
             __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
             set_action_string(e->net_block.action, 1, enforce_signal);
@@ -2065,7 +2062,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -2091,7 +2088,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_NET_BIND_BLOCK;
         fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2101,7 +2098,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         e->net_block.protocol = protocol;
         e->net_block.local_port = bind_port;
         e->net_block.remote_port = 0;
-        e->net_block.direction = 1;  /* bind */
+        e->net_block.direction = 1; /* bind */
         e->net_block.remote_ipv4 = 0;
         __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
         set_action_string(e->net_block.action, 0, enforce_signal);
@@ -2115,7 +2112,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
 }
 
 SEC("lsm/socket_listen")
-int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
+int BPF_PROG(handle_socket_listen, struct socket* sock, int backlog)
 {
     if (!sock)
         return 0;
@@ -2130,7 +2127,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
     if (is_cgroup_allowed(cgid))
         return 0;
 
-    struct sock *sk = BPF_CORE_READ(sock, sk);
+    struct sock* sk = BPF_CORE_READ(sock, sk);
     if (!sk)
         return 0;
 
@@ -2152,7 +2149,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
     if (audit) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
+        struct task_struct* task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         increment_net_listen_stats();
@@ -2162,7 +2159,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_NET_LISTEN_BLOCK;
             fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2172,7 +2169,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
             e->net_block.protocol = protocol;
             e->net_block.local_port = listen_port;
             e->net_block.remote_port = 0;
-            e->net_block.direction = 2;  /* listen */
+            e->net_block.direction = 2; /* listen */
             e->net_block.remote_ipv4 = 0;
             __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
             set_action_string(e->net_block.action, 1, enforce_signal);
@@ -2186,7 +2183,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -2209,7 +2206,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_NET_LISTEN_BLOCK;
         fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2219,7 +2216,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
         e->net_block.protocol = protocol;
         e->net_block.local_port = listen_port;
         e->net_block.remote_port = 0;
-        e->net_block.direction = 2;  /* listen */
+        e->net_block.direction = 2; /* listen */
         e->net_block.remote_ipv4 = 0;
         __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
         set_action_string(e->net_block.action, 0, enforce_signal);
@@ -2233,7 +2230,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
 }
 
 SEC("lsm/socket_accept")
-int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
+int BPF_PROG(handle_socket_accept, struct socket* sock, struct socket* newsock)
 {
     if (!sock)
         return 0;
@@ -2247,7 +2244,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     if (is_cgroup_allowed(cgid))
         return 0;
 
-    struct sock *accepted_sk = NULL;
+    struct sock* accepted_sk = NULL;
     if (newsock)
         accepted_sk = BPF_CORE_READ(newsock, sk);
     if (!accepted_sk)
@@ -2349,7 +2346,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     if (audit) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
+        struct task_struct* task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         increment_net_accept_stats();
@@ -2358,7 +2355,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_NET_ACCEPT_BLOCK;
             fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2368,7 +2365,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
             e->net_block.protocol = protocol;
             e->net_block.local_port = accept_port;
             e->net_block.remote_port = remote_port;
-            e->net_block.direction = 3;  /* accept */
+            e->net_block.direction = 3; /* accept */
             e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
             if (family == AF_INET6)
                 __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
@@ -2385,7 +2382,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -2407,7 +2404,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_NET_ACCEPT_BLOCK;
         fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2417,7 +2414,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
         e->net_block.protocol = protocol;
         e->net_block.local_port = accept_port;
         e->net_block.remote_port = remote_port;
-        e->net_block.direction = 3;  /* accept */
+        e->net_block.direction = 3; /* accept */
         e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
         if (family == AF_INET6)
             __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
@@ -2434,7 +2431,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
 }
 
 SEC("lsm/socket_sendmsg")
-int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int size)
+int BPF_PROG(handle_socket_sendmsg, struct socket* sock, struct msghdr* msg, int size)
 {
     if (!sock || !msg)
         return 0;
@@ -2447,7 +2444,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     if (is_cgroup_allowed(cgid))
         return 0;
 
-    struct sock *sk = BPF_CORE_READ(sock, sk);
+    struct sock* sk = BPF_CORE_READ(sock, sk);
     if (!sk)
         return 0;
 
@@ -2458,7 +2455,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     struct ipv6_key remote_ip_v6 = {};
     __u16 remote_port = 0;
 
-    void *msg_name = BPF_CORE_READ(msg, msg_name);
+    void* msg_name = BPF_CORE_READ(msg, msg_name);
     int msg_namelen = BPF_CORE_READ(msg, msg_namelen);
 
     if (msg_name) {
@@ -2472,7 +2469,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             if (msg_namelen < (__s32)sizeof(sin))
                 return 0;
             if (bpf_probe_read_kernel(&sin, sizeof(sin), msg_name))
-                return 0;  /* fail-open on parse error */
+                return 0; /* fail-open on parse error */
             remote_ip_v4 = sin.sin_addr.s_addr;
             remote_port = bpf_ntohs(sin.sin_port);
         } else if (family == AF_INET6) {
@@ -2480,7 +2477,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             if (msg_namelen < (__s32)sizeof(sin6))
                 return 0;
             if (bpf_probe_read_kernel(&sin6, sizeof(sin6), msg_name))
-                return 0;  /* fail-open on parse error */
+                return 0; /* fail-open on parse error */
             remote_port = bpf_ntohs(sin6.sin6_port);
             __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
         } else {
@@ -2574,7 +2571,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     if (audit) {
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
+        struct task_struct* task = bpf_get_current_task_btf();
         __u32 sample_rate = get_event_sample_rate();
 
         increment_net_sendmsg_stats();
@@ -2583,7 +2580,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
         if (!should_emit_event(sample_rate))
             return 0;
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_NET_SENDMSG_BLOCK;
             fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2593,7 +2590,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             e->net_block.protocol = protocol;
             e->net_block.local_port = local_port;
             e->net_block.remote_port = remote_port;
-            e->net_block.direction = 4;  /* send */
+            e->net_block.direction = 4; /* send */
             e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
             if (family == AF_INET6)
                 __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
@@ -2610,7 +2607,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     }
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    struct task_struct *task = bpf_get_current_task_btf();
+    struct task_struct* task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
 
     __u8 enforce_signal = 0;
@@ -2632,7 +2629,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     if (!should_emit_event(sample_rate))
         return -EPERM;
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct event* e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (e) {
         e->type = EVENT_NET_SENDMSG_BLOCK;
         fill_net_block_event_process_info(&e->net_block, pid, task);
@@ -2642,7 +2639,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
         e->net_block.protocol = protocol;
         e->net_block.local_port = local_port;
         e->net_block.remote_port = remote_port;
-        e->net_block.direction = 4;  /* send */
+        e->net_block.direction = 4; /* send */
         e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
         if (family == AF_INET6)
             __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));

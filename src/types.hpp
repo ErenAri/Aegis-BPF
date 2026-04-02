@@ -293,6 +293,8 @@ struct AgentConfig {
     uint32_t sigkill_escalation_threshold;      /* SIGKILL after N denies in window */
     uint32_t sigkill_escalation_window_seconds; /* Escalation window size */
     uint64_t policy_generation;                 /* monotonic generation after atomic policy commit */
+    uint8_t deadman_fail_static;                /* 1 = keep enforcement on deadman expiry (fail-static) */
+    uint8_t _reserved[7];                       /* alignment padding */
 };
 
 struct AgentMeta {
@@ -355,7 +357,7 @@ static_assert(sizeof(BlockEvent) == 336, "BlockEvent size changed — update BPF
 static_assert(sizeof(NetBlockEvent) == 104, "NetBlockEvent size changed — update BPF struct");
 static_assert(sizeof(InodeId) == 16, "InodeId size changed — update BPF struct");
 static_assert(sizeof(PathKey) == 256, "PathKey size changed — update BPF struct");
-static_assert(sizeof(AgentConfig) == 40, "AgentConfig size changed — update BPF struct");
+static_assert(sizeof(AgentConfig) == 48, "AgentConfig size changed — update BPF struct");
 static_assert(sizeof(AgentMeta) == 4, "AgentMeta size changed — update BPF struct");
 static_assert(sizeof(BlockStats) == 16, "BlockStats size changed — update BPF struct");
 static_assert(sizeof(PortKey) == 4, "PortKey size changed — update BPF struct");
