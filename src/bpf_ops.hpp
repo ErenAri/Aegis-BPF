@@ -70,6 +70,16 @@ class BpfState {
             config_map_reused = other.config_map_reused;
             survival_allowlist_reused = other.survival_allowlist_reused;
 
+            // Diagnostics and process cache
+            diagnostics = other.diagnostics;
+            dead_processes = other.dead_processes;
+
+            // Quality improvement maps
+            hook_latency = other.hook_latency;
+            event_approver_inode = other.event_approver_inode;
+            event_approver_path = other.event_approver_path;
+            priority_events = other.priority_events;
+
             // Network maps
             deny_ipv4 = other.deny_ipv4;
             deny_ipv6 = other.deny_ipv6;
@@ -81,6 +91,7 @@ class BpfState {
             net_block_stats = other.net_block_stats;
             net_ip_stats = other.net_ip_stats;
             net_port_stats = other.net_port_stats;
+            backpressure = other.backpressure;
             deny_ipv4_reused = other.deny_ipv4_reused;
             deny_ipv6_reused = other.deny_ipv6_reused;
             deny_port_reused = other.deny_port_reused;
@@ -101,6 +112,9 @@ class BpfState {
             socket_listen_hook_attached = other.socket_listen_hook_attached;
             socket_accept_hook_attached = other.socket_accept_hook_attached;
             socket_sendmsg_hook_attached = other.socket_sendmsg_hook_attached;
+            ptrace_hook_attached = other.ptrace_hook_attached;
+            module_load_hook_attached = other.module_load_hook_attached;
+            bpf_hook_attached = other.bpf_hook_attached;
 
             // Reset other to prevent double-free
             other.obj = nullptr;
@@ -121,6 +135,12 @@ class BpfState {
             other.deny_cgroup_inode = nullptr;
             other.deny_cgroup_ipv4 = nullptr;
             other.deny_cgroup_port = nullptr;
+            other.diagnostics = nullptr;
+            other.dead_processes = nullptr;
+            other.hook_latency = nullptr;
+            other.event_approver_inode = nullptr;
+            other.event_approver_path = nullptr;
+            other.priority_events = nullptr;
             other.deny_ipv4 = nullptr;
             other.deny_ipv6 = nullptr;
             other.deny_port = nullptr;
@@ -131,6 +151,7 @@ class BpfState {
             other.net_block_stats = nullptr;
             other.net_ip_stats = nullptr;
             other.net_port_stats = nullptr;
+            other.backpressure = nullptr;
 
             // Reset reuse flags
             other.inode_reused = false;
@@ -166,6 +187,9 @@ class BpfState {
             other.socket_listen_hook_attached = false;
             other.socket_accept_hook_attached = false;
             other.socket_sendmsg_hook_attached = false;
+            other.ptrace_hook_attached = false;
+            other.module_load_hook_attached = false;
+            other.bpf_hook_attached = false;
             other.links.clear();
         }
         return *this;
@@ -219,6 +243,16 @@ class BpfState {
     bpf_map* deny_cgroup_ipv4 = nullptr;
     bpf_map* deny_cgroup_port = nullptr;
 
+    // Diagnostics and process cache maps
+    bpf_map* diagnostics = nullptr;
+    bpf_map* dead_processes = nullptr;
+
+    // Quality improvement maps (latency, filtering, priority pipeline)
+    bpf_map* hook_latency = nullptr;
+    bpf_map* event_approver_inode = nullptr;
+    bpf_map* event_approver_path = nullptr;
+    bpf_map* priority_events = nullptr;
+
     // Network maps
     bpf_map* deny_ipv4 = nullptr;
     bpf_map* deny_ipv6 = nullptr;
@@ -230,6 +264,7 @@ class BpfState {
     bpf_map* net_block_stats = nullptr;
     bpf_map* net_ip_stats = nullptr;
     bpf_map* net_port_stats = nullptr;
+    bpf_map* backpressure = nullptr;
 
     // Network reuse flags
     bool deny_ipv4_reused = false;
@@ -254,6 +289,9 @@ class BpfState {
     bool socket_listen_hook_attached = false;
     bool socket_accept_hook_attached = false;
     bool socket_sendmsg_hook_attached = false;
+    bool ptrace_hook_attached = false;
+    bool module_load_hook_attached = false;
+    bool bpf_hook_attached = false;
 };
 
 // BPF loading and lifecycle
@@ -275,6 +313,12 @@ Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_ma
 Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map* map);
 Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map);
 Result<void> reset_block_stats_map(bpf_map* map);
+
+// Backpressure telemetry (aggregates per-CPU PERCPU_ARRAY counters)
+Result<BackpressureStats> read_backpressure_stats(BpfState& state);
+
+// Hook latency telemetry (reads PERCPU_ARRAY and aggregates per hook)
+Result<std::vector<std::pair<uint32_t, HookLatencyEntry>>> read_hook_latency_entries(BpfState& state);
 
 // Survival allowlist operations
 Result<void> populate_survival_allowlist(BpfState& state);

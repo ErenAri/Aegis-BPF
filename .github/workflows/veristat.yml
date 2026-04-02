@@ -1,0 +1,77 @@
+name: Veristat Complexity
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'bpf/**'
+      - 'config/veristat_baseline.json'
+  pull_request:
+    paths:
+      - 'bpf/**'
+      - 'config/veristat_baseline.json'
+  workflow_dispatch:
+
+jobs:
+  veristat:
+    name: veristat
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build \
+            linux-tools-common 2>/dev/null || true
+          # Try multiple strategies to get a working bpftool
+          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          # If /usr/sbin/bpftool is still the broken shim, replace it
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+
+      - name: Check BPF tooling availability
+        id: bpf_check
+        run: |
+          if [[ -f /sys/kernel/btf/vmlinux ]] && bpftool version >/dev/null 2>&1; then
+            echo "bpf_ready=true" >> "$GITHUB_OUTPUT"
+            echo "BTF available and bpftool works: $(bpftool version 2>&1 | head -1)"
+          else
+            echo "bpf_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping — BTF or working bpftool not available on this runner"
+          fi
+
+      - name: Configure (BPF build enabled)
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
+      - name: Build BPF object
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: cmake --build build --target bpf_skel
+
+      - name: Run veristat complexity check
+        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        run: bash scripts/veristat_check.sh build/aegis.bpf.o
+
+      - name: Update baseline (main branch only)
+        if: steps.bpf_check.outputs.bpf_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          bash scripts/veristat_check.sh build/aegis.bpf.o --update-baseline
+          if git diff --quiet config/veristat_baseline.json; then
+            echo "Baseline unchanged"
+          else
+            echo "Baseline updated; uploading as artifact"
+          fi
+
+      - name: Upload veristat baseline
+        if: steps.bpf_check.outputs.bpf_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: veristat-baseline
+          path: config/veristat_baseline.json

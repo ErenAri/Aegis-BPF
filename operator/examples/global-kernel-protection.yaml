@@ -1,0 +1,23 @@
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisClusterPolicy
+metadata:
+  name: global-kernel-protection
+spec:
+  mode: enforce
+  kernelRules:
+    # Prevent loading of unauthorized kernel modules (rootkit defense)
+    blockModuleLoad: true
+    # Prevent ptrace-based process injection and memory dumping
+    blockPtrace: true
+    # Prevent unauthorized BPF program loading (eBPF weaponization defense)
+    blockBpfSyscall: true
+  fileRules:
+    deny:
+      # Block access to kernel image
+      - path: /boot/vmlinuz
+      - path: /boot/initrd.img
+    protect:
+      # Monitor critical system files for tampering
+      - path: /etc/ld.so.preload
+      - path: /etc/ld.so.conf
+      - path: /lib/modules

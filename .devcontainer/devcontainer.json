@@ -1,0 +1,78 @@
+{
+  "name": "AegisBPF Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools-extension-pack",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "twxs.cmake",
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "eamodio.gitlens",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": true,
+        "cmake.buildDirectory": "${workspaceFolder}/build",
+        "cmake.generator": "Ninja",
+        "cmake.configureArgs": [
+          "-DSKIP_BPF_BUILD=ON",
+          "-DCMAKE_BUILD_TYPE=Debug",
+          "-DBUILD_TESTING=ON"
+        ],
+        "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true
+      }
+    },
+    "codespaces": {
+      "openFiles": [
+        "README.md",
+        "docs/DEVELOPER_GUIDE.md"
+      ]
+    }
+  },
+  "postCreateCommand": "cmake -S . -B build -G Ninja -DSKIP_BPF_BUILD=ON -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON && cmake --build build",
+  "postStartCommand": "echo '✅ AegisBPF dev environment ready. Run: cmake --build build && ctest --test-dir build'",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "AEGISBPF_DEV": "1"
+  },
+  "mounts": [
+    "source=/sys/kernel/btf,target=/sys/kernel/btf,type=bind,readonly"
+  ],
+  "runArgs": [
+    "--cap-add=SYS_ADMIN",
+    "--cap-add=BPF",
+    "--privileged"
+  ],
+  "forwardPorts": [
+    9100
+  ],
+  "portsAttributes": {
+    "9100": {
+      "label": "AegisBPF Prometheus Metrics",
+      "onAutoForward": "silent"
+    }
+  }
+}

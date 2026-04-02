@@ -1,0 +1,255 @@
+# AegisBPF Prometheus Alerting Rules
+#
+# Deploy as a PrometheusRule CRD in Kubernetes or include directly in
+# Prometheus alerting configuration.
+#
+# Usage (Kubernetes):
+#   kubectl apply -f prometheus-alerts.yml
+#
+# Usage (standalone Prometheus):
+#   Add to rule_files: in prometheus.yml
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aegisbpf-alerts
+  namespace: monitoring
+  labels:
+    app: aegisbpf
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    # ── Security Event Alerts ──────────────────────────────────────────
+    - name: aegisbpf.security
+      rules:
+        - alert: AegisBPFHighBlockRate
+          expr: rate(aegisbpf_blocks_total[5m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "AegisBPF block rate exceeds 10/sec for 5 minutes"
+            description: >-
+              Node {{ $labels.instance }} is blocking more than 10 file
+              operations per second. This may indicate an active attack
+              or an over-restrictive policy.
+            runbook_url: "https://github.com/ErenAri/Aegis-BPF/blob/main/docs/RUNBOOKS.md#high-block-rate"
+
+        - alert: AegisBPFBlockRateSpike
+          expr: rate(aegisbpf_blocks_total[5m]) > 3 * avg_over_time(rate(aegisbpf_blocks_total[5m])[1h:5m])
+          for: 2m
+          labels:
+            severity: critical
+            team: security
+          annotations:
+            summary: "AegisBPF block rate 3× above hourly average"
+            description: >-
+              Node {{ $labels.instance }} block rate is {{ $value | humanize }}
+              blocks/s, which is 3× the 1-hour average. Investigate for potential
+              attack or misconfigured policy.
+
+        - alert: AegisBPFNetworkBlocksHigh
+          expr: sum(rate(aegisbpf_net_blocks_total[5m])) > 5
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "AegisBPF network blocks exceed 5/sec"
+            description: >-
+              Network blocks on {{ $labels.instance }} are elevated.
+              Check for lateral movement attempts or DNS tunneling.
+
+        - alert: AegisBPFEmergencyToggleStorm
+          expr: aegisbpf_emergency_toggle_storm_active == 1
+          for: 0m
+          labels:
+            severity: critical
+            team: security
+          annotations:
+            summary: "AegisBPF emergency toggle storm detected"
+            description: >-
+              Node {{ $labels.instance }} has rapid emergency toggle state
+              changes, which may indicate an attacker attempting to disable
+              protection repeatedly.
+
+    # ── Reliability & Health Alerts ────────────────────────────────────
+    - name: aegisbpf.reliability
+      rules:
+        - alert: AegisBPFRingBufDrops
+          expr: rate(aegisbpf_ringbuf_drops_total[5m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "AegisBPF ring buffer is dropping events"
+            description: >-
+              Ring buffer drops detected on {{ $labels.instance }}.
+              Security events may be lost. Consider increasing
+              --ringbuf-bytes or reducing event volume.
+
+        - alert: AegisBPFPriorityBufferDrops
+          expr: rate(aegisbpf_backpressure_priority_drops_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "AegisBPF priority buffer is dropping enforcement events"
+            description: >-
+              Priority (enforcement) events are being dropped on
+              {{ $labels.instance }}. This means security block events
+              are being lost — this is a reliability incident.
+
+        - alert: AegisBPFTelemetryDrops
+          expr: rate(aegisbpf_backpressure_telemetry_drops_total[5m]) > 1
+          for: 5m
+          labels:
+            severity: info
+            team: platform
+          annotations:
+            summary: "AegisBPF telemetry buffer dropping exec events"
+            description: >-
+              Telemetry events (exec tracing) are being shed on
+              {{ $labels.instance }}. This is expected under extreme
+              load and does not affect enforcement.
+
+        - alert: AegisBPFDegraded
+          expr: aegisbpf_runtime_state{state="DEGRADED"} == 1
+          for: 0m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "AegisBPF entered DEGRADED state"
+            description: >-
+              Node {{ $labels.instance }} has entered DEGRADED runtime
+              state. Check logs for the degradation reason.
+
+        - alert: AegisBPFNotEnforcing
+          expr: aegisbpf_runtime_state{state="ENFORCE"} != 1
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "AegisBPF is not in ENFORCE mode"
+            description: >-
+              Node {{ $labels.instance }} is not enforcing security
+              policy. Current state: audit-only or degraded.
+
+        - alert: AegisBPFNotEnforceCapable
+          expr: aegisbpf_enforce_capable == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Node is not enforce-capable"
+            description: >-
+              Node {{ $labels.instance }} lacks the kernel features
+              required for enforcement (BPF LSM). Only audit mode is
+              available.
+
+    # ── Capacity & Performance Alerts ──────────────────────────────────
+    - name: aegisbpf.capacity
+      rules:
+        - alert: AegisBPFMapNearCapacity
+          expr: aegisbpf_map_utilization > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "BPF map {{ $labels.map }} is above 85% capacity"
+            description: >-
+              Map {{ $labels.map }} on {{ $labels.instance }} is at
+              {{ $value | humanizePercentage }} utilization. New policy
+              entries may be rejected when it reaches 100%.
+
+        - alert: AegisBPFMapFull
+          expr: aegisbpf_map_utilization >= 1.0
+          for: 0m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "BPF map {{ $labels.map }} is FULL"
+            description: >-
+              Map {{ $labels.map }} on {{ $labels.instance }} has
+              reached maximum capacity. New deny/allow rules cannot be
+              added. Increase --max-deny-inodes/--max-deny-paths or
+              reduce policy size.
+
+        - alert: AegisBPFHookLatencyHigh
+          expr: >
+            (rate(aegisbpf_hook_latency_total_ns[5m]) /
+             rate(aegisbpf_hook_invocations_total[5m])) > 50000
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "BPF hook {{ $labels.hook }} average latency > 50µs"
+            description: >-
+              Hook {{ $labels.hook }} on {{ $labels.instance }} has
+              average latency of {{ $value | humanize }}ns. This may
+              indicate kernel contention or map lookup bottlenecks.
+
+        - alert: AegisBPFHookLatencyCritical
+          expr: aegisbpf_hook_latency_max_ns > 1000000
+          for: 0m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "BPF hook {{ $labels.hook }} max latency > 1ms"
+            description: >-
+              Hook {{ $labels.hook }} recorded a maximum single-invocation
+              latency exceeding 1ms. Investigate for verifier or map
+              contention issues.
+
+        - alert: AegisBPFPerfSLOFailed
+          expr: aegisbpf_perf_slo_gate_pass == 0
+          for: 0m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "AegisBPF performance SLO gate failed"
+            description: >-
+              The performance SLO validation on {{ $labels.instance }}
+              has failed. {{ $value }} rows failed the latency
+              threshold check.
+
+    # ── Policy Integrity Alerts ────────────────────────────────────────
+    - name: aegisbpf.policy
+      rules:
+        - alert: AegisBPFCapabilityReportMissing
+          expr: aegisbpf_capability_report_present == 0
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "AegisBPF capability report is missing"
+            description: >-
+              Node {{ $labels.instance }} has no capability report.
+              The daemon may not be running or failed during startup.
+
+        - alert: AegisBPFAttachContractMismatch
+          expr: aegisbpf_file_hooks_attached != aegisbpf_file_hooks_expected
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "File hook attach contract mismatch"
+            description: >-
+              Node {{ $labels.instance }} expected
+              {{ $labels.aegisbpf_file_hooks_expected }} file hooks
+              but only {{ $labels.aegisbpf_file_hooks_attached }} are
+              attached. Security coverage is reduced.

@@ -46,6 +46,8 @@ inline constexpr const char* kDenyCidrV6Pin = "/sys/fs/bpf/aegisbpf/deny_cidr_v6
 inline constexpr const char* kNetBlockStatsPin = "/sys/fs/bpf/aegisbpf/net_block_stats";
 inline constexpr const char* kNetIpStatsPin = "/sys/fs/bpf/aegisbpf/net_ip_stats";
 inline constexpr const char* kNetPortStatsPin = "/sys/fs/bpf/aegisbpf/net_port_stats";
+inline constexpr const char* kDiagnosticsPin = "/sys/fs/bpf/aegisbpf/diagnostics";
+inline constexpr const char* kDeadProcessesPin = "/sys/fs/bpf/aegisbpf/dead_processes";
 
 // Break-glass detection paths
 inline constexpr const char* kBreakGlassPath = "/etc/aegisbpf/break_glass";
@@ -85,14 +87,50 @@ inline constexpr uint8_t kExecIdentityFlagSkipVerity = 1u << 5;
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
     EVENT_BLOCK = 2,
+    EVENT_EXEC_ARGV = 3,
+    EVENT_FORENSIC_BLOCK = 4,
     EVENT_NET_CONNECT_BLOCK = 10,
     EVENT_NET_BIND_BLOCK = 11,
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_KERNEL_PTRACE_BLOCK = 20,
+    EVENT_KERNEL_MODULE_BLOCK = 21,
+    EVENT_KERNEL_BPF_BLOCK = 22,
+};
+
+enum DiagType : uint32_t {
+    DIAG_MAP_PRESSURE = 1,
+    DIAG_HOOK_ERROR = 2,
+    DIAG_PROCESS_EVICTION = 3,
+};
+
+enum HookId : uint32_t {
+    HOOK_FILE_OPEN = 0,
+    HOOK_INODE_PERMISSION = 1,
+    HOOK_BPRM_CHECK = 2,
+    HOOK_FILE_MMAP = 3,
+    HOOK_SOCKET_CONNECT = 4,
+    HOOK_SOCKET_BIND = 5,
+    HOOK_SOCKET_LISTEN = 6,
+    HOOK_SOCKET_ACCEPT = 7,
+    HOOK_SOCKET_SENDMSG = 8,
+    HOOK_EXECVE = 9,
+    HOOK_PTRACE = 10,
+    HOOK_MODULE_LOAD = 11,
+    HOOK_BPF = 12,
+    HOOK_MAX = 16,
 };
 
 enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
+
+inline constexpr size_t kMaxArgvSize = 256;
+
+// New map pin paths for quality improvements
+inline constexpr const char* kHookLatencyPin = "/sys/fs/bpf/aegisbpf/hook_latency";
+inline constexpr const char* kEventApproverInodePin = "/sys/fs/bpf/aegisbpf/event_approver_inode";
+inline constexpr const char* kEventApproverPathPin = "/sys/fs/bpf/aegisbpf/event_approver_path";
+inline constexpr const char* kPriorityEventsPin = "/sys/fs/bpf/aegisbpf/priority_events";
 
 struct ExecEvent {
     uint32_t pid;
@@ -100,6 +138,55 @@ struct ExecEvent {
     uint64_t start_time;
     uint64_t cgid;
     char comm[16];
+};
+
+struct ExecArgvEvent {
+    uint32_t pid;
+    uint32_t _pad;
+    uint64_t start_time;
+    uint16_t argc;
+    uint16_t total_len;
+    uint32_t _pad2;
+    char argv[kMaxArgvSize]; /* null-separated argument strings */
+};
+
+struct DiagEvent {
+    uint32_t type; /* DiagType */
+    uint32_t _pad;
+    uint64_t timestamp;
+    uint32_t data1;
+    uint32_t data2;
+    char msg[64];
+};
+
+struct HookLatencyEntry {
+    uint64_t total_ns;
+    uint64_t count;
+    uint64_t max_ns;
+    uint64_t min_ns;
+};
+
+struct ForensicEvent {
+    uint32_t type; /* EVENT_FORENSIC_BLOCK */
+    uint32_t pid;
+    uint32_t ppid;
+    uint32_t _pad;
+    uint64_t start_time;
+    uint64_t parent_start_time;
+    uint64_t cgid;
+    char comm[16];
+    uint64_t ino;
+    uint32_t dev;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t _pad2;
+    uint64_t exec_ino;
+    uint32_t exec_dev;
+    uint8_t exec_stage;
+    uint8_t verified_exec;
+    uint8_t exec_identity_known;
+    uint8_t _pad3;
+    char action[8];
 };
 
 struct BlockEvent {
@@ -134,12 +221,29 @@ struct NetBlockEvent {
     char rule_type[16]; /* "ip", "port", "cidr", "ip_port", "identity" */
 };
 
+/// Kernel security block event: ptrace, module load, BPF program load.
+struct KernelBlockEvent {
+    uint32_t pid;
+    uint32_t ppid;
+    uint64_t start_time;
+    uint64_t parent_start_time;
+    uint64_t cgid;
+    char comm[16];
+    uint32_t target_pid; /* target PID for ptrace, 0 otherwise */
+    uint32_t _pad;
+    char action[8];     /* "AUDIT", "TERM", "KILL", or "BLOCK" */
+    char rule_type[16]; /* "ptrace", "module", "bpf" */
+};
+
 struct Event {
     uint32_t type;
     union {
         ExecEvent exec;
+        ExecArgvEvent exec_argv;
         BlockEvent block;
         NetBlockEvent net_block;
+        ForensicEvent forensic;
+        KernelBlockEvent kernel_block;
     };
 };
 
@@ -155,6 +259,14 @@ struct NetBlockStats {
     uint64_t accept_blocks;
     uint64_t sendmsg_blocks;
     uint64_t ringbuf_drops;
+};
+
+/// Dual-path backpressure telemetry (Aquila pattern).
+struct BackpressureStats {
+    uint64_t seq_total;          ///< Monotonic total events generated
+    uint64_t priority_submitted; ///< Events submitted to priority buffer
+    uint64_t priority_drops;     ///< Priority buffer reservation failures
+    uint64_t telemetry_drops;    ///< Telemetry buffer reservation failures
 };
 
 struct PortKey {
@@ -294,7 +406,10 @@ struct AgentConfig {
     uint32_t sigkill_escalation_window_seconds; /* Escalation window size */
     uint64_t policy_generation;                 /* monotonic generation after atomic policy commit */
     uint8_t deadman_fail_static;                /* 1 = keep enforcement on deadman expiry (fail-static) */
-    uint8_t _reserved[7];                       /* alignment padding */
+    uint8_t deny_ptrace;                        /* block ptrace attachment (MITRE T1055.008) */
+    uint8_t deny_module_load;                   /* block kernel module loading (MITRE T1547.006) */
+    uint8_t deny_bpf;                           /* block unauthorized BPF program load (MITRE T1562) */
+    uint8_t _reserved[4];                       /* alignment padding */
 };
 
 struct AgentMeta {
@@ -365,6 +480,10 @@ struct Policy {
     std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
     std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
     std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)
+    // Kernel security hooks (MITRE ATT&CK coverage)
+    bool deny_ptrace = false;      // block ptrace (T1055.008)
+    bool deny_module_load = false; // block kernel module loading (T1547.006)
+    bool deny_bpf = false;         // block unauthorized BPF program loading (T1562)
 };
 
 struct PolicyIssues {
@@ -397,10 +516,15 @@ static_assert(sizeof(NetBlockStats) == 48, "NetBlockStats size changed — updat
 static_assert(sizeof(CgroupInodeKey) == 24, "CgroupInodeKey size changed — update BPF struct");
 static_assert(sizeof(CgroupIpv4Key) == 16, "CgroupIpv4Key size changed — update BPF struct");
 static_assert(sizeof(CgroupPortKey) == 16, "CgroupPortKey size changed — update BPF struct");
+static_assert(sizeof(ExecArgvEvent) == 280, "ExecArgvEvent size changed — update BPF struct");
+static_assert(sizeof(DiagEvent) == 88, "DiagEvent size changed — update BPF struct");
+static_assert(sizeof(HookLatencyEntry) == 32, "HookLatencyEntry size changed — update BPF struct");
+static_assert(sizeof(ForensicEvent) == 104, "ForensicEvent size changed — update BPF struct");
 
 // Critical field offset assertions — ensure wire-compatible layout.
 static_assert(offsetof(BlockEvent, path) == 68, "BlockEvent::path offset changed");
 static_assert(offsetof(NetBlockEvent, remote_ipv4) == 56, "NetBlockEvent::remote_ipv4 offset changed");
 static_assert(offsetof(AgentConfig, deadman_deadline_ns) == 8, "AgentConfig::deadman_deadline_ns offset changed");
+static_assert(offsetof(ExecArgvEvent, argv) == 24, "ExecArgvEvent::argv offset changed");
 
 } // namespace aegis

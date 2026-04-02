@@ -1,0 +1,212 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus data source for AegisBPF metrics",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "description": "AegisBPF Performance SLIs — hook latency, buffer health, and overhead monitoring",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Average Hook Latency (µs)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(aegisbpf_hook_latency_total_ns[5m]) / rate(aegisbpf_hook_invocations_total[5m]) / 1000",
+          "legendFormat": "{{hook}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 5 },
+          "unit": "µs",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 10, "color": "yellow" },
+              { "value": 100, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Max Hook Latency (µs)",
+      "type": "bargauge",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "aegisbpf_hook_latency_max_ns / 1000",
+          "legendFormat": "{{hook}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 50, "color": "yellow" },
+              { "value": 500, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Hook Invocations Rate (/s)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(aegisbpf_hook_invocations_total[5m])",
+          "legendFormat": "{{hook}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Backpressure — Event Pipeline",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(aegisbpf_backpressure_events_total[5m])",
+          "legendFormat": "total events/s"
+        },
+        {
+          "expr": "rate(aegisbpf_backpressure_priority_submitted_total[5m])",
+          "legendFormat": "priority submitted/s"
+        },
+        {
+          "expr": "rate(aegisbpf_backpressure_priority_drops_total[5m])",
+          "legendFormat": "priority drops/s"
+        },
+        {
+          "expr": "rate(aegisbpf_backpressure_telemetry_drops_total[5m])",
+          "legendFormat": "telemetry drops/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Ring Buffer Drop Rate",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(aegisbpf_ringbuf_drops_total[5m])",
+          "legendFormat": "file ringbuf drops/s"
+        },
+        {
+          "expr": "rate(aegisbpf_net_ringbuf_drops_total[5m])",
+          "legendFormat": "net ringbuf drops/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "unit": "ops",
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 0.01, "color": "yellow" },
+              { "value": 1, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Map Utilization Over Time",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "aegisbpf_map_utilization",
+          "legendFormat": "{{map}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 5 },
+          "unit": "percentunit",
+          "max": 1
+        }
+      }
+    },
+    {
+      "title": "Priority Buffer Efficiency",
+      "type": "gauge",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "1 - (aegisbpf_backpressure_priority_drops_total / clamp_min(aegisbpf_backpressure_events_total, 1))",
+          "legendFormat": "priority success rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 0.95, "color": "yellow" },
+              { "value": 0.99, "color": "green" }
+            ]
+          },
+          "unit": "percentunit",
+          "max": 1
+        }
+      }
+    },
+    {
+      "title": "Perf SLO Gate Status",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        {
+          "expr": "aegisbpf_perf_slo_gate_pass",
+          "legendFormat": "SLO gate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "PASS", "color": "green" } } },
+            { "type": "value", "options": { "0": { "text": "FAIL", "color": "red" } } }
+          ]
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["aegisbpf", "performance", "sli"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "AegisBPF — Performance SLIs",
+  "uid": "aegisbpf-performance",
+  "version": 1
+}

@@ -25,9 +25,13 @@ struct EventCallbacks {
 
 // Event handling
 int handle_event(void* ctx, void* data, size_t size);
+int handle_diag_event(void* ctx, void* data, size_t size);
 void print_exec_event(const ExecEvent& ev);
+void print_exec_argv_event(const ExecArgvEvent& ev);
 void print_block_event(const BlockEvent& ev);
 void print_net_block_event(const NetBlockEvent& ev);
+void print_forensic_event(const ForensicEvent& ev);
+void print_kernel_block_event(const KernelBlockEvent& ev);
 void emit_state_change_event(const std::string& state, const std::string& reason_code, const std::string& detail,
                              bool strict_mode, uint64_t transition_id, uint64_t degradation_count);
 void emit_control_change_event(const std::string& payload, const std::string& action, bool enabled, bool prev_enabled,

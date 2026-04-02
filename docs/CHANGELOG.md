@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Quality & Observability
+- **Per-hook latency tracking** (`hook_latency` PERCPU_ARRAY map) — records total, count, min, and max nanoseconds per LSM/tracepoint hook invocation for overhead benchmarking
+- **In-kernel event pre-filtering** (`event_approver_inode`, `event_approver_path` maps) — Datadog-style approver/discarder pattern to suppress noisy events in-kernel, reducing ring buffer pressure
+- **Priority ring buffer** (`priority_events`, 4 MB) — dedicated ring buffer for security-critical forensic events, isolated from the main events ring buffer to prevent drops
+- **Forensic event capture** (`ForensicEvent` / `forensic_block`) — enriched block events with UID/GID, exec identity stage, verified_exec flag, and process context, emitted via the priority ring buffer
+- **Startup self-tests** (`src/selftest.{hpp,cpp}`) — Datadog-pattern startup validation: map accessibility, ring buffer FD, config readability, and process_tree write/read/delete cycle
+- **Map capacity monitoring** (`src/map_monitor.{hpp,cpp}`) — iterates BPF map entries to compute usage ratios and log warnings when thresholds are exceeded
+- **Process cache /proc reconciliation** (`src/proc_scan.{hpp,cpp}`) — scans /proc at startup to populate process_tree with pre-existing processes
+- **BPF program signing preparation** (`src/bpf_signing.{hpp,cpp}`) — SHA-256 hash verification of BPF object files with Ed25519 signature placeholder, break-glass override via `AEGIS_ALLOW_UNSIGNED_BPF`
+- **Binary hash verification** (`src/binary_hash.{hpp,cpp}`) — SHA-256 integrity verification for binary allow-lists with recursive directory scanning
+- **Hot-loadable detection rules** (`src/rule_engine.{hpp,cpp}`) — JSON-based detection rule engine with comm/path matching, severity levels, and thread-safe hot-reload
+- **Plugin/extension system** (`src/plugin.{hpp,cpp}`) — abstract plugin interface with virtual event handlers, lifecycle management, and break-on-consume dispatch; ships with built-in JsonLoggerPlugin
+
+### Added — CI Quality Gates
+- **Real kernel BPF testing** (`.github/workflows/kernel-bpf-test.yml`) — virtme-ng boots a real kernel in CI to test BPF object loading and map creation
+- **BPF code coverage analysis** (`.github/workflows/bpf-coverage.yml`) — llvm-objdump instruction counting per BPF program with JSON summary artifact
+
+### Changed
+- BPF hook functions instrumented with `record_hook_latency()` calls at every return point across `aegis_exec.bpf.h`, `aegis_file.bpf.h`, and `aegis_net.bpf.h`
+- `handle_event()` now processes `EVENT_FORENSIC_BLOCK` events from the priority ring buffer
+- `BpfState` extended with `hook_latency`, `event_approver_inode`, `event_approver_path`, and `priority_events` map pointers
+- Daemon startup now runs self-tests, reconciles /proc, and checks map capacity after ring buffer creation
+- Event union extended with `ForensicEvent forensic` member
+- Event schema (`config/event-schema.json`) extended with `ForensicBlockEvent` definition
+- BPF map schema (`docs/BPF_MAP_SCHEMA.md`) updated with 4 new maps and memory budget
+- Feature surface contract updated to validate new components
+- `ForensicEvent` static_assert corrected to 104 bytes (was 112)
+
+### Testing
+- Test suite: 210/210 passing
+- Feature surface contract: passing
+- Build: zero errors, zero warnings
+
 ## [0.1.1] - 2026-02-07
 
 ### Security

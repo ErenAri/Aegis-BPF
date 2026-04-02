@@ -8,6 +8,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #include <array>
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <numeric>
 #include <set>
+#include <vector>
 
 #include "bpf_attach.hpp"
 #include "bpf_integrity.hpp"
@@ -187,7 +189,39 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
     {
         ScopedSpan span("bpf.open_object", trace_id, root_span.span_id());
-        state.obj = bpf_object__open_file(obj_path.c_str(), nullptr);
+
+        // Check for custom BTF path when kernel doesn't have built-in BTF.
+        // This enables CO-RE on older kernels using BTFHub-generated minimized BTFs.
+        struct bpf_object_open_opts open_opts = {};
+        open_opts.sz = sizeof(open_opts);
+        std::string btf_custom_path;
+
+        if (access("/sys/kernel/btf/vmlinux", F_OK) != 0) {
+            // Try to find a matching BTF file for this kernel
+            struct utsname uname_buf = {};
+            if (uname(&uname_buf) == 0) {
+                const std::string kernel_release = uname_buf.release;
+                const std::vector<std::string> btf_search_paths = {
+                    "/usr/lib/aegisbpf/btfs/" + kernel_release + ".btf",
+                    "/etc/aegisbpf/btfs/" + kernel_release + ".btf",
+                };
+                for (const auto& path : btf_search_paths) {
+                    if (access(path.c_str(), R_OK) == 0) {
+                        btf_custom_path = path;
+                        open_opts.btf_custom_path = btf_custom_path.c_str();
+                        logger().log(LogLevel::Info, "Using custom BTF: " + btf_custom_path);
+                        break;
+                    }
+                }
+                if (btf_custom_path.empty()) {
+                    logger().log(LogLevel::Warn, "No kernel BTF at /sys/kernel/btf/vmlinux and no custom BTF "
+                                                 "found for kernel " +
+                                                     kernel_release);
+                }
+            }
+        }
+
+        state.obj = bpf_object__open_file(obj_path.c_str(), &open_opts);
         const int open_err = libbpf_get_error(state.obj);
         if (open_err) {
             state.obj = nullptr;
@@ -245,6 +279,16 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_cgroup_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_cgroup_ipv4");
         state.deny_cgroup_port = bpf_object__find_map_by_name(state.obj, "deny_cgroup_port");
 
+        // Diagnostics and process cache maps (optional)
+        state.diagnostics = bpf_object__find_map_by_name(state.obj, "diagnostics");
+        state.dead_processes = bpf_object__find_map_by_name(state.obj, "dead_processes");
+
+        // Quality improvement maps (optional)
+        state.hook_latency = bpf_object__find_map_by_name(state.obj, "hook_latency");
+        state.event_approver_inode = bpf_object__find_map_by_name(state.obj, "event_approver_inode");
+        state.event_approver_path = bpf_object__find_map_by_name(state.obj, "event_approver_path");
+        state.priority_events = bpf_object__find_map_by_name(state.obj, "priority_events");
+
         // Network maps (optional)
         state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
         state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
@@ -256,6 +300,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
+        state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
@@ -841,6 +886,74 @@ Result<BlockStats> read_block_stats_map(bpf_map* map)
     for (const auto& v : vals) {
         out.blocks += v.blocks;
         out.ringbuf_drops += v.ringbuf_drops;
+    }
+    return out;
+}
+
+Result<BackpressureStats> read_backpressure_stats(BpfState& state)
+{
+    if (!state.backpressure) {
+        return BackpressureStats{};
+    }
+    int fd = bpf_map__fd(state.backpressure);
+    int cpu_cnt = libbpf_num_possible_cpus();
+    if (cpu_cnt <= 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Failed to get CPU count");
+    }
+    std::vector<BackpressureStats> vals(cpu_cnt);
+    uint32_t key = 0;
+    if (bpf_map_lookup_elem(fd, &key, vals.data())) {
+        if (errno == ENOENT) {
+            return BackpressureStats{};
+        }
+        return Error::system(errno, "Failed to read backpressure stats");
+    }
+    BackpressureStats out{};
+    for (const auto& v : vals) {
+        out.seq_total += v.seq_total;
+        out.priority_submitted += v.priority_submitted;
+        out.priority_drops += v.priority_drops;
+        out.telemetry_drops += v.telemetry_drops;
+    }
+    return out;
+}
+
+Result<std::vector<std::pair<uint32_t, HookLatencyEntry>>> read_hook_latency_entries(BpfState& state)
+{
+    if (!state.hook_latency) {
+        return std::vector<std::pair<uint32_t, HookLatencyEntry>>{};
+    }
+    int fd = bpf_map__fd(state.hook_latency);
+    int cpu_cnt = libbpf_num_possible_cpus();
+    if (cpu_cnt <= 0) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Failed to get CPU count");
+    }
+    std::vector<HookLatencyEntry> vals(cpu_cnt);
+    std::vector<std::pair<uint32_t, HookLatencyEntry>> out;
+
+    for (uint32_t hook = 0; hook < static_cast<uint32_t>(HOOK_MAX); ++hook) {
+        if (bpf_map_lookup_elem(fd, &hook, vals.data())) {
+            continue; // Hook not active or not yet recorded
+        }
+        HookLatencyEntry agg{};
+        agg.min_ns = UINT64_MAX;
+        for (const auto& v : vals) {
+            agg.total_ns += v.total_ns;
+            agg.count += v.count;
+            if (v.max_ns > agg.max_ns) {
+                agg.max_ns = v.max_ns;
+            }
+            if (v.count > 0 && v.min_ns < agg.min_ns) {
+                agg.min_ns = v.min_ns;
+            }
+        }
+        if (agg.count == 0) {
+            continue;
+        }
+        if (agg.min_ns == UINT64_MAX) {
+            agg.min_ns = 0;
+        }
+        out.emplace_back(hook, agg);
     }
     return out;
 }

@@ -1,0 +1,118 @@
+# ArgoCD Application for AegisBPF policy management.
+# Watches a Git repo for AegisPolicy CRDs and syncs them to the cluster.
+#
+# Prerequisites:
+#   1. AegisBPF operator installed (CRDs registered)
+#   2. ArgoCD installed in argocd namespace
+#   3. Git repo with AegisPolicy manifests in policies/ directory
+#
+# Usage:
+#   kubectl apply -f argocd-application.yaml
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: aegisbpf-security
+  namespace: argocd
+spec:
+  description: AegisBPF security policy management
+  sourceRepos:
+    - "https://github.com/your-org/aegisbpf-policies.git"
+  destinations:
+    - namespace: "*"
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: aegisbpf.io
+      kind: AegisClusterPolicy
+  namespaceResourceWhitelist:
+    - group: aegisbpf.io
+      kind: AegisPolicy
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aegisbpf-policies
+  namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: aegisbpf-alerts
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: aegisbpf-alerts
+spec:
+  project: aegisbpf-security
+  source:
+    repoURL: https://github.com/your-org/aegisbpf-policies.git
+    targetRevision: main
+    path: policies
+    directory:
+      recurse: true
+      include: "*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: false        # Never auto-delete policies
+      selfHeal: true      # Re-apply if someone manually modifies
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # ignoreDifferences prevents ArgoCD from reporting the application as OutOfSync
+  # when only /status fields differ (status is managed by the operator, not Git).
+  # To assess custom health based on CRD status fields, add a Lua health check
+  # under configs.resource.customizations in the ArgoCD ConfigMap.
+  ignoreDifferences:
+    - group: aegisbpf.io
+      kind: AegisPolicy
+      jsonPointers:
+        - /status
+    - group: aegisbpf.io
+      kind: AegisClusterPolicy
+      jsonPointers:
+        - /status
+
+---
+# Example: cluster-wide kernel protection policy
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisClusterPolicy
+metadata:
+  name: kernel-hardening
+  labels:
+    aegisbpf.io/category: kernel-security
+    aegisbpf.io/compliance: cis-benchmark
+spec:
+  mode: enforce
+  kernelRules:
+    blockModuleLoad: true
+    blockPtrace: true
+    blockBpfSyscall: true
+
+---
+# Example: namespace-scoped file protection
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: block-crypto-miners
+  namespace: production
+  labels:
+    aegisbpf.io/category: threat-detection
+spec:
+  mode: enforce
+  fileRules:
+    deny:
+      - path: /usr/bin/xmrig
+      - path: /tmp/kdevtmpfsi
+      - path: /tmp/kinsing
+  networkRules:
+    deny:
+      - port: 3333
+        protocol: tcp
+        direction: outbound
+      - port: 14433
+        protocol: tcp
+        direction: outbound

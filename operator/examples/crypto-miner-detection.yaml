@@ -1,0 +1,45 @@
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: crypto-miner-detection
+  namespace: default
+spec:
+  mode: enforce
+  execRules:
+    # Block known mining binaries by command name
+    denyComm:
+      - xmrig
+      - minerd
+      - cpuminer
+      - ethminer
+      - nbminer
+      - t-rex
+      - gminer
+      - lolminer
+      - phoenixminer
+      - ccminer
+  networkRules:
+    deny:
+      # Block common mining pool ports
+      - port: 3333
+        protocol: tcp
+        direction: outbound
+      - port: 4444
+        protocol: tcp
+        direction: outbound
+      - port: 5555
+        protocol: tcp
+        direction: outbound
+      - port: 7777
+        protocol: tcp
+        direction: outbound
+      - port: 8888
+        protocol: tcp
+        direction: outbound
+      - port: 9999
+        protocol: tcp
+        direction: outbound
+      # Block Stratum protocol default port
+      - port: 3334
+        protocol: tcp
+        direction: outbound

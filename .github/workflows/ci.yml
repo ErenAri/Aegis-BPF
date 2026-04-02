@@ -237,12 +237,14 @@ jobs:
             --suppress=syntaxError:tests/test_crypto_safe.cpp \
             --suppress=syntaxError:tests/test_bpf_integrity.cpp \
             --suppress=syntaxError:tests/test_exec_identity.cpp \
+            --suppress=syntaxError:tests/bpf/test_bpf_prog_run.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
             --suppress=constVariablePointer \
             --suppress=knownConditionTrueFalse \
             --suppress=unusedFunction \
             --suppress=checkersReport \
+            --suppress=checkLevelNormal \
             -I src \
             src/ tests/
 

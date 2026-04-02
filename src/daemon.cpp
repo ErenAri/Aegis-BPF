@@ -27,9 +27,13 @@
 #include "daemon_runtime.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
+#include "k8s_identity.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
+#include "map_monitor.hpp"
+#include "proc_scan.hpp"
 #include "seccomp.hpp"
+#include "selftest.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -110,7 +114,7 @@ Result<void> setup_agent_cgroup(BpfState& state)
         return Error::system(errno, "stat failed for " + std::string(kAgentCgroup));
     }
 
-    uint64_t cgid = static_cast<uint64_t>(st.st_ino);
+    auto cgid = static_cast<uint64_t>(st.st_ino);
 
     TRY(bump_memlock_rlimit());
 
@@ -421,6 +425,19 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         }
     }
 
+    // Load Kubernetes identity cache (non-fatal if not available)
+    {
+        static constexpr const char* kIdentityCachePath = "/etc/aegisbpf/k8s-identity-cache.json";
+        auto& id_cache = k8s_identity_cache();
+        if (id_cache.load_from_file(kIdentityCachePath)) {
+            logger().log(
+                SLOG_INFO("Kubernetes identity cache loaded").field("entries", static_cast<int64_t>(id_cache.size())));
+        } else if (id_cache.is_kubernetes()) {
+            logger().log(SLOG_WARN("Kubernetes environment detected but identity cache not loaded")
+                             .field("path", kIdentityCachePath));
+        }
+    }
+
     // Detect kernel features for graceful degradation
     KernelFeatures features{};
     {
@@ -677,6 +694,49 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         return fail("Failed to create ring buffer");
     }
 
+    // Attach diagnostics ring buffer to the same polling group
+    if (state.diagnostics) {
+        int diag_rc = ring_buffer__add(rb.get(), bpf_map__fd(state.diagnostics), handle_diag_event, nullptr);
+        if (diag_rc < 0) {
+            logger().log(SLOG_WARN("Failed to attach diagnostics ring buffer, continuing without it"));
+        }
+    }
+
+    // Attach priority ring buffer for forensic/security-critical events
+    if (state.priority_events) {
+        int pri_rc = ring_buffer__add(rb.get(), bpf_map__fd(state.priority_events), handle_event,
+                                      event_callbacks.on_exec ? &event_callbacks : nullptr);
+        if (pri_rc < 0) {
+            logger().log(SLOG_WARN("Failed to attach priority ring buffer, continuing without it"));
+        }
+    }
+
+    // Run startup self-tests
+    {
+        auto selftest_result = run_startup_selftests(state);
+        if (!selftest_result) {
+            logger().log(SLOG_WARN("Startup self-tests failed").field("error", selftest_result.error().to_string()));
+        }
+    }
+
+    // Reconcile process tree from /proc
+    {
+        auto proc_result = reconcile_proc_tree(state);
+        if (!proc_result) {
+            logger().log(
+                SLOG_WARN("Process tree reconciliation failed").field("error", proc_result.error().to_string()));
+        }
+    }
+
+    // Initial map capacity check
+    {
+        auto map_report = check_map_capacity(state);
+        if (map_report.any_above_threshold) {
+            logger().log(SLOG_WARN("Map capacity warning at startup")
+                             .field("maps_checked", static_cast<int64_t>(map_report.maps_checked)));
+        }
+    }
+
     // Apply seccomp filter after all initialization is complete
     if (enable_seccomp) {
         ScopedSpan seccomp_span("daemon.apply_seccomp", trace_id, root_span.span_id());
@@ -726,6 +786,15 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     }
 
     int err = 0;
+    uint32_t poll_count = 0;
+    // Reload K8s identity cache every ~60s (240 iterations × 250ms poll timeout)
+    static constexpr uint32_t kIdentityReloadInterval = 240;
+    // Check backpressure stats every ~30s (120 iterations × 250ms poll timeout)
+    static constexpr uint32_t kBackpressureCheckInterval = 120;
+    uint32_t bp_poll_count = 0;
+    uint64_t prev_priority_drops = 0;
+    uint64_t prev_telemetry_drops = 0;
+
     ScopedSpan event_loop_span("daemon.event_loop", trace_id, root_span.span_id());
     while (!exit_requested()) {
         err = ring_buffer__poll(rb.get(), 250);
@@ -742,6 +811,42 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             event_loop_span.fail("Ring buffer poll failed");
             logger().log(SLOG_ERROR("Ring buffer poll failed").error_code(-err));
             break;
+        }
+
+        // Periodically reload K8s identity cache
+        if (++poll_count >= kIdentityReloadInterval) {
+            poll_count = 0;
+            k8s_identity_cache().reload();
+        }
+
+        // Periodically check backpressure stats for event loss detection
+        if (state.backpressure && ++bp_poll_count >= kBackpressureCheckInterval) {
+            bp_poll_count = 0;
+            auto bp_result = read_backpressure_stats(state);
+            if (bp_result) {
+                const auto& bp = *bp_result;
+                uint64_t new_priority_drops = bp.priority_drops - prev_priority_drops;
+                uint64_t new_telemetry_drops = bp.telemetry_drops - prev_telemetry_drops;
+
+                if (new_priority_drops > 0) {
+                    logger().log(SLOG_WARN("Priority ring buffer drops detected")
+                                     .field("new_drops", static_cast<int64_t>(new_priority_drops))
+                                     .field("total_drops", static_cast<int64_t>(bp.priority_drops))
+                                     .field("total_events", static_cast<int64_t>(bp.seq_total)));
+                    emit_runtime_state_change(RuntimeState::Degraded, "PRIORITY_RINGBUF_DROPS",
+                                              "priority_drops=" + std::to_string(bp.priority_drops) +
+                                                  " total_events=" + std::to_string(bp.seq_total));
+                }
+                if (new_telemetry_drops > 0) {
+                    logger().log(SLOG_WARN("Telemetry ring buffer drops detected")
+                                     .field("new_drops", static_cast<int64_t>(new_telemetry_drops))
+                                     .field("total_drops", static_cast<int64_t>(bp.telemetry_drops))
+                                     .field("total_events", static_cast<int64_t>(bp.seq_total)));
+                }
+
+                prev_priority_drops = bp.priority_drops;
+                prev_telemetry_drops = bp.telemetry_drops;
+            }
         }
     }
 

@@ -1,16 +1,23 @@
 # AegisBPF
 
+[![CI](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml/badge.svg)](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-240%2B%20passing-brightgreen)]()
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)]()
+[![Architecture](https://img.shields.io/badge/arch-x86__64%20%7C%20ARM64-informational)]()
+[![Kernel](https://img.shields.io/badge/kernel-5.15%2B-orange)]()
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)]()
+
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │                              AegisBPF                                         │
 │                                                                               │
-│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    ┌─────────────┐      │
-│   │  File/Net   │   │   Allow     │   │   Policy    │    │  Metrics    │      │
-│   │ deny rules  │   │  allowlist  │   │ + signatures│    │  + health   │      │
-│   └──────┬──────┘   └──────┬──────┘   └──────┬──────┘    └──────┬──────┘      │
-│          └─────────────────┴─────────────────┴──────────────────┘             │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│   │ File/Net │  │  Allow   │  │ Policy   │  │ Metrics  │  │ Plugins  │        │
+│   │deny rules│  │ allowlist│  │+ signing │  │+ health  │  │+ rules   │        │
+│   └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
+│        └─────────────┴─────────────┴─────────────┴─────────────┘              │
 │                                      │                                        │
 │                              ┌───────┴────────┐                               │
 │                              │ Pinned BPF Maps│                               │
@@ -48,6 +55,34 @@
 - **Structured logging** - JSON or text output to stdout/journald
 - **Policy files and signed bundles** - Declarative configuration with SHA256 verification and signature enforcement
 - **Kubernetes ready** - Helm chart for DaemonSet deployment
+- **Per-hook latency tracking** - PERCPU_ARRAY map records overhead per LSM hook for benchmarking
+- **In-kernel event pre-filtering** - Approver/discarder maps suppress noisy events before they reach userspace
+- **Priority ring buffer** - Dedicated 4 MB ring buffer for forensic security events
+- **Forensic event capture** - Enriched block events with UID/GID, exec identity, and process context
+- **Startup self-tests** - Validates map accessibility, config readability, and ring buffer health on boot
+- **Map capacity monitoring** - Warns when BPF map usage approaches configured limits
+- **Process cache reconciliation** - Scans /proc at startup to populate process tree for pre-existing processes
+- **BPF object signing** - SHA-256 hash verification with Ed25519 signature preparation
+- **Binary hash verification** - Integrity checks for allow-listed binaries
+- **Hot-loadable detection rules** - JSON-based rule engine with comm/path matching and hot-reload
+- **Plugin/extension system** - Virtual event handler interface for custom processing pipelines
+
+## Comparison with Other Tools
+
+| Capability | AegisBPF | Falco | Tetragon | Tracee |
+|-----------|----------|-------|----------|--------|
+| **File enforcement** | ✅ Kernel deny | ❌ Detect only | ✅ Kernel deny | ⚠️ Limited |
+| **Network enforcement** | ✅ Socket hooks | ❌ Detect only | ✅ Socket hooks | ⚠️ Limited |
+| **File open overhead** | 0.1–0.5 µs | 2–5 µs | 0.5–2 µs | 3–8 µs |
+| **Memory (idle)** | ~15 MB | ~85 MB | ~45 MB | ~120 MB |
+| **Policy reload** | <50ms (atomic) | 1–5s | 2–10s | 1–5s |
+| **Ptrace/module/BPF blocking** | ✅ All three | ❌ | ✅ Partial | ❌ |
+| **Policy language** | Declarative INI | YAML rules | K8s CRDs | Rego |
+| **Compliance mappings** | ✅ NIST, CIS, ISO, SOC2, PCI | ⚠️ Basic | ❌ | ❌ |
+| **Break-glass mechanism** | ✅ Emergency toggle | ❌ | ❌ | ❌ |
+| **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON | ⚠️ JSON |
+
+See [docs/PERFORMANCE_COMPARISON.md](docs/PERFORMANCE_COMPARISON.md) for detailed benchmarks and methodology.
 
 ## Claim Taxonomy
 
@@ -127,6 +162,29 @@ Public proof lives in the docs and CI artifacts:
 - Edge-case compliance results: `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`
 - External validation status: `docs/EXTERNAL_VALIDATION.md`
 - Performance baseline report: `docs/PERF_BASELINE.md`
+- Performance comparison: `docs/PERFORMANCE_COMPARISON.md`
+- Architecture support matrix: `docs/ARCHITECTURE_SUPPORT.md`
+- BPF map schema reference: `docs/BPF_MAP_SCHEMA.md`
+
+**Compliance Frameworks:**
+- NIST SP 800-53 Rev. 5: `docs/compliance/NIST_800_53_MAPPING.md`
+- ISO/IEC 27001:2022: `docs/compliance/ISO_27001_CONTROLS.md`
+- SOC 2 Type II evidence kit: `docs/compliance/SOC2_EVIDENCE_KIT.md`
+- PCI DSS 4.0: `docs/compliance/PCI_DSS_4_MAPPING.md`
+- CIS Kubernetes Benchmark v1.8: `docs/compliance/CIS_KUBERNETES_BENCHMARK.md`
+
+**Integrations:**
+- Grafana dashboards (4): `grafana/dashboards/`
+- Prometheus alerting rules: `examples/prometheus-alerts.yml`
+- Splunk HEC forwarder: `integrations/siem/splunk-hec-forwarder.py`
+- Elastic ECS formatter: `integrations/siem/elastic-ecs-formatter.py`
+- OpenTelemetry OTLP exporter: `integrations/opentelemetry/`
+
+**Tutorials:**
+- [Block your first file](tutorials/01-block-first-file.md)
+- [Network policy enforcement](tutorials/02-network-policy.md)
+- [Writing custom policies](tutorials/03-custom-policies.md)
+- [Debugging policy denials](tutorials/04-debugging-denials.md)
 
 Kernel-matrix artifacts are uploaded by `.github/workflows/kernel-matrix.yml`
 as `kernel-matrix-<runner>` (kernel + distro + test logs).
@@ -139,10 +197,10 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  +----------------------------------------------------------------+  |
 |  |                       aegisbpf daemon                          |  |
 |  |                                                                |  |
-|  |  +-----------+ +-----------+ +-----------+ +--------+ +------+ |  |
-|  |  |    CLI    | |  Policy   | |   Event   | |Metrics | | Log  | |  |
-|  |  | Dispatch  | |  + Sign   | |  Handler  | |+Health | |(JSON)| |  |
-|  |  +-----------+ +-----------+ +-----------+ +--------+ +------+ |  |
+|  | +------+ +-------+ +-------+ +------+ +-----+ +------+ +------+|  |
+|  | | CLI  | |Policy | |Event  | |Metric| | Log | |Plugin| |Rules ||  |
+|  | | Disp | |+ Sign | |Handler| |Health| |(JSON| |System| |Engine||  |
+|  | +------+ +-------+ +-------+ +------+ +-----+ +------+ +------+|  |
 |  +----------------------------------------------------------------+  |
 |                                |                                     |
 |                         +------+------+                              |
@@ -259,6 +317,17 @@ Recent maintenance work split the old hotspot files into narrower modules:
 - Monitoring-facing commands were split into focused modules such as
   `src/commands_health.cpp`, `src/commands_probe.cpp`,
   `src/commands_explain.cpp`, and `src/commands_metrics.cpp`.
+- Quality and observability modules: `src/selftest.cpp` (startup validation),
+  `src/map_monitor.cpp` (capacity warnings), `src/proc_scan.cpp` (/proc
+  reconciliation).
+- Security modules: `src/bpf_signing.cpp` (BPF object integrity),
+  `src/binary_hash.cpp` (allow-list hash verification).
+- Extension modules: `src/rule_engine.cpp` (hot-loadable detection rules),
+  `src/plugin.cpp` (event handler plugin system).
+- BPF kernel-side code split into per-subsystem headers: `bpf/aegis_common.h`
+  (shared types/helpers), `bpf/aegis_file.bpf.h` (file hooks),
+  `bpf/aegis_exec.bpf.h` (exec hooks), `bpf/aegis_net.bpf.h` (network hooks),
+  `bpf/aegis_process.bpf.h` (process lifecycle).
 
 ## How It Works
 
@@ -483,6 +552,30 @@ Events are emitted as newline-delimited JSON:
 }
 ```
 
+Security-critical blocks emit enriched forensic events via the priority ring buffer:
+
+```json
+{
+  "type": "forensic_block",
+  "pid": 12351,
+  "ppid": 12345,
+  "start_time": 723456789,
+  "exec_id": "12351:723456789",
+  "cgid": 5678,
+  "cgroup_path": "/sys/fs/cgroup/user.slice",
+  "ino": 654321,
+  "dev": 259,
+  "uid": 1000,
+  "gid": 1000,
+  "exec_ino": 111222,
+  "exec_dev": 259,
+  "verified_exec": false,
+  "exec_identity_known": true,
+  "action": "KILL",
+  "comm": "malware"
+}
+```
+
 Runtime posture changes emit a separate event type:
 
 ```json
@@ -562,6 +655,9 @@ For production, set `AEGIS_POLICY` to a signed policy bundle path (for example
            | net_*/block_stats |
            | survival/meta     |
            | events (ring buf) |
+           | priority_events   |
+           | hook_latency      |
+           | event_approver_*  |
            +---------+---------+
                      |
            +---------+---------+
@@ -646,6 +742,7 @@ TOCTOU analysis are in [docs/GUARANTEES.md](docs/GUARANTEES.md).
 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Threat model, coverage boundaries, and known bypass surface |
 | [GUARANTEES.md](docs/GUARANTEES.md) | Enforcement guarantees, TOCTOU analysis, and known bypass classes |
 | [BYPASS_CATALOG.md](docs/BYPASS_CATALOG.md) | Known bypasses, mitigations, and accepted gaps |
+| [BPF_MAP_SCHEMA.md](docs/BPF_MAP_SCHEMA.md) | BPF map types, sizing, key/value contracts, and memory budget |
 | [REFERENCE_ENFORCEMENT_SLICE.md](docs/REFERENCE_ENFORCEMENT_SLICE.md) | Decision-grade enforcement reference slice |
 
 ### Operations
@@ -719,7 +816,7 @@ BPF LSM overhead is minimal:
 - ~100-500ns per file open
 - O(1) hash map lookups (deny rule count does not affect per-syscall latency)
 - Lock-free ring buffer for events (drops are counted, never blocks enforcement)
-- ~5-15MB base memory usage
+- ~5-15MB base memory usage (~32-37MB with all maps at max capacity)
 
 Run benchmarks:
 ```bash

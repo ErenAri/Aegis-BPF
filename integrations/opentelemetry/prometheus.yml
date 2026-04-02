@@ -1,0 +1,21 @@
+# Prometheus configuration for the AegisBPF + OTel demo stack
+#
+# Scrapes metrics from:
+# 1. AegisBPF agent (via `aegisbpf metrics`)
+# 2. OpenTelemetry Collector internal metrics
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # AegisBPF agent metrics (run: aegisbpf metrics --listen :9100)
+  - job_name: "aegisbpf"
+    static_configs:
+      - targets: ["host.docker.internal:9100"]
+    scrape_interval: 10s
+
+  # OTel Collector metrics
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]
