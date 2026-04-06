@@ -12,5 +12,6 @@
 #include "aegis_net.bpf.h"
 #include "aegis_kernel.bpf.h"
 #include "aegis_overlay.bpf.h"
+#include "aegis_ima.bpf.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";

@@ -21,8 +21,9 @@ struct KernelFeatures {
     bool bpf_syscall = false;   // BPF syscall available
     bool tracepoints = false;   // Tracepoints available
     bool ima = false;           // IMA securityfs availability
-    bool ima_appraisal = false; // IMA appraisal policy active
-    std::string kernel_version; // Kernel version string (e.g., "6.1.0")
+    bool ima_appraisal = false;  // IMA appraisal policy active
+    bool bpf_ima_helpers = false; // bpf_ima_file_hash() available (kernel 6.1+)
+    std::string kernel_version;  // Kernel version string (e.g., "6.1.0")
     int kernel_major = 0;       // Major version number
     int kernel_minor = 0;       // Minor version number
     int kernel_patch = 0;       // Patch version number

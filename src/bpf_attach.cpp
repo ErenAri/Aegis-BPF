@@ -84,6 +84,7 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     state.module_load_hook_attached = false;
     state.bpf_hook_attached = false;
     state.overlay_copy_up_hook_attached = false;
+    state.ima_hook_attached = false;
 
     auto fail = [&root_span](const Error& error) -> Result<void> {
         root_span.fail(error.to_string());
@@ -240,6 +241,13 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         bpf_program* overlay_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_copy_up");
         attach_optional_program(state, overlay_prog, state.overlay_copy_up_hook_attached,
                                 "Optional overlay copy-up hook attach failed");
+    }
+
+    // IMA hash verification hook (optional, kernel 6.1+)
+    if (lsm_enabled) {
+        bpf_program* ima_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_ima_check");
+        attach_optional_program(state, ima_prog, state.ima_hook_attached,
+                                "Optional IMA hash verification hook attach failed");
     }
 
     state.attach_contract_valid = true;

@@ -42,6 +42,7 @@ inline constexpr const char* kNetIpStatsPin = "/sys/fs/bpf/aegisbpf/net_ip_stats
 inline constexpr const char* kNetPortStatsPin = "/sys/fs/bpf/aegisbpf/net_port_stats";
 inline constexpr const char* kDiagnosticsPin = "/sys/fs/bpf/aegisbpf/diagnostics";
 inline constexpr const char* kDeadProcessesPin = "/sys/fs/bpf/aegisbpf/dead_processes";
+inline constexpr const char* kTrustedExecHashPin = "/sys/fs/bpf/aegisbpf/trusted_exec_hash";
 
 // Break-glass detection paths
 inline constexpr const char* kBreakGlassPath = "/etc/aegisbpf/break_glass";
@@ -59,7 +60,7 @@ inline constexpr const char* kControlLogPath = "/var/lib/aegisbpf/control_log.js
 inline constexpr const char* kControlLockPath = "/var/lib/aegisbpf/control.lock";
 inline constexpr const char* kBpfObjHashPath = "/etc/aegisbpf/aegis.bpf.sha256";
 inline constexpr const char* kBpfObjHashInstallPath = "/usr/lib/aegisbpf/aegis.bpf.sha256";
-inline constexpr const char* kCapabilitiesSchemaSemver = "1.5.0";
+inline constexpr const char* kCapabilitiesSchemaSemver = "1.6.0";
 inline constexpr uint32_t kLayoutVersion = 2;
 inline constexpr size_t kDenyPathMax = 256;
 inline constexpr uint8_t kEnforceSignalNone = 0;
@@ -75,6 +76,7 @@ inline constexpr uint8_t kExecIdentityFlagAllowlistEnforce = 1u << 0;
 inline constexpr uint8_t kExecIdentityFlagProtectConnect = 1u << 1;
 inline constexpr uint8_t kExecIdentityFlagProtectFiles = 1u << 2;
 inline constexpr uint8_t kExecIdentityFlagTrustRuntimeDeps = 1u << 3;
+inline constexpr uint8_t kExecIdentityFlagUseImaHash = 1u << 6;
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
@@ -114,6 +116,8 @@ enum HookId : uint32_t {
     HOOK_MODULE_LOAD = 11,
     HOOK_BPF = 12,
     HOOK_INODE_COPY_UP = 13,
+    HOOK_SOCKET_RECVMSG = 14,
+    HOOK_BPRM_IMA_CHECK = 15,
     HOOK_MAX = 16,
 };
 

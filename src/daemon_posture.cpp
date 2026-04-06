@@ -195,6 +195,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"bpffs\": " << (bpffs ? "true" : "false") << ",\n";
         out << "    \"ima\": " << (features.ima ? "true" : "false") << ",\n";
         out << "    \"ima_appraisal\": " << (features.ima_appraisal ? "true" : "false") << ",\n";
+        out << "    \"bpf_ima_helpers\": " << (features.bpf_ima_helpers ? "true" : "false") << ",\n";
         out << "    \"overlay_copy_up_propagation\": " << (state.overlay_copy_up_hook_attached ? "true" : "false")
             << ",\n";
         out << "    \"deep_process_lineage\": true,\n";
@@ -212,7 +213,8 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"lsm_socket_accept\": " << (state.socket_accept_hook_attached ? "true" : "false") << ",\n";
         out << "    \"lsm_socket_sendmsg\": " << (state.socket_sendmsg_hook_attached ? "true" : "false") << ",\n";
         out << "    \"lsm_socket_recvmsg\": " << (state.socket_recvmsg_hook_attached ? "true" : "false") << ",\n";
-        out << "    \"lsm_inode_copy_up\": " << (state.overlay_copy_up_hook_attached ? "true" : "false") << "\n";
+        out << "    \"lsm_inode_copy_up\": " << (state.overlay_copy_up_hook_attached ? "true" : "false") << ",\n";
+        out << "    \"lsm_bprm_ima_check\": " << (state.ima_hook_attached ? "true" : "false") << "\n";
         out << "  },\n";
         out << "  \"policy\": {\n";
         out << "    \"applied_path\": \"" << json_escape(applied_policy_path) << "\",\n";

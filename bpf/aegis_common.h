@@ -45,6 +45,7 @@
 #define EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS (1U << 3)
 #define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4)  /* treat overlayfs as verifiable (containers) */
 #define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)      /* don't require FS_VERITY_FL (dev/testing) */
+#define EXEC_IDENTITY_FLAG_USE_IMA_HASH (1U << 6)     /* enable IMA-based hash verification (kernel 6.1+) */
 
 #ifndef FS_VERITY_FL
 #define FS_VERITY_FL 0x00100000
@@ -404,6 +405,20 @@ struct {
     __type(key, struct inode_id);
     __type(value, __u8);
 } allow_exec_inode_map SEC(".maps");
+
+/* Trusted exec hash map: SHA-256 hashes of allowed binaries.
+ * Used by the IMA-based hash verification hook (kernel 6.1+).
+ * Populated by userspace from policy when EXEC_IDENTITY_FLAG_USE_IMA_HASH is set. */
+#define MAX_TRUSTED_EXEC_HASH_ENTRIES 16384
+struct exec_hash_key {
+    __u8 sha256[32];
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_TRUSTED_EXEC_HASH_ENTRIES);
+    __type(key, struct exec_hash_key);
+    __type(value, __u8);
+} trusted_exec_hash SEC(".maps");
 
 /* Exec identity mode toggle: key=0, value=0/1 */
 struct {
@@ -1153,6 +1168,7 @@ enum hook_id {
     HOOK_BPF = 12,
     HOOK_INODE_COPY_UP = 13,
     HOOK_SOCKET_RECVMSG = 14,
+    HOOK_BPRM_IMA_CHECK = 15,
 };
 
 static __always_inline void record_hook_latency(__u32 hook, __u64 start_ns)
