@@ -43,6 +43,67 @@ namespace aegis {
 namespace {
 Result<void> setup_agent_cgroup(BpfState& state);
 
+// OverlayFS copy-up deny rule propagation.
+// When a denied inode is copied to the overlay upper layer, the new inode
+// gets a different inode number. This handler propagates deny rules from
+// the old inode to the new one by re-statting the original path.
+struct OverlayCopyUpPropagator {
+    int deny_inode_fd = -1;
+};
+
+void on_overlay_copy_up_propagate(void* ctx, const OverlayCopyUpEvent& ev)
+{
+    auto* prop = static_cast<OverlayCopyUpPropagator*>(ctx);
+    if (prop->deny_inode_fd < 0) {
+        return;
+    }
+
+    InodeId old_id{};
+    old_id.ino = ev.src_ino;
+    old_id.dev = ev.src_dev;
+    old_id.pad = 0;
+
+    // Read deny_db to find the tracked path for this inode
+    DenyEntries entries = read_deny_db();
+    auto it = entries.find(old_id);
+    if (it == entries.end() || it->second.empty()) {
+        return;
+    }
+
+    // Stat the path — after copy-up, it resolves to the new upper-layer inode
+    struct stat st {};
+    if (::stat(it->second.c_str(), &st) != 0) {
+        return;
+    }
+
+    InodeId new_id{};
+    new_id.ino = st.st_ino;
+    new_id.dev = encode_dev(st.st_dev);
+    new_id.pad = 0;
+
+    if (new_id == old_id) {
+        return;
+    }
+
+    // Propagate: merge deny flags into the new inode entry
+    uint8_t flags = ev.deny_flags;
+    uint8_t existing = 0;
+    if (bpf_map_lookup_elem(prop->deny_inode_fd, &new_id, &existing) == 0) {
+        flags = static_cast<uint8_t>(flags | existing);
+    }
+    if (bpf_map_update_elem(prop->deny_inode_fd, &new_id, &flags, BPF_ANY) == 0) {
+        // Persist the new mapping so subsequent policy reloads include it
+        entries[new_id] = it->second;
+        (void)write_deny_db(entries);
+
+        logger().log(SLOG_INFO("Overlay copy-up: propagated deny rules to new inode")
+                         .field("path", it->second)
+                         .field("old_ino", static_cast<int64_t>(old_id.ino))
+                         .field("new_ino", static_cast<int64_t>(new_id.ino))
+                         .field("flags", static_cast<int64_t>(flags)));
+    }
+}
+
 // Production defaults for daemon dependencies
 DaemonDeps make_default_deps()
 {
@@ -662,6 +723,14 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     auto& exec_identity_enforcer = gate.exec_identity_enforcer;
     auto& event_callbacks = gate.event_callbacks;
 
+    // Wire up overlay copy-up deny rule propagation when the hook is attached
+    OverlayCopyUpPropagator overlay_propagator;
+    if (state.overlay_copy_up_hook_attached && state.deny_inode) {
+        overlay_propagator.deny_inode_fd = bpf_map__fd(state.deny_inode);
+        event_callbacks.on_overlay_copy_up = on_overlay_copy_up_propagate;
+        event_callbacks.overlay_ctx = &overlay_propagator;
+    }
+
     {
         const bool file_open_hook_attached = lsm_enabled && use_file_open;
         const bool inode_permission_hook_attached = lsm_enabled && use_inode_permission;
@@ -686,8 +755,9 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         }
     }
 
+    const bool has_event_callbacks = event_callbacks.on_exec || event_callbacks.on_overlay_copy_up;
     RingBufferGuard rb(ring_buffer__new(bpf_map__fd(state.events), handle_event,
-                                        event_callbacks.on_exec ? &event_callbacks : nullptr, nullptr));
+                                        has_event_callbacks ? &event_callbacks : nullptr, nullptr));
     if (!rb) {
         emit_runtime_state_change(RuntimeState::Degraded, "RINGBUF_CREATE_FAILED", "ring_buffer__new returned null");
         logger().log(SLOG_ERROR("Failed to create ring buffer"));
@@ -705,7 +775,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
     // Attach priority ring buffer for forensic/security-critical events
     if (state.priority_events) {
         int pri_rc = ring_buffer__add(rb.get(), bpf_map__fd(state.priority_events), handle_event,
-                                      event_callbacks.on_exec ? &event_callbacks : nullptr);
+                                      has_event_callbacks ? &event_callbacks : nullptr);
         if (pri_rc < 0) {
             logger().log(SLOG_WARN("Failed to attach priority ring buffer, continuing without it"));
         }

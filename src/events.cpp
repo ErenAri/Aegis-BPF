@@ -564,6 +564,9 @@ int handle_event(void* ctx, void* data, size_t)
         print_kernel_block_event(e->kernel_block);
     } else if (e->type == EVENT_OVERLAY_COPY_UP) {
         print_overlay_copy_up_event(e->overlay_copy_up);
+        if (callbacks && callbacks->on_overlay_copy_up) {
+            callbacks->on_overlay_copy_up(callbacks->overlay_ctx, e->overlay_copy_up);
+        }
     }
     return 0;
 }

@@ -17,10 +17,13 @@ bool sink_wants_journald(EventLogSink sink);
 bool set_event_log_sink(const std::string& value);
 
 using ExecEventCallback = void (*)(void* user_ctx, const ExecEvent& ev);
+using OverlayCopyUpCallback = void (*)(void* user_ctx, const OverlayCopyUpEvent& ev);
 
 struct EventCallbacks {
     ExecEventCallback on_exec = nullptr;
     void* user_ctx = nullptr;
+    OverlayCopyUpCallback on_overlay_copy_up = nullptr;
+    void* overlay_ctx = nullptr;
 };
 
 // Event handling
