@@ -219,7 +219,8 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
                                 "Optional socket_recvmsg hook attach failed");
     }
 
-    // Kernel security hooks (ptrace, module load, bpf) - all optional
+    // Optional LSM-only hooks: kernel security (ptrace/module/bpf), overlay
+    // copy-up propagation, and IMA hash verification (kernel 6.1+).
     if (lsm_enabled) {
         ScopedSpan span("bpf.attach.kernel_security_hooks", trace_id, root_span.span_id());
         (void)span;
@@ -233,18 +234,14 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
 
         bpf_program* bpf_prog = bpf_object__find_program_by_name(state.obj, "handle_bpf");
         attach_optional_program(state, bpf_prog, state.bpf_hook_attached, "Optional BPF hook attach failed");
-    }
 
-    // OverlayFS copy-up hook (optional) - detects when denied inodes are copied
-    // from the overlay lower layer to the upper layer, enabling deny rule propagation
-    if (lsm_enabled) {
+        // OverlayFS copy-up hook: detects when denied inodes are copied from the
+        // overlay lower layer to the upper layer, enabling deny rule propagation.
         bpf_program* overlay_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_copy_up");
         attach_optional_program(state, overlay_prog, state.overlay_copy_up_hook_attached,
                                 "Optional overlay copy-up hook attach failed");
-    }
 
-    // IMA hash verification hook (optional, kernel 6.1+)
-    if (lsm_enabled) {
+        // IMA hash verification hook (kernel 6.1+).
         bpf_program* ima_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_ima_check");
         attach_optional_program(state, ima_prog, state.ima_hook_attached,
                                 "Optional IMA hash verification hook attach failed");

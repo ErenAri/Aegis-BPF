@@ -323,6 +323,10 @@ TEST(StructLayout, EventUnionContainsOverlay)
     ev.overlay_copy_up.src_dev = 678;
     ev.overlay_copy_up.deny_flags = 1;
 
+    EXPECT_EQ(ev.type, static_cast<uint32_t>(EVENT_OVERLAY_COPY_UP));
     EXPECT_EQ(ev.overlay_copy_up.pid, 42u);
+    EXPECT_EQ(ev.overlay_copy_up.cgid, 100u);
     EXPECT_EQ(ev.overlay_copy_up.src_ino, 12345u);
+    EXPECT_EQ(ev.overlay_copy_up.src_dev, 678u);
+    EXPECT_EQ(ev.overlay_copy_up.deny_flags, 1u);
 }

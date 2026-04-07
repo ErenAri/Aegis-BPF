@@ -208,15 +208,15 @@ bool RuleEngine::glob_match(const std::string& pattern, const std::string& text)
 bool RuleEngine::evaluate_condition_exec(const RuleCondition& cond, const ExecEvent& ev)
 {
     std::string comm(ev.comm, strnlen(ev.comm, sizeof(ev.comm)));
+    /* AncestorComm requires userspace enrichment; raw BPF exec events
+     * carry only PIDs.  All non-comm condition types are unsupported on
+     * exec events and fall through to the default `return false` below. */
     switch (cond.type) {
         case ConditionType::CommExact:
             return comm == cond.value;
         case ConditionType::CommPrefix:
             return comm.compare(0, cond.value.size(), cond.value) == 0;
         case ConditionType::AncestorComm:
-            /* Ancestor comm matching requires userspace enrichment;
-             * not available from raw BPF exec events (only PIDs). */
-            return false;
         case ConditionType::PathGlob:
         case ConditionType::PathPrefix:
         case ConditionType::UidEquals:
