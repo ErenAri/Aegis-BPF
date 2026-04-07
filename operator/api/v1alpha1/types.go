@@ -8,6 +8,8 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=ap,categories=aegisbpf
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="EnforceCapable",type=string,JSONPath=`.status.conditions[?(@.type=="EnforceCapable")].status`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Nodes",type=integer,JSONPath=`.status.appliedNodes`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -34,6 +36,8 @@ type AegisPolicyList struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=acp,categories=aegisbpf
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="EnforceCapable",type=string,JSONPath=`.status.conditions[?(@.type=="EnforceCapable")].status`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
@@ -181,17 +185,78 @@ type KernelRules struct {
 	BlockBpfSyscall bool `json:"blockBpfSyscall,omitempty"`
 }
 
+// Standard condition types for AegisPolicy and AegisClusterPolicy.
+//
+// Operators should consume these instead of the legacy `Phase` field, which
+// remains for backwards compatibility and is shown in `kubectl get` output
+// only as a quick-glance summary.
+const (
+	// ConditionReady is True when the policy has been translated and the
+	// generated ConfigMap is in sync with the latest spec generation.
+	ConditionReady = "Ready"
+
+	// ConditionPolicyValid is True when the spec passed validation and
+	// translation. False indicates a structural problem in the spec
+	// (Reason explains what).
+	ConditionPolicyValid = "PolicyValid"
+
+	// ConditionEnforceCapable is True when at least one node in scope is
+	// running an Aegis daemon that reports the kernel features required to
+	// enforce this policy (BPF LSM, BTF, ringbuf, plus any feature gates
+	// the spec opted into such as IMA appraisal). False with a Reason of
+	// e.g. `BPFLSMUnavailable` tells the operator exactly why enforcement
+	// is degraded.
+	ConditionEnforceCapable = "EnforceCapable"
+
+	// ConditionDegraded is True when the controller has hit a transient or
+	// recoverable problem (e.g. ConfigMap update failed, daemon posture
+	// not yet observed). It does not by itself indicate that enforcement
+	// is broken — Ready and EnforceCapable carry that signal.
+	ConditionDegraded = "Degraded"
+)
+
+// Standard condition reasons. These are stable strings that callers
+// (dashboards, CI, alerting) can match on; do not rename without bumping
+// the API version.
+const (
+	ReasonPolicyApplied           = "PolicyApplied"
+	ReasonTranslationFailed       = "TranslationFailed"
+	ReasonConfigMapWriteFailed    = "ConfigMapWriteFailed"
+	ReasonAwaitingNodePosture     = "AwaitingNodePosture"
+	ReasonBPFLSMUnavailable       = "BPFLSMUnavailable"
+	ReasonIMAAppraisalUnavailable = "IMAAppraisalUnavailable"
+	ReasonNoMatchingWorkloads     = "NoMatchingWorkloads"
+)
+
 // AegisPolicyStatus defines the observed state of an Aegis policy.
+//
+// Operators should prefer the structured `Conditions` array for automation;
+// `Phase`/`Message` are retained for human-friendly `kubectl get` output.
 type AegisPolicyStatus struct {
-	// Phase indicates the policy lifecycle phase.
+	// Phase indicates the policy lifecycle phase. Retained for
+	// backwards compatibility with the printer column. Automation should
+	// prefer the Conditions array.
 	// +kubebuilder:validation:Enum=Pending;Applied;Error
+	// +optional
 	Phase string `json:"phase,omitempty"`
 
-	// Message provides human-readable status details.
+	// Message provides a human-readable summary of the most recent
+	// reconcile. Automation should prefer Conditions[*].Message.
 	// +optional
 	Message string `json:"message,omitempty"`
 
+	// Conditions report the current observed state of this policy.
+	// Standard condition types are: Ready, PolicyValid, EnforceCapable,
+	// Degraded. See the v1alpha1 package constants for reason strings.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
 	// AppliedNodes is the number of nodes where this policy is active.
+	// +optional
 	AppliedNodes int `json:"appliedNodes,omitempty"`
 
 	// LastAppliedAt is the timestamp of the last successful application.
@@ -203,6 +268,7 @@ type AegisPolicyStatus struct {
 	PolicyHash string `json:"policyHash,omitempty"`
 
 	// ObservedGeneration is the generation most recently observed by the controller.
+	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 

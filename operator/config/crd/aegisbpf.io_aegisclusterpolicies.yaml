@@ -26,6 +26,12 @@ spec:
         - name: Mode
           type: string
           jsonPath: .spec.mode
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: EnforceCapable
+          type: string
+          jsonPath: .status.conditions[?(@.type=="EnforceCapable")].status
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -143,6 +149,48 @@ spec:
                   enum: [Pending, Applied, Error]
                 message:
                   type: string
+                conditions:
+                  description: |
+                    Conditions report the current observed state of this policy.
+                    Standard types: Ready, PolicyValid, EnforceCapable, Degraded.
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - lastTransitionTime
+                      - message
+                    properties:
+                      type:
+                        type: string
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      message:
+                        type: string
+                        maxLength: 32768
                 appliedNodes:
                   type: integer
                 lastAppliedAt:

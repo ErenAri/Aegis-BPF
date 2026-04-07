@@ -2,9 +2,24 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+AegisBPF is in `0.x` and follows a "current minor + previous minor" support
+window. Older minors receive no further fixes (security or otherwise) once
+they fall out of the window. When a new minor is released, the third-oldest
+minor moves to End of Life immediately.
+
+| Version | Status            | Notes                                       |
+| ------- | ----------------- | ------------------------------------------- |
+| 0.4.x   | Pre-release       | Tracks `main`. Not yet a published release. |
+| 0.3.x   | Supported         | Current stable. All security fixes land here. |
+| 0.2.x   | Supported         | Previous minor. Critical security fixes only. |
+| 0.1.x   | End of Life       | No further fixes. Upgrade to 0.3.x.         |
+
+Release notes for each minor live on the GitHub Releases page:
+<https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/releases>
+
+This table is the authoritative source for supportedness. If it ever
+disagrees with anything else in the repository, this table wins and the
+other location is a bug — please file an issue.
 
 ## Reporting a Vulnerability
 
@@ -173,14 +188,22 @@ The following environment variables affect security behavior. In production, avo
 
 ## Known Limitations
 
-1. **BPF LSM requirement**: Full blocking requires BPF LSM to be enabled in the kernel.
+1. **BPF LSM requirement**: Full blocking requires BPF LSM to be enabled in
+   the kernel. Without it, the agent degrades to audit-only and cannot block
+   file or network operations.
 2. **Root namespace only**: The agent must run in the host PID/cgroup namespace.
-3. **No live policy reload**: Policy changes require agent restart.
-4. **Namespace/path ambiguity**: Path canonicalization occurs in the agent mount
-   namespace; bind-mount and overlay paths can differ from workload-visible
-   paths.
-5. **Coverage limits**: Network enforcement currently focuses on connect/bind
-   hooks; other socket paths are not yet covered.
+3. **Namespace/path ambiguity**: Path canonicalization occurs in the agent
+   mount namespace; bind-mount and overlay paths can differ from
+   workload-visible paths. Inode-based denies (`deny_inode`) avoid this
+   class of confusion and are preferred when correctness matters.
+4. **No independent third-party security review**: see
+   `docs/EXTERNAL_VALIDATION.md`. Until that page lists a published review,
+   assume none has been performed.
+5. **No head-to-head competitive performance evidence**: see
+   `docs/PERFORMANCE_COMPARISON.md`. Comparative micro-benchmarks against
+   Falco / Tetragon / Tracee / KubeArmor have not been run on the same
+   hardware in this repository. Estimated numbers were removed in
+   2026-04-08.
 
 ## Security Fixes History
 

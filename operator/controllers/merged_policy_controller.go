@@ -138,14 +138,14 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 				"aegisbpf.io/policy-type":      "merged",
 			},
 			Annotations: map[string]string{
-				"aegisbpf.io/policy-hash":    merged.SHA256,
-				"aegisbpf.io/last-applied":   time.Now().UTC().Format(time.RFC3339),
-				"aegisbpf.io/policy-count":   fmt.Sprintf("%d", len(results)),
+				"aegisbpf.io/policy-hash":  merged.SHA256,
+				"aegisbpf.io/last-applied": time.Now().UTC().Format(time.RFC3339),
+				"aegisbpf.io/policy-count": fmt.Sprintf("%d", len(results)),
 			},
 		},
 		Data: map[string]string{
-			PolicyDataKey:   merged.INI,
-			PolicyHashKey:   merged.SHA256,
+			PolicyDataKey:       merged.INI,
+			PolicyHashKey:       merged.SHA256,
 			MergedPolicyModeKey: mode,
 		},
 	}

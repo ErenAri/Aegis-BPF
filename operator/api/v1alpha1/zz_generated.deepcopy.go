@@ -6,6 +6,7 @@
 package v1alpha1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -287,6 +288,13 @@ func (in *KernelRules) DeepCopy() *KernelRules {
 // DeepCopyInto copies AegisPolicyStatus.
 func (in *AegisPolicyStatus) DeepCopyInto(out *AegisPolicyStatus) {
 	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.LastAppliedAt != nil {
 		in, out := &in.LastAppliedAt, &out.LastAppliedAt
 		*out = (*in).DeepCopy()

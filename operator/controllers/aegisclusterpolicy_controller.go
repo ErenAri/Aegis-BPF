@@ -75,8 +75,13 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	result, err := policy.TranslateToINI(acp.Spec)
 	if err != nil {
 		logger.Error(err, "Failed to translate cluster policy")
+		markPolicyInvalid(&acp.Status, acp.Generation,
+			v1alpha1.ReasonTranslationFailed,
+			fmt.Sprintf("Translation failed: %v", err))
 		return r.updateStatus(ctx, &acp, "Error", fmt.Sprintf("Translation failed: %v", err), "")
 	}
+	markPolicyValid(&acp.Status, acp.Generation)
+	markEnforceCapableUnknown(&acp.Status, acp.Generation)
 
 	logger.Info("Translated cluster policy",
 		"name", acp.Name,
@@ -91,9 +96,9 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 			Name:      cmName,
 			Namespace: SystemNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":  "aegis-operator",
-				"aegisbpf.io/policy-source":     acp.Name,
-				"aegisbpf.io/policy-scope":      "cluster",
+				"app.kubernetes.io/managed-by": "aegis-operator",
+				"aegisbpf.io/policy-source":    acp.Name,
+				"aegisbpf.io/policy-scope":     "cluster",
 			},
 			Annotations: map[string]string{
 				"aegisbpf.io/policy-hash":  result.SHA256,
@@ -114,6 +119,9 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 			return ctrl.Result{}, nsErr
 		}
 		if err := r.Create(ctx, cm); err != nil {
+			markDegraded(&acp.Status, acp.Generation,
+				v1alpha1.ReasonConfigMapWriteFailed,
+				fmt.Sprintf("ConfigMap create failed: %v", err))
 			return r.updateStatus(ctx, &acp, "Error", fmt.Sprintf("ConfigMap create failed: %v", err), "")
 		}
 	} else if err != nil {
@@ -124,11 +132,15 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 			existing.Labels = cm.Labels
 			existing.Annotations = cm.Annotations
 			if err := r.Update(ctx, &existing); err != nil {
+				markDegraded(&acp.Status, acp.Generation,
+					v1alpha1.ReasonConfigMapWriteFailed,
+					fmt.Sprintf("ConfigMap update failed: %v", err))
 				return r.updateStatus(ctx, &acp, "Error", fmt.Sprintf("ConfigMap update failed: %v", err), "")
 			}
 		}
 	}
 
+	markReady(&acp.Status, acp.Generation, "Cluster policy translated and ConfigMap written")
 	return r.updateStatus(ctx, &acp, "Applied", "Cluster policy applied successfully", result.SHA256)
 }
 

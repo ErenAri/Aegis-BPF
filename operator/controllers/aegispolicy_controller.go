@@ -92,8 +92,13 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	result, err := policy.TranslateToINI(ap.Spec)
 	if err != nil {
 		logger.Error(err, "Failed to translate policy")
+		markPolicyInvalid(&ap.Status, ap.Generation,
+			v1alpha1.ReasonTranslationFailed,
+			fmt.Sprintf("Translation failed: %v", err))
 		return r.updateStatus(ctx, &ap, "Error", fmt.Sprintf("Translation failed: %v", err), "")
 	}
+	markPolicyValid(&ap.Status, ap.Generation)
+	markEnforceCapableUnknown(&ap.Status, ap.Generation)
 
 	logger.Info("Translated policy",
 		"namespace", ap.Namespace,
@@ -114,9 +119,9 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				"aegisbpf.io/source-namespace": ap.Namespace,
 			},
 			Annotations: map[string]string{
-				"aegisbpf.io/policy-hash":    result.SHA256,
-				"aegisbpf.io/last-applied":   time.Now().UTC().Format(time.RFC3339),
-				"aegisbpf.io/source-policy":  fmt.Sprintf("%s/%s", ap.Namespace, ap.Name),
+				"aegisbpf.io/policy-hash":   result.SHA256,
+				"aegisbpf.io/last-applied":  time.Now().UTC().Format(time.RFC3339),
+				"aegisbpf.io/source-policy": fmt.Sprintf("%s/%s", ap.Namespace, ap.Name),
 			},
 		},
 		Data: map[string]string{
@@ -136,6 +141,9 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		logger.Info("Creating policy ConfigMap", "configmap", cmName)
 		if err := r.Create(ctx, cm); err != nil {
+			markDegraded(&ap.Status, ap.Generation,
+				v1alpha1.ReasonConfigMapWriteFailed,
+				fmt.Sprintf("ConfigMap create failed: %v", err))
 			return r.updateStatus(ctx, &ap, "Error", fmt.Sprintf("ConfigMap create failed: %v", err), "")
 		}
 	} else if err != nil {
@@ -150,11 +158,15 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			existing.Annotations = cm.Annotations
 			logger.Info("Updating policy ConfigMap", "configmap", cmName, "newHash", result.SHA256[:12])
 			if err := r.Update(ctx, &existing); err != nil {
+				markDegraded(&ap.Status, ap.Generation,
+					v1alpha1.ReasonConfigMapWriteFailed,
+					fmt.Sprintf("ConfigMap update failed: %v", err))
 				return r.updateStatus(ctx, &ap, "Error", fmt.Sprintf("ConfigMap update failed: %v", err), "")
 			}
 		}
 	}
 
+	markReady(&ap.Status, ap.Generation, "Policy translated and ConfigMap written")
 	return r.updateStatus(ctx, &ap, "Applied", "Policy applied successfully", result.SHA256)
 }
 

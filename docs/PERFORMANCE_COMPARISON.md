@@ -1,199 +1,206 @@
-# AegisBPF Performance Comparison
+# AegisBPF vs Other eBPF Runtime Security Tools
 
-This document provides a comparative analysis of AegisBPF against other
-eBPF-based runtime security tools, covering architectural differences,
-performance characteristics, and resource consumption.
+Status: **honest-draft**
+Last updated: 2026-04-07
 
-## Architecture Comparison
+This document compares AegisBPF against other eBPF-based runtime security
+tools (Falco, Tetragon, Tracee, KubeArmor). **It deliberately avoids
+side-by-side performance numbers that have not been measured on the same
+hardware in this repository.** Earlier revisions of this document included
+µs and MB figures copied from third-party blog posts and architecture
+diagrams — those have been removed. The replacement methodology is in
+[`docs/COMPETITIVE_BENCH_METHODOLOGY.md`](COMPETITIVE_BENCH_METHODOLOGY.md)
+and reproducible via [`scripts/compare_runtime_security.sh`](../scripts/compare_runtime_security.sh).
 
-| Feature | AegisBPF | Falco | Tetragon | Tracee |
-|---------|----------|-------|----------|--------|
-| **Enforcement model** | BPF LSM deny-list | Detect-only (rules engine) | BPF LSM + tracing | Detect-only + LSM |
-| **Policy language** | Declarative INI | YAML rules (Falco rules) | CRDs (TracingPolicy) | Rego / Signatures |
-| **Hook mechanism** | LSM hooks + tracepoints | Kernel module / eBPF | LSM hooks + kprobes | Tracepoints + LSM |
-| **Language** | C++20 / C (BPF) | C++ (userspace) | Go (userspace) | Go (userspace) |
-| **Policy evaluation** | In-kernel (O(1) hash) | Userspace (rule engine) | In-kernel | Hybrid |
-| **Hot-reload** | Atomic map swap (<50ms) | Rule file reload | CRD apply | Signature reload |
-| **Container-native** | Cgroup-aware | Container runtime | Kubernetes-native | Container-native |
+## Honesty preface
 
-## Performance Characteristics
+Two classes of claim appear below:
 
-### Why AegisBPF Is Fast
+- **Verifiable** — backed by code in this repository, tests in CI, or
+  benchmarks that are reproducible on the reader's own hardware.
+- **Architectural** — follows from the upstream design of each tool and
+  can be cross-checked against their published source.
 
-1. **Inode-first policy evaluation**: Deny decisions use BPF hash map lookups
-   (O(1)) on inode+device pairs. Path resolution happens only after a match,
-   not for every syscall. Competitors that evaluate path-based rules must
-   resolve paths on every check.
+Anything that would require a head-to-head benchmark has been removed. If
+you want those numbers, run `scripts/compare_runtime_security.sh` on a
+clean host that has all four agents installed.
 
-2. **Minimal userspace involvement**: All enforcement decisions happen in
-   BPF programs at the kernel boundary. Userspace only handles event
-   consumption and policy management — never enforcement decisions.
+## Architecture comparison (verifiable / architectural)
 
-3. **Compact deny maps**: Hash maps with 16-byte keys and 1-byte values
-   minimize cache pressure. One cache line can hold multiple deny entries.
+| Trait | AegisBPF | Falco | Tetragon | Tracee | KubeArmor |
+|---|---|---|---|---|---|
+| Primary purpose | Enforcement + audit | Detection / alerting | Enforcement + observability | Detection + signatures | Enforcement + audit |
+| Enforcement via BPF LSM | Yes (14 hooks) | No | Yes | Limited | Yes |
+| Policy evaluation | In-kernel, hash/LPM map | Userspace rule engine | In-kernel per TracingPolicy | Hybrid / userspace | In-kernel + userspace |
+| Policy language | Declarative INI | Falco rules (DSL) | CRDs (TracingPolicy) | Rego / Go signatures | CRD (KubeArmorPolicy) |
+| Hot-reload | Atomic shadow-map swap | Rule-file reload | CRD apply | Signature reload | CRD apply |
+| Primary language | C++20 + C (BPF) | C++ | Go | Go | Go |
 
-4. **No rule engine overhead**: AegisBPF uses direct map lookups, not a
-   rules engine. There is no rule-ordering overhead, no regex evaluation,
-   and no condition chain to process per-syscall.
+## Kernel hook coverage (verifiable — `bpf/*.bpf.h`)
 
-5. **Single-binary deployment**: No sidecar, no daemon framework, no gRPC
-   overhead. The agent is a single static binary with sub-second startup.
+AegisBPF attaches 14 unique BPF LSM hooks and 4 tracepoints:
 
-### Performance Metrics
+| Category | Hooks |
+|---|---|
+| File / exec | `file_open`, `inode_permission`, `bprm_check_security` (exec identity), `bprm_check_security` (IMA hash), `file_mmap` |
+| Socket lifecycle | `socket_connect`, `socket_bind`, `socket_listen`, `socket_accept`, `socket_sendmsg`, `socket_recvmsg` |
+| Kernel security | `ptrace_access_check`, `locked_down`, `bpf` |
+| Overlay / container | `inode_copy_up` |
+| Tracepoints (audit fallback) | `sys_enter_execve`, `sys_enter_openat`, `sched_process_fork`, `sched_process_exit` |
 
-| Metric | AegisBPF | Falco¹ | Tetragon² | Tracee³ |
-|--------|----------|--------|-----------|---------|
-| **File open overhead** | 0.1–0.5 µs | 2–5 µs | 0.5–2 µs | 3–8 µs |
-| **Network connect overhead** | 0.2–1.0 µs | N/A⁴ | 0.5–3 µs | 2–6 µs |
-| **Memory (idle, no rules)** | ~15 MB | ~85 MB | ~45 MB | ~120 MB |
-| **Memory (10k rules)** | ~20 MB | ~150 MB | ~80 MB | ~200 MB |
-| **Startup time** | <0.5s | 3–5s | 1–2s | 2–4s |
-| **Policy reload** | <50ms | 1–5s | 2–10s | 1–5s |
-| **CPU at 1k events/s** | <1% | 3–5% | 1–3% | 5–10% |
-| **Binary size** | ~2 MB | ~50 MB⁵ | ~30 MB | ~40 MB |
+Hooks that are architecturally uncommon in peer tools:
 
-¹ Falco 0.37+ with modern BPF driver
-² Cilium Tetragon 1.0+
-³ Aqua Tracee 0.20+
-⁴ Falco monitors network via syscall tracing, not enforcement
-⁵ Including rules engine and YAML parser
+- **`socket_recvmsg` and `socket_accept`** — most eBPF security tools stop
+  at `connect`/`bind`. Hooking the receive path enables detection of
+  inbound data from denied peers, not just outbound initiation.
+- **`inode_copy_up`** — OverlayFS copy-up propagation for deny rules.
+  Without this, a container that writes to a lower-layer file creates a
+  new upper-layer inode that silently bypasses an inode-based deny rule.
+- **IMA hash path in `bprm_check_security`** — cross-checks the exec'd
+  binary's IMA hash against an allowlist on kernels 6.1+.
 
-> **Note**: These numbers are estimated based on public benchmarks, published
-> documentation, and architectural analysis. Actual performance varies by
-> workload, kernel version, and configuration. Run `benchmarks/` scripts
-> for reproducible measurements on your hardware.
+## Enforcement guarantees with CI proofs (verifiable — `docs/ENFORCEMENT_CLAIMS.md`)
 
-### Why These Numbers Matter
+Every enforcement guarantee in AegisBPF has a proof script that runs on a
+real BPF LSM kernel in CI (`scripts/e2e_enforcement_proofs.sh`, workflow
+`e2e.yml`). The current matrix is nine claims:
 
-For a host processing 10,000 file opens per second:
+| # | Claim | Proof |
+|---|---|---|
+| C1 | `deny_path /X` blocks `open("/X")` | `test_deny_path` |
+| C2 | `deny_inode dev:ino` blocks `open()` on that inode | `test_deny_inode` |
+| C3 | `allow_cgroup` bypasses deny for that cgroup | `test_cgroup_bypass` |
+| C4 | `deny_ipv4` blocks `connect()` to that IP | `test_deny_ipv4` |
+| C5 | `deny_port` blocks `bind()` on that port | `test_deny_port` |
+| C6 | Break-glass disables enforcement | `test_break_glass` |
+| C7 | Deadman switch reverts to audit after TTL | `test_deadman` |
+| C8 | Survival allowlist prevents blocking critical binaries | `test_survival` |
+| C9 | Emergency disable stops enforcement instantly | `test_emergency` |
 
-| Agent | Added latency per open | Total overhead per second |
-|-------|----------------------|--------------------------|
-| AegisBPF | 0.3 µs | 3 ms (0.3%) |
-| Tetragon | 1.0 µs | 10 ms (1.0%) |
-| Falco | 3.0 µs | 30 ms (3.0%) |
-| Tracee | 5.0 µs | 50 ms (5.0%) |
+Falco does not claim enforcement; its equivalent is alert delivery. Tetragon
+has TracingPolicy enforcement tests upstream; Tracee and KubeArmor have
+their own claim matrices. **This repository does not reproduce peer-tool
+proofs** — cross-claims about what they can and cannot block are
+architectural, not measured.
 
-On latency-sensitive workloads (databases, trading systems, real-time
-applications), the difference between 0.3% and 5% overhead is significant.
+## Hot-path data-plane numbers (verifiable — `build/aegisbpf_bench`)
 
-## Feature Comparison
+The following numbers are produced by `build/aegisbpf_bench` on the
+reference host (13th Gen Intel i9-13900H, kernel 6.17.0-19-generic). They
+measure the userspace-visible fast-path operations that back the
+in-kernel deny decision. They are **not** syscall-level numbers — those
+live in `docs/PERF_BASELINE.md`.
 
-| Capability | AegisBPF | Falco | Tetragon | Tracee |
-|-----------|----------|-------|----------|--------|
-| **File access enforcement** | ✅ Kernel deny | ❌ Detect only | ✅ Kernel deny | ⚠️ Limited |
-| **Network enforcement** | ✅ Socket hooks | ❌ Detect only | ✅ Socket hooks | ⚠️ Limited |
-| **Process execution tracking** | ✅ BPF tracepoint | ✅ Syscall tracing | ✅ Kprobe/LSM | ✅ Tracepoint |
-| **Ptrace blocking** | ✅ LSM hook | ❌ Detect only | ✅ LSM hook | ⚠️ Signature |
-| **Module load blocking** | ✅ LSM hook | ❌ Detect only | ✅ LSM hook | ⚠️ Signature |
-| **BPF program blocking** | ✅ LSM hook | ❌ Detect only | ❌ No | ❌ No |
-| **Policy hot-reload** | ✅ Atomic swap | ⚠️ File reload | ⚠️ CRD update | ⚠️ File reload |
-| **Kubernetes-native** | ✅ CRD operator | ✅ Helm chart | ✅ CRD native | ✅ Helm chart |
-| **Prometheus metrics** | ✅ Built-in | ✅ Built-in | ✅ Built-in | ✅ Built-in |
-| **Grafana dashboards** | ✅ 4 dashboards | ✅ Community | ✅ Hubble UI | ⚠️ Community |
-| **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON export | ⚠️ JSON export |
-| **Compliance mappings** | ✅ NIST, CIS, ISO, SOC2, PCI | ⚠️ Basic | ❌ None | ❌ None |
-| **Exec identity verification** | ✅ Inode + hash | ❌ No | ❌ No | ⚠️ Signature |
-| **Break-glass mechanism** | ✅ Emergency toggle | ❌ No | ❌ No | ❌ No |
-| **Multi-arch** | ✅ x86_64, ARM64 | ✅ x86_64, ARM64 | ✅ x86_64, ARM64 | ✅ x86_64, ARM64 |
+| Operation | Time | Scales with rule count? |
+|---|---|---|
+| Deny map lookup (100 entries) | 4.22 ns | — |
+| Deny map lookup (512 entries) | 4.40 ns | — |
+| Deny map lookup (4 096 entries) | 4.50 ns | — |
+| Deny map lookup (10 000 entries) | 4.17 ns | **no** |
+| Deny map insert (100 entries) | 27.3 ns/op | linear in inserts |
+| Path key fill (short path) | 14.6 ns | — |
+| Inode ID hash | 0.10 ns | — |
+| Port key hash | 0.11 ns | — |
+| SHA-256 (short input) | 742 ns | — |
 
-## Resource Consumption Profile
+The flat 4.2–4.5 ns lookup curve from 100 to 10 000 entries is the single
+most important number here. It is evidence for the claim that
+**AegisBPF's policy evaluation is O(1) in rule count**, because it is a
+BPF hash-map lookup, not a rule-engine walk. Tools that use a rule DSL
+(Falco, Tracee signatures) are asymptotically O(rules) by construction;
+this is an architectural advantage that does not depend on benchmarking
+them.
 
-### Memory Breakdown
-
-```
-AegisBPF (15 MB typical):
-├── BPF maps (pre-allocated)     5-10 MB
-├── Ring buffer (default)        256 KB
-├── Per-CPU arrays               ~10 KB
-├── Userspace heap               5-10 MB
-│   ├── Policy tracking          ~1 MB
-│   ├── Cgroup cache             ~500 KB
-│   ├── Event processing         ~2 MB
-│   └── Process lineage          ~2 MB
-└── BPF program text             ~50 KB
-
-Falco (85 MB typical):
-├── Rules engine                 20-30 MB
-├── Syscall buffer               16-32 MB
-├── YAML parser + rule state     10-15 MB
-├── gRPC framework               10-15 MB
-└── Kernel module / eBPF         5-10 MB
-
-Tetragon (45 MB typical):
-├── Go runtime                   15-20 MB
-├── BPF maps + programs          10-15 MB
-├── CRD controller               5-10 MB
-├── Metrics + export             5-10 MB
-└── Ring buffer                  5-10 MB
-```
-
-### Scaling Behavior
-
-| Dimension | AegisBPF | Falco | Tetragon |
-|-----------|----------|-------|----------|
-| Rules × 2 | +0% CPU (O(1) lookup) | +10-20% CPU (rule eval) | +5-10% CPU |
-| Events × 2 | +linear ring buffer | +linear event queue | +linear ring buffer |
-| CPUs × 2 | +per-CPU map memory | +buffer memory | +per-CPU map memory |
-| Nodes × 2 | Linear (per-node agent) | Linear (per-node agent) | Linear (per-node agent) |
-
-## Benchmark Methodology
-
-### Running Benchmarks
+Reproduce locally:
 
 ```bash
-# Userspace benchmarks (no root required)
-./build/aegisbpf_bench --benchmark_format=json
-
-# Syscall-level benchmarks (root required)
-sudo scripts/bench_syscall.sh --json --out results.json
-
-# Quick A/B comparison
-scripts/perf_open_bench.sh            # Baseline
-sudo WITH_AGENT=1 scripts/perf_open_bench.sh  # With AegisBPF
+cmake -B build -G Ninja && cmake --build build -j$(nproc) --target aegisbpf_bench
+./build/aegisbpf_bench --benchmark_format=console | grep BM_DenyEntriesLookup
 ```
 
-### Reproducing the Comparison
+## Syscall-level overhead on the reference host
 
-To produce comparable numbers on your hardware:
+From `docs/PERF_BASELINE.md` (self-hosted perf gate, Ubuntu 24.04, kernel
+6.14, audit-only, empty policy):
 
-1. **Prepare a clean VM** (no other security agents running)
-2. **Kernel**: Ubuntu 24.04 with kernel 6.8+ (BTF enabled)
-3. **Hardware**: 4+ cores, 8+ GB RAM
-4. **Workload**: `sysbench fileio --file-test-mode=seqrd --file-num=100 run`
+- `open` p50/p95/p99 with agent: **1.22 / 1.26 / 1.47 µs**
+- `connect` p50/p95/p99 with agent: **2.16 / 3.22 / 4.60 µs**
+- `open_close` delta vs baseline: **−2.19 %** (within noise)
+
+These are **one host, one kernel, one workload, audit-only**. They show
+the agent is not detectable in this microbench — they do *not* show the
+agent is faster than competitors on arbitrary hardware. For a true
+comparison you must run `scripts/compare_runtime_security.sh` on the
+same box as the peer tools.
+
+## Architectural advantages (defensible)
+
+These statements follow from design, not from performance benchmarks
+against competitors.
+
+1. **In-kernel enforcement, not userspace alerting.** Falco and Tracee
+   are fundamentally detection engines — they cannot block a syscall.
+   AegisBPF, Tetragon, and KubeArmor can.
+2. **O(1) deny evaluation.** BPF hash-map lookups are constant-time in
+   rule count (measured flat from 100 → 10 000 entries above). Rule-engine
+   designs cannot match this asymptotically.
+3. **Full socket lifecycle coverage.** `connect`, `bind`, `listen`,
+   `accept`, `sendmsg`, `recvmsg` — most peer tools hook only the first
+   two.
+4. **OverlayFS copy-up propagation.** Container escape via copy-up is a
+   real gap; AegisBPF is the only tool I am aware of that propagates
+   deny rules across copy-up.
+5. **IMA-backed exec identity** on kernel 6.1+.
+6. **Break-glass, deadman, emergency disable** — operational safety
+   primitives with e2e proofs (C6, C7, C9).
+7. **Single static binary, no Go runtime, no GC pauses.** `build/aegisbpf`
+   is ~47 MB, sub-second startup, no sidecar, no gRPC.
+
+## What is *not* claimed
+
+These are explicit non-claims because the evidence does not exist in this
+repository:
+
+- **Any "AegisBPF is N× faster than $tool" statement.** We have not run
+  $tool on the same hardware as AegisBPF with the same workload.
+- **Memory-footprint superiority over peer tools.** AegisBPF's memory is
+  documented in `docs/PERFORMANCE.md`; peer-tool memory is not measured
+  here.
+- **MITRE ATT&CK coverage superiority.** AegisBPF does not ship a
+  technique-mapped coverage matrix, so coverage comparisons are
+  unsupported.
+- **Independent security review.** `docs/EXTERNAL_VALIDATION.md` is the
+  canonical source — it currently reads "no independent security review
+  has been published."
+
+## How to actually compare (reproducible)
+
+See [`docs/COMPETITIVE_BENCH_METHODOLOGY.md`](COMPETITIVE_BENCH_METHODOLOGY.md)
+for the full methodology and
+[`scripts/compare_runtime_security.sh`](../scripts/compare_runtime_security.sh)
+for the driver. The short version:
 
 ```bash
-# AegisBPF
-sudo aegisbpf daemon &
-sysbench fileio --file-test-mode=seqrd run
-# Record: ops/sec, latency p99
-
-# Falco (if installed)
-sudo falco &
-sysbench fileio --file-test-mode=seqrd run
-
-# Tetragon (if installed)
-kubectl apply -f tetragon/install.yaml
-sysbench fileio --file-test-mode=seqrd run
+# Requires: clean host with aegisbpf, falco, tetragon, tracee, kubearmor
+#           all installable. Root. No other LSM conflict.
+sudo scripts/compare_runtime_security.sh \
+    --agents aegisbpf,falco,tetragon \
+    --workload open_close \
+    --duration 60s \
+    --out results/
 ```
 
-## Architecture Advantages
+The script runs each agent in isolation with the same sysbench/`perf_open_bench`
+workload and emits a single `results.json` plus a Markdown table. Only
+numbers produced by that script should ever appear in comparison tables
+in this repository.
 
-### AegisBPF Design Decisions
+## Related documents
 
-| Decision | Rationale | Performance Impact |
-|----------|-----------|-------------------|
-| Inode-first evaluation | Avoids path resolution for non-matching files | 10-50x faster than path-first |
-| Hash maps for deny rules | O(1) lookup regardless of rule count | Constant-time scaling |
-| LPM trie for CIDR rules | O(prefix-length) for network ranges | Optimal for IP matching |
-| Per-CPU arrays for stats | Lock-free counters, no contention | Zero overhead at scale |
-| Dual ring buffer | Priority events survive telemetry shedding | Enforcement reliability |
-| Shadow map swap | Atomic policy reload without enforcement gap | Zero-downtime updates |
-| Single binary + BPF | No runtime dependencies, no GC pauses | Predictable latency |
-
-## Related Documents
-
-- `docs/PERFORMANCE.md` — Detailed performance profile and tuning
-- `docs/PERF_BASELINE.md` — CI performance baselines
-- `docs/GUARANTEES.md` — Enforcement guarantees and TOCTOU analysis
-- `docs/THREAT_MODEL.md` — Threat model and coverage boundaries
+- `docs/PERFORMANCE.md` — AegisBPF's own performance profile and tuning
+- `docs/PERF_BASELINE.md` — CI perf baseline and gate
+- `docs/COMPETITIVE_BENCH_METHODOLOGY.md` — how to produce head-to-head numbers
+- `docs/ENFORCEMENT_CLAIMS.md` — enforcement guarantees and proofs
+- `docs/EXTERNAL_VALIDATION.md` — independent review status
+- `docs/GUARANTEES.md` — enforcement guarantees and TOCTOU analysis
+- `docs/THREAT_MODEL.md` — threat model and coverage boundaries
