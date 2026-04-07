@@ -28,9 +28,11 @@
 │                         ┌────────────┴──────────────┐                         │
 │                         │ LSM hooks (enforce/audit) │                         │
 │                         │ file_open/inode_permission│                         │
+│                         │ inode_copy_up (overlayfs) │                         │
+│                         │ bprm_check (+ IMA hash)   │                         │
 │                         │ socket_connect/socket_bind│                         │
 │                         │ socket_listen/socket_accept│                        │
-│                         │ socket_sendmsg            │                         │
+│                         │ socket_sendmsg/recvmsg    │                         │
 │                         └────────────┬──────────────┘                         │
 │                         ┌────────────┴─────────────┐                          │
 │                         │ Tracepoint fallback      │                          │
@@ -44,8 +46,10 @@
 - **Kernel-level blocking** - Uses BPF LSM hooks to block file opens before they complete
 - **Inode-based rules** - Block by device:inode for reliable identification across renames
 - **Path-based rules** - Block by file path for human-readable policies
+- **OverlayFS copy-up propagation** - LSM `inode_copy_up` hook detects when denied lower-layer inodes are promoted to the upper layer (containers/overlay-on-overlay) and propagates the deny rule to the new inode
 - **Dual-stack network policy** - Deny IPv4/IPv6 exact IP, CIDR, port, and IP:port rules in kernel hooks
-- **Broader network hook coverage** - `connect()`, `bind()`, port-oriented `listen()`, accepted-peer `accept()`, and outbound `sendmsg()` when the corresponding kernel hooks are available
+- **Full socket lifecycle coverage** - `connect()`, `bind()`, port-oriented `listen()`, accepted-peer `accept()`, outbound `sendmsg()`, and inbound `recvmsg()` when the corresponding kernel hooks are available
+- **Cgroup-scoped deny rules** - `deny_cgroup_inode` / `deny_cgroup_ipv4` / `deny_cgroup_port` allow per-workload deny rules so the same binary or endpoint can be allowed for one cgroup and denied for another
 - **Cgroup allowlisting** - Exempt trusted workloads from deny rules
 - **Audit mode** - Monitor without blocking (works without BPF LSM)
 - **Emergency kill switch** - Single-command enforcement bypass that preserves audit/telemetry and emits an auditable trail
@@ -63,7 +67,11 @@
 - **Process cache reconciliation** - Scans /proc at startup to populate process tree for pre-existing processes
 - **BPF object signing** - SHA-256 hash verification with Ed25519 signature preparation
 - **Binary hash verification** - Integrity checks for allow-listed binaries
-- **Hot-loadable detection rules** - JSON-based rule engine with comm/path matching and hot-reload
+- **IMA-backed exec trust (kernel 6.1+)** - Optional `bpf_ima_file_hash()` integration verifies executables against a SHA-256 trust map (`trusted_exec_hash`) inside `bprm_check_security`
+- **Deep process lineage** - Process tree records ancestor PIDs for richer rule matching and post-mortem correlation, with retained metadata for recently exited processes
+- **UID-to-username identity resolution** - Forensic events resolve uid/gid into username/groupname for SIEM-friendly alerts
+- **Validating admission webhook** - Operator-side validating webhook + selector-based filtering and merged policy reconciler for safer Kubernetes rollouts
+- **Hot-loadable detection rules** - JSON-based rule engine with comm/path/ancestor/cgroup matching and hot-reload
 - **Plugin/extension system** - Virtual event handler interface for custom processing pipelines
 
 ## Comparison with Other Tools
@@ -97,11 +105,14 @@ Current flagship contract:
 > cgroup-scoped workloads, with safe rollback and signed policy provenance.
 
 Current scope labels:
-- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), outbound
-  network deny for configured `connect()` / `sendmsg()` rules, port-oriented
-  `bind()` / `listen()` deny, and accepted-peer `accept()` deny when those LSM
-  hooks are available
-- `AUDITED`: tracepoint fallback path (no syscall deny), detailed metrics mode
+- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), OverlayFS
+  copy-up propagation via `inode_copy_up`, outbound network deny for configured
+  `connect()` / `sendmsg()` rules, inbound `recvmsg()` deny, port-oriented
+  `bind()` / `listen()` deny, accepted-peer `accept()` deny, cgroup-scoped
+  inode/IPv4/port deny rules, and IMA-backed exec hash trust on kernel 6.1+
+  when those LSM hooks/helpers are available
+- `AUDITED`: tracepoint fallback path (no syscall deny), detailed metrics mode,
+  forensic block events with UID/username and exec identity
 - `PLANNED`: broader runtime surfaces beyond current documented hooks
 
 ## Validation Results
@@ -217,15 +228,18 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |  |  |      LSM Hooks         | |   Tracepoint Fallback     | |       |
 |  |  | file_open              | | openat / exec / fork      | |       |
 |  |  | inode_permission       | | (audit when no BPF LSM)   | |       |
-|  |  | bprm_check_security    | +---------------------------+ |       |
+|  |  | inode_copy_up          | +---------------------------+ |       |
+|  |  | bprm_check_security    |                               |       |
+|  |  |   (+ IMA hash, 6.1+)   |                               |       |
 |  |  | socket_connect / bind  |                               |       |
 |  |  | socket_listen / accept |                               |       |
-|  |  | socket_sendmsg         |                               |       |
+|  |  | socket_sendmsg/recvmsg |                               |       |
 |  |  +------------------------+                               |       |
 |  |                                                           |       |
 |  |  +------------------------------------------------------+ |       |
 |  |  |                     BPF Maps                         | |       |
 |  |  | deny_* / allow_*    net_* / survival_*               | |       |
+|  |  | deny_cgroup_inode/ipv4/port  trusted_exec_hash       | |       |
 |  |  | agent_meta / stats  events ring buffer               | |       |
 |  |  +------------------------------------------------------+ |       |
 |  +-----------------------------------------------------------+       |
@@ -651,6 +665,8 @@ For production, set `AEGIS_POLICY` to a signed policy bundle path (for example
            | deny_ipv4/ipv6    |
            | deny_cidr_v4/v6   |
            | deny_port         |
+           | deny_cgroup_*     |
+           | trusted_exec_hash |
            | net_*/block_stats |
            | survival/meta     |
            | events (ring buf) |
@@ -663,8 +679,14 @@ For production, set `AEGIS_POLICY` to a signed policy bundle path (for example
            | BPF hooks (kernel)|
            | - file_open       |
            | - inode_permission|
+           | - inode_copy_up   |
+           | - bprm_check (IMA)|
            | - socket_connect  |
            | - socket_bind     |
+           | - socket_listen   |
+           | - socket_accept   |
+           | - socket_sendmsg  |
+           | - socket_recvmsg  |
            | - tracepoints     |
            +-------------------+
 ```
@@ -680,9 +702,9 @@ AegisBPF exports Prometheus-compatible metrics:
 | `aegisbpf_deny_inode_entries` | gauge | Number of inode deny rules |
 | `aegisbpf_deny_path_entries` | gauge | Number of path deny rules |
 | `aegisbpf_allow_cgroup_entries` | gauge | Number of allowed cgroups |
-| `aegisbpf_net_blocks_total` | counter | Blocked network operations by type (`connect`/`bind`) |
+| `aegisbpf_net_blocks_total` | counter | Blocked network operations by type (`connect`/`bind`/`listen`/`accept`/`sendmsg`/`recvmsg`) |
 | `aegisbpf_net_ringbuf_drops_total` | counter | Dropped network events |
-| `aegisbpf_net_rules_total` | gauge | Active network deny rules by type (`ip`/`cidr`/`port`) |
+| `aegisbpf_net_rules_total` | gauge | Active network deny rules by type (`ip`/`cidr`/`port`/`cgroup_inode`/`cgroup_ipv4`/`cgroup_port`) |
 
 High-cardinality debug metrics are available with `aegisbpf metrics --detailed`:
 `aegisbpf_blocks_by_cgroup_total`, `aegisbpf_blocks_by_inode_total`,
