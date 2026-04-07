@@ -236,8 +236,7 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
         out << "    \"require_ima_appraisal\": " << (policy_req.ima_appraisal_required ? "true" : "false") << ",\n";
         out << "    \"allow_binary_hash_count\": " << static_cast<int64_t>(policy_req.allow_binary_hashes.size())
             << ",\n";
-        out << "    \"cgroup_deny_inode_count\": " << static_cast<int64_t>(policy_req.cgroup_deny_inode_count)
-            << ",\n";
+        out << "    \"cgroup_deny_inode_count\": " << static_cast<int64_t>(policy_req.cgroup_deny_inode_count) << ",\n";
         out << "    \"cgroup_deny_ip_count\": " << static_cast<int64_t>(policy_req.cgroup_deny_ip_count) << ",\n";
         out << "    \"cgroup_deny_port_count\": " << static_cast<int64_t>(policy_req.cgroup_deny_port_count) << "\n";
         out << "  },\n";

@@ -14,19 +14,19 @@ namespace aegis {
  * capability level for the current system.
  */
 struct KernelFeatures {
-    bool bpf_lsm = false;       // BPF LSM support (full enforcement)
-    bool ringbuf = false;       // Ring buffer support
-    bool cgroup_v2 = false;     // cgroup v2 support
-    bool btf = false;           // BTF (BPF Type Format) available
-    bool bpf_syscall = false;   // BPF syscall available
-    bool tracepoints = false;   // Tracepoints available
-    bool ima = false;           // IMA securityfs availability
-    bool ima_appraisal = false;  // IMA appraisal policy active
+    bool bpf_lsm = false;         // BPF LSM support (full enforcement)
+    bool ringbuf = false;         // Ring buffer support
+    bool cgroup_v2 = false;       // cgroup v2 support
+    bool btf = false;             // BTF (BPF Type Format) available
+    bool bpf_syscall = false;     // BPF syscall available
+    bool tracepoints = false;     // Tracepoints available
+    bool ima = false;             // IMA securityfs availability
+    bool ima_appraisal = false;   // IMA appraisal policy active
     bool bpf_ima_helpers = false; // bpf_ima_file_hash() available (kernel 6.1+)
-    std::string kernel_version;  // Kernel version string (e.g., "6.1.0")
-    int kernel_major = 0;       // Major version number
-    int kernel_minor = 0;       // Minor version number
-    int kernel_patch = 0;       // Patch version number
+    std::string kernel_version;   // Kernel version string (e.g., "6.1.0")
+    int kernel_major = 0;         // Major version number
+    int kernel_minor = 0;         // Minor version number
+    int kernel_patch = 0;         // Patch version number
 };
 
 /**

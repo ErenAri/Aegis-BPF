@@ -470,8 +470,8 @@ void print_forensic_event(const ForensicEvent& ev)
         if (!gname.empty())
             oss << ",\"groupname\":\"" << json_escape(gname) << "\"";
     }
-    oss << ",\"exec_ino\":" << ev.exec_ino
-        << ",\"exec_dev\":" << ev.exec_dev << ",\"exec_stage\":" << static_cast<int>(ev.exec_stage)
+    oss << ",\"exec_ino\":" << ev.exec_ino << ",\"exec_dev\":" << ev.exec_dev
+        << ",\"exec_stage\":" << static_cast<int>(ev.exec_stage)
         << ",\"verified_exec\":" << (ev.verified_exec ? "true" : "false")
         << ",\"exec_identity_known\":" << (ev.exec_identity_known ? "true" : "false") << ",\"action\":\""
         << json_escape(action) << "\"" << ",\"comm\":\"" << json_escape(comm) << "\"";
@@ -527,9 +527,9 @@ void print_overlay_copy_up_event(const OverlayCopyUpEvent& ev)
     std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
 
-    oss << "{\"type\":\"overlay_copy_up\"" << ",\"pid\":" << ev.pid << ",\"cgid\":" << ev.cgid
-        << ",\"cgroup_path\":\"" << json_escape(cgpath) << "\"" << ",\"src_ino\":" << ev.src_ino
-        << ",\"src_dev\":" << ev.src_dev << ",\"deny_flags\":" << static_cast<int>(ev.deny_flags);
+    oss << "{\"type\":\"overlay_copy_up\"" << ",\"pid\":" << ev.pid << ",\"cgid\":" << ev.cgid << ",\"cgroup_path\":\""
+        << json_escape(cgpath) << "\"" << ",\"src_ino\":" << ev.src_ino << ",\"src_dev\":" << ev.src_dev
+        << ",\"deny_flags\":" << static_cast<int>(ev.deny_flags);
     append_k8s_identity(oss, ev.pid);
     oss << "}";
 
@@ -554,8 +554,7 @@ int handle_event(void* ctx, void* data, size_t)
         print_block_event(e->block);
     } else if (e->type == EVENT_NET_CONNECT_BLOCK || e->type == EVENT_NET_BIND_BLOCK ||
                e->type == EVENT_NET_LISTEN_BLOCK || e->type == EVENT_NET_ACCEPT_BLOCK ||
-               e->type == EVENT_NET_SENDMSG_BLOCK ||
-               e->type == EVENT_NET_RECVMSG_BLOCK) {
+               e->type == EVENT_NET_SENDMSG_BLOCK || e->type == EVENT_NET_RECVMSG_BLOCK) {
         print_net_block_event(e->net_block);
     } else if (e->type == EVENT_FORENSIC_BLOCK) {
         print_forensic_event(e->forensic);

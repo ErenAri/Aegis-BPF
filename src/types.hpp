@@ -252,9 +252,9 @@ struct OverlayCopyUpEvent {
     uint32_t pid;
     uint32_t _pad;
     uint64_t cgid;
-    uint64_t src_ino;    /* lower-layer inode number (matches inode_id.ino) */
-    uint32_t src_dev;    /* lower-layer device (matches inode_id.dev) */
-    uint32_t _pad3;      /* matches inode_id.pad */
+    uint64_t src_ino; /* lower-layer inode number (matches inode_id.ino) */
+    uint32_t src_dev; /* lower-layer device (matches inode_id.dev) */
+    uint32_t _pad3;   /* matches inode_id.pad */
     uint8_t deny_flags;
     uint8_t _pad2[7];
 };

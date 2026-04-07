@@ -21,31 +21,31 @@ enum class RuleSeverity : uint8_t {
 };
 
 enum class RuleAction : uint8_t {
-    Alert = 0,  /* log + SIEM only */
-    Block = 1,  /* deny + log */
-    Kill = 2,   /* SIGKILL + deny + log */
+    Alert = 0, /* log + SIEM only */
+    Block = 1, /* deny + log */
+    Kill = 2,  /* SIGKILL + deny + log */
 };
 
 /* Condition types for the declarative rule engine.
  * Each condition evaluates a single attribute; rules compose
  * conditions with AND/OR logic. */
 enum class ConditionType : uint8_t {
-    CommExact,      /* exact match on process comm */
-    CommPrefix,     /* prefix match (e.g. "python" matches "python3") */
-    PathGlob,       /* fnmatch-style glob on file path */
-    PathPrefix,     /* starts-with match on path */
-    UidEquals,      /* numeric UID match */
-    GidEquals,      /* numeric GID match */
-    AncestorComm,   /* match any ancestor by comm name */
-    CgroupPath,     /* substring match on cgroup path */
-    PortEquals,     /* match a network port */
-    IpEquals,       /* match an IP address */
+    CommExact,    /* exact match on process comm */
+    CommPrefix,   /* prefix match (e.g. "python" matches "python3") */
+    PathGlob,     /* fnmatch-style glob on file path */
+    PathPrefix,   /* starts-with match on path */
+    UidEquals,    /* numeric UID match */
+    GidEquals,    /* numeric GID match */
+    AncestorComm, /* match any ancestor by comm name */
+    CgroupPath,   /* substring match on cgroup path */
+    PortEquals,   /* match a network port */
+    IpEquals,     /* match an IP address */
 };
 
 struct RuleCondition {
     ConditionType type;
-    std::string value;     /* string value for pattern/match */
-    uint32_t numeric = 0;  /* numeric value for uid/gid/port */
+    std::string value;    /* string value for pattern/match */
+    uint32_t numeric = 0; /* numeric value for uid/gid/port */
 };
 
 struct RuleMatch {

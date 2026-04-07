@@ -90,6 +90,30 @@ struct inode_id {
 };
 ```
 
+### `trusted_exec_hash`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_HASH` |
+| Key            | `struct exec_hash_key` (32 bytes) |
+| Value          | `__u8` (presence flag) |
+| Max entries    | 16,384 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/trusted_exec_hash` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Populated by userspace from policy when `EXEC_IDENTITY_FLAG_USE_IMA_HASH` is set |
+
+SHA-256 hashes of trusted (allowed) binaries for IMA-based hash verification
+on kernel 6.1+. The BPF program calls `bpf_ima_file_hash()` to compute the
+hash of an executable on `bprm_check_security` and looks it up in this map
+to determine whether the binary is trusted.
+
+**Key struct:**
+```c
+struct exec_hash_key {
+    __u8 sha256[32];
+};
+```
+
 ### `exec_identity_mode_map`
 
 | Property       | Value |
@@ -316,6 +340,88 @@ CIDR-based IPv6 deny rules using longest-prefix-match trie.
 struct ipv6_lpm_key {
     __u32 prefixlen;
     __u8  addr[16];
+};
+```
+
+---
+
+## Cgroup-Scoped Deny Rules
+
+Cgroup-scoped deny maps allow per-workload deny rules. The key combines a
+cgroup ID with the resource being denied (inode, IPv4 address, or port), so
+the same binary or network endpoint can be allowed for one workload and
+denied for another.
+
+### `deny_cgroup_inode`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_HASH` |
+| Key            | `struct cgroup_inode_key` (24 bytes) |
+| Value          | `__u8` (rule flags) |
+| Max entries    | 32,768 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_inode` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Managed by policy apply / block add/del |
+
+Per-cgroup file inode deny rules. Hooked alongside `deny_inode_map` so that
+deny scope can be narrowed to a single workload.
+
+**Key struct:**
+```c
+struct cgroup_inode_key {
+    __u64 cgid;
+    struct inode_id inode;  /* 16 bytes */
+};
+```
+
+### `deny_cgroup_ipv4`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_HASH` |
+| Key            | `struct cgroup_ipv4_key` (16 bytes) |
+| Value          | `__u8` (presence flag) |
+| Max entries    | 16,384 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_ipv4` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Managed by network deny add/del or policy |
+
+Per-cgroup IPv4 destination deny list. Evaluated alongside the global
+`deny_ipv4` map on socket_connect / socket_sendmsg.
+
+**Key struct:**
+```c
+struct cgroup_ipv4_key {
+    __u64  cgid;
+    __be32 addr;
+    __u32  _pad;
+};
+```
+
+### `deny_cgroup_port`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_HASH` |
+| Key            | `struct cgroup_port_key` (16 bytes) |
+| Value          | `__u8` (presence flag) |
+| Max entries    | 4,096 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_port` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Managed by network deny add/del or policy |
+
+Per-cgroup port deny list with optional protocol and direction filtering.
+Evaluated alongside the global `deny_port` map.
+
+**Key struct:**
+```c
+struct cgroup_port_key {
+    __u64 cgid;
+    __u16 port;
+    __u8  protocol;  /* 0=any, 6=tcp, 17=udp */
+    __u8  direction; /* 0=egress, 1=bind, 2=both */
+    __u32 _pad;
 };
 ```
 

@@ -171,8 +171,7 @@ Result<KernelFeatures> detect_kernel_features()
     features.tracepoints = check_tracepoints_available();
     features.ima = check_ima_available();
     features.ima_appraisal = features.ima && check_ima_appraisal_enabled();
-    features.bpf_ima_helpers = features.kernel_major > 6 ||
-                               (features.kernel_major == 6 && features.kernel_minor >= 1);
+    features.bpf_ima_helpers = features.kernel_major > 6 || (features.kernel_major == 6 && features.kernel_minor >= 1);
 
     return features;
 }

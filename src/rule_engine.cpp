@@ -1,11 +1,12 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "rule_engine.hpp"
 
-#include <algorithm>
 #include <arpa/inet.h>
+#include <fnmatch.h>
+
+#include <algorithm>
 #include <cstring>
 #include <ctime>
-#include <fnmatch.h>
 #include <fstream>
 #include <sstream>
 
@@ -136,8 +137,7 @@ std::vector<RuleCondition> parse_conditions(const std::string& block)
 
     /* New: declarative condition keys */
     static const char* condition_keys[] = {
-        "comm_exact",  "comm_prefix", "path_glob",     "path_prefix",
-        "ancestor_comm", "cgroup_path", "ip", nullptr,
+        "comm_exact", "comm_prefix", "path_glob", "path_prefix", "ancestor_comm", "cgroup_path", "ip", nullptr,
     };
     for (int i = 0; condition_keys[i]; ++i) {
         std::string val = extract_json_string(block, condition_keys[i]);
@@ -209,22 +209,22 @@ bool RuleEngine::evaluate_condition_exec(const RuleCondition& cond, const ExecEv
 {
     std::string comm(ev.comm, strnlen(ev.comm, sizeof(ev.comm)));
     switch (cond.type) {
-    case ConditionType::CommExact:
-        return comm == cond.value;
-    case ConditionType::CommPrefix:
-        return comm.compare(0, cond.value.size(), cond.value) == 0;
-    case ConditionType::AncestorComm:
-        /* Ancestor comm matching requires userspace enrichment;
-         * not available from raw BPF exec events (only PIDs). */
-        return false;
-    case ConditionType::PathGlob:
-    case ConditionType::PathPrefix:
-    case ConditionType::UidEquals:
-    case ConditionType::GidEquals:
-    case ConditionType::CgroupPath:
-    case ConditionType::PortEquals:
-    case ConditionType::IpEquals:
-        return false;
+        case ConditionType::CommExact:
+            return comm == cond.value;
+        case ConditionType::CommPrefix:
+            return comm.compare(0, cond.value.size(), cond.value) == 0;
+        case ConditionType::AncestorComm:
+            /* Ancestor comm matching requires userspace enrichment;
+             * not available from raw BPF exec events (only PIDs). */
+            return false;
+        case ConditionType::PathGlob:
+        case ConditionType::PathPrefix:
+        case ConditionType::UidEquals:
+        case ConditionType::GidEquals:
+        case ConditionType::CgroupPath:
+        case ConditionType::PortEquals:
+        case ConditionType::IpEquals:
+            return false;
     }
     return false;
 }
@@ -235,21 +235,21 @@ bool RuleEngine::evaluate_condition_block(const RuleCondition& cond, const Block
     std::string path(ev.path, strnlen(ev.path, sizeof(ev.path)));
 
     switch (cond.type) {
-    case ConditionType::CommExact:
-        return comm == cond.value;
-    case ConditionType::CommPrefix:
-        return comm.compare(0, cond.value.size(), cond.value) == 0;
-    case ConditionType::PathGlob:
-        return glob_match(cond.value, path);
-    case ConditionType::PathPrefix:
-        return path.find(cond.value) != std::string::npos;
-    case ConditionType::AncestorComm:
-    case ConditionType::CgroupPath:
-    case ConditionType::UidEquals:
-    case ConditionType::GidEquals:
-    case ConditionType::PortEquals:
-    case ConditionType::IpEquals:
-        return false;
+        case ConditionType::CommExact:
+            return comm == cond.value;
+        case ConditionType::CommPrefix:
+            return comm.compare(0, cond.value.size(), cond.value) == 0;
+        case ConditionType::PathGlob:
+            return glob_match(cond.value, path);
+        case ConditionType::PathPrefix:
+            return path.find(cond.value) != std::string::npos;
+        case ConditionType::AncestorComm:
+        case ConditionType::CgroupPath:
+        case ConditionType::UidEquals:
+        case ConditionType::GidEquals:
+        case ConditionType::PortEquals:
+        case ConditionType::IpEquals:
+            return false;
     }
     return false;
 }
@@ -259,27 +259,27 @@ bool RuleEngine::evaluate_condition_net(const RuleCondition& cond, const NetBloc
     std::string comm(ev.comm, strnlen(ev.comm, sizeof(ev.comm)));
 
     switch (cond.type) {
-    case ConditionType::CommExact:
-        return comm == cond.value;
-    case ConditionType::CommPrefix:
-        return comm.compare(0, cond.value.size(), cond.value) == 0;
-    case ConditionType::PortEquals:
-        return ev.remote_port == static_cast<uint16_t>(cond.numeric);
-    case ConditionType::IpEquals: {
-        if (ev.family == 2) { /* AF_INET */
-            char buf[INET_ADDRSTRLEN] = {};
-            inet_ntop(AF_INET, &ev.remote_ipv4, buf, sizeof(buf));
-            return cond.value == buf;
+        case ConditionType::CommExact:
+            return comm == cond.value;
+        case ConditionType::CommPrefix:
+            return comm.compare(0, cond.value.size(), cond.value) == 0;
+        case ConditionType::PortEquals:
+            return ev.remote_port == static_cast<uint16_t>(cond.numeric);
+        case ConditionType::IpEquals: {
+            if (ev.family == 2) { /* AF_INET */
+                char buf[INET_ADDRSTRLEN] = {};
+                inet_ntop(AF_INET, &ev.remote_ipv4, buf, sizeof(buf));
+                return cond.value == buf;
+            }
+            return false;
         }
-        return false;
-    }
-    case ConditionType::AncestorComm:
-    case ConditionType::PathGlob:
-    case ConditionType::PathPrefix:
-    case ConditionType::CgroupPath:
-    case ConditionType::UidEquals:
-    case ConditionType::GidEquals:
-        return false;
+        case ConditionType::AncestorComm:
+        case ConditionType::PathGlob:
+        case ConditionType::PathPrefix:
+        case ConditionType::CgroupPath:
+        case ConditionType::UidEquals:
+        case ConditionType::GidEquals:
+            return false;
     }
     return false;
 }
@@ -367,8 +367,8 @@ std::vector<RuleMatch> RuleEngine::evaluate_exec(const ExecEvent& ev)
         if (matched) {
             struct timespec ts {};
             clock_gettime(CLOCK_REALTIME, &ts);
-            matches.push_back({rule.id, rule.name, rule.severity, rule.description,
-                               static_cast<uint64_t>(ts.tv_sec), rule.mitre_tags});
+            matches.push_back({rule.id, rule.name, rule.severity, rule.description, static_cast<uint64_t>(ts.tv_sec),
+                               rule.mitre_tags});
             total_matches_++;
         }
     }
@@ -402,8 +402,8 @@ std::vector<RuleMatch> RuleEngine::evaluate_block(const BlockEvent& ev)
         if (matched) {
             struct timespec ts {};
             clock_gettime(CLOCK_REALTIME, &ts);
-            matches.push_back({rule.id, rule.name, rule.severity, rule.description,
-                               static_cast<uint64_t>(ts.tv_sec), rule.mitre_tags});
+            matches.push_back({rule.id, rule.name, rule.severity, rule.description, static_cast<uint64_t>(ts.tv_sec),
+                               rule.mitre_tags});
             total_matches_++;
         }
     }
@@ -437,8 +437,8 @@ std::vector<RuleMatch> RuleEngine::evaluate_net_block(const NetBlockEvent& ev)
         if (matched) {
             struct timespec ts {};
             clock_gettime(CLOCK_REALTIME, &ts);
-            matches.push_back({rule.id, rule.name, rule.severity, rule.description,
-                               static_cast<uint64_t>(ts.tv_sec), rule.mitre_tags});
+            matches.push_back({rule.id, rule.name, rule.severity, rule.description, static_cast<uint64_t>(ts.tv_sec),
+                               rule.mitre_tags});
             total_matches_++;
         }
     }

@@ -194,10 +194,8 @@ TEST(RuleEngineLoad, ParsesNewFormat)
     {
         std::ofstream out(tmp_path);
         out << "[\n";
-        out << "  {\"id\":\"r1\",\"name\":\"Curl detection\","
-            << "\"severity\":\"high\",\"action\":\"block\","
-            << "\"mitre\":[\"T1071.001\"],"
-            << "\"comm_exact\":\"curl\"}\n";
+        out << "  {\"id\":\"r1\",\"name\":\"Curl detection\"," << "\"severity\":\"high\",\"action\":\"block\","
+            << "\"mitre\":[\"T1071.001\"]," << "\"comm_exact\":\"curl\"}\n";
         out << "]\n";
     }
 
@@ -222,8 +220,7 @@ TEST(RuleEngineLoad, BackwardCompatLegacyFormat)
     std::string tmp_path = "/tmp/aegis_test_rules_legacy.json";
     {
         std::ofstream out(tmp_path);
-        out << "[{\"id\":\"legacy\",\"name\":\"Old rule\","
-            << "\"severity\":\"medium\",\"match_comm\":\"nmap\"}]\n";
+        out << "[{\"id\":\"legacy\",\"name\":\"Old rule\"," << "\"severity\":\"medium\",\"match_comm\":\"nmap\"}]\n";
     }
 
     RuleEngine engine;
