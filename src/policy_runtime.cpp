@@ -179,6 +179,8 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         return err;
     };
 
+    uint64_t pending_generation = 0; // set before sync, committed after verify
+
     Policy policy{};
     {
         ScopedSpan span("policy.parse", root_span.trace_id(), root_span.span_id());
@@ -247,7 +249,6 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
     // Bump policy generation before sync — forces BPF hooks into audit mode
     // during the transition window until we commit the matching generation.
-    uint64_t pending_generation = 0;
     {
         auto gen_result = bump_policy_generation(state);
         if (gen_result) {
@@ -474,6 +475,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     return fail(err);
                 }
             }
+        }
+
+        // Bump policy generation BEFORE syncing shadows → live.
+        // This causes BPF hooks to see a generation mismatch and fall
+        // back to audit mode during the map transition window.
+        auto gen_result = bump_policy_generation(state);
+        if (gen_result) {
+            pending_generation = *gen_result;
         }
 
         {
@@ -883,6 +892,23 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                          .field("protect_connect", policy.protect_connect)
                          .field("protect_runtime_deps", policy.protect_runtime_deps)
                          .field("protect_paths", static_cast<int64_t>(policy.protect_paths.size())));
+    }
+
+    // Commit the policy generation: write the expected value to the
+    // policy_generation map so BPF hooks see the match and resume
+    // enforcement.  The generation was bumped before shadow sync
+    // (causing hooks to fall back to audit during the transition).
+    if (pending_generation > 0) {
+        ScopedSpan span("policy.commit_generation", root_span.trace_id(), root_span.span_id());
+        auto commit_result = commit_policy_generation(state, pending_generation);
+        if (!commit_result) {
+            logger().log(SLOG_WARN("Failed to commit policy generation")
+                             .field("generation", static_cast<int64_t>(pending_generation))
+                             .field("error", commit_result.error().to_string()));
+        } else {
+            logger().log(SLOG_INFO("Policy generation committed — enforcement resumed")
+                             .field("generation", static_cast<int64_t>(pending_generation)));
+        }
     }
 
     // Set kernel security flags (MITRE ATT&CK hooks)

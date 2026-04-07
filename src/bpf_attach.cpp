@@ -10,6 +10,7 @@
 
 namespace aegis {
 
+// Single authoritative attach helper — shared with bpf_ops.cpp via header.
 Result<void> attach_prog(bpf_program* prog, BpfState& state)
 {
     const char* sec = bpf_program__section_name(prog);
@@ -78,9 +79,12 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
     state.socket_listen_hook_attached = false;
     state.socket_accept_hook_attached = false;
     state.socket_sendmsg_hook_attached = false;
+    state.socket_recvmsg_hook_attached = false;
     state.ptrace_hook_attached = false;
     state.module_load_hook_attached = false;
     state.bpf_hook_attached = false;
+    state.overlay_copy_up_hook_attached = false;
+    state.ima_hook_attached = false;
 
     auto fail = [&root_span](const Error& error) -> Result<void> {
         root_span.fail(error.to_string());
@@ -209,9 +213,14 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         prog = bpf_object__find_program_by_name(state.obj, "handle_socket_sendmsg");
         attach_optional_program(state, prog, state.socket_sendmsg_hook_attached,
                                 "Optional socket_sendmsg hook attach failed");
+
+        prog = bpf_object__find_program_by_name(state.obj, "handle_socket_recvmsg");
+        attach_optional_program(state, prog, state.socket_recvmsg_hook_attached,
+                                "Optional socket_recvmsg hook attach failed");
     }
 
-    // Kernel security hooks (ptrace, module load, bpf) - all optional
+    // Optional LSM-only hooks: kernel security (ptrace/module/bpf), overlay
+    // copy-up propagation, and IMA hash verification (kernel 6.1+).
     if (lsm_enabled) {
         ScopedSpan span("bpf.attach.kernel_security_hooks", trace_id, root_span.span_id());
         (void)span;
@@ -225,6 +234,17 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
 
         bpf_program* bpf_prog = bpf_object__find_program_by_name(state.obj, "handle_bpf");
         attach_optional_program(state, bpf_prog, state.bpf_hook_attached, "Optional BPF hook attach failed");
+
+        // OverlayFS copy-up hook: detects when denied inodes are copied from the
+        // overlay lower layer to the upper layer, enabling deny rule propagation.
+        bpf_program* overlay_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_copy_up");
+        attach_optional_program(state, overlay_prog, state.overlay_copy_up_hook_attached,
+                                "Optional overlay copy-up hook attach failed");
+
+        // IMA hash verification hook (kernel 6.1+).
+        bpf_program* ima_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_ima_check");
+        attach_optional_program(state, ima_prog, state.ima_hook_attached,
+                                "Optional IMA hash verification hook attach failed");
     }
 
     state.attach_contract_valid = true;

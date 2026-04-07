@@ -220,6 +220,7 @@ std::string build_net_metrics_output(const NetBlockStats& stats)
     append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "listen"}}, stats.listen_blocks);
     append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "accept"}}, stats.accept_blocks);
     append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "send"}}, stats.sendmsg_blocks);
+    append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "recv"}}, stats.recvmsg_blocks);
     append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter", "Dropped network events");
     append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", stats.ringbuf_drops);
     return oss.str();
@@ -414,6 +415,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "listen"}}, net_stats.listen_blocks);
         append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "accept"}}, net_stats.accept_blocks);
         append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "send"}}, net_stats.sendmsg_blocks);
+        append_metric_sample(oss, "aegisbpf_net_blocks_total", {{"type", "recv"}}, net_stats.recvmsg_blocks);
 
         append_metric_header(oss, "aegisbpf_net_ringbuf_drops_total", "counter", "Dropped network events");
         append_metric_sample(oss, "aegisbpf_net_ringbuf_drops_total", net_stats.ringbuf_drops);

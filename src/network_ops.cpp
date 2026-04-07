@@ -1008,6 +1008,7 @@ Result<NetBlockStats> read_net_block_stats(BpfState& state)
         out.listen_blocks += v.listen_blocks;
         out.accept_blocks += v.accept_blocks;
         out.sendmsg_blocks += v.sendmsg_blocks;
+        out.recvmsg_blocks += v.recvmsg_blocks;
         out.ringbuf_drops += v.ringbuf_drops;
     }
     return out;

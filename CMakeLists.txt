@@ -472,6 +472,7 @@ if(BUILD_TESTING)
         tests/test_metrics.cpp
         tests/test_bpf_integrity.cpp
         tests/test_tracing.cpp
+        tests/test_rule_engine.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

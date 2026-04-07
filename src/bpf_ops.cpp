@@ -141,6 +141,9 @@ void BpfState::cleanup()
     cleanup_bpf(*this);
 }
 
+// attach_prog() is now defined once in bpf_attach.cpp and declared in
+// bpf_attach.hpp.  All call-sites in this file use the shared version.
+
 void set_ringbuf_bytes(uint32_t bytes)
 {
     g_ringbuf_bytes.store(bytes, std::memory_order_relaxed);
@@ -301,6 +304,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
         state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
+        state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
@@ -514,6 +518,18 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             if (lsm_prog) {
                 bpf_program__set_autoload(lsm_prog, false);
             }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_socket_recvmsg");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_inode_copy_up");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
+            lsm_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_ima_check");
+            if (lsm_prog) {
+                bpf_program__set_autoload(lsm_prog, false);
+            }
         } else {
             const std::set<std::string> missing_hooks = detect_missing_optional_lsm_hooks();
             const auto disable_optional_program = [&](const char* prog_name, const char* hook_name) {
@@ -537,6 +553,18 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
             disable_optional_program("handle_socket_listen", "socket_listen");
             disable_optional_program("handle_socket_accept", "socket_accept");
             disable_optional_program("handle_socket_sendmsg", "socket_sendmsg");
+            disable_optional_program("handle_socket_recvmsg", "socket_recvmsg");
+            disable_optional_program("handle_inode_copy_up", "inode_copy_up");
+
+            /* IMA hash verification requires kernel 6.1+ for bpf_ima_file_hash helper.
+             * Always disable autoload here; conditional re-enable happens below. */
+            {
+                bpf_program* ima_prog = bpf_object__find_program_by_name(state.obj, "handle_bprm_ima_check");
+                if (ima_prog && !kernel_version_at_least(6, 1, 0)) {
+                    bpf_program__set_autoload(ima_prog, false);
+                    logger().log(SLOG_INFO("IMA hash verification disabled; requires kernel 6.1+"));
+                }
+            }
         }
     }
 

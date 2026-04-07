@@ -8,6 +8,7 @@
  *   - handle_socket_listen (LSM)
  *   - handle_socket_accept (LSM)
  *   - handle_socket_sendmsg (LSM)
+ *   - handle_socket_recvmsg (LSM)
  */
 
 /* ============================================================================
@@ -41,8 +42,11 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     __u16 family = 0;
     if (bpf_probe_read_kernel(&family, sizeof(family), &address->sa_family)) {
+        /* Fail-open on parse error: never deny a syscall because we
+         * couldn't read the sockaddr.  This matches file-hook behavior
+         * and avoids denying legitimate traffic on kernel edge cases. */
         record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-        return enforcement_result();
+        return 0;
     }
 
     if (family != AF_INET && family != AF_INET6) {
@@ -57,7 +61,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address)) {
             record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         remote_ip_v4 = sin.sin_addr.s_addr;
         remote_port = bpf_ntohs(sin.sin_port);
@@ -65,7 +69,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address)) {
             record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         remote_port = bpf_ntohs(sin6.sin6_port);
         __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
@@ -300,7 +304,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     __u16 family = 0;
     if (bpf_probe_read_kernel(&family, sizeof(family), &address->sa_family)) {
         record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-        return enforcement_result();
+        return 0;  /* fail-open on parse error */
     }
 
     if (family != AF_INET && family != AF_INET6) {
@@ -314,14 +318,14 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         struct sockaddr_in sin = {};
         if (bpf_probe_read_kernel(&sin, sizeof(sin), address)) {
             record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         bind_port = bpf_ntohs(sin.sin_port);
     } else {
         struct sockaddr_in6 sin6 = {};
         if (bpf_probe_read_kernel(&sin6, sizeof(sin6), address)) {
             record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
         bind_port = bpf_ntohs(sin6.sin6_port);
     }
@@ -847,7 +851,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     if (msg_name) {
         if (bpf_probe_read_kernel(&family, sizeof(family), msg_name)) {
             record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-            return enforcement_result();
+            return 0;  /* fail-open on parse error */
         }
 
         if (family == AF_INET) {
@@ -858,7 +862,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             }
             if (bpf_probe_read_kernel(&sin, sizeof(sin), msg_name)) {
                 record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-                return enforcement_result();
+                return 0;  /* fail-open on parse error */
             }
             remote_ip_v4 = sin.sin_addr.s_addr;
             remote_port = bpf_ntohs(sin.sin_port);
@@ -870,7 +874,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
             }
             if (bpf_probe_read_kernel(&sin6, sizeof(sin6), msg_name)) {
                 record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-                return enforcement_result();
+                return 0;  /* fail-open on parse error */
             }
             remote_port = bpf_ntohs(sin6.sin6_port);
             __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
@@ -1073,5 +1077,231 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     }
 
     record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
+    return -EPERM;
+}
+
+/* ============================================================================
+ * socket_recvmsg - Intercept incoming data on connected sockets.
+ *
+ * Evaluates the peer (source) address against deny rules, enabling detection
+ * and blocking of data reception from denied IPs/ports/CIDRs.  This closes
+ * the last gap in socket lifecycle enforcement: even if a connection was
+ * established before a deny rule was loaded, recvmsg enforcement prevents
+ * further data ingress from the blocked peer.
+ * ============================================================================ */
+SEC("lsm/socket_recvmsg")
+int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
+             int size, int flags)
+{
+    __u64 _start_ns = bpf_ktime_get_ns();
+    if (!sock) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+    (void)msg;
+    (void)size;
+    (void)flags;
+
+    if (agent_cfg.net_policy_empty) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (is_cgroup_allowed(cgid)) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    __u8 protocol = BPF_CORE_READ(sk, sk_protocol);
+    __u16 family = BPF_CORE_READ(sk, __sk_common.skc_family);
+    if (family != AF_INET && family != AF_INET6) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    __u16 local_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    __u16 remote_port = bpf_ntohs(BPF_CORE_READ(sk, __sk_common.skc_dport));
+    __be32 remote_ip_v4 = 0;
+    struct ipv6_key remote_ip_v6 = {};
+
+    if (family == AF_INET) {
+        remote_ip_v4 = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+        if (remote_port == 0 && remote_ip_v4 == 0) {
+            record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+            return 0;
+        }
+    } else {
+        struct in6_addr remote_addr = {};
+        BPF_CORE_READ_INTO(&remote_addr, sk, __sk_common.skc_v6_daddr);
+        __builtin_memcpy(remote_ip_v6.addr, &remote_addr, sizeof(remote_ip_v6.addr));
+    }
+
+    int matched = 0;
+    char rule_type[16] = {};
+
+    if (family == AF_INET) {
+        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+            increment_net_ip_stat_v4(remote_ip_v4);
+            increment_net_port_stat(remote_port);
+        }
+
+        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip", 3);
+            increment_net_ip_stat_v4(remote_ip_v4);
+        }
+
+        if (!matched) {
+            struct ipv4_lpm_key lpm_key = {
+                .prefixlen = 32,
+                .addr = remote_ip_v4,
+            };
+            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+                matched = 1;
+                __builtin_memcpy(rule_type, "cidr", 5);
+                increment_net_ip_stat_v4(remote_ip_v4);
+            }
+        }
+    } else {
+        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+            increment_net_ip_stat_v6(&remote_ip_v6);
+            increment_net_port_stat(remote_port);
+        }
+
+        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip", 3);
+            increment_net_ip_stat_v6(&remote_ip_v6);
+        }
+
+        if (!matched) {
+            struct ipv6_lpm_key lpm_key = {
+                .prefixlen = 128,
+                .addr = {0},
+            };
+            __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
+            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+                matched = 1;
+                __builtin_memcpy(rule_type, "cidr", 5);
+                increment_net_ip_stat_v6(&remote_ip_v6);
+            }
+        }
+    }
+
+    /* For recvmsg, check port rules with direction=0 (egress/peer-facing) since
+     * we are evaluating the remote peer's port, not a local bind port. */
+    if (!matched && port_rule_matches(remote_port, protocol, 0)) {
+        matched = 1;
+        __builtin_memcpy(rule_type, "port", 5);
+        increment_net_port_stat(remote_port);
+    }
+
+    if (!matched) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    __u8 audit = get_effective_audit_mode();
+    if (audit) {
+        __u32 pid = bpf_get_current_pid_tgid() >> 32;
+        __u8 enforce_signal = 0;
+        struct task_struct *task = bpf_get_current_task_btf();
+        __u32 sample_rate = get_event_sample_rate();
+
+        increment_net_recvmsg_stats();
+        increment_cgroup_stat(cgid);
+
+        if (!should_emit_event(sample_rate)) {
+            record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+            return 0;
+        }
+
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (e) {
+            e->type = EVENT_NET_RECVMSG_BLOCK;
+            fill_net_block_event_process_info(&e->net_block, pid, task);
+            e->net_block.cgid = cgid;
+            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
+            e->net_block.family = family;
+            e->net_block.protocol = protocol;
+            e->net_block.local_port = local_port;
+            e->net_block.remote_port = remote_port;
+            e->net_block.direction = 5;  /* recv */
+            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
+            if (family == AF_INET6)
+                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
+            else
+                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
+            set_action_string(e->net_block.action, 1, enforce_signal);
+            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
+            bpf_ringbuf_submit(e, 0);
+        } else {
+            increment_net_ringbuf_drops();
+        }
+
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return 0;
+    }
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+
+    __u8 enforce_signal = 0;
+    __u8 configured_signal = get_effective_enforce_signal();
+    if (configured_signal == SIGKILL) {
+        __u32 kill_threshold = get_sigkill_escalation_threshold();
+        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
+        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
+    } else {
+        enforce_signal = configured_signal;
+    }
+    __u32 sample_rate = get_event_sample_rate();
+
+    increment_net_recvmsg_stats();
+    increment_cgroup_stat(cgid);
+
+    maybe_send_enforce_signal(enforce_signal);
+
+    if (!should_emit_event(sample_rate)) {
+        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
+        return -EPERM;
+    }
+
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (e) {
+        e->type = EVENT_NET_RECVMSG_BLOCK;
+        fill_net_block_event_process_info(&e->net_block, pid, task);
+        e->net_block.cgid = cgid;
+        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
+        e->net_block.family = family;
+        e->net_block.protocol = protocol;
+        e->net_block.local_port = local_port;
+        e->net_block.remote_port = remote_port;
+        e->net_block.direction = 5;  /* recv */
+        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
+        if (family == AF_INET6)
+            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
+        else
+            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
+        set_action_string(e->net_block.action, 0, enforce_signal);
+        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
+        bpf_ringbuf_submit(e, 0);
+    } else {
+        increment_net_ringbuf_drops();
+    }
+
+    record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
     return -EPERM;
 }

@@ -45,6 +45,7 @@
 #define EXEC_IDENTITY_FLAG_TRUST_RUNTIME_DEPS (1U << 3)
 #define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4) /* treat overlayfs as verifiable (containers) */
 #define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)     /* don't require FS_VERITY_FL (dev/testing) */
+#define EXEC_IDENTITY_FLAG_USE_IMA_HASH (1U << 6)    /* enable IMA-based hash verification (kernel 6.1+) */
 
 #ifndef FS_VERITY_FL
 #define FS_VERITY_FL 0x00100000
@@ -81,6 +82,7 @@
 #define PRIORITY_RINGBUF_SIZE (1 << 22) /* 4MB for high-priority security events */
 #define MAX_FORENSIC_FDS 8
 #define MAX_FORENSIC_PATH 64
+#define ANCESTOR_MAX_DEPTH 8
 
 /* Network Map Size Constants */
 #define MAX_DENY_IPV4_ENTRIES 65536
@@ -113,9 +115,11 @@ enum event_type {
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_NET_RECVMSG_BLOCK = 15,
     EVENT_KERNEL_PTRACE_BLOCK = 20,
     EVENT_KERNEL_MODULE_BLOCK = 21,
     EVENT_KERNEL_BPF_BLOCK = 22,
+    EVENT_OVERLAY_COPY_UP = 30,
 };
 
 /* Exec hook stages for multi-hook correlation */
@@ -156,6 +160,9 @@ struct exec_event {
     __u64 start_time;
     __u64 cgid;
     char comm[16];
+    __u32 ancestor_pids[ANCESTOR_MAX_DEPTH]; /* parent chain: [0]=grandparent, etc. */
+    __u8 ancestor_count;
+    __u8 _pad2[7]; /* pad to 8-byte alignment boundary */
 };
 
 struct exec_argv_event {
@@ -273,6 +280,23 @@ struct kernel_block_event {
     char rule_type[16]; /* "ptrace", "module", "bpf" */
 };
 
+/* OverlayFS copy-up event: emitted when a denied inode is about to be
+ * copied from the lower layer to the upper layer.  Userspace must
+ * re-resolve the file path to obtain the new upper-layer inode and
+ * propagate the deny rule.
+ * Uses raw fields instead of struct inode_id to avoid forward-declaration
+ * dependency (inode_id is defined after the event structs). */
+struct overlay_copy_up_event {
+    __u32 pid;
+    __u32 _pad;
+    __u64 cgid;
+    __u64 src_ino;     /* lower-layer inode number */
+    __u32 src_dev;     /* lower-layer device */
+    __u32 _pad3;
+    __u8 deny_flags;
+    __u8 _pad2[7];
+};
+
 struct event {
     __u32 type;
     union {
@@ -281,6 +305,7 @@ struct event {
         struct block_event block;
         struct net_block_event net_block;
         struct kernel_block_event kernel_block;
+        struct overlay_copy_up_event overlay_copy_up;
     };
 };
 
@@ -388,6 +413,20 @@ struct {
     __type(key, struct inode_id);
     __type(value, __u8);
 } allow_exec_inode_map SEC(".maps");
+
+/* Trusted exec hash map: SHA-256 hashes of allowed binaries.
+ * Used by the IMA-based hash verification hook (kernel 6.1+).
+ * Populated by userspace from policy when EXEC_IDENTITY_FLAG_USE_IMA_HASH is set. */
+#define MAX_TRUSTED_EXEC_HASH_ENTRIES 16384
+struct exec_hash_key {
+    __u8 sha256[32];
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_TRUSTED_EXEC_HASH_ENTRIES);
+    __type(key, struct exec_hash_key);
+    __type(value, __u8);
+} trusted_exec_hash SEC(".maps");
 
 /* Exec identity mode toggle: key=0, value=0/1 */
 struct {
@@ -519,6 +558,25 @@ struct {
     __type(value, struct backpressure_stats);
 } backpressure SEC(".maps");
 
+/* Atomic policy generation marker.
+ *
+ * Userspace increments this AFTER all deny/allow maps have been fully
+ * synchronized from shadow maps.  BPF hooks read it to detect that a
+ * partial policy update is in progress (generation mismatch vs the
+ * expected value stamped in agent_cfg.policy_generation).  During the
+ * mismatch window, hooks fall back to the *previous* policy decision
+ * (i.e., they continue enforcing the old generation rather than reading
+ * a half-written new one).
+ *
+ * Key 0 = current committed generation (__u64, monotonically increasing).
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u64);
+} policy_generation SEC(".maps");
+
 /* ============================================================================
  * Network Maps
  * ============================================================================ */
@@ -620,6 +678,7 @@ struct net_stats_entry {
     __u64 listen_blocks;
     __u64 accept_blocks;
     __u64 sendmsg_blocks;
+    __u64 recvmsg_blocks;
     __u64 ringbuf_drops;
 };
 
@@ -706,17 +765,6 @@ struct {
     __type(key, struct cgroup_port_key);
     __type(value, __u8);
 } deny_cgroup_port SEC(".maps");
-
-/* Policy generation: single-entry array used as an atomic commit marker.
- * Userspace bumps agent_cfg.policy_generation (forcing audit during sync),
- * then writes the matching value here after all maps are synchronized.
- * Hooks compare the two; a mismatch means maps are mid-update -> audit. */
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, __u32);
-    __type(value, __u64);
-} policy_generation SEC(".maps");
 
 /* ============================================================================
  * Helper Functions
@@ -898,6 +946,16 @@ static __always_inline __u8 path_is_trusted_root(const char *path)
     return 0;
 }
 
+/*
+ * Verify exec identity: determines whether a file can be trusted as a
+ * known-good binary.  The check is intentionally strict by default but
+ * can be relaxed for container environments via exec_identity_flags:
+ *
+ *   EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS - accept overlayfs binaries
+ *       (required for container workloads on overlay-based rootfs)
+ *   EXEC_IDENTITY_FLAG_SKIP_VERITY     - skip fs-verity requirement
+ *       (useful in dev/test where dm-verity is not configured)
+ */
 static __always_inline __u8 file_is_verified_exec_identity(const struct file *file)
 {
     if (!file)
@@ -910,6 +968,10 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     if (!inode)
         return 0;
 
+    /* Overlayfs rejection: hard-reject unless ALLOW_OVERLAYFS is set.
+     * Without this flag, all container binaries on overlay rootfs are
+     * treated as unverified — which blocks networking if
+     * PROTECT_CONNECT is enabled. */
     __u32 magic = BPF_CORE_READ(inode, i_sb, s_magic);
     if (magic == OVERLAYFS_SUPER_MAGIC && !(flags & EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS))
         return 0;
@@ -922,6 +984,7 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     if (mode & (S_IWGRP | S_IWOTH))
         return 0;
 
+    /* fs-verity check: skip if SKIP_VERITY is set (dev/test mode) */
     if (!(flags & EXEC_IDENTITY_FLAG_SKIP_VERITY)) {
         __u32 iflags = BPF_CORE_READ(inode, i_flags);
         if (!(iflags & FS_VERITY_FL))
@@ -1198,6 +1261,9 @@ enum hook_id {
     HOOK_PTRACE = 10,
     HOOK_MODULE_LOAD = 11,
     HOOK_BPF = 12,
+    HOOK_INODE_COPY_UP = 13,
+    HOOK_SOCKET_RECVMSG = 14,
+    HOOK_BPRM_IMA_CHECK = 15,
 };
 
 static __always_inline void record_hook_latency(__u32 hook, __u64 start_ns)
@@ -1319,6 +1385,14 @@ static __always_inline void increment_net_sendmsg_stats(void)
         __sync_fetch_and_add(&stats->sendmsg_blocks, 1);
 }
 
+static __always_inline void increment_net_recvmsg_stats(void)
+{
+    __u32 zero = 0;
+    struct net_stats_entry *stats = bpf_map_lookup_elem(&net_block_stats, &zero);
+    if (stats)
+        __sync_fetch_and_add(&stats->recvmsg_blocks, 1);
+}
+
 static __always_inline void increment_net_ringbuf_drops(void)
 {
     __u32 zero = 0;
@@ -1391,6 +1465,34 @@ static __always_inline void fill_net_block_event_process_info(
         ev->start_time = pi->start_time;
         ev->parent_start_time = pi->parent_start_time;
     }
+}
+
+/* Walk the task_struct->real_parent chain to capture process ancestry.
+ * Populates pids[] starting from the grandparent (skipping the direct parent
+ * which is already in ppid).  Returns the number of ancestors captured.
+ * Bounded to ANCESTOR_MAX_DEPTH iterations for verifier safety. */
+static __always_inline __u8 fill_ancestry(
+    __u32 pids[ANCESTOR_MAX_DEPTH], struct task_struct *task)
+{
+    if (!task)
+        return 0;
+
+    __u8 depth = 0;
+    struct task_struct *cur = task;
+
+#pragma unroll
+    for (int i = 0; i < ANCESTOR_MAX_DEPTH; i++) {
+        struct task_struct *parent = BPF_CORE_READ(cur, real_parent);
+        if (!parent || parent == cur)
+            return depth;
+        __u32 pid = BPF_CORE_READ(parent, tgid);
+        if (pid <= 1)
+            return depth;
+        pids[depth] = pid;
+        depth++;
+        cur = parent;
+    }
+    return depth;
 }
 
 static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 direction)

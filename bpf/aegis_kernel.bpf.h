@@ -106,8 +106,11 @@ int BPF_PROG(handle_locked_down, enum lockdown_reason what)
     }
 
     /* Only intercept module-related lockdown checks.
-     * LOCKDOWN_MODULE_SIGNATURE = 1 in the kernel enum. */
-    if (what != 1) {
+     * Use CO-RE enum value read so the BPF program adapts if the
+     * kernel ever renumbers the lockdown_reason enum. */
+    int target = bpf_core_enum_value(enum lockdown_reason,
+                                     LOCKDOWN_MODULE_SIGNATURE);
+    if (what != target) {
         record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
         return 0;
     }
@@ -183,10 +186,14 @@ int BPF_PROG(handle_bpf, int cmd, union bpf_attr *attr, unsigned int size)
         return 0;
     }
 
-    /* Only block program loading (BPF_PROG_LOAD = 5) and map creation
-     * (BPF_MAP_CREATE = 0). Allow read-only operations like BPF_OBJ_GET,
-     * BPF_MAP_LOOKUP_ELEM so existing programs continue to function. */
-    if (cmd != 5 && cmd != 0) {
+    /* Only block program loading and map creation. Allow read-only
+     * operations like BPF_OBJ_GET, BPF_MAP_LOOKUP_ELEM so the agent's
+     * own programs and existing BPF users continue to function.
+     *
+     * Use CO-RE enum value reads so this adapts if command IDs change. */
+    int cmd_prog_load = bpf_core_enum_value(enum bpf_cmd, BPF_PROG_LOAD);
+    int cmd_map_create = bpf_core_enum_value(enum bpf_cmd, BPF_MAP_CREATE);
+    if (cmd != cmd_prog_load && cmd != cmd_map_create) {
         record_hook_latency(HOOK_BPF, _start_ns);
         return 0;
     }

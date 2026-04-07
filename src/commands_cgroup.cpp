@@ -69,8 +69,9 @@ int cmd_cgroup_deny_add_inode(const std::string& cgroup, const std::string& inod
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -122,8 +123,9 @@ int cmd_cgroup_deny_add_ip(const std::string& cgroup, const std::string& ip)
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -184,8 +186,9 @@ int cmd_cgroup_deny_add_port(const std::string& cgroup, uint16_t port, const std
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -250,8 +253,9 @@ int cmd_cgroup_deny_del_inode(const std::string& cgroup, const std::string& inod
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -302,8 +306,9 @@ int cmd_cgroup_deny_del_ip(const std::string& cgroup, const std::string& ip)
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -369,8 +374,9 @@ int cmd_cgroup_deny_del_port(const std::string& cgroup, uint16_t port, const std
 
     auto cgid_result = resolve_cgroup_identifier(cgroup);
     if (!cgid_result) {
-        logger().log(
-            SLOG_ERROR("Failed to resolve cgroup").field("cgroup", cgroup).field("error", cgid_result.error().to_string()));
+        logger().log(SLOG_ERROR("Failed to resolve cgroup")
+                         .field("cgroup", cgroup)
+                         .field("error", cgid_result.error().to_string()));
         return fail_span(span, cgid_result.error().to_string());
     }
 
@@ -412,9 +418,8 @@ int cmd_cgroup_deny_del_port(const std::string& cgroup, uint16_t port, const std
                          .field("error", hints_result.error().to_string()));
     }
 
-    logger().log(SLOG_INFO("Removed cgroup deny port")
-                     .field("cgroup", cgroup)
-                     .field("port", static_cast<int64_t>(port)));
+    logger().log(
+        SLOG_INFO("Removed cgroup deny port").field("cgroup", cgroup).field("port", static_cast<int64_t>(port)));
     return 0;
 }
 
@@ -471,8 +476,8 @@ int cmd_cgroup_deny_list()
         int rc = bpf_map_get_next_key(fd, nullptr, &key);
         while (rc == 0) {
             if (bpf_map_lookup_elem(fd, &key, &value) == 0) {
-                std::cout << "  cgid:" << key.cgid << " " << key.port << " ("
-                          << protocol_name(key.protocol) << ", " << direction_name(key.direction) << ")" << '\n';
+                std::cout << "  cgid:" << key.cgid << " " << key.port << " (" << protocol_name(key.protocol) << ", "
+                          << direction_name(key.direction) << ")" << '\n';
             }
             rc = bpf_map_get_next_key(fd, &key, &next);
             key = next;

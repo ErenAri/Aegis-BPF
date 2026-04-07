@@ -48,6 +48,7 @@ inline constexpr const char* kNetIpStatsPin = "/sys/fs/bpf/aegisbpf/net_ip_stats
 inline constexpr const char* kNetPortStatsPin = "/sys/fs/bpf/aegisbpf/net_port_stats";
 inline constexpr const char* kDiagnosticsPin = "/sys/fs/bpf/aegisbpf/diagnostics";
 inline constexpr const char* kDeadProcessesPin = "/sys/fs/bpf/aegisbpf/dead_processes";
+inline constexpr const char* kTrustedExecHashPin = "/sys/fs/bpf/aegisbpf/trusted_exec_hash";
 
 // Break-glass detection paths
 inline constexpr const char* kBreakGlassPath = "/etc/aegisbpf/break_glass";
@@ -66,7 +67,7 @@ inline constexpr const char* kControlLockPath = "/var/lib/aegisbpf/control.lock"
 inline constexpr const char* kBpfObjHashPath = "/etc/aegisbpf/aegis.bpf.sha256";
 inline constexpr const char* kBpfObjHashInstallPath = "/usr/lib/aegisbpf/aegis.bpf.sha256";
 inline constexpr const char* kCapabilitiesSchemaSemver = "1.6.0";
-inline constexpr uint32_t kLayoutVersion = 1;
+inline constexpr uint32_t kLayoutVersion = 2;
 inline constexpr size_t kDenyPathMax = 256;
 inline constexpr uint8_t kEnforceSignalNone = 0;
 inline constexpr uint8_t kEnforceSignalInt = 2;
@@ -83,6 +84,7 @@ inline constexpr uint8_t kExecIdentityFlagProtectFiles = 1u << 2;
 inline constexpr uint8_t kExecIdentityFlagTrustRuntimeDeps = 1u << 3;
 inline constexpr uint8_t kExecIdentityFlagAllowOverlayfs = 1u << 4;
 inline constexpr uint8_t kExecIdentityFlagSkipVerity = 1u << 5;
+inline constexpr uint8_t kExecIdentityFlagUseImaHash = 1u << 6;
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
@@ -94,9 +96,11 @@ enum EventType : uint32_t {
     EVENT_NET_LISTEN_BLOCK = 12,
     EVENT_NET_ACCEPT_BLOCK = 13,
     EVENT_NET_SENDMSG_BLOCK = 14,
+    EVENT_NET_RECVMSG_BLOCK = 15,
     EVENT_KERNEL_PTRACE_BLOCK = 20,
     EVENT_KERNEL_MODULE_BLOCK = 21,
     EVENT_KERNEL_BPF_BLOCK = 22,
+    EVENT_OVERLAY_COPY_UP = 30,
 };
 
 enum DiagType : uint32_t {
@@ -119,12 +123,16 @@ enum HookId : uint32_t {
     HOOK_PTRACE = 10,
     HOOK_MODULE_LOAD = 11,
     HOOK_BPF = 12,
+    HOOK_INODE_COPY_UP = 13,
+    HOOK_SOCKET_RECVMSG = 14,
+    HOOK_BPRM_IMA_CHECK = 15,
     HOOK_MAX = 16,
 };
 
 enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
 
 inline constexpr size_t kMaxArgvSize = 256;
+inline constexpr size_t kAncestorMaxDepth = 8;
 
 // New map pin paths for quality improvements
 inline constexpr const char* kHookLatencyPin = "/sys/fs/bpf/aegisbpf/hook_latency";
@@ -138,6 +146,9 @@ struct ExecEvent {
     uint64_t start_time;
     uint64_t cgid;
     char comm[16];
+    uint32_t ancestor_pids[kAncestorMaxDepth]; /* parent chain beyond ppid */
+    uint8_t ancestor_count;
+    uint8_t _pad2[7]; /* pad to 8-byte alignment boundary */
 };
 
 struct ExecArgvEvent {
@@ -235,6 +246,19 @@ struct KernelBlockEvent {
     char rule_type[16]; /* "ptrace", "module", "bpf" */
 };
 
+/// OverlayFS copy-up event: a denied inode is being copied to the upper layer.
+/// Uses raw fields instead of InodeId to avoid forward-declaration dependency.
+struct OverlayCopyUpEvent {
+    uint32_t pid;
+    uint32_t _pad;
+    uint64_t cgid;
+    uint64_t src_ino; /* lower-layer inode number (matches inode_id.ino) */
+    uint32_t src_dev; /* lower-layer device (matches inode_id.dev) */
+    uint32_t _pad3;   /* matches inode_id.pad */
+    uint8_t deny_flags;
+    uint8_t _pad2[7];
+};
+
 struct Event {
     uint32_t type;
     union {
@@ -244,6 +268,7 @@ struct Event {
         NetBlockEvent net_block;
         ForensicEvent forensic;
         KernelBlockEvent kernel_block;
+        OverlayCopyUpEvent overlay_copy_up;
     };
 };
 
@@ -258,6 +283,7 @@ struct NetBlockStats {
     uint64_t listen_blocks;
     uint64_t accept_blocks;
     uint64_t sendmsg_blocks;
+    uint64_t recvmsg_blocks;
     uint64_t ringbuf_drops;
 };
 
@@ -499,7 +525,8 @@ struct PolicyIssues {
 // Compile-time struct layout assertions.
 // These catch silent mismatches between userspace types and BPF map layouts.
 // Sizes must match the corresponding BPF-side definitions in aegis.bpf.c.
-static_assert(sizeof(ExecEvent) == 40, "ExecEvent size changed — update BPF struct");
+static_assert(sizeof(ExecEvent) == 80, "ExecEvent size changed — update BPF struct");
+static_assert(sizeof(OverlayCopyUpEvent) == 40, "OverlayCopyUpEvent size changed — update BPF struct");
 static_assert(sizeof(BlockEvent) == 336, "BlockEvent size changed — update BPF struct");
 static_assert(sizeof(NetBlockEvent) == 104, "NetBlockEvent size changed — update BPF struct");
 static_assert(sizeof(InodeId) == 16, "InodeId size changed — update BPF struct");
@@ -512,7 +539,7 @@ static_assert(sizeof(IpPortV4Key) == 8, "IpPortV4Key size changed — update BPF
 static_assert(sizeof(IpPortV6Key) == 20, "IpPortV6Key size changed — update BPF struct");
 static_assert(sizeof(Ipv4LpmKey) == 8, "Ipv4LpmKey size changed — update BPF struct");
 static_assert(sizeof(Ipv6LpmKey) == 20, "Ipv6LpmKey size changed — update BPF struct");
-static_assert(sizeof(NetBlockStats) == 48, "NetBlockStats size changed — update BPF struct");
+static_assert(sizeof(NetBlockStats) == 56, "NetBlockStats size changed — update BPF struct");
 static_assert(sizeof(CgroupInodeKey) == 24, "CgroupInodeKey size changed — update BPF struct");
 static_assert(sizeof(CgroupIpv4Key) == 16, "CgroupIpv4Key size changed — update BPF struct");
 static_assert(sizeof(CgroupPortKey) == 16, "CgroupPortKey size changed — update BPF struct");

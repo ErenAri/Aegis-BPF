@@ -103,6 +103,10 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     e->exec.start_time = info.start_time;
     e->exec.cgid = cgid;
     bpf_get_current_comm(e->exec.comm, sizeof(e->exec.comm));
+    /* Deep process lineage: walk task_struct ancestry chain */
+    __builtin_memset(e->exec.ancestor_pids, 0, sizeof(e->exec.ancestor_pids));
+    e->exec.ancestor_count = fill_ancestry(e->exec.ancestor_pids, task);
+    __builtin_memset(e->exec._pad2, 0, sizeof(e->exec._pad2));
     bpf_ringbuf_submit(e, 0);
     bp_record_telemetry();
 

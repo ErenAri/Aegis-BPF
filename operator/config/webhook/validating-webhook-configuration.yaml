@@ -1,0 +1,40 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: aegis-policy-validator
+  labels:
+    app.kubernetes.io/managed-by: aegis-operator
+webhooks:
+  - name: validate.aegispolicy.aegisbpf.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: aegis-operator-webhook
+        namespace: aegisbpf-system
+        path: /validate-aegisbpf-io-v1alpha1-policy
+        port: 443
+    rules:
+      - apiGroups: ["aegisbpf.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["aegispolicies", "aegisclusterpolicies"]
+        scope: "*"
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-operator-webhook
+  namespace: aegisbpf-system
+  labels:
+    app.kubernetes.io/managed-by: aegis-operator
+spec:
+  ports:
+    - port: 443
+      targetPort: 9443
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: aegis-operator

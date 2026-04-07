@@ -189,6 +189,10 @@ void OtlpExporter::export_net_block(const NetBlockEvent& ev, uint32_t event_type
             type_name = "net_sendmsg_block";
             direction = "send";
             break;
+        case EVENT_NET_RECVMSG_BLOCK:
+            type_name = "net_recvmsg_block";
+            direction = "recv";
+            break;
         default:
             type_name = "net_block";
             direction = "unknown";
