@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775209826244,
+  "lastUpdate": 1775553269837,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -32268,6 +32268,102 @@ window.BENCHMARK_DATA = {
             "value": 53.836774166847135,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.82715754238313 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dde6d1bcbc35a368bd9176f87a9f02c6bbfe3141",
+          "message": "Merge pull request #73 from ErenAri/claude/quirky-aryabhata\n\nfeat: implement gold-standard roadmap — kernel hardening, telemetry, and K8s orchestration",
+          "timestamp": "2026-04-07T12:03:03+03:00",
+          "tree_id": "8bdffbafe25d988a6cd6a46ad0ef88aa8cd960a0",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/dde6d1bcbc35a368bd9176f87a9f02c6bbfe3141"
+        },
+        "date": 1775553268931,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1557.7715951018133,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1557.6457737578241 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3796.3585416027927,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3795.7335742756154 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21906.07886230324,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21904.17583143183 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166436.86305990792,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166422.8226891423 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1325298.0439924356,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1325180.5765531382 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5299514.478850996,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5298603.109217162 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4659.817966218457,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4667.796348816809 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32761.973181081612,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32766.22514416158 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267593.1517316856,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267554.5538449367 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809967.9648666013,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 810083.2933116345 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.97545199739258,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.96934206447624 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 58.47823849777057,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 58.47347699520904 ns\nthreads: 1"
           }
         ]
       }
