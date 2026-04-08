@@ -9,10 +9,10 @@ minor moves to End of Life immediately.
 
 | Version | Status            | Notes                                       |
 | ------- | ----------------- | ------------------------------------------- |
-| 0.4.x   | Pre-release       | Tracks `main`. Not yet a published release. |
-| 0.3.x   | Supported         | Current stable. All security fixes land here. |
-| 0.2.x   | Supported         | Previous minor. Critical security fixes only. |
-| 0.1.x   | End of Life       | No further fixes. Upgrade to 0.3.x.         |
+| 0.4.x   | Supported         | Current stable. All security fixes land here. |
+| 0.3.x   | Supported         | Previous minor. Critical security fixes only. |
+| 0.2.x   | End of Life       | No further fixes. Upgrade to 0.4.x.         |
+| 0.1.x   | End of Life       | No further fixes. Upgrade to 0.4.x.         |
 
 Release notes for each minor live on the GitHub Releases page:
 <https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/releases>

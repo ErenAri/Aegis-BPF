@@ -76,20 +76,34 @@
 
 ## Comparison with Other Tools
 
-| Capability | AegisBPF | Falco | Tetragon | Tracee |
-|-----------|----------|-------|----------|--------|
-| **File enforcement** | ✅ Kernel deny | ❌ Detect only | ✅ Kernel deny | ⚠️ Limited |
-| **Network enforcement** | ✅ Socket hooks | ❌ Detect only | ✅ Socket hooks | ⚠️ Limited |
-| **File open overhead** | 0.1–0.5 µs | 2–5 µs | 0.5–2 µs | 3–8 µs |
-| **Memory (idle)** | ~15 MB | ~85 MB | ~45 MB | ~120 MB |
-| **Policy reload** | <50ms (atomic) | 1–5s | 2–10s | 1–5s |
-| **Ptrace/module/BPF blocking** | ✅ All three | ❌ | ✅ Partial | ❌ |
-| **Policy language** | Declarative INI | YAML rules | K8s CRDs | Rego |
-| **Compliance mappings** | ✅ NIST, CIS, ISO, SOC2, PCI | ⚠️ Basic | ❌ | ❌ |
-| **Break-glass mechanism** | ✅ Emergency toggle | ❌ | ❌ | ❌ |
-| **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON | ⚠️ JSON |
+The table below is **architectural**, not benchmark-based. Side-by-side
+per-syscall latency, memory footprint, and policy-reload numbers have been
+deliberately removed from this README because they were not measured
+against peer tools on the same hardware in this repository. See
+[`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md) for the
+AegisBPF-side numbers that *have* been measured, and
+[`scripts/compare_runtime_security.sh`](scripts/compare_runtime_security.sh)
+for a reproducible driver that runs the same workload under each agent.
 
-See [docs/PERFORMANCE_COMPARISON.md](docs/PERFORMANCE_COMPARISON.md) for detailed benchmarks and methodology.
+| Capability | AegisBPF | Falco | Tetragon | Tracee | KubeArmor |
+|-----------|----------|-------|----------|--------|-----------|
+| **File enforcement** | ✅ Kernel deny (BPF LSM) | ❌ Detect only | ✅ Kernel deny | ⚠️ Limited | ✅ Kernel deny |
+| **Network enforcement** | ✅ Full socket lifecycle | ❌ Detect only | ✅ Socket hooks | ⚠️ Limited | ⚠️ Partial |
+| **OverlayFS copy-up propagation** | ✅ `inode_copy_up` hook | ❌ | ❌ | ❌ | ❌ |
+| **IMA-backed exec identity** | ✅ kernel 6.1+ (`bpf_ima_file_hash`) | ❌ | ❌ | ❌ | ❌ |
+| **Ptrace / module load / BPF blocking** | ✅ All three | ❌ | ⚠️ Partial | ❌ | ⚠️ Partial |
+| **Policy evaluation** | O(1) BPF hash-map lookup | O(rules) rule engine | In-kernel per TracingPolicy | Hybrid / signatures | In-kernel + userspace |
+| **Policy language** | Declarative INI + K8s CRD | YAML rules (DSL) | K8s CRD (TracingPolicy) | Rego / Go signatures | K8s CRD (KubeArmorPolicy) |
+| **Break-glass / deadman** | ✅ Emergency + TTL revert | ❌ | ❌ | ❌ | ❌ |
+| **Runtime** | C++20 + C (BPF), static binary | C++ | Go | Go | Go |
+| **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON | ⚠️ JSON | ⚠️ JSON |
+
+**What is *not* in this table (deliberately):** per-syscall latency, memory
+footprint, and policy reload time for peer tools. Those claims require
+running each agent on identical hardware with identical workloads, which
+this repository has not done. See
+[`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md) for the
+explicit list of claims this repo refuses to make.
 
 ## Claim Taxonomy
 

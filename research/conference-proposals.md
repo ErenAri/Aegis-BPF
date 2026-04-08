@@ -13,9 +13,11 @@ add latency and introduce TOCTOU windows.
 
 AegisBPF takes a different approach: enforcement decisions happen entirely in
 eBPF LSM hooks, using O(1) inode-based hash map lookups instead of path-based
-string matching. This achieves 0.1–0.5 µs added latency per file operation
-(10–50x lower than comparable tools), with no increase in per-operation overhead
-regardless of rule count.
+string matching. BPF hash-map lookup time is flat from 100 to 10 000 deny
+rules in our reference benchmark (`build/aegisbpf_bench`), meaning
+per-operation overhead does not grow with rule count. Syscall-level numbers
+on the reference host live in `docs/PERF_BASELINE.md`; head-to-head
+latency comparisons against other tools are not yet part of this work.
 
 In this talk, we'll cover:
 - Why inode-first policy evaluation is faster than path-based approaches
@@ -90,11 +92,18 @@ At enforcement time, the hook extracts the inode and device from the kernel's
 file structure (a constant-time pointer dereference) and performs a single hash
 map lookup. Path resolution is deferred to logging, not enforcement.
 
-Our evaluation on production workloads shows:
-- 0.1–0.5 µs per file_open (vs 2–8 µs for path-based approaches)
-- Constant overhead regardless of rule count (1 to 100,000 rules)
-- 15 MB memory footprint (vs 45–120 MB for comparable tools)
-- Zero enforcement gap during policy updates (atomic shadow map swap)
+Our evaluation on the reference host (see `docs/PERF_BASELINE.md` and
+`build/aegisbpf_bench`) shows:
+- Constant BPF hash-map deny-lookup time from 100 → 10 000 rules
+  (4.2–4.5 ns, flat curve; evidence that rule-count does not affect
+  per-operation overhead)
+- Zero enforcement gap during policy updates (atomic shadow-map swap)
+- Full syscall-level open/connect latency numbers in `docs/PERF_BASELINE.md`
+
+Head-to-head comparisons against Falco / Tetragon / Tracee / KubeArmor
+on identical hardware are **not** reported in this paper. A reproducible
+harness (`scripts/compare_runtime_security.sh`) is published separately
+so that readers can run the same comparison on their own infrastructure.
 
 We further introduce a dual-path backpressure architecture separating enforcement
 telemetry from audit events, guaranteeing zero enforcement-event loss under load.

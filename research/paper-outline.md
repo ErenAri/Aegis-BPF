@@ -26,9 +26,15 @@ architecture that separates enforcement event telemetry from general
 audit events, ensuring zero enforcement-event loss even under extreme
 load.
 
-Our evaluation shows that AegisBPF adds 0.1–0.5 µs to file open latency
-(vs 2–8 µs for comparable tools), consumes ~15 MB of memory (vs 45–120 MB),
-and scales to 10,000+ deny rules with no per-operation overhead increase.
+Our evaluation reports AegisBPF's measured syscall-level overhead on a
+single reference host (see `docs/PERF_BASELINE.md`) and shows that the
+in-kernel hash-map deny evaluation is constant-time in rule count, flat
+from 100 to 10 000 entries (measured in `build/aegisbpf_bench`). We
+deliberately do **not** report head-to-head latency or memory numbers
+against peer tools: a reproducible comparative harness is provided in
+`scripts/compare_runtime_security.sh`, but a published same-host
+measurement against Falco, Tetragon, Tracee, and KubeArmor is not yet
+part of this work.
 We demonstrate AegisBPF's effectiveness against MITRE ATT&CK techniques
 including container escape (T1611), credential theft (T1552), and kernel
 module insertion (T1547.006).
