@@ -847,11 +847,21 @@ sudo reboot
 
 ## Performance
 
-BPF LSM overhead is minimal:
-- ~100-500ns per file open
-- O(1) hash map lookups (deny rule count does not affect per-syscall latency)
-- Lock-free ring buffer for events (drops are counted, never blocks enforcement)
-- ~5-15MB base memory usage (~32-37MB with all maps at max capacity)
+Measured on the reference host (Linux 6.17, i9-13900H, 2026-04-08; see
+`docs/PERF_BASELINE.md` and `docs/PERFORMANCE.md`):
+
+- **open(2) syscall delta**: +0.03 µs/op, p95 +3.2%
+- **connect(2) syscall delta**: +0.09 µs/op, p95 +4.2%
+- **BPF hash-map deny lookup**: 3.9–4.1 ns, flat from 100 → 10 000 entries
+  (rule count does not affect per-syscall latency)
+- **Startup time**: ~130 ms
+- **Policy reload** (`aegisbpf policy apply`): ~115 ms median, no
+  process restart; the in-agent shadow-map swap itself is <5 ms
+- **Lock-free ring buffer** for events (drops are counted, never blocks enforcement)
+- **Userspace VmRSS (idle)**: ~7.4 MB
+- **BPF map memlock (empty policy)**: ~100 MB (dominated by event
+  ringbufs and per-CPU stats arrays; budget ~140 MB total for
+  container limits)
 
 Run benchmarks:
 ```bash

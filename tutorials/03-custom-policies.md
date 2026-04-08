@@ -140,7 +140,8 @@ vim /etc/aegisbpf/production.conf
 # 2. Lint it
 aegisbpf policy lint /etc/aegisbpf/production.conf
 
-# 3. Apply (takes effect in <50ms, no restart needed)
+# 3. Apply (median ~115 ms on the reference host, no agent restart
+#    needed; the in-agent shadow-map swap itself is <5 ms)
 sudo aegisbpf policy apply /etc/aegisbpf/production.conf
 
 # 4. Verify

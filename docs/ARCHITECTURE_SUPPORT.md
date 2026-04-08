@@ -30,12 +30,21 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-### Performance Profile
+### Performance Profile (reference host, 2026-04-08)
 
-- **File open overhead**: 0.1–0.5 µs (O(1) hash lookup)
-- **Network connect overhead**: 0.2–1.0 µs
-- **Memory (idle)**: ~15 MB
-- **Startup time**: <0.5s
+Measured on Linux 6.17.0-19-generic, i9-13900H, with CPU pinning via
+`scripts/perf_open_bench.sh` / `scripts/perf_connect_bench.sh`. Numbers
+are end-to-end syscall wall-clock delta (baseline → with agent running
+in audit mode); they are **not** pure LSM-hook overhead — see
+`docs/PERF_BASELINE.md` for methodology.
+
+- **open(2) syscall delta**: +0.03 µs/op; p95 overhead +3.2%
+- **connect(2) syscall delta**: +0.09 µs/op; p95 overhead +4.2%
+- **Userspace VmRSS (idle agent)**: ~7.4 MB
+- **BPF map memlock (reported by `bpftool map show`)**: ~100 MB
+  (dominated by event ringbufs and per-CPU stats arrays; see
+  `docs/PERFORMANCE.md` for the map-by-map breakdown)
+- **Startup time (spawn → "Agent started" log)**: ~130 ms median
 
 ### Kernel Requirements
 
@@ -79,17 +88,26 @@ cmake --build build
 
 ### Performance Notes
 
-ARM64 performance is comparable to x86_64 for BPF workloads:
+ARM64 performance is expected to be comparable to x86_64 for BPF
+workloads, but this project does **not** currently publish a
+same-hardware x86 vs ARM comparison. The only measured reference host
+is an i9-13900H (see `docs/PERF_BASELINE.md`); Graviton / Ampere /
+Apple-Silicon numbers would need a dedicated re-run and are intentionally
+not listed here.
 
-| Metric | x86_64 (baseline) | ARM64 (Graviton3) | Delta |
-|--------|-------------------|-------------------|-------|
-| File open overhead | 0.3 µs | 0.3 µs | ~0% |
-| Hash map lookup | 45 ns | 42 ns | -7% |
-| Ring buffer submit | 120 ns | 115 ns | -4% |
-| Memory footprint | 15 MB | 15 MB | ~0% |
+For reference, the measured x86_64 numbers on the 13900H host are:
 
-ARM64's larger register file and efficient memory subsystem provide
-competitive or slightly better BPF performance.
+| Metric | x86_64 measured | Source |
+|--------|-----------------|--------|
+| BPF hash-map lookup (deny map) | 3.90–4.07 ns (flat 100→10 000 entries) | `build/aegisbpf_bench` |
+| open(2) with-agent delta | +0.03 µs/op, p95 +3.2% | `scripts/perf_open_bench.sh` |
+| connect(2) with-agent delta | +0.09 µs/op, p95 +4.2% | `scripts/perf_connect_bench.sh` |
+| Userspace VmRSS (idle) | ~7.4 MB | `/proc/PID/status` |
+| BPF map memlock total | ~100 MB | `bpftool map show` |
+
+ARM64's larger register file and efficient memory subsystem are
+expected to provide competitive BPF performance, but confirming this
+requires a real measurement on Graviton / Ampere / Apple Silicon.
 
 ### Platform-Specific Notes
 

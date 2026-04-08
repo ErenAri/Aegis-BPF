@@ -93,17 +93,29 @@ live in `docs/PERF_BASELINE.md`.
 
 | Operation | Time | Scales with rule count? |
 |---|---|---|
-| Deny map lookup (100 entries) | 4.22 ns | — |
-| Deny map lookup (512 entries) | 4.40 ns | — |
-| Deny map lookup (4 096 entries) | 4.50 ns | — |
-| Deny map lookup (10 000 entries) | 4.17 ns | **no** |
-| Deny map insert (100 entries) | 27.3 ns/op | linear in inserts |
-| Path key fill (short path) | 14.6 ns | — |
+| Deny map lookup (100 entries) | 3.90 ns | — |
+| Deny map lookup (512 entries) | 4.07 ns | — |
+| Deny map lookup (4 096 entries) | 3.95 ns | — |
+| Deny map lookup (10 000 entries) | 3.93 ns | **no** |
+| Deny map insert (100 entries) | ~25.8 ns/op | — |
+| Deny map insert (512 entries) | ~37.5 ns/op | — |
+| Deny map insert (4 096 entries) | ~37.9 ns/op | — |
+| Deny map insert (10 000 entries) | ~46.4 ns/op | mild growth |
+| Path key fill (short path) | 13.8 ns | — |
 | Inode ID hash | 0.10 ns | — |
-| Port key hash | 0.11 ns | — |
-| SHA-256 (short input) | 742 ns | — |
+| Port key hash | 0.09 ns | — |
+| SHA-256 (short input) | 710 ns | — |
 
-The flat 4.2–4.5 ns lookup curve from 100 to 10 000 entries is the single
+Numbers above are the 2026-04-08 re-run on Linux 6.17 / i9-13900H.
+Every microbench is equal to or slightly better than the previous
+2026-02-15 reference. Note the deny-map insert row: the earlier
+table quoted a single "27.3 ns/op" number that was only the N=100
+measurement; the full curve shows insert time grows mildly with table
+size because of bucket-chain length and hash-collision rehashing. The
+insert path is not a hot path (it runs at policy-apply time, not per
+syscall), so this growth is not a concern.
+
+The flat 3.9–4.1 ns lookup curve from 100 to 10 000 entries is the single
 most important number here. It is evidence for the claim that
 **AegisBPF's policy evaluation is O(1) in rule count**, because it is a
 BPF hash-map lookup, not a rule-engine walk. Tools that use a rule DSL
@@ -153,8 +165,12 @@ against competitors.
 5. **IMA-backed exec identity** on kernel 6.1+.
 6. **Break-glass, deadman, emergency disable** — operational safety
    primitives with e2e proofs (C6, C7, C9).
-7. **Single static binary, no Go runtime, no GC pauses.** `build/aegisbpf`
-   is ~47 MB, sub-second startup, no sidecar, no gRPC.
+7. **Single binary, no Go runtime, no GC pauses.** `build/aegisbpf`
+   is ~45 MB unstripped (debug_info + RAII C++20), ~130 ms startup on
+   the reference host, no sidecar, no gRPC. It is **dynamically
+   linked** against libbpf / libsystemd / libstdc++ / libelf / libcap
+   / libgcrypt / lib{z,lz4,lzma,zstd} / libc — a static build is not
+   currently shipped but is a possible future packaging option.
 
 ## What is *not* claimed
 

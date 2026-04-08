@@ -23,7 +23,7 @@ SOC 2 Type II examinations.
 | CC7.1 | Detection and monitoring procedures to identify changes to configurations, security vulnerabilities, and introduction of malicious software | **Full** | Real-time kernel-level monitoring of all file access, network connections, process execution, and kernel security events. State change events track configuration modifications. |
 | CC7.2 | The entity monitors system components and the operation of those components for anomalies | **Full** | Prometheus metrics expose operational telemetry. Grafana dashboards visualize anomalies. PrometheusRule alerts on: high block rate, ring buffer drops, degraded state, map capacity. |
 | CC7.3 | The entity evaluates security events to determine whether they could or have resulted in a failure to meet objectives | **Full** | Block events with full process lineage enable incident investigation. Priority ring buffer ensures enforcement events survive attack volume. SIEM integrations enable automated correlation. |
-| CC7.4 | The entity responds to identified security incidents by executing defined response activities | **Full** | Policy hot-reload enables rapid incident response (<50ms). Break-glass toggle for emergency enforcement changes. Network deny rules can isolate compromised workloads in real-time. |
+| CC7.4 | The entity responds to identified security incidents by executing defined response activities | **Full** | Policy hot-reload enables rapid incident response (~115 ms median on the 2026-04-08 reference host, no agent restart). Break-glass toggle for emergency enforcement changes. Network deny rules can isolate compromised workloads in real-time. |
 
 ### CC8 — Change Management
 
