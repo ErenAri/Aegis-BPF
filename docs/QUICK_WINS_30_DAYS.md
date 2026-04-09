@@ -37,44 +37,34 @@ Add after the title:
 ### Day 3-4: Create Comparison Matrix (6 hours)
 **Impact:** 🔥 Technical credibility
 
-**Task:** Create head-to-head feature comparison
+**Task:** Create a head-to-head feature comparison — but only with numbers
+actually measured on the same hardware as the peer tools.
 
-Add to README.md:
-```markdown
-## Why AegisBPF?
+Do **not** hand-write performance columns for Falco / Tetragon / Tracee
+from blog posts or README excerpts. Every "AegisBPF is N× faster than X"
+table in this repository's history has been removed as part of the
+2026-04-08 honesty pass (see `docs/PERFORMANCE_COMPARISON.md`, sections
+"Honesty preface" and "What is *not* claimed").
 
-| Feature                    | AegisBPF | Falco | Tetragon | Tracee |
-|---------------------------|----------|-------|----------|--------|
-| **Performance**           |          |       |          |        |
-| File open overhead        | ~27%     | ~45%* | ~38%*    | ~52%*  |
-| Memory footprint (idle)   | 12 MB    | 85 MB | 45 MB    | 120 MB |
-| Startup time              | <1s      | 3-5s  | 1-2s     | 2-4s   |
-| **Security**              |          |       |          |        |
-| LSM-based blocking        | ✅       | ✅    | ✅       | ❌     |
-| Inode-first enforcement   | ✅       | ❌    | ❌       | ❌     |
-| PID reuse protection      | ✅       | ❌    | ❌       | ❌     |
-| Network policy (L3/L4)    | ✅       | ✅    | ✅       | ✅     |
-| **Operations**            |          |       |          |        |
-| Policy hot-reload         | <50ms    | N/A   | ~200ms   | N/A    |
-| Signed policies           | ✅       | ❌    | ❌       | ❌     |
-| Audit mode (no LSM)       | ✅       | ✅    | ❌       | ✅     |
-| Break-glass recovery      | ✅       | ❌    | ❌       | ❌     |
-| **Deployment**            |          |       |          |        |
-| Single binary             | ✅       | ❌    | ✅       | ❌     |
-| Kubernetes-native         | ✅       | ✅    | ✅       | ✅     |
-| Prometheus metrics        | ✅       | ✅    | ✅       | ✅     |
+Instead:
 
-*Estimated from public benchmarks and documentation. Your mileage may vary.
-
-**Key Differentiators:**
-1. **Low-overhead inode-first enforcement** with fast policy reloads
-2. **PID reuse attack prevention** - unique among eBPF security tools
-3. **Signed policy bundles** with Ed25519 verification
-4. **Break-glass recovery** - failsafe for enforcement errors
-```
+1. Run `scripts/compare_runtime_security.sh` on a clean host that has all
+   four agents installed. Read `docs/COMPETITIVE_BENCH_METHODOLOGY.md` for
+   the full procedure (same kernel, same workload, same duration, isolated
+   reboots between agents).
+2. Use the `results.json` and Markdown table that script emits as the
+   **only** source of comparative numbers added to README.md or any other
+   doc. Do not edit them by hand.
+3. A feature-level ✅/❌ matrix (LSM-based blocking, break-glass, signed
+   policies, etc.) is fine to write from each tool's published docs —
+   architectural facts don't need same-host benchmarks. See the
+   "Architecture comparison" table in `docs/PERFORMANCE_COMPARISON.md` for
+   the template.
 
 **Files to create:**
-- Update `README.md` with comparison matrix
+- `results/` output from `scripts/compare_runtime_security.sh`
+- Update `README.md` with a feature-only matrix, and link to `results/`
+  for measured numbers
 
 ---
 
@@ -255,19 +245,27 @@ sudo apt-get update && sudo apt-get install -y falco
    - During: file churn workload (1000 opens/sec)
 
 **Expected results:**
-```
-| Metric                 | Baseline | AegisBPF | Falco | Winner  |
-|------------------------|----------|----------|-------|---------|
-| File open throughput   | 721 MB/s | 528 MB/s | 410 MB/s | AegisBPF |
-| Network latency (p99)  | 5 ms     | 6 ms     | 9 ms     | AegisBPF |
-| Memory (idle)          | -        | 12 MB    | 85 MB    | AegisBPF |
-| CPU overhead           | 0%       | 2.3%     | 4.7%     | AegisBPF |
-```
+
+Do **not** pre-fill this table with numbers. The entire point of running
+the benchmark is to *discover* the numbers on the same host, same kernel,
+same workload. Earlier drafts of this doc shipped an "Expected results"
+table with hand-written 721 / 528 / 410 MB/s throughputs and 12 / 85 MB
+memory figures — those numbers were never measured on this repo's
+hardware and have been removed as part of the 2026-04-08 honesty pass.
+
+The real driver is `scripts/compare_runtime_security.sh`, documented in
+`docs/COMPETITIVE_BENCH_METHODOLOGY.md`. Run it, commit the resulting
+`results/results.json` + Markdown table, and *then* add the measured
+table to `benchmarks/RESULTS.md`. Only numbers produced by that script
+on the same host as the peer tools should ever appear in a comparison
+table.
 
 **Files to create:**
-- `benchmarks/vs_falco.sh` (automated benchmark script)
-- `benchmarks/RESULTS.md` (detailed results with methodology)
-- Add to README: "Performance" section with results table
+- `benchmarks/vs_falco.sh` (automated benchmark script, or just use
+  `scripts/compare_runtime_security.sh --agents aegisbpf,falco`)
+- `benchmarks/RESULTS.md` (detailed results with methodology, populated
+  *after* running the driver — no hand-written numbers)
+- Add to README: "Performance" section that links to `benchmarks/RESULTS.md`
 
 ---
 

@@ -37,21 +37,25 @@
 **Impact:** 🔥 Critical for technical credibility
 
 **Actions:**
-- [ ] **Head-to-head benchmarks** vs Falco, Tetragon, Tracee, Kubearmor
-  - File open overhead comparison
-  - Network connect/bind latency
-  - Memory footprint under load
-  - CPU overhead at 10k events/sec
-- [ ] **Publish benchmark methodology** (reproducible on GitHub Actions)
-- [ ] **Create performance comparison matrix:**
-  ```markdown
-  | Feature              | AegisBPF | Falco | Tetragon | Tracee |
-  |---------------------|----------|-------|----------|--------|
-  | File open overhead  | 27%      | 45%   | 38%      | 52%    |
-  | Memory (idle)       | 12 MB    | 85 MB | 45 MB    | 120 MB |
-  | Startup time        | 0.2s     | 3.5s  | 1.2s     | 2.8s   |
-  | Policy reload       | <50ms    | N/A   | 200ms    | N/A    |
-  ```
+- [ ] **Head-to-head benchmarks** vs Falco, Tetragon, Tracee, KubeArmor,
+  run via `scripts/compare_runtime_security.sh` on a single clean host
+  with all agents installed (see `docs/COMPETITIVE_BENCH_METHODOLOGY.md`).
+  Required workloads:
+  - File open overhead (`perf_open_bench`)
+  - Network connect/bind latency (`perf_connect_bench`)
+  - Memory footprint under load (`ps`/`cgroup.memory.current` snapshots)
+  - CPU overhead at 10k events/sec (`perf stat`)
+- [ ] **Publish benchmark methodology.** Already partially done:
+  `docs/COMPETITIVE_BENCH_METHODOLOGY.md` + `scripts/compare_runtime_security.sh`.
+  Extend with reproducible GitHub Actions workflow once a runner with all
+  four agents is available.
+- [ ] **Populate the performance comparison matrix** from the driver's
+  `results.json` output. **Do not hand-write the table.** Earlier drafts
+  of this doc contained hand-written numbers (27/45/38/52% overhead,
+  12/85/45/120 MB idle memory, etc.) copied from blog posts — those
+  numbers were never measured on the same hardware as AegisBPF and have
+  been removed as part of the 2026-04-08 honesty pass. See
+  `docs/PERFORMANCE_COMPARISON.md` "What is *not* claimed" for context.
 - [ ] Add **benchmark CI workflow** comparing against latest Falco/Tetragon releases
 - [ ] Document **performance optimization techniques** used (inode-first lookups, compact deny maps, event sampling, etc.)
 
@@ -429,7 +433,10 @@
 ## 📊 Success Metrics & KPIs
 
 ### Technical Excellence
-- [ ] **Performance:** <5% overhead on real workloads (vs 27% current)
+- [ ] **Performance:** hold the 2026-04-08 measured baseline
+  (`open` +0.03 µs/op, `connect` p95 +4.2%) on audit-only microbenchmarks
+  and publish an enforce-mode number on the same host; see
+  `docs/PERF_BASELINE.md`
 - [ ] **Reliability:** 99.99% uptime in production deployments (4 nines)
 - [ ] **Security:** 0 HIGH/CRITICAL CVEs in 12 months
 - [ ] **Coverage:** 90%+ line coverage, 85%+ branch coverage
