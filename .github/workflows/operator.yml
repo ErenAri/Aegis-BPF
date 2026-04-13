@@ -1,0 +1,58 @@
+name: Operator
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'operator/**'
+  pull_request:
+    paths:
+      - 'operator/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: operator
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1 -race -timeout 120s
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      - name: Build
+        run: go build ./cmd/operator/
+
+  verify-generated:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      - name: Verify generated files are up to date
+        run: make verify-generated
