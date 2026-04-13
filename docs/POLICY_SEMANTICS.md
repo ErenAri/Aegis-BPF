@@ -1,7 +1,8 @@
 # Policy Semantics
 
-Version: 1.0 (2026-02-05)
-Status: Canonical semantics reference for the v1-v5 contract.
+Version: 1.1 (2026-04-09)
+Status: Canonical semantics reference for the v1-v5 daemon contract plus
+the v0.5.0 operator policy model.
 
 This document defines how policy rules are interpreted at runtime, including
 edge cases that matter for production correctness.
@@ -216,3 +217,112 @@ For signed policies:
 - Use `deny_path` for operator-friendly inputs and fallback observability.
 - Keep `allow_cgroup` minimal and review via security workflow.
 - Treat policy changes as deployable artifacts: lint, sign, canary, then rollout.
+
+## Operator policy model (v0.5.0+)
+
+The Kubernetes operator (`AegisPolicy` and `AegisClusterPolicy` in
+`aegisbpf.io/v1alpha1`) compiles its CRDs into the same INI format
+described above. Two v0.5.0 features extend the authoring surface
+without changing the daemon contract:
+
+1. **Per-rule `action`** on `FileRule` and `NetworkRule` (`Allow` or
+   `Block`, default `Block`).
+2. **`spec.workloadSelector`** with the full Kubernetes `LabelSelector`
+   model (`matchLabels` + `matchExpressions`), plus a separate
+   `namespaceSelector` and a `matchNamespaceNames` shortcut. The
+   v0.4.x `spec.selector` field is retained as deprecated and is
+   reported via the `Deprecated` status condition.
+
+### Per-rule Action and Allow > Block precedence
+
+Rules with `action: Block` (or no action) lower to the corresponding
+`[deny_*]` section. Rules with `action: Allow` lower to the matching
+`[allow_*]` section:
+
+| Rule shape          | Block section       | Allow section        |
+|---------------------|---------------------|----------------------|
+| `path`              | `[deny_path]`       | `[allow_path]`       |
+| `ip` only           | `[deny_ip]`         | `[allow_ip]`         |
+| `cidr`              | `[deny_cidr]`       | `[allow_cidr]`       |
+| `port` only         | `[deny_port]`       | `[allow_port]`       |
+| `ip` + `port`       | `[deny_ip_port]`    | `[allow_ip_port]`    |
+| `binaryHash`        | `[deny_binary_hash]`| `[allow_binary_hash]`|
+
+`Action: Allow` is **rejected** by the admission webhook in two cases
+where the daemon has no matching allow path:
+
+- `FileRule.inode` (no `[allow_inode]` section in the daemon)
+- `FileRule` inside `protect:` (protect always implies Block)
+
+When the operator merges all applicable policies into a single
+`aegis-merged-policy` ConfigMap, it applies an **Allow > Block
+precedence sweep**: any literal that appears in an `[allow_*]` section
+is removed from the corresponding `[deny_*]` section. Sections that
+become empty after the sweep are dropped from the merged output. This
+mirrors Tetragon and KubeArmor merge semantics.
+
+The precedence sweep operates on **literal target equality**, not on
+range containment. An `allow_ip: 198.51.100.42` does **not** override a
+`deny_cidr: 198.51.100.0/24`; the daemon will still block the IP via
+the LPM trie. If you need a hole inside a CIDR block, allow the
+matching CIDR or list each carved-out IP individually under the
+narrower deny target.
+
+Same-target Allow/Block collisions inside a **single** spec are
+rejected at admission. The webhook reports the conflicting target so
+authors resolve the ambiguity in source rather than relying on the
+merge sweep. Cross-policy overrides (e.g. a namespaced AegisPolicy
+allowing what a global AegisClusterPolicy blocks) are valid and
+expected — that is the documented use case for the precedence rule.
+
+### WorkloadSelector and namespace scope
+
+`spec.workloadSelector` selects pods using:
+
+- `podSelector` — a `metav1.LabelSelector` (matchLabels +
+  matchExpressions, supporting `In`, `NotIn`, `Exists`,
+  `DoesNotExist`).
+- `namespaceSelector` — a `metav1.LabelSelector` over namespace
+  labels. The well-known `kubernetes.io/metadata.name` label resolves
+  by-name selection.
+- `matchNamespaceNames` — convenience shortcut equivalent to a
+  `namespaceSelector` with `matchExpressions[kubernetes.io/metadata.name In [...]]`.
+
+For **namespaced AegisPolicy** the selector is always pinned to the
+policy's own namespace; the admission webhook rejects any
+`namespaceSelector` or `matchNamespaceNames` value that resolves
+outside that namespace, with one allowed shortcut: a `namespaceSelector`
+that explicitly pins to the policy's own namespace by
+`kubernetes.io/metadata.name` is accepted, because it is semantically
+identical to omitting the field. Use **AegisClusterPolicy** when you
+need cross-namespace scope.
+
+For v0.5.0 the operator evaluates the selector at "is there at least
+one matching workload anywhere in scope?" granularity to decide whether
+a policy contributes to the merged ConfigMap. Per-pod ConfigMap
+sharding (per-workload enforcement) is tracked for v0.6.0; until then
+the merged ConfigMap is applied node-wide.
+
+### Backwards compatibility with `spec.selector`
+
+The legacy `spec.selector` field (PolicySelector) is retained without
+schema changes, so v0.4.x YAMLs continue to admit and reconcile. When
+both `spec.selector` and `spec.workloadSelector` are set,
+`workloadSelector` wins and `spec.selector` is ignored. Any policy that
+still uses `spec.selector` reports a `Deprecated=True` condition with
+reason `LegacySelectorInUse`; the policy itself stays Ready.
+
+### Conditions surfaced by the operator
+
+The status conditions used in v0.5.0 are:
+
+| Type             | Meaning                                                  |
+|------------------|----------------------------------------------------------|
+| `Ready`          | Spec parsed, translated, and ConfigMap is in sync        |
+| `PolicyValid`    | Spec passed validation and translation                   |
+| `EnforceCapable` | Per-node enforcement readiness (default: `Unknown`)      |
+| `Degraded`       | Transient/recoverable problem (e.g. ConfigMap write)     |
+| `Deprecated`     | The policy uses a deprecated API surface                 |
+
+Reason strings are stable API; see the
+`api/v1alpha1` package constants for the canonical list.

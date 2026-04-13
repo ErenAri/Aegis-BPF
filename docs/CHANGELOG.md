@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Operator Policy Model (v0.5.0)
+- **Per-rule `action` field** on `FileRule` and `NetworkRule` (`Allow` or `Block`, default `Block`) so a single policy can express both deny and allow semantics. Allow rules lower into the daemon's existing `[allow_*]` sections; no daemon change required.
+- **`Allow > Block` merge precedence** in `MergePolicies`: any literal that appears in an `[allow_*]` section is removed from the corresponding `[deny_*]` section across the merged ConfigMap, mirroring Tetragon and KubeArmor behaviour. Sections that are emptied by the sweep are dropped from the final output.
+- **`spec.workloadSelector`** with full Kubernetes `LabelSelector` support (`matchLabels` + `matchExpressions: In/NotIn/Exists/DoesNotExist`), plus a separate `namespaceSelector` and `matchNamespaceNames` shortcut. Replaces the v0.4.x `PolicySelector` for new policies.
+- **`internal/selector` package** that evaluates `workloadSelector` against the live cluster (resolving namespaces, then matching pods inside each), with fallback to the legacy `spec.selector` only when `workloadSelector` is unset.
+- **Admission webhook validation** for the new fields: rejects `Action=Allow` on inode-based or protect file rules, detects in-spec `Allow`/`Block` collisions on the same target (path / IP / CIDR / port / ip:port / binary hash), validates `LabelSelector` parseability, validates `matchNamespaceNames` as DNS-1123 labels, and rejects cross-namespace selection from a namespaced AegisPolicy.
+- **`Deprecated` status condition** raised on policies that still use `spec.selector`, with reason `LegacySelectorInUse`. The policy continues to reconcile normally; the condition is informational.
+- **Pinned `controller-gen` Makefile workflow** (`make controller-gen / manifests / deepcopy / generate / verify-generated`, controller-gen v0.14.0). `verify-generated` fails CI when CRD YAML or `zz_generated.deepcopy.go` drift from the markers in `api/`.
+- **CRD schema regenerated** for `aegispolicies.aegisbpf.io` and `aegisclusterpolicies.aegisbpf.io`: adds `workloadSelector` (`podSelector`, `namespaceSelector`, `matchNamespaceNames`) and the per-rule `action` enum defaulted to `Block`.
+- **New example** `operator/examples/allow-override.yaml` demonstrating the cross-policy Allow override flow (a global block + a namespaced allow carve-out).
+
+### Backwards compatibility (v0.5.0)
+- v0.4.x policies that use `spec.selector` continue to admit, reconcile, and translate to byte-identical INI output. They simply gain a `Deprecated=True` condition.
+- The per-rule `action` field defaults to `Block`, so existing rule lists keep their original semantics with no edits.
+- The CRD remains `v1alpha1`. No `v1alpha2` bump.
+- Daemon (`policy_parse.cpp` and the BPF maps) is unchanged in v0.5.0; the operator translates per-rule Action into the existing `[allow_*]` and `[deny_*]` INI sections.
+
 ### Added — Quality & Observability
 - **Per-hook latency tracking** (`hook_latency` PERCPU_ARRAY map) — records total, count, min, and max nanoseconds per LSM/tracepoint hook invocation for overhead benchmarking
 - **In-kernel event pre-filtering** (`event_approver_inode`, `event_approver_path` maps) — Datadog-style approver/discarder pattern to suppress noisy events in-kernel, reducing ring buffer pressure

@@ -5,12 +5,14 @@ metadata:
   namespace: production
 spec:
   mode: enforce
-  selector:
-    matchLabels:
-      tier: backend
+  workloadSelector:
+    podSelector:
+      matchLabels:
+        tier: backend
   networkRules:
     deny:
-      # Block access to metadata service (cloud credential theft)
+      # Block access to metadata service (cloud credential theft).
+      # action: Block is the default and can be omitted.
       - ip: "169.254.169.254"
         protocol: tcp
         direction: outbound
@@ -26,3 +28,12 @@ spec:
       - port: 22
         protocol: tcp
         direction: outbound
+      # v0.5.0+: explicit Allow rules. Within a single spec, Allow and
+      # Block must target *different* literals — same-target collisions
+      # are rejected by the admission webhook because they are
+      # ambiguous. Allow > Block merge precedence (across separate
+      # policies) is documented in docs/POLICY_SEMANTICS.md.
+      - ip: "10.20.30.40"  # internal observability collector
+        protocol: tcp
+        direction: outbound
+        action: Allow

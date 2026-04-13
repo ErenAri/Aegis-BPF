@@ -5,13 +5,20 @@ metadata:
   namespace: production
 spec:
   mode: enforce
-  selector:
-    matchLabels:
-      app: api-server
-    matchNamespaces:
-      - production
+  # v0.5.0+: workloadSelector replaces the legacy `selector` field. It
+  # supports the full Kubernetes LabelSelector model (matchLabels +
+  # matchExpressions). For namespaced AegisPolicy the selector is always
+  # scoped to its own namespace; cross-namespace selection is rejected
+  # by the admission webhook.
+  workloadSelector:
+    podSelector:
+      matchExpressions:
+        - key: app
+          operator: In
+          values: [api-server, api-worker]
   fileRules:
     deny:
+      # action defaults to Block, so existing v0.4.x specs keep working.
       - path: /etc/shadow
       - path: /etc/passwd
       - path: /etc/gshadow

@@ -1,0 +1,48 @@
+# v0.5.0+ example: per-rule Action with Allow > Block merge precedence.
+#
+# This file ships TWO policies that together demonstrate the override flow:
+#   1. global-egress-block: an AegisClusterPolicy that blocks /usr/bin/curl
+#      everywhere (the typical "no shell-out from production" guardrail).
+#   2. ci-runners-allow-curl: a namespaced AegisPolicy that re-enables
+#      /usr/bin/curl for CI runner pods only.
+#
+# At merge time the operator's translator removes /usr/bin/curl from the
+# combined [deny_path] section because the same literal appears in
+# [allow_path]. This mirrors Tetragon and KubeArmor merge semantics and is
+# documented in docs/POLICY_SEMANTICS.md.
+#
+# Important constraints (enforced by the admission webhook):
+# - Allow and Block on the same literal target inside ONE spec is rejected
+#   as ambiguous. Use a separate policy if you need an exception.
+# - Allow is not valid on inode-based file rules (the daemon has no
+#   [allow_inode] section).
+# - Allow is not valid on protect rules.
+
+---
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisClusterPolicy
+metadata:
+  name: global-egress-block
+spec:
+  mode: enforce
+  fileRules:
+    deny:
+      - path: /usr/bin/curl   # default action: Block
+      - path: /usr/bin/wget
+
+---
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: ci-runners-allow-curl
+  namespace: ci
+spec:
+  mode: enforce
+  workloadSelector:
+    podSelector:
+      matchLabels:
+        role: ci-runner
+  fileRules:
+    deny:
+      - path: /usr/bin/curl
+        action: Allow         # carves a hole for CI runners only

@@ -4,6 +4,11 @@ metadata:
   name: global-kernel-protection
 spec:
   mode: enforce
+  # No workloadSelector ⇒ this cluster policy applies node-wide. The
+  # operator's merged ConfigMap is consumed by every Aegis daemon, so
+  # kernel-level rules naturally have global reach. Cluster policies
+  # may set a workloadSelector with cross-namespace matchExpressions
+  # if you want to constrain them to e.g. `env in (prod)`.
   kernelRules:
     # Prevent loading of unauthorized kernel modules (rootkit defense)
     blockModuleLoad: true
