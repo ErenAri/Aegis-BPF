@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776116869087,
+  "lastUpdate": 1776145416845,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -32946,6 +32946,102 @@ window.BENCHMARK_DATA = {
             "value": 53.46824859332818,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.456521163727594 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9a9b8393885d198facacb0c01e8fe95af79a5a7",
+          "message": "Merge pull request #80 from ErenAri/claude/quirky-aryabhata\n\nfeat(operator): add lightweight web console with htmx + SSE",
+          "timestamp": "2026-04-14T08:32:13+03:00",
+          "tree_id": "a666db17043df2e0f26eaf4566dc0933aa37a698",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/f9a9b8393885d198facacb0c01e8fe95af79a5a7"
+        },
+        "date": 1776145415965,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1525.8071435379536,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1525.6360522288294 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3749.618885663142,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3749.2135202665445 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21811.43472039617,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21808.392295892856 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166186.7262482732,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166165.18605683825 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1318953.0933395901,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1318806.233114446 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5261669.409615375,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5260589.969871796 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4856.889701713468,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4860.732514176269 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33237.713296743525,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33241.87543596418 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 271124.73616499896,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 271101.84126210766 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 815452.3978292126,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 815543.6599007406 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 69.60633424865833,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.59959253432201 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.68861016709493,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.683102787471675 ns\nthreads: 1"
           }
         ]
       }
