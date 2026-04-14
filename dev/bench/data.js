@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776145416845,
+  "lastUpdate": 1776190946675,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -33042,6 +33042,102 @@ window.BENCHMARK_DATA = {
             "value": 54.68861016709493,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.683102787471675 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61cdaa76f978c02d422fc4e8aa2a4d6e7f5194cd",
+          "message": "Merge pull request #81 from ErenAri/claude/quirky-aryabhata\n\nfeat(operator): improve console UI/UX and add screenshots to README",
+          "timestamp": "2026-04-14T21:11:09+03:00",
+          "tree_id": "827c31a88532e9ec6d9fe311f89b0f79ac160ce2",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/61cdaa76f978c02d422fc4e8aa2a4d6e7f5194cd"
+        },
+        "date": 1776190946032,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1522.40790213132,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1522.1050353793762 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3740.756386974401,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3740.5186757208044 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21757.488500704112,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21756.056668168017 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165878.49521276602,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165850.1632584715 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1314138.472717327,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1314051.3592870547 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5244123.619538111,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5243738.394194751 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4761.617705476542,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4763.870953200293 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33039.692365285126,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33042.26839324227 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269006.75627666357,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 268991.3312410536 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 808831.2730783629,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 808935.9238124974 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 73.06815910580079,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 73.06333814792161 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 57.16238553820534,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 57.15862321066121 ns\nthreads: 1"
           }
         ]
       }
