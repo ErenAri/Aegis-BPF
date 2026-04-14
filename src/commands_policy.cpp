@@ -143,9 +143,7 @@ int cmd_policy_validate(const std::string& path, bool verbose)
             if (!policy.network.deny_ports.empty()) {
                 std::cout << "\nNetwork deny ports:\n";
                 for (const auto& pr : policy.network.deny_ports) {
-                    std::string proto = (pr.protocol == kProtoTCP)   ? "tcp"
-                                        : (pr.protocol == kProtoUDP) ? "udp"
-                                                                     : "any";
+                    std::string proto = (pr.protocol == kProtoTCP) ? "tcp" : (pr.protocol == kProtoUDP) ? "udp" : "any";
                     std::string dir = (pr.direction == 0) ? "egress" : (pr.direction == 1) ? "bind" : "both";
                     std::cout << "  - port " << pr.port << " (" << proto << ", " << dir << ")\n";
                 }
@@ -250,7 +248,12 @@ int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signatu
          * we need it open only for the write loop. */
         struct TempPathGuard {
             const char* path;
-            ~TempPathGuard() { if (path) { std::remove(path); } }
+            ~TempPathGuard()
+            {
+                if (path) {
+                    std::remove(path);
+                }
+            }
         } temp_guard{temp_path};
 
         {
