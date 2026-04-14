@@ -6,31 +6,42 @@
 <div class="space-y-6 animate-fade-in">
     <!-- Breadcrumb -->
     <div class="flex items-center space-x-2 text-xs text-gray-500">
+        <a href="/console" class="hover:text-gray-300" hx-get="/console" hx-target="main" hx-swap="innerHTML" hx-push-url="true">Dashboard</a>
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         <a href="/console/policies" class="hover:text-gray-300" hx-get="/console/policies" hx-target="main" hx-swap="innerHTML" hx-push-url="true">Policies</a>
-        <span>/</span>
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         <span class="text-gray-300">{{.Policy.Name}}</span>
     </div>
 
     <!-- Header -->
     <div class="flex items-start justify-between">
         <div>
-            <h1 class="text-lg font-semibold text-white">{{.Policy.Name}}</h1>
-            <div class="flex items-center space-x-2 mt-1.5">
-                {{if .Policy.Namespace}}<span class="text-xs text-gray-500">{{.Policy.Namespace}}</span>{{end}}
+            <h1 class="text-xl font-semibold text-white">{{.Policy.Name}}</h1>
+            <div class="flex items-center flex-wrap gap-2 mt-2">
+                {{if .Policy.Namespace}}<span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">ns: {{.Policy.Namespace}}</span>{{end}}
                 <span class="text-xs px-1.5 py-0.5 rounded {{if eq .Policy.Scope "Cluster"}}bg-purple-500/20 text-purple-400{{else}}bg-cyan-500/20 text-cyan-400{{end}}">{{.Policy.Scope}}</span>
                 <span class="text-xs px-1.5 py-0.5 rounded border {{modeClass .Policy.Mode}}">{{.Policy.Mode}}</span>
                 <span class="text-xs px-1.5 py-0.5 rounded border {{badgeClass .Policy.Phase}}">{{.Policy.Phase}}</span>
+                {{if .Policy.Deprecated}}<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">deprecated</span>{{end}}
             </div>
         </div>
-        <div class="text-right text-xs text-gray-500">
-            <div>Generation: {{.Policy.Generation}}</div>
-            <div class="font-mono mt-0.5">{{truncHash .Policy.Hash}}</div>
-            <div class="mt-0.5">Applied: {{timeAgo .Policy.LastApplied}}</div>
+        <div class="text-right text-xs text-gray-500 space-y-1">
+            <div>Generation: <span class="text-gray-400">{{.Policy.Generation}}</span></div>
+            {{if .Policy.Hash}}
+            <div class="flex items-center justify-end space-x-1">
+                <span class="font-mono text-gray-400">{{truncHash .Policy.Hash}}</span>
+                <button onclick="copyText('{{.Policy.Hash}}', this)" class="text-gray-600 hover:text-gray-300 cursor-pointer transition-colors" title="Copy full hash">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </button>
+            </div>
+            {{end}}
+            <div>Applied: <span class="text-gray-400">{{timeAgo .Policy.LastApplied}}</span></div>
         </div>
     </div>
 
     {{if .Policy.Message}}
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-3">
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 flex items-start space-x-2">
+        <svg class="w-4 h-4 text-gray-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         <p class="text-sm text-gray-400">{{.Policy.Message}}</p>
     </div>
     {{end}}
@@ -41,32 +52,35 @@
         <div class="px-4 py-3 border-b border-gray-800">
             <h2 class="text-sm font-medium text-gray-300">Conditions</h2>
         </div>
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
-                    <th class="px-4 py-2 text-left">Type</th>
-                    <th class="px-4 py-2 text-left">Status</th>
-                    <th class="px-4 py-2 text-left">Reason</th>
-                    <th class="px-4 py-2 text-left">Message</th>
-                    <th class="px-4 py-2 text-left">Age</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-800/50">
-                {{range .Policy.Conditions}}
-                <tr>
-                    <td class="px-4 py-2 font-medium text-gray-300">{{.Type}}</td>
-                    <td class="px-4 py-2">
-                        <span class="{{conditionIcon .Status}}">
-                            {{if eq .Status "True"}}True{{else if eq .Status "False"}}False{{else}}Unknown{{end}}
-                        </span>
-                    </td>
-                    <td class="px-4 py-2 font-mono text-xs text-gray-400">{{.Reason}}</td>
-                    <td class="px-4 py-2 text-xs text-gray-500 max-w-md truncate">{{.Message}}</td>
-                    <td class="px-4 py-2 text-xs text-gray-500">{{.Ago}}</td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+                        <th class="px-4 py-2 text-left">Type</th>
+                        <th class="px-4 py-2 text-left">Status</th>
+                        <th class="px-4 py-2 text-left">Reason</th>
+                        <th class="px-4 py-2 text-left">Message</th>
+                        <th class="px-4 py-2 text-left">Age</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800/50">
+                    {{range .Policy.Conditions}}
+                    <tr class="hover:bg-gray-800/30">
+                        <td class="px-4 py-2.5 font-medium text-gray-300">{{.Type}}</td>
+                        <td class="px-4 py-2.5">
+                            <span class="flex items-center space-x-1.5">
+                                <span class="w-2 h-2 rounded-full {{if eq .Status "True"}}bg-green-500{{else if eq .Status "False"}}bg-red-500{{else}}bg-yellow-500{{end}}"></span>
+                                <span class="{{conditionIcon .Status}}">{{.Status}}</span>
+                            </span>
+                        </td>
+                        <td class="px-4 py-2.5 font-mono text-xs text-gray-400">{{.Reason}}</td>
+                        <td class="px-4 py-2.5 text-xs text-gray-500 max-w-md truncate">{{.Message}}</td>
+                        <td class="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{{.Ago}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
     </div>
     {{end}}
 
@@ -75,20 +89,21 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {{if .Spec.FileRules}}
         <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-800">
+            <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-300">File Rules</h2>
+                <span class="text-[10px] text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">{{len .Spec.FileRules.Deny}} deny / {{len .Spec.FileRules.Protect}} protect</span>
             </div>
-            <div class="p-4 space-y-2">
+            <div class="p-4 space-y-1.5">
                 {{range .Spec.FileRules.Deny}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="font-mono text-gray-400">{{if .Path}}{{.Path}}{{else}}inode:{{.Inode}}{{end}}</span>
-                    <span class="px-1.5 py-0.5 rounded {{actionClass (printf "%s" .Action)}}">{{if .Action}}{{.Action}}{{else}}Block{{end}}</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="font-mono text-gray-400 truncate mr-2">{{if .Path}}{{.Path}}{{else}}inode:{{.Inode}}{{end}}</span>
+                    <span class="px-1.5 py-0.5 rounded shrink-0 {{actionClass (printf "%s" .Action)}}">{{if .Action}}{{.Action}}{{else}}Block{{end}}</span>
                 </div>
                 {{end}}
                 {{range .Spec.FileRules.Protect}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="font-mono text-gray-400">{{.Path}}</span>
-                    <span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">Protect</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="font-mono text-gray-400 truncate mr-2">{{.Path}}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 shrink-0">Protect</span>
                 </div>
                 {{end}}
             </div>
@@ -97,18 +112,19 @@
 
         {{if .Spec.NetworkRules}}
         <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-800">
+            <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h2 class="text-sm font-medium text-gray-300">Network Rules</h2>
+                <span class="text-[10px] text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">{{len .Spec.NetworkRules.Deny}} rules</span>
             </div>
-            <div class="p-4 space-y-2">
+            <div class="p-4 space-y-1.5">
                 {{range .Spec.NetworkRules.Deny}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="font-mono text-gray-400">
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="font-mono text-gray-400 truncate mr-2">
                         {{if .IP}}{{.IP}}{{end}}{{if .CIDR}}{{.CIDR}}{{end}}{{if .Port}}:{{.Port}}{{end}}
-                        {{if .Protocol}}<span class="text-gray-600">{{.Protocol}}</span>{{end}}
-                        {{if .Direction}}<span class="text-gray-600">{{.Direction}}</span>{{end}}
+                        {{if .Protocol}}<span class="text-gray-600 ml-1">{{.Protocol}}</span>{{end}}
+                        {{if .Direction}}<span class="text-gray-600 ml-1">{{.Direction}}</span>{{end}}
                     </span>
-                    <span class="px-1.5 py-0.5 rounded {{actionClass (printf "%s" .Action)}}">{{if .Action}}{{.Action}}{{else}}Block{{end}}</span>
+                    <span class="px-1.5 py-0.5 rounded shrink-0 {{actionClass (printf "%s" .Action)}}">{{if .Action}}{{.Action}}{{else}}Block{{end}}</span>
                 </div>
                 {{end}}
             </div>
@@ -120,23 +136,23 @@
             <div class="px-4 py-3 border-b border-gray-800">
                 <h2 class="text-sm font-medium text-gray-300">Exec Rules</h2>
             </div>
-            <div class="p-4 space-y-2">
+            <div class="p-4 space-y-1.5">
                 {{range .Spec.ExecRules.DenyBinaryHashes}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="font-mono text-gray-400 truncate max-w-[200px]">sha256:{{.}}</span>
-                    <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Deny</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="font-mono text-gray-400 truncate max-w-[220px]" title="sha256:{{.}}">sha256:{{.}}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 shrink-0">Deny</span>
                 </div>
                 {{end}}
                 {{range .Spec.ExecRules.AllowBinaryHashes}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="font-mono text-gray-400 truncate max-w-[200px]">sha256:{{.}}</span>
-                    <span class="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">Allow</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="font-mono text-gray-400 truncate max-w-[220px]" title="sha256:{{.}}">sha256:{{.}}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 shrink-0">Allow</span>
                 </div>
                 {{end}}
                 {{range .Spec.ExecRules.DenyComm}}
-                <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
                     <span class="font-mono text-gray-400">comm: {{.}}</span>
-                    <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Deny</span>
+                    <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 shrink-0">Deny</span>
                 </div>
                 {{end}}
             </div>
@@ -148,22 +164,22 @@
             <div class="px-4 py-3 border-b border-gray-800">
                 <h2 class="text-sm font-medium text-gray-300">Kernel Rules</h2>
             </div>
-            <div class="p-4 space-y-2">
+            <div class="p-4 space-y-1.5">
                 {{if .Spec.KernelRules.BlockModuleLoad}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-gray-400">Module Loading</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="text-gray-400 flex items-center space-x-2"><svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>Module Loading</span></span>
                     <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Blocked</span>
                 </div>
                 {{end}}
                 {{if .Spec.KernelRules.BlockPtrace}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-gray-400">Ptrace</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="text-gray-400 flex items-center space-x-2"><svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>Ptrace</span></span>
                     <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Blocked</span>
                 </div>
                 {{end}}
                 {{if .Spec.KernelRules.BlockBpfSyscall}}
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-gray-400">BPF Syscall</span>
+                <div class="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-gray-800/50">
+                    <span class="text-gray-400 flex items-center space-x-2"><svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg><span>BPF Syscall</span></span>
                     <span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">Blocked</span>
                 </div>
                 {{end}}
@@ -176,10 +192,15 @@
     <!-- INI Preview -->
     {{if .INIPreview}}
     <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-800">
+        <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
             <h2 class="text-sm font-medium text-gray-300">Translated INI (daemon format)</h2>
+            <button onclick="copyText(document.getElementById('ini-preview').textContent, this)"
+                    class="text-xs text-gray-500 hover:text-gray-300 cursor-pointer transition-colors flex items-center space-x-1" title="Copy INI">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span>Copy</span>
+            </button>
         </div>
-        <pre class="p-4 text-xs text-gray-400 overflow-x-auto leading-relaxed">{{.INIPreview}}</pre>
+        <pre id="ini-preview" class="p-4 text-xs text-gray-400 overflow-x-auto leading-relaxed bg-gray-950/50">{{.INIPreview}}</pre>
     </div>
     {{end}}
 </div>

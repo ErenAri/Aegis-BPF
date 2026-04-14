@@ -3,7 +3,6 @@ package console
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"net/http"
 	"time"
 
@@ -17,7 +16,7 @@ type Server struct {
 	client    client.Client
 	addr      string
 	broker    *Broker
-	templates *template.Template
+	templates *TemplateSet
 }
 
 // NewServer creates a new console server.

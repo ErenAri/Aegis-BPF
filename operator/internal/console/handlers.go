@@ -22,9 +22,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := s.gatherDashboardData(r.Context())
+	data.Page = "dashboard"
 
 	if isHTMX(r) {
-		s.renderPartial(w, "dashboard_content", data)
+		s.renderPartial(w, "dashboard", "dashboard_content", data)
 		return
 	}
 	s.renderPage(w, "dashboard", data)
@@ -38,9 +39,10 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := s.gatherDashboardData(r.Context())
+	data.Page = "policies"
 
 	if isHTMX(r) {
-		s.renderPartial(w, "policies_content", data)
+		s.renderPartial(w, "policies", "policies_content", data)
 		return
 	}
 	s.renderPage(w, "policies", data)
@@ -99,17 +101,19 @@ func (s *Server) handlePolicyDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	detailData := struct {
+		Page       string
 		Policy     PolicySummary
 		INIPreview string
 		Spec       *v1alpha1.AegisPolicySpec
 	}{
+		Page:       "policies",
 		Policy:     *found,
 		INIPreview: iniPreview,
 		Spec:       spec,
 	}
 
 	if isHTMX(r) {
-		s.renderPartial(w, "policy_detail_content", detailData)
+		s.renderPartial(w, "policy_detail", "policy_detail_content", detailData)
 		return
 	}
 	s.renderPage(w, "policy_detail", detailData)
@@ -118,9 +122,10 @@ func (s *Server) handlePolicyDetail(w http.ResponseWriter, r *http.Request) {
 // handleNodes renders the nodes/daemon status page.
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	data := s.gatherDashboardData(r.Context())
+	data.Page = "nodes"
 
 	if isHTMX(r) {
-		s.renderPartial(w, "nodes_content", data)
+		s.renderPartial(w, "nodes", "nodes_content", data)
 		return
 	}
 	s.renderPage(w, "nodes", data)
@@ -172,13 +177,13 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 // handlePolicyTablePartial renders just the policy table body (for htmx polling).
 func (s *Server) handlePolicyTablePartial(w http.ResponseWriter, r *http.Request) {
 	data := s.gatherDashboardData(r.Context())
-	s.renderPartial(w, "policy_table", data)
+	s.renderPartial(w, "dashboard", "policy_table", data)
 }
 
 // handleStatsPartial renders just the stats cards (for htmx polling).
 func (s *Server) handleStatsPartial(w http.ResponseWriter, r *http.Request) {
 	data := s.gatherDashboardData(r.Context())
-	s.renderPartial(w, "stats_cards", data)
+	s.renderPartial(w, "dashboard", "stats_cards", data)
 }
 
 // fetchPolicySpec fetches the full AegisPolicySpec for a given policy.
@@ -208,9 +213,14 @@ func isHTMX(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
-func (s *Server) renderPage(w http.ResponseWriter, name string, data any) {
+func (s *Server) renderPage(w http.ResponseWriter, page string, data any) {
+	t := s.templates.Lookup(page)
+	if t == nil {
+		http.Error(w, "unknown page: "+page, http.StatusInternalServerError)
+		return
+	}
 	var buf bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := t.ExecuteTemplate(&buf, page, data); err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -218,9 +228,14 @@ func (s *Server) renderPage(w http.ResponseWriter, name string, data any) {
 	buf.WriteTo(w)
 }
 
-func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
+func (s *Server) renderPartial(w http.ResponseWriter, page, name string, data any) {
+	t := s.templates.Lookup(page)
+	if t == nil {
+		http.Error(w, "unknown page: "+page, http.StatusInternalServerError)
+		return
+	}
 	var buf bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -229,10 +244,14 @@ func (s *Server) renderPartial(w http.ResponseWriter, name string, data any) {
 }
 
 // RenderPartialToString renders a named template to a string (used by reconcilers
-// to generate SSE payloads).
+// to generate SSE payloads). Uses the dashboard page clone for shared partials.
 func (s *Server) RenderPartialToString(name string, data any) string {
+	t := s.templates.Lookup("dashboard")
+	if t == nil {
+		return fmt.Sprintf(`<span class="text-red-500">render error: no dashboard template</span>`)
+	}
 	var buf bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
 		return fmt.Sprintf(`<span class="text-red-500">render error: %v</span>`, err)
 	}
 	return buf.String()

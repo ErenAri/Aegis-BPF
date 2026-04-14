@@ -46,6 +46,7 @@ type ConditionView struct {
 
 // DashboardData is the full page data for the dashboard.
 type DashboardData struct {
+	Page            string // "dashboard", "policies", "nodes" — for active nav
 	Policies        []PolicySummary
 	TotalPolicies   int
 	EnforceCount    int
@@ -56,6 +57,7 @@ type DashboardData struct {
 	AllowRuleCount  int
 	BlockRuleCount  int
 	DaemonPods      []DaemonPodView
+	RunningPods     int
 	ActiveClients   int
 	Now             time.Time
 }
@@ -105,6 +107,12 @@ func (s *Server) gatherDashboardData(ctx context.Context) DashboardData {
 		}
 		if p.HasBlock {
 			data.BlockRuleCount++
+		}
+	}
+
+	for _, pod := range daemonPods {
+		if pod.Phase == "Running" {
+			data.RunningPods++
 		}
 	}
 

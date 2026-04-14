@@ -1,20 +1,36 @@
 {{define "stats_cards"}}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="stats-cards">
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Total Policies</div>
-        <div class="mt-1 text-2xl font-bold text-white">{{.TotalPolicies}}</div>
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+        <div class="flex items-center justify-between">
+            <div class="text-xs text-gray-500 uppercase tracking-wider">Total Policies</div>
+            <svg class="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        </div>
+        <div class="mt-2 text-2xl font-bold text-white">{{.TotalPolicies}}</div>
+        <div class="mt-1 text-[10px] text-gray-600">{{.AuditCount}} audit / {{.EnforceCount}} enforce</div>
     </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Enforce Mode</div>
-        <div class="mt-1 text-2xl font-bold text-red-400">{{.EnforceCount}}</div>
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+        <div class="flex items-center justify-between">
+            <div class="text-xs text-gray-500 uppercase tracking-wider">Enforce Mode</div>
+            <svg class="w-4 h-4 {{if gt .EnforceCount 0}}text-red-500/50{{else}}text-gray-700{{end}}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        </div>
+        <div class="mt-2 text-2xl font-bold {{if gt .EnforceCount 0}}text-red-400{{else}}text-gray-600{{end}}">{{.EnforceCount}}</div>
+        <div class="mt-1 text-[10px] text-gray-600">{{if gt .EnforceCount 0}}actively enforcing{{else}}none active{{end}}</div>
     </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Applied</div>
-        <div class="mt-1 text-2xl font-bold text-green-400">{{.AppliedCount}}</div>
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+        <div class="flex items-center justify-between">
+            <div class="text-xs text-gray-500 uppercase tracking-wider">Applied</div>
+            <svg class="w-4 h-4 {{if gt .AppliedCount 0}}text-green-500/50{{else}}text-gray-700{{end}}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="mt-2 text-2xl font-bold text-green-400">{{.AppliedCount}}</div>
+        <div class="mt-1 text-[10px] text-gray-600">of {{.TotalPolicies}} translated</div>
     </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Errors</div>
-        <div class="mt-1 text-2xl font-bold {{if gt .ErrorCount 0}}text-red-400{{else}}text-gray-600{{end}}">{{.ErrorCount}}</div>
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+        <div class="flex items-center justify-between">
+            <div class="text-xs text-gray-500 uppercase tracking-wider">Errors</div>
+            <svg class="w-4 h-4 {{if gt .ErrorCount 0}}text-red-500/50{{else}}text-gray-700{{end}}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="mt-2 text-2xl font-bold {{if gt .ErrorCount 0}}text-red-400{{else}}text-gray-600{{end}}">{{.ErrorCount}}</div>
+        <div class="mt-1 text-[10px] {{if gt .ErrorCount 0}}text-red-500/50{{else}}text-gray-600{{end}}">{{if gt .ErrorCount 0}}needs attention{{else}}all healthy{{end}}</div>
     </div>
 </div>
 {{end}}

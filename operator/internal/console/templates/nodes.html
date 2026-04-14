@@ -17,9 +17,7 @@
         </div>
         <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <div class="text-xs text-gray-500 uppercase tracking-wider">Running</div>
-            <div class="mt-1 text-2xl font-bold text-green-400">
-                {{$running := 0}}{{range .DaemonPods}}{{if eq .Phase "Running"}}{{$running = 1}}{{end}}{{end}}{{$running}}
-            </div>
+            <div class="mt-1 text-2xl font-bold text-green-400">{{.RunningPods}}</div>
         </div>
         <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <div class="text-xs text-gray-500 uppercase tracking-wider">Total Policies</div>
@@ -40,7 +38,7 @@
         <h3 class="text-sm font-medium text-gray-400 mb-2">About Daemon Enforcement</h3>
         <div class="text-xs text-gray-600 space-y-1">
             <p>The AegisBPF daemon runs on each node as a DaemonSet and enforces the merged policy ConfigMap.</p>
-            <p>Enforcement requires BPF LSM support (kernel 5.7+), BTF, and ringbuf. Check daemon logs with <code class="bg-gray-800 px-1 py-0.5 rounded">kubectl logs -n aegisbpf-system -l app.kubernetes.io/name=aegisbpf</code></p>
+            <p>Enforcement requires BPF LSM support (kernel 5.7+), BTF, and ringbuf. Check daemon logs with <code class="bg-gray-800 px-1 py-0.5 rounded text-gray-400">kubectl logs -n aegisbpf-system -l app.kubernetes.io/name=aegisbpf</code></p>
             <p>Per-node posture reporting will be available in a future release.</p>
         </div>
     </div>

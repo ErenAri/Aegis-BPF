@@ -94,14 +94,64 @@ var funcMap = template.FuncMap{
 	},
 }
 
-func parseTemplates() (*template.Template, error) {
-	return template.New("").Funcs(funcMap).ParseFS(
+// TemplateSet holds per-page template clones so that each page's
+// {{define "content"}} block doesn't collide with others.
+type TemplateSet struct {
+	pages map[string]*template.Template
+}
+
+// Lookup returns the template set for a given page name.
+func (ts *TemplateSet) Lookup(page string) *template.Template {
+	return ts.pages[page]
+}
+
+var pageFiles = []string{
+	"dashboard",
+	"policies",
+	"policy_detail",
+	"nodes",
+}
+
+func parseTemplates() (*TemplateSet, error) {
+	// Parse shared base: layout + all partials.
+	base, err := template.New("").Funcs(funcMap).ParseFS(
 		templateFiles,
-		"templates/*.html",
+		"templates/layout.html",
 		"templates/partials/*.html",
 	)
+	if err != nil {
+		return nil, fmt.Errorf("parsing base templates: %w", err)
+	}
+
+	ts := &TemplateSet{pages: make(map[string]*template.Template, len(pageFiles))}
+	for _, page := range pageFiles {
+		clone, err := base.Clone()
+		if err != nil {
+			return nil, fmt.Errorf("cloning base for %s: %w", page, err)
+		}
+		_, err = clone.ParseFS(templateFiles, "templates/"+page+".html")
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s.html: %w", page, err)
+		}
+		ts.pages[page] = clone
+	}
+	return ts, nil
 }
 
 func staticFS() (fs.FS, error) {
 	return fs.Sub(staticFiles, "static")
+}
+
+// PreviewAssets returns parsed templates and the static FS for the
+// console-preview development server. Not used in production.
+func PreviewAssets() (*TemplateSet, fs.FS) {
+	ts, err := parseTemplates()
+	if err != nil {
+		panic("console: parse templates: " + err.Error())
+	}
+	sub, err := staticFS()
+	if err != nil {
+		panic("console: static fs: " + err.Error())
+	}
+	return ts, sub
 }

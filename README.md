@@ -73,6 +73,25 @@
 - **Validating admission webhook** - Operator-side validating webhook + selector-based filtering and merged policy reconciler for safer Kubernetes rollouts
 - **Hot-loadable detection rules** - JSON-based rule engine with comm/path/ancestor/cgroup matching and hot-reload
 - **Plugin/extension system** - Virtual event handler interface for custom processing pipelines
+- **Operator web console** - Lightweight htmx + SSE dashboard for policy status, daemon health, and real-time events (zero JS framework dependencies)
+
+## Web Console
+
+The operator includes a built-in web console for monitoring policy status, daemon health, and real-time events. Enable it with `--enable-console` on the operator binary.
+
+| Dashboard | Policies |
+|-----------|----------|
+| ![Dashboard](docs/images/console-dashboard.png) | ![Policies](docs/images/console-policies.png) |
+
+| Policy Detail | Nodes & Daemons |
+|---------------|-----------------|
+| ![Policy Detail](docs/images/console-policy-detail.png) | ![Nodes](docs/images/console-nodes.png) |
+
+- Server-rendered HTML with [htmx](https://htmx.org/) for partial page updates
+- Server-Sent Events for live push updates
+- Tailwind CSS dark theme (CDN, no build step)
+- Zero JavaScript framework dependencies
+- Embedded in the operator binary via `go:embed`
 
 ## Comparison with Other Tools
 

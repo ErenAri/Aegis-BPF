@@ -1,5 +1,5 @@
 {{define "policy_row"}}
-<tr class="hover:bg-gray-800/50 transition-colors">
+<tr class="hover:bg-gray-800/50 transition-colors group">
     <td class="px-4 py-2.5">
         <a href="/console/policies/{{if eq .Scope "Cluster"}}cluster/{{.Name}}{{else}}namespaced/{{.Namespace}}/{{.Name}}{{end}}"
            class="text-blue-400 hover:text-blue-300 font-medium"
@@ -21,14 +21,28 @@
     <td class="px-4 py-2.5">
         <span class="text-xs px-1.5 py-0.5 rounded border {{badgeClass .Phase}}">{{.Phase}}</span>
     </td>
-    <td class="px-4 py-2.5 text-center text-gray-400">
-        <span title="File rules">{{.FileRules}}</span>/<span title="Network rules">{{.NetworkRules}}</span>/<span title="Exec rules">{{.ExecRules}}</span>/<span title="Kernel rules">{{.KernelRules}}</span>
+    <td class="px-4 py-2.5 text-center">
+        <div class="flex items-center justify-center space-x-1.5 text-xs text-gray-500">
+            {{if gt .FileRules 0}}<span class="px-1 py-0.5 rounded bg-gray-800 text-gray-400" title="File rules">F:{{.FileRules}}</span>{{end}}
+            {{if gt .NetworkRules 0}}<span class="px-1 py-0.5 rounded bg-gray-800 text-gray-400" title="Network rules">N:{{.NetworkRules}}</span>{{end}}
+            {{if gt .ExecRules 0}}<span class="px-1 py-0.5 rounded bg-gray-800 text-gray-400" title="Exec rules">E:{{.ExecRules}}</span>{{end}}
+            {{if gt .KernelRules 0}}<span class="px-1 py-0.5 rounded bg-gray-800 text-gray-400" title="Kernel rules">K:{{.KernelRules}}</span>{{end}}
+            {{if and (eq .FileRules 0) (eq .NetworkRules 0) (eq .ExecRules 0) (eq .KernelRules 0)}}<span class="text-gray-600">--</span>{{end}}
+        </div>
     </td>
     <td class="px-4 py-2.5">
         {{if .HasBlock}}<span class="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-400 mr-1">Block</span>{{end}}
         {{if .HasAllow}}<span class="text-[10px] px-1 py-0.5 rounded bg-green-500/20 text-green-400">Allow</span>{{end}}
     </td>
-    <td class="px-4 py-2.5 font-mono text-xs text-gray-500">{{truncHash .Hash}}</td>
+    <td class="px-4 py-2.5">
+        {{if .Hash}}
+        <button onclick="copyText('{{.Hash}}', this)" class="font-mono text-xs text-gray-500 hover:text-gray-300 cursor-pointer transition-colors" title="Click to copy full hash">
+            {{truncHash .Hash}}
+        </button>
+        {{else}}
+        <span class="text-gray-600">--</span>
+        {{end}}
+    </td>
     <td class="px-4 py-2.5 text-xs text-gray-500">{{timeAgo .LastApplied}}</td>
 </tr>
 {{end}}

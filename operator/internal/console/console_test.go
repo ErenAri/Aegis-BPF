@@ -72,24 +72,29 @@ done:
 }
 
 func TestParseTemplates(t *testing.T) {
-	tmpl, err := parseTemplates()
+	ts, err := parseTemplates()
 	if err != nil {
 		t.Fatalf("parseTemplates() error: %v", err)
 	}
 
-	// Check that key templates are defined.
-	expectedTemplates := []string{
-		"layout", "nav", "dashboard", "dashboard_content",
-		"policies", "policies_content",
-		"policy_detail", "policy_detail_content",
-		"nodes", "nodes_content",
-		"stats_cards", "policy_table", "policy_row",
-		"daemon_table",
-	}
+	// Each page should have its own clone with shared partials.
+	shared := []string{"layout", "nav", "stats_cards", "policy_table", "policy_row", "daemon_table"}
 
-	for _, name := range expectedTemplates {
-		if tmpl.Lookup(name) == nil {
-			t.Errorf("template %q not found", name)
+	for _, page := range pageFiles {
+		tmpl := ts.Lookup(page)
+		if tmpl == nil {
+			t.Errorf("page %q not found in TemplateSet", page)
+			continue
+		}
+		// Page template itself must be defined.
+		if tmpl.Lookup(page) == nil {
+			t.Errorf("page %q: own template not found in clone", page)
+		}
+		// Shared partials must be present in every clone.
+		for _, s := range shared {
+			if tmpl.Lookup(s) == nil {
+				t.Errorf("page %q: shared template %q not found", page, s)
+			}
 		}
 	}
 }
