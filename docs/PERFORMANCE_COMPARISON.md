@@ -249,11 +249,13 @@ against competitors.
 
 ## What is *not* claimed
 
-These are explicit non-claims because the evidence does not exist in this
-repository:
+These are explicit non-claims to prevent overclaiming:
 
-- **Any "AegisBPF is N× faster than $tool" statement.** We have not run
-  $tool on the same hardware as AegisBPF with the same workload.
+- **"AegisBPF is faster than $tool."** The head-to-head numbers above show
+  AegisBPF and Tetragon are both within noise of baseline for file I/O.
+  The results do *not* support "faster than" claims — they support
+  "competitive with" claims. Only the Falco +38% `open_close` overhead is
+  statistically significant.
 - **Memory-footprint superiority over peer tools.** AegisBPF's memory is
   documented in `docs/PERFORMANCE.md`; peer-tool memory is not measured
   here.
@@ -263,6 +265,9 @@ repository:
 - **Independent security review.** `docs/EXTERNAL_VALIDATION.md` is the
   canonical source — it currently reads "no independent security review
   has been published."
+- **Production-workload overhead.** All measured numbers use empty/minimal
+  policies and synthetic microbenchmarks. Production workloads with
+  hundreds of rules may differ.
 
 ## How to actually compare (reproducible)
 

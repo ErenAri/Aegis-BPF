@@ -1,7 +1,7 @@
 # Competitive Benchmark Methodology
 
-Status: **honest-draft**
-Last updated: 2026-04-08
+Status: **measured** -- first head-to-head results produced 2026-04-15
+Last updated: 2026-04-15
 
 This document specifies how `scripts/compare_runtime_security.sh` is meant
 to be used and what its output is, and is not, allowed to claim.

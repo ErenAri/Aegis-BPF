@@ -95,14 +95,7 @@ The operator includes a built-in web console for monitoring policy status, daemo
 
 ## Comparison with Other Tools
 
-The table below is **architectural**, not benchmark-based. Side-by-side
-per-syscall latency, memory footprint, and policy-reload numbers have been
-deliberately removed from this README because they were not measured
-against peer tools on the same hardware in this repository. See
-[`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md) for the
-AegisBPF-side numbers that *have* been measured, and
-[`scripts/compare_runtime_security.sh`](scripts/compare_runtime_security.sh)
-for a reproducible driver that runs the same workload under each agent.
+### Architecture (design-level)
 
 | Capability | AegisBPF | Falco | Tetragon | Tracee | KubeArmor |
 |-----------|----------|-------|----------|--------|-----------|
@@ -114,15 +107,52 @@ for a reproducible driver that runs the same workload under each agent.
 | **Policy evaluation** | O(1) BPF hash-map lookup | O(rules) rule engine | In-kernel per TracingPolicy | Hybrid / signatures | In-kernel + userspace |
 | **Policy language** | Declarative INI + K8s CRD | YAML rules (DSL) | K8s CRD (TracingPolicy) | Rego / Go signatures | K8s CRD (KubeArmorPolicy) |
 | **Break-glass / deadman** | ✅ Emergency + TTL revert | ❌ | ❌ | ❌ | ❌ |
-| **Runtime** | C++20 + C (BPF), static binary | C++ | Go | Go | Go |
+| **Runtime** | C++20 + C (BPF), single binary | C++ | Go | Go | Go |
 | **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON | ⚠️ JSON | ⚠️ JSON |
 
-**What is *not* in this table (deliberately):** per-syscall latency, memory
-footprint, and policy reload time for peer tools. Those claims require
-running each agent on identical hardware with identical workloads, which
-this repository has not done. See
-[`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md) for the
-explicit list of claims this repo refuses to make.
+### Measured performance (same host, same kernel, same run)
+
+The following numbers were produced by [`scripts/compare_runtime_security.sh`](scripts/compare_runtime_security.sh)
+on a single host (i9-13900H, kernel 6.17, Ubuntu 24.04) with each agent
+running in isolation under an empty/minimal policy. Full methodology:
+[`docs/COMPETITIVE_BENCH_METHODOLOGY.md`](docs/COMPETITIVE_BENCH_METHODOLOGY.md).
+
+**File I/O** (`open` -> `read` -> `close`, 200 000 iterations):
+
+| Agent | us/op | p50 (us) | p99 (us) | Delta vs bare |
+|---|---|---|---|---|
+| none (baseline) | 1.69 | 1.56 | 2.53 | -- |
+| **AegisBPF** | 1.68 | 1.58 | 2.42 | **-0.59%** |
+| Tetragon | 1.63 | 1.52 | 2.27 | -3.55% |
+| Falco | 2.33 | 2.20 | 3.47 | **+37.87%** |
+
+**Network** (`socket` -> `connect` -> `close`, 200 000 iterations):
+
+| Agent | us/op | p50 (us) | p99 (us) | Delta vs bare |
+|---|---|---|---|---|
+| none (baseline) | 3.62 | 2.66 | 7.38 | -- |
+| **AegisBPF** | 3.87 | 2.67 | 8.18 | **+6.91%** |
+| Tetragon | 3.74 | 2.89 | 7.18 | +3.31% |
+| Falco | 4.44 | 3.47 | 8.56 | **+22.65%** |
+
+**Exec** (`fork` -> `execve(/bin/true)` -> `waitpid`, 5 000 iterations):
+
+| Agent | us/op | p50 (us) | p99 (us) | Delta vs bare |
+|---|---|---|---|---|
+| none (baseline) | 279.33 | 244.98 | 619.09 | -- |
+| **AegisBPF** | 246.77 | 236.82 | 417.77 | -11.66% |
+| Tetragon | 251.07 | 239.23 | 430.46 | -10.12% |
+| Falco | 245.54 | 235.24 | 405.85 | -12.10% |
+
+**Key takeaways:**
+- **File I/O:** AegisBPF and Tetragon are within noise of baseline. Falco adds +38% from its userspace rule engine.
+- **Network:** AegisBPF at +6.9% reflects its 6 socket lifecycle hooks. Tetragon +3.3%, Falco +22.7%.
+- **Exec:** All agents within noise (~250 us/op). The per-op cost dwarfs agent overhead.
+- Negative deltas are measurement variance, not real speedups.
+
+Reproduce: `sudo scripts/compare_runtime_security.sh --agents none,aegisbpf,falco,tetragon --workload open_close`
+
+Raw data: [`evidence/comparison/`](evidence/comparison/) | Full analysis: [`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md)
 
 ## Claim Taxonomy
 
@@ -205,7 +235,9 @@ Public proof lives in the docs and CI artifacts:
 - Edge-case compliance results: `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`
 - External validation status: `docs/EXTERNAL_VALIDATION.md`
 - Performance baseline report: `docs/PERF_BASELINE.md`
-- Performance comparison: `docs/PERFORMANCE_COMPARISON.md`
+- Performance comparison (measured): `docs/PERFORMANCE_COMPARISON.md`
+- Competitive benchmark methodology: `docs/COMPETITIVE_BENCH_METHODOLOGY.md`
+- Comparison & soak roadmap: `docs/COMPARISON_AND_SOAK_PLAN.md`
 - Architecture support matrix: `docs/ARCHITECTURE_SUPPORT.md`
 - BPF map schema reference: `docs/BPF_MAP_SCHEMA.md`
 
@@ -439,21 +471,27 @@ sudo aegisbpf run --enforce --strict-degrade
 ### Performance and Soak (Sample Results)
 
 Results vary by host and workload. The latest self-hosted baseline is tracked in `docs/PERF_BASELINE.md`.
-The following example was measured on February 15, 2026:
 
 ```text
-# perf_compare.sh (200,000 ops, FILE=/etc/hosts)
-baseline_us_per_op=1.53
-with_agent_us_per_op=1.46
-delta_pct=-4.58
+# perf_compare.sh (200,000 ops, FILE=/etc/hosts, i9-13900H, kernel 6.17)
+baseline_us_per_op=1.69
+with_agent_us_per_op=1.68
+delta_pct=-0.59
 
 # KPI ratios (p95)
-open_p95_ratio=1.029851
-connect_p95_ratio=1.005848
+open_p95_ratio=0.787    (target <= 1.05)
+connect_p95_ratio=0.994 (target <= 1.05)
 
-# Soak (200,000 denied opens, audit mode)
+# Soak (audit + enforce mode, file + network workload)
 ringbuf_drops_delta=0
 ```
+
+For head-to-head comparison against Falco and Tetragon, see [Comparison with Other Tools](#comparison-with-other-tools).
+
+**Soak testing infrastructure:**
+- `scripts/soak_reliability.sh` -- audit + enforce mode, file + network workload, RSS/drop/ratio gates
+- `scripts/aws_soak_24h.sh` -- automated 24-hour soak on AWS EC2 (~$0.25/day, self-terminating)
+- `.github/workflows/soak.yml` -- weekly CI: 1-hour audit soak, 15-min enforce soak, 5-min ASAN soak
 
 ### Block Commands
 
@@ -866,12 +904,12 @@ sudo reboot
 
 ## Performance
 
-Measured on the reference host (Linux 6.17, i9-13900H, 2026-04-08; see
+Measured on the reference host (Linux 6.17, i9-13900H; see
 `docs/PERF_BASELINE.md` and `docs/PERFORMANCE.md`):
 
-- **open(2) syscall delta**: +0.03 µs/op, p95 +3.2%
-- **connect(2) syscall delta**: +0.09 µs/op, p95 +4.2%
-- **BPF hash-map deny lookup**: 3.9–4.1 ns, flat from 100 → 10 000 entries
+- **open(2) syscall delta**: -0.59% vs bare baseline (within noise)
+- **connect(2) syscall delta**: +6.91% vs bare baseline (6 socket hooks)
+- **BPF hash-map deny lookup**: 3.9-4.1 ns, flat from 100 to 10 000 entries
   (rule count does not affect per-syscall latency)
 - **Startup time**: ~130 ms
 - **Policy reload** (`aegisbpf policy apply`): ~115 ms median, no
@@ -881,6 +919,9 @@ Measured on the reference host (Linux 6.17, i9-13900H, 2026-04-08; see
 - **BPF map memlock (empty policy)**: ~100 MB (dominated by event
   ringbufs and per-CPU stats arrays; budget ~140 MB total for
   container limits)
+
+Head-to-head against Falco and Tetragon: see [Comparison with Other Tools](#comparison-with-other-tools)
+or [`docs/PERFORMANCE_COMPARISON.md`](docs/PERFORMANCE_COMPARISON.md).
 
 Run benchmarks:
 ```bash
@@ -892,6 +933,16 @@ sudo scripts/bench_syscall.sh --json --out results.json
 
 # Quick A/B comparison
 ITERATIONS=200000 FILE=/etc/hosts scripts/perf_open_bench.sh
+
+# Head-to-head comparison (requires Falco + Tetragon installed)
+sudo scripts/install_peer_tools.sh all
+sudo scripts/compare_runtime_security.sh \
+    --agents none,aegisbpf,falco,tetragon \
+    --workload open_close --iterations 200000 --out results/
+
+# 24-hour AWS soak test (~$0.25, self-terminating)
+./scripts/aws_soak_24h.sh --dry-run   # preview first
+./scripts/aws_soak_24h.sh --instance-type t3.micro --branch main
 ```
 
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for memory formulas, ring buffer
