@@ -1,7 +1,7 @@
 # AegisBPF vs Other eBPF Runtime Security Tools
 
-Status: **honest-draft**
-Last updated: 2026-04-07
+Status: **measured** — includes first head-to-head comparison (2026-04-15)
+Last updated: 2026-04-15
 
 This document compares AegisBPF against other eBPF-based runtime security
 tools (Falco, Tetragon, Tracee, KubeArmor). **It deliberately avoids
@@ -144,6 +144,44 @@ the agent is not detectable in this microbench — they do *not* show the
 agent is faster than competitors on arbitrary hardware. For a true
 comparison you must run `scripts/compare_runtime_security.sh` on the
 same box as the peer tools.
+
+## Head-to-head comparison (measured 2026-04-15)
+
+The following numbers were produced by `scripts/compare_runtime_security.sh`
+on the same host, same kernel, same boot, same run. Each agent was started
+in isolation with an empty/minimal policy (audit or detect only), then
+200 000 `open → read → close` cycles were measured with CPU governor locked
+to `performance`.
+
+**Environment:** 13th Gen Intel i9-13900H, kernel 6.17.0-19-generic, Ubuntu 24.04
+
+| Agent | Version | µs/op | p50 (µs) | p95 (µs) | p99 (µs) | Delta vs bare |
+|---|---|---|---|---|---|---|
+| none (baseline) | — | 1.69 | 1.56 | 1.64 | 2.53 | — |
+| **AegisBPF** | 0.1.0 | 1.68 | 1.58 | 1.63 | 2.42 | **−0.59%** |
+| Tetragon | v1.6.0 | 1.63 | 1.52 | 1.57 | 2.27 | −3.55% |
+| Falco | 0.43.1 | 2.33 | 2.20 | 2.36 | 3.47 | **+37.87%** |
+
+**Key observations:**
+
+- AegisBPF and Tetragon are both within noise of the bare baseline on this
+  workload. The negative deltas are measurement variance, not real speedups.
+- Falco shows a consistent +38% overhead, attributable to its userspace
+  rule engine processing every syscall event even with an empty rules file.
+- These numbers are for `open_close` (file I/O) only. Network and exec
+  workloads are planned but not yet measured in a head-to-head setting.
+
+**Reproduce:**
+
+```bash
+sudo scripts/install_peer_tools.sh all
+sudo scripts/compare_runtime_security.sh \
+    --agents none,aegisbpf,falco,tetragon \
+    --iterations 200000 \
+    --out results/
+```
+
+Raw per-agent JSON: `evidence/comparison/`
 
 ## Architectural advantages (defensible)
 

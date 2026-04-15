@@ -270,7 +270,10 @@ run_falco() {
     rules_dir="$(mktemp -d)"
     logfile="$(mktemp)"
     : >"${rules_dir}/empty.yaml"
-    falco --modern-bpf -r "${rules_dir}/empty.yaml" -o log_level=error \
+    # Falco 0.43+ uses config-based driver selection, not --modern-bpf flag.
+    # The engine.kind is set to modern_ebpf via config.d by the package installer.
+    falco -r "${rules_dir}/empty.yaml" -o "log_level=error" \
+        -o "engine.kind=modern_ebpf" \
         >"${logfile}" 2>&1 &
     local pid=$!
     sleep 3
@@ -305,7 +308,9 @@ run_tetragon() {
     fi
     local logfile
     logfile="$(mktemp)"
-    tetragon --export-file "" --bpf-lib "$(tetragon --help 2>&1 | awk '/--bpf-lib/ {print $NF; exit}' || echo)" \
+    # Tetragon v1.6+ uses --export-filename (not --export-file).
+    # --bpf-lib defaults to /usr/local/lib/tetragon/bpf/ from package install.
+    tetragon --export-filename "" \
         >"${logfile}" 2>&1 &
     local pid=$!
     sleep 5
