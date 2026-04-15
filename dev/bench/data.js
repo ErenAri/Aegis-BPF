@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776246848566,
+  "lastUpdate": 1776271500993,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -33426,6 +33426,102 @@ window.BENCHMARK_DATA = {
             "value": 66.29524069853882,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.29122453037685 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70467f575703da1fb75c862bbaede7f2aaf15409",
+          "message": "feat: exec benchmark, AWS 24h soak, weekly comparison CI, docs update (#85)\n\nfeat: exec benchmark, AWS 24h soak, weekly comparison CI",
+          "timestamp": "2026-04-15T19:33:30+03:00",
+          "tree_id": "85f93f00f255f8ec6fe1a425ec59c5d38230f966",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/70467f575703da1fb75c862bbaede7f2aaf15409"
+        },
+        "date": 1776271500297,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1515.4254034542103,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1515.289047114389 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3743.424677236784,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3742.75081002266 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21780.498683644524,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21778.631399741895 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165555.66768052612,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165540.84059768508 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1314243.0848982804,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1314119.8852112682 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5252795.811173537,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5251755.124219746 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4805.157063511442,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4809.589614512938 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33126.6209361625,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33131.93823439444 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 270518.9768645467,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 270473.6089494209 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 811848.0441719368,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 811929.3652949148 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.10585281237034,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.10050553137376 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.287936446574804,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.28427512405855 ns\nthreads: 1"
           }
         ]
       }
