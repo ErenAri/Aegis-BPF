@@ -110,8 +110,10 @@ RUN_ID="soak-${TIMESTAMP}"
 # Generate the cloud-init user-data script
 USERDATA=$(cat <<'USERDATA_EOF'
 #!/bin/bash
-set -euxo pipefail
+set -uxo pipefail  # no -e: let commands fail without killing the script
 exec > /var/log/aegisbpf-soak-setup.log 2>&1
+
+echo "=== AegisBPF soak cloud-init started at $(date -u) ==="
 
 MARKER=/var/lib/aegisbpf-soak-phase
 
@@ -119,9 +121,16 @@ MARKER=/var/lib/aegisbpf-soak-phase
 if [[ ! -f "${MARKER}" ]]; then
     echo "phase1" > "${MARKER}"
 
+    # Wait for dpkg lock (cloud-init may run apt in parallel)
+    for i in $(seq 1 30); do
+        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then break; fi
+        echo "Waiting for dpkg lock ($i/30)..."
+        sleep 10
+    done
+
     # Update and install build deps
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update
+    apt-get update -y
     apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
         cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev git \
         awscli jq
@@ -206,6 +215,104 @@ USERDATA="${USERDATA//__S3_BUCKET__/${S3_BUCKET}}"
 USERDATA="${USERDATA//__RUN_ID__/${RUN_ID}}"
 USERDATA="${USERDATA//__REGION__/${REGION}}"
 
+# --- Ensure IAM role exists for instance (S3 + self-terminate) ---
+ROLE_NAME="aegisbpf-soak-role"
+PROFILE_NAME="aegisbpf-soak-profile"
+
+ensure_iam_role() {
+    # Check if role already exists
+    if aws iam get-role --role-name "${ROLE_NAME}" --region "${REGION}" >/dev/null 2>&1; then
+        echo "IAM role ${ROLE_NAME} already exists."
+    else
+        echo "Creating IAM role ${ROLE_NAME}..."
+        aws iam create-role --role-name "${ROLE_NAME}" \
+            --assume-role-policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": {"Service": "ec2.amazonaws.com"},
+                    "Action": "sts:AssumeRole"
+                }]
+            }' >/dev/null
+
+        # Attach policies for S3 upload and self-termination
+        aws iam put-role-policy --role-name "${ROLE_NAME}" \
+            --policy-name "aegisbpf-soak-policy" \
+            --policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+                        "Resource": ["arn:aws:s3:::'"${S3_BUCKET}"'", "arn:aws:s3:::'"${S3_BUCKET}"'/*"]
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "ec2:TerminateInstances",
+                        "Resource": "*",
+                        "Condition": {
+                            "StringEquals": {"ec2:ResourceTag/Purpose": "soak-test"}
+                        }
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "ec2:DescribeInstances",
+                        "Resource": "*"
+                    }
+                ]
+            }' >/dev/null
+    fi
+
+    # Create instance profile if it doesn't exist
+    if aws iam get-instance-profile --instance-profile-name "${PROFILE_NAME}" >/dev/null 2>&1; then
+        echo "Instance profile ${PROFILE_NAME} already exists."
+    else
+        echo "Creating instance profile ${PROFILE_NAME}..."
+        aws iam create-instance-profile --instance-profile-name "${PROFILE_NAME}" >/dev/null
+        aws iam add-role-to-instance-profile \
+            --instance-profile-name "${PROFILE_NAME}" \
+            --role-name "${ROLE_NAME}" >/dev/null
+        echo "Waiting for instance profile propagation..."
+        sleep 15
+    fi
+}
+
+# --- Ensure SSH key pair exists ---
+KEY_NAME="aegisbpf-soak-key"
+KEY_FILE="${HOME}/.ssh/${KEY_NAME}.pem"
+
+ensure_key_pair() {
+    if aws ec2 describe-key-pairs --key-names "${KEY_NAME}" --region "${REGION}" >/dev/null 2>&1; then
+        echo "Key pair ${KEY_NAME} already exists."
+    else
+        echo "Creating key pair ${KEY_NAME}..."
+        mkdir -p "${HOME}/.ssh"
+        aws ec2 create-key-pair --key-name "${KEY_NAME}" --region "${REGION}" \
+            --query 'KeyMaterial' --output text > "${KEY_FILE}"
+        chmod 600 "${KEY_FILE}"
+        echo "SSH key saved to ${KEY_FILE}"
+    fi
+}
+
+# --- Ensure security group allows SSH ---
+SG_NAME="aegisbpf-soak-sg"
+
+ensure_security_group() {
+    SG_ID="$(aws ec2 describe-security-groups --group-names "${SG_NAME}" --region "${REGION}" \
+        --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null)" || true
+    if [[ -n "${SG_ID}" && "${SG_ID}" != "None" ]]; then
+        echo "Security group ${SG_NAME} already exists: ${SG_ID}"
+    else
+        echo "Creating security group ${SG_NAME}..."
+        SG_ID="$(aws ec2 create-security-group --group-name "${SG_NAME}" \
+            --description "AegisBPF soak test - SSH access" \
+            --region "${REGION}" --query 'GroupId' --output text)"
+        aws ec2 authorize-security-group-ingress --group-id "${SG_ID}" --region "${REGION}" \
+            --protocol tcp --port 22 --cidr 0.0.0.0/0 >/dev/null
+        echo "Security group created: ${SG_ID}"
+    fi
+}
+
 if [[ "${DRY_RUN}" -eq 1 ]]; then
     echo "=== User-data script (dry run) ==="
     echo "${USERDATA}"
@@ -223,6 +330,11 @@ fi
 # Ensure S3 bucket exists
 aws s3 mb "s3://${S3_BUCKET}" --region "${REGION}" 2>/dev/null || true
 
+# Setup IAM, key pair, and security group
+ensure_iam_role
+ensure_key_pair
+ensure_security_group
+
 # Launch instance
 echo "Launching ${INSTANCE_TYPE} in ${REGION}..."
 INSTANCE_ID="$(aws ec2 run-instances \
@@ -230,20 +342,35 @@ INSTANCE_ID="$(aws ec2 run-instances \
     --image-id "${AMI_ID}" \
     --instance-type "${INSTANCE_TYPE}" \
     --user-data "${USERDATA}" \
+    --key-name "${KEY_NAME}" \
+    --security-groups "${SG_NAME}" \
+    --iam-instance-profile "Name=${PROFILE_NAME}" \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aegisbpf-soak-${TIMESTAMP}},{Key=Purpose,Value=soak-test}]" \
     --instance-initiated-shutdown-behavior terminate \
     --query 'Instances[0].InstanceId' \
     --output text)"
+
+# Wait for public IP
+sleep 5
+PUBLIC_IP="$(aws ec2 describe-instances --instance-ids "${INSTANCE_ID}" --region "${REGION}" \
+    --query 'Reservations[].Instances[].PublicIpAddress' --output text 2>/dev/null)" || true
 
 echo
 echo "=== Soak test launched ==="
 echo "Instance:  ${INSTANCE_ID}"
 echo "Type:      ${INSTANCE_TYPE}"
 echo "Region:    ${REGION}"
+echo "IP:        ${PUBLIC_IP:-pending}"
 echo "Duration:  ${DURATION}s ($(( DURATION / 3600 )) hours)"
 echo "Mode:      ${SOAK_MODE}"
 echo "Branch:    ${GIT_BRANCH}"
 echo "Results:   s3://${S3_BUCKET}/${RUN_ID}/"
+echo
+echo "SSH (for debugging):"
+echo "  ssh -i ${KEY_FILE} ubuntu@${PUBLIC_IP:-<pending>}"
+echo
+echo "View setup log:"
+echo "  ssh -i ${KEY_FILE} ubuntu@${PUBLIC_IP:-<pending>} 'sudo tail -f /var/log/aegisbpf-soak-setup.log'"
 echo
 echo "Monitor:"
 echo "  aws ec2 describe-instances --instance-ids ${INSTANCE_ID} --region ${REGION} --query 'Reservations[].Instances[].State.Name' --output text"
