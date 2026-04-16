@@ -1,7 +1,7 @@
 # AegisBPF: Peer Comparison & Soak Testing Roadmap
 
 **Status:** Active plan
-**Last updated:** 2026-04-15
+**Last updated:** 2026-04-16
 
 ---
 
@@ -35,7 +35,7 @@
 5. ~~**No multi-workload benchmark**~~ — ✅ Done (open_close + connect_close + exec_loop)
 6. ~~**No automated comparison CI**~~ — ✅ Done (comparison.yml weekly Monday)
 7. **No Grafana/visualization pipeline** — soak CSV is not visualized (future)
-8. **No 24-hour soak results yet** — infrastructure ready (`aws_soak_24h.sh`), pending first run
+8. **24-hour soak launched** — first run in progress on AWS t2.micro (2026-04-15), results pending
 
 ---
 
@@ -233,13 +233,20 @@ All three CI soak jobs (audit, enforce, ASAN) now include network workload.
 
 **Goal:** Prove stability advantage over time.
 
-Infrastructure ready:
-- ✅ `scripts/aws_soak_24h.sh` -- launches EC2 t3.micro, builds from HEAD,
-  enables BPF LSM, runs 24h soak, uploads to S3, self-terminates (~$0.25/day)
+Infrastructure:
+- ✅ `scripts/aws_soak_24h.sh` -- launches EC2, builds from HEAD,
+  enables BPF LSM, runs 24h soak, uploads to S3, self-terminates (~$0.28/day on t2.micro)
 - Supports `--dry-run`, `--instance-type`, `--duration`, `--mode` (audit/enforce)
+- SSH access for debugging (`aegisbpf-soak-key`), IAM role for S3 upload + self-termination
+- Security group with SSH access for log tailing
 
-Pending:
-- First 24-hour soak execution
+First run:
+- ✅ Launched 2026-04-15 16:45 UTC on t2.micro (i-03fd7d26dc916709c)
+- ⏳ Awaiting results (expected ~2026-04-16 17:00 UTC)
+- Results will be in `s3://aegisbpf-soak-results/`
+
+Remaining:
+- Analyze and publish 24-hour soak results
 - Multi-agent 24-hour memory curves (RSS over time for each agent)
 
 ### Phase 5: Automated Comparison CI -- ✅ COMPLETE
@@ -266,7 +273,7 @@ Pending:
 | 6 | Extend CI soak to 1 hour | 15 min | Medium | ✅ Done |
 | 7 | Add network workload to soak | 1 hr | Medium | ✅ Done |
 | 8 | Add `exec_loop` workload | 2 hrs | Medium | ✅ Done |
-| 9 | Run 24-hour soak | 24 hrs (wall) | High | Infrastructure ready |
+| 9 | Run 24-hour soak | 24 hrs (wall) | High | ⏳ Running (2026-04-15) |
 | 10 | Automated comparison CI | 4 hrs | Medium | ✅ Done (comparison.yml) |
 
 ---
