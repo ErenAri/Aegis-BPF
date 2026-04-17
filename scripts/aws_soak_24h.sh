@@ -108,74 +108,130 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ID="soak-${TIMESTAMP}"
 
 # Generate the cloud-init user-data script
+#
+# Design notes (these fix real bugs hit on prior runs):
+#   - cloud-init user-data only runs ONCE (on first boot). After the reboot
+#     needed to activate BPF LSM, user-data is NOT re-run. We therefore
+#     install a systemd oneshot unit in Phase 1 that runs Phase 2 on the
+#     next boot.
+#   - Ubuntu 24.04 (Noble) does NOT have an `awscli` apt package. Installing
+#     aws-cli via snap instead. Any failure in apt-get install rolls back the
+#     WHOLE transaction, which is what previously left clang/cmake missing.
+#   - Use --parallel 1 for cmake build on 1 GB RAM instances (avoid OOM).
+#   - Use PIPESTATUS to capture the soak script's exit, not tee's.
 USERDATA=$(cat <<'USERDATA_EOF'
 #!/bin/bash
 set -uxo pipefail  # no -e: let commands fail without killing the script
 exec > /var/log/aegisbpf-soak-setup.log 2>&1
 
-echo "=== AegisBPF soak cloud-init started at $(date -u) ==="
+echo "=== AegisBPF soak cloud-init Phase 1 started at $(date -u) ==="
 
-MARKER=/var/lib/aegisbpf-soak-phase
-
-# --- Phase 1: Enable BPF LSM and reboot ---
-if [[ ! -f "${MARKER}" ]]; then
-    echo "phase1" > "${MARKER}"
-
-    # Wait for dpkg lock (cloud-init may run apt in parallel)
-    for i in $(seq 1 30); do
-        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then break; fi
-        echo "Waiting for dpkg lock ($i/30)..."
-        sleep 10
-    done
-
-    # Update and install build deps
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
-        cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev git \
-        awscli jq
-
-    # Install bpftool
-    apt-get install -y linux-tools-common || true
-    apt-get install -y "linux-tools-$(uname -r)" || \
-        apt-get install -y linux-tools-generic || true
-
-    # Enable BPF LSM in GRUB
-    CURRENT_LSM="$(cat /sys/kernel/security/lsm 2>/dev/null || echo 'lockdown,capability,landlock,yama,apparmor')"
-    if ! echo "${CURRENT_LSM}" | grep -q bpf; then
-        sed -i "s/^GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"lsm=${CURRENT_LSM},bpf /" /etc/default/grub
-        update-grub
-        echo "BPF LSM enabled in GRUB, rebooting..."
-        echo "phase2" > "${MARKER}"
-        reboot
-        exit 0
+# --- Wait for any existing apt/dpkg activity (cloud-init, unattended-upgrades) ---
+for i in $(seq 1 60); do
+    if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+         && ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+        break
     fi
-    echo "phase2" > "${MARKER}"
+    echo "Waiting for dpkg/apt lock ($i/60)..."
+    sleep 10
+done
+
+# --- Install build deps (apt) ---
+# IMPORTANT: do NOT include `awscli` here — that package does not exist on
+# Ubuntu 24.04 and its absence causes the entire apt transaction to fail,
+# leaving the other packages uninstalled. AWS CLI is installed separately
+# via snap below.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+    cmake ninja-build python3-jsonschema libelf-dev zlib1g-dev git jq curl \
+    python3-pip
+APT_RC=$?
+echo "apt-get install exit=${APT_RC}"
+
+# Verify critical tools actually landed
+for tool in clang cmake ninja pkg-config git; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        echo "FATAL: ${tool} missing after apt-get install"
+        exit 1
+    fi
+done
+
+# Install bpftool (kernel-matched, with fallbacks)
+apt-get install -y linux-tools-common || true
+apt-get install -y "linux-tools-$(uname -r)" || \
+    apt-get install -y linux-tools-generic || true
+
+# Install AWS CLI v2 via snap (awscli apt package does not exist on Noble)
+snap install aws-cli --classic || true
+if ! command -v aws >/dev/null 2>&1; then
+    # Fallback: official v2 zip installer
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+    (cd /tmp && unzip -q awscliv2.zip && ./aws/install)
+fi
+aws --version || echo "WARN: aws cli still missing"
+
+# --- Enable BPF LSM in GRUB (if not already active) ---
+CURRENT_LSM="$(cat /sys/kernel/security/lsm 2>/dev/null || echo 'lockdown,capability,landlock,yama,apparmor')"
+NEEDS_REBOOT=0
+if ! echo "${CURRENT_LSM}" | grep -q bpf; then
+    sed -i "s|^GRUB_CMDLINE_LINUX=\"|GRUB_CMDLINE_LINUX=\"lsm=${CURRENT_LSM},bpf |" /etc/default/grub
+    update-grub
+    NEEDS_REBOOT=1
 fi
 
-# --- Phase 2: Build and run soak ---
-echo "Starting Phase 2: build and soak"
+# --- Install Phase 2 as a systemd oneshot unit ---
+# cloud-init user-data does not re-run after reboot. A systemd unit does.
+cat > /usr/local/bin/aegisbpf-soak-phase2.sh <<'PHASE2_EOF'
+#!/bin/bash
+set -uxo pipefail
+exec > /var/log/aegisbpf-soak-phase2.log 2>&1
 
-# Verify BPF LSM is active
+echo "=== Phase 2 start at $(date -u) ==="
+
+# If already ran to completion, don't run again
+if [[ -f /var/lib/aegisbpf-soak-done ]]; then
+    echo "Soak already completed. Exiting."
+    exit 0
+fi
+
+# Verify BPF LSM active
 cat /sys/kernel/security/lsm
-if ! cat /sys/kernel/security/lsm | grep -q bpf; then
-    echo "WARNING: BPF LSM not active. Enforce mode may not work."
+if ! grep -q bpf /sys/kernel/security/lsm; then
+    echo "WARNING: BPF LSM not active"
 fi
 
 # Clone and build
+mkdir -p /opt
 cd /opt
 if [[ ! -d aegisbpf ]]; then
     git clone --depth 1 --branch __GIT_BRANCH__ __GIT_REPO__ aegisbpf
 fi
 cd aegisbpf
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-cmake --build build
 
-# Verify binary
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+# --parallel 1 to avoid OOM on 1 GB RAM instances (t2.micro, t3.micro)
+cmake --build build --parallel 1
+BUILD_RC=$?
+if [[ ${BUILD_RC} -ne 0 ]] || [[ ! -x build/aegisbpf ]]; then
+    echo "FATAL: build failed (rc=${BUILD_RC})"
+    touch /var/lib/aegisbpf-soak-done
+    # still try to upload logs
+    mkdir -p /opt/aegisbpf/artifacts/soak-24h
+    cp /var/log/aegisbpf-soak-phase2.log /opt/aegisbpf/artifacts/soak-24h/ || true
+    cp /var/log/aegisbpf-soak-setup.log /opt/aegisbpf/artifacts/soak-24h/ || true
+    aws s3 cp --recursive /opt/aegisbpf/artifacts/soak-24h/ \
+        s3://__S3_BUCKET__/__RUN_ID__/ --region __REGION__ || true
+    INSTANCE_ID="$(curl -sS -H "X-aws-ec2-metadata-token: $(curl -sS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/instance-id)"
+    aws ec2 terminate-instances --instance-ids "${INSTANCE_ID}" --region __REGION__ || true
+    exit 1
+fi
+
 ./build/aegisbpf version || true
 
 # Run soak
 mkdir -p /opt/aegisbpf/artifacts/soak-24h
+set +e  # don't let soak non-zero kill the wrapper
 AEGIS_BIN=./build/aegisbpf \
     SOAK_MODE=__SOAK_MODE__ \
     SOAK_NET_WORKLOAD=1 \
@@ -186,7 +242,8 @@ AEGIS_BIN=./build/aegisbpf \
     MIN_TOTAL_DECISIONS=100 \
     OUT_JSON=/opt/aegisbpf/artifacts/soak-24h/soak_summary.json \
     scripts/soak_reliability.sh 2>&1 | tee /opt/aegisbpf/artifacts/soak-24h/soak.log
-SOAK_EXIT=$?
+SOAK_EXIT=${PIPESTATUS[0]}
+set -u
 
 # Capture environment
 uname -a > /opt/aegisbpf/artifacts/soak-24h/kernel.txt
@@ -195,14 +252,52 @@ lscpu > /opt/aegisbpf/artifacts/soak-24h/cpu.txt || true
 free -m > /opt/aegisbpf/artifacts/soak-24h/memory.txt || true
 cat /sys/kernel/security/lsm > /opt/aegisbpf/artifacts/soak-24h/lsm.txt || true
 echo "${SOAK_EXIT}" > /opt/aegisbpf/artifacts/soak-24h/exit_code.txt
+cp /var/log/aegisbpf-soak-setup.log /opt/aegisbpf/artifacts/soak-24h/ || true
+cp /var/log/aegisbpf-soak-phase2.log /opt/aegisbpf/artifacts/soak-24h/ || true
 
 # Upload to S3
 aws s3 cp --recursive /opt/aegisbpf/artifacts/soak-24h/ \
-    s3://__S3_BUCKET__/__RUN_ID__/ || echo "S3 upload failed"
+    s3://__S3_BUCKET__/__RUN_ID__/ --region __REGION__ || echo "S3 upload failed"
 
-# Self-terminate
-INSTANCE_ID="$(curl -s http://169.254.169.254/latest/meta-data/instance-id)"
+touch /var/lib/aegisbpf-soak-done
+
+# Self-terminate (IMDSv2)
+IMDS_TOKEN="$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')"
+INSTANCE_ID="$(curl -sS -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
 aws ec2 terminate-instances --instance-ids "${INSTANCE_ID}" --region __REGION__ || true
+PHASE2_EOF
+chmod +x /usr/local/bin/aegisbpf-soak-phase2.sh
+
+cat > /etc/systemd/system/aegisbpf-soak.service <<'UNIT_EOF'
+[Unit]
+Description=AegisBPF 24h soak test runner (Phase 2)
+After=network-online.target cloud-init.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/aegisbpf-soak-phase2.sh
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+
+systemctl daemon-reload
+systemctl enable aegisbpf-soak.service
+
+echo "=== Phase 1 complete at $(date -u), NEEDS_REBOOT=${NEEDS_REBOOT} ==="
+
+if [[ ${NEEDS_REBOOT} -eq 1 ]]; then
+    echo "Rebooting to activate BPF LSM..."
+    # Phase 2 will run automatically via systemd unit after reboot.
+    reboot
+    exit 0
+fi
+
+# BPF LSM already active (unusual) — kick off Phase 2 now.
+systemctl start aegisbpf-soak.service
 USERDATA_EOF
 )
 
