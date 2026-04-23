@@ -146,6 +146,23 @@ AegisBPF verifies the integrity of the BPF object file before loading:
 - **JSON escaping**: All control characters are properly escaped in JSON log output to prevent log injection attacks
 - **Path validation**: Null bytes, path traversal, and symlink attacks are mitigated through canonicalization
 
+## Supply Chain & Release Verification
+
+AegisBPF release artifacts are protected by layered supply-chain controls:
+
+- **SLSA v1.0 Build Track Level 3 provenance** via
+  `actions/attest-build-provenance@v2` on GitHub-hosted runners. The
+  release workflow self-verifies its own provenance before publishing.
+- **Sigstore keyless signing** of every release blob (tar.gz, .deb, .rpm,
+  SHA256SUMS.txt) and every container image.
+- **SBOMs in both SPDX 2.3 and CycloneDX 1.6** generated with Syft,
+  themselves signed with cosign.
+- **SHA256 checksums** (`SHA256SUMS.txt`) for all release payloads.
+- **Capability contract report** generated and attested at release time.
+
+Verification instructions for adopters live in
+[`docs/compliance/SLSA_PROVENANCE.md`](docs/compliance/SLSA_PROVENANCE.md).
+
 ## Security Best Practices
 
 ### Deployment

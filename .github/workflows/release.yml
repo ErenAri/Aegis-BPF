@@ -382,6 +382,7 @@ jobs:
             --report release/capability-contract-report.md
 
       - name: Generate build provenance attestations
+        id: attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -390,6 +391,30 @@ jobs:
             release/*.rpm
             release/SHA256SUMS.txt
             release/capability-contract-report.md
+
+      - name: Self-verify SLSA build provenance
+        # Defense in depth: before publishing, verify the attestation
+        # we just generated actually validates against this repository.
+        # If this step fails the release does NOT go out.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd release
+          shopt -s nullglob
+          failed=0
+          for f in *.tar.gz *.deb *.rpm SHA256SUMS.txt capability-contract-report.md; do
+            [ -f "${f}" ] || continue
+            if ! gh attestation verify "${f}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>"verify-${f}.log"; then
+              echo "::error::SLSA provenance verification failed for ${f}"
+              cat "verify-${f}.log" >&2 || true
+              failed=1
+            else
+              echo "SLSA provenance verified for ${f}"
+            fi
+          done
+          if [ "${failed}" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Sign artifacts with Cosign (keyless)
         run: |

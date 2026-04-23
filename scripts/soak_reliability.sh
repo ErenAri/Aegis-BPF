@@ -21,6 +21,14 @@ SOAK_MODE="${SOAK_MODE:-audit}"
 # When enabled, workers also generate UDP connect() traffic to exercise
 # network hooks alongside file I/O.
 SOAK_NET_WORKLOAD="${SOAK_NET_WORKLOAD:-0}"
+# Cap disk usage of the captured daemon log. On high-throughput hosts the
+# daemon stdout grew to hundreds of GB and filled the root filesystem in a
+# laptop 24h soak; the cap + in-loop rotation prevents that.
+MAX_DAEMON_LOG_BYTES="${MAX_DAEMON_LOG_BYTES:-104857600}"    # 100 MB
+# Minimum free disk space required in the log dir before starting and at
+# every poll. If free space drops below this threshold during the run, the
+# soak aborts rather than filling the filesystem.
+MIN_FREE_DISK_BYTES="${MIN_FREE_DISK_BYTES:-2147483648}"     # 2 GB
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "soak_reliability.sh must run as root" >&2
@@ -72,7 +80,22 @@ if [[ "${SOAK_NET_WORKLOAD}" != "0" && "${SOAK_NET_WORKLOAD}" != "1" ]]; then
   exit 1
 fi
 
+if ! [[ "${MAX_DAEMON_LOG_BYTES}" =~ ^[0-9]+$ && "${MIN_FREE_DISK_BYTES}" =~ ^[0-9]+$ ]]; then
+  echo "MAX_DAEMON_LOG_BYTES and MIN_FREE_DISK_BYTES must be numeric" >&2
+  exit 1
+fi
+
 LOG_DIR="$(mktemp -d)" || { echo "Failed to create temp directory" >&2; exit 1; }
+
+# Disk-free pre-flight: refuse to start a long soak when there is not
+# enough free space to absorb captured daemon output, workload logs, and
+# any in-flight debug artifacts.
+PRE_AVAIL_BYTES="$(df --output=avail -B1 "${LOG_DIR}" | awk 'NR==2 { print $1 }')"
+if [[ -z "${PRE_AVAIL_BYTES}" || "${PRE_AVAIL_BYTES}" -lt "${MIN_FREE_DISK_BYTES}" ]]; then
+  echo "insufficient free disk in ${LOG_DIR}: have=${PRE_AVAIL_BYTES:-0} need=${MIN_FREE_DISK_BYTES}" >&2
+  exit 1
+fi
+echo "soak working dir: ${LOG_DIR} (free=$((PRE_AVAIL_BYTES / 1024 / 1024)) MiB, cap_log=$((MAX_DAEMON_LOG_BYTES / 1024 / 1024)) MiB, min_free=$((MIN_FREE_DISK_BYTES / 1024 / 1024)) MiB)"
 DAEMON_LOG="${LOG_DIR}/daemon.log"
 WORKLOAD_LOG="${LOG_DIR}/workload.log"
 WORKER_PIDS=()
@@ -199,10 +222,33 @@ END_TS=$((SECONDS + DURATION_SECONDS))
 
 echo "initial RSS: ${INITIAL_RSS} kB"
 
+DAEMON_LOG_TRUNCATIONS=0
+
 while [[ ${SECONDS} -lt ${END_TS} ]]; do
   if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
     echo "daemon exited early during soak" >&2
-    cat "${DAEMON_LOG}" >&2 || true
+    tail -c 65536 "${DAEMON_LOG}" >&2 || true
+    exit 1
+  fi
+
+  # Cap daemon log disk usage. Block usage (du -B1) ignores sparse holes,
+  # so repeatedly truncating to 0 keeps real disk usage bounded even
+  # though the file's apparent size may stay large while the daemon holds
+  # its fd. The daemon's critical events go to the ring buffer, not here.
+  if [[ -f "${DAEMON_LOG}" ]]; then
+    DAEMON_LOG_DISK_BYTES="$(du -B1 "${DAEMON_LOG}" 2>/dev/null | awk '{print $1}')"
+    if [[ -n "${DAEMON_LOG_DISK_BYTES}" && "${DAEMON_LOG_DISK_BYTES}" -gt "${MAX_DAEMON_LOG_BYTES}" ]]; then
+      : >"${DAEMON_LOG}"
+      DAEMON_LOG_TRUNCATIONS=$((DAEMON_LOG_TRUNCATIONS + 1))
+      echo "daemon.log rotated at ${DAEMON_LOG_DISK_BYTES} bytes (cap=${MAX_DAEMON_LOG_BYTES}, total rotations=${DAEMON_LOG_TRUNCATIONS})"
+    fi
+  fi
+
+  # Disk-free watchdog: abort the soak if free space falls below the
+  # threshold rather than fill the root filesystem.
+  DISK_FREE_BYTES="$(df --output=avail -B1 "${LOG_DIR}" | awk 'NR==2 { print $1 }')"
+  if [[ -z "${DISK_FREE_BYTES}" || "${DISK_FREE_BYTES}" -lt "${MIN_FREE_DISK_BYTES}" ]]; then
+    echo "free disk dropped below threshold (have=${DISK_FREE_BYTES:-0} need=${MIN_FREE_DISK_BYTES}); aborting soak" >&2
     exit 1
   fi
 
@@ -252,6 +298,7 @@ echo "max ringbuf drops: ${MAX_DROPS} (file=${MAX_FILE_DROPS}, net=${MAX_NET_DRO
 echo "max observed decision events: ${MAX_TOTAL_DECISIONS}"
 echo "max observed total events (decisions + drops): ${MAX_TOTAL_EVENTS}"
 echo "max observed drop ratio: ${MAX_DROP_RATIO_PCT}% (target <= ${MAX_EVENT_DROP_RATIO_PCT}%)"
+echo "daemon.log rotations: ${DAEMON_LOG_TRUNCATIONS}"
 
 if [[ -n "${OUT_JSON}" ]]; then
   python3 - <<PY
@@ -277,6 +324,9 @@ payload = {
     "max_allowed_rss_growth_kb": int("${MAX_RSS_GROWTH_KB}"),
     "max_allowed_drop_ratio_pct": float("${MAX_EVENT_DROP_RATIO_PCT}"),
     "min_total_decisions": int("${MIN_TOTAL_DECISIONS}"),
+    "daemon_log_rotations": int("${DAEMON_LOG_TRUNCATIONS}"),
+    "max_daemon_log_bytes": int("${MAX_DAEMON_LOG_BYTES}"),
+    "min_free_disk_bytes": int("${MIN_FREE_DISK_BYTES}"),
     "pass": (${RSS_GROWTH} <= ${MAX_RSS_GROWTH_KB}
              and ${MAX_DROPS} <= ${MAX_RINGBUF_DROPS}
              and ${MAX_TOTAL_DECISIONS} >= ${MIN_TOTAL_DECISIONS}
