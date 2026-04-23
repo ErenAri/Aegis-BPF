@@ -248,6 +248,14 @@ jobs:
             -I src \
             src/ tests/
 
+  policy-tags:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate MITRE ATT&CK tag headers
+        run: ./scripts/validate_mitre_tags.sh
+
   required-checks-contract:
     runs-on: ubuntu-24.04
     steps:
