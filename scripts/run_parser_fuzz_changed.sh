@@ -53,7 +53,24 @@ fi
 
 targets=(fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event)
 echo "Parser-related changes detected; running fuzz targets for ${FUZZ_SECONDS}s each."
+
+# Seed corpus lives in tests/fuzz/corpus/<target>/. Use a writable copy
+# so libFuzzer can add interesting mutations without dirtying the tree.
+runtime_root="$(mktemp -d)"
+trap 'rm -rf "${runtime_root}"' EXIT
+
 for target in "${targets[@]}"; do
     echo "Fuzzing ${target}..."
-    "./${BUILD_DIR}/${target}" -max_total_time="${FUZZ_SECONDS}" -print_final_stats=1
+    runtime_corpus="${runtime_root}/${target}"
+    mkdir -p "${runtime_corpus}"
+    if [[ -d "tests/fuzz/corpus/${target}" ]]; then
+        cp -a "tests/fuzz/corpus/${target}/." "${runtime_corpus}/"
+    fi
+    # fuzz_event spams stdout with decoded events; redirect to keep CI
+    # logs readable while keeping libFuzzer's stderr stats visible.
+    if [[ "${target}" == "fuzz_event" ]]; then
+        "./${BUILD_DIR}/${target}" "${runtime_corpus}" -max_total_time="${FUZZ_SECONDS}" -print_final_stats=1 >/dev/null
+    else
+        "./${BUILD_DIR}/${target}" "${runtime_corpus}" -max_total_time="${FUZZ_SECONDS}" -print_final_stats=1
+    fi
 done

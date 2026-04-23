@@ -360,11 +360,24 @@ jobs:
       - name: Build fuzz targets
         run: cmake --build build-fuzz --target fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event
 
-      - name: Smoke fuzz (60s per target)
+      - name: Smoke fuzz (60s per target, seeded corpus)
         run: |
+          # Use a writable copy of the seed corpus so libFuzzer can add
+          # discovered inputs during the run without modifying the tree.
           for target in fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event; do
             echo "Fuzzing ${target}..."
-            ./build-fuzz/${target} -max_total_time=60 -print_final_stats=1
+            runtime_corpus="$(mktemp -d)/${target}"
+            mkdir -p "${runtime_corpus}"
+            if [ -d "tests/fuzz/corpus/${target}" ]; then
+              cp -a "tests/fuzz/corpus/${target}/." "${runtime_corpus}/"
+            fi
+            # fuzz_event prints JSON to stdout for every mutation; silence it
+            # so CI logs stay readable. libFuzzer stats go to stderr.
+            if [ "${target}" = "fuzz_event" ]; then
+              ./build-fuzz/${target} "${runtime_corpus}" -max_total_time=60 -print_final_stats=1 >/dev/null
+            else
+              ./build-fuzz/${target} "${runtime_corpus}" -max_total_time=60 -print_final_stats=1
+            fi
           done
 
       - name: Upload fuzz crash artifacts

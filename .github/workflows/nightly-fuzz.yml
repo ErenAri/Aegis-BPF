@@ -13,6 +13,9 @@ on:
 jobs:
   fuzz:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write   # needed to save the corpus cache
     steps:
       - uses: actions/checkout@v4
 
@@ -30,14 +33,58 @@ jobs:
       - name: Build
         run: cmake --build build-fuzz --target fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event
 
+      # The runtime corpus is a union of (a) checked-in seeds and
+      # (b) interesting inputs libFuzzer discovered on previous nightly
+      # runs. Restoring from cache lets coverage compound night-over-night
+      # rather than starting from zero-byte seeds every run.
+      - name: Restore previous corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: runtime-corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-
+
+      - name: Prepare runtime corpus
+        run: |
+          for target in fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event; do
+            mkdir -p "runtime-corpus/${target}"
+            # -n: do not overwrite inputs discovered by previous runs
+            if [ -d "tests/fuzz/corpus/${target}" ]; then
+              cp -an "tests/fuzz/corpus/${target}/." "runtime-corpus/${target}/" 2>/dev/null || true
+            fi
+            echo "${target}: $(ls "runtime-corpus/${target}" | wc -l) inputs"
+          done
+
       - name: Run fuzzers (nightly deep)
         env:
           MAX_TOTAL_TIME: ${{ inputs.max_total_time || '600' }}
         run: |
           for target in fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event; do
             echo "Fuzzing ${target} for ${MAX_TOTAL_TIME}s"
-            ./build-fuzz/${target} -max_total_time="${MAX_TOTAL_TIME}" -print_final_stats=1
+            if [ "${target}" = "fuzz_event" ]; then
+              # fuzz_event decodes events to stdout; redirect to keep logs
+              # manageable while still surfacing libFuzzer stderr stats.
+              ./build-fuzz/${target} "runtime-corpus/${target}" \
+                -max_total_time="${MAX_TOTAL_TIME}" \
+                -print_final_stats=1 \
+                >/dev/null
+            else
+              ./build-fuzz/${target} "runtime-corpus/${target}" \
+                -max_total_time="${MAX_TOTAL_TIME}" \
+                -print_final_stats=1
+            fi
           done
+
+      # Save the grown corpus so tomorrow's run starts from here.
+      # Key includes run_id so we never overwrite; actions/cache uses LRU
+      # eviction if the repo exceeds its 10 GB quota.
+      - name: Save corpus cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: runtime-corpus
+          key: fuzz-corpus-${{ github.run_id }}
 
       - name: Upload fuzz crash artifacts
         if: failure()

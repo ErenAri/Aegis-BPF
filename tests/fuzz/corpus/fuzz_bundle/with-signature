@@ -1,0 +1,12 @@
+AEGIS-POLICY-BUNDLE-V1
+format_version: 1
+policy_version: 2
+timestamp: 1700000000
+expires: 1800000000
+signer_key: aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8=
+signature: c2lnbmF0dXJlLXBsYWNlaG9sZGVyLXNpZ25hdHVyZS1wbGFjZWhvbGRlci1zaWduYXR1cmUtcGw=
+policy_sha256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+---
+version=1
+
+[deny_ptrace]
