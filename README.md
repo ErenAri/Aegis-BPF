@@ -8,6 +8,34 @@
 
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
+### Positioning
+
+AegisBPF is an **enforcement-first** eBPF runtime security engine for Linux
+workloads. Unlike Falco and Tracee (detection-only) or Tetragon (signal-based
+enforcement via `SIGKILL`), AegisBPF uses BPF-LSM `-EPERM` returns with
+IMA-backed exec identity for **deterministic, in-kernel prevention**, and
+ships with first-class OverlayFS copy-up handling, dual-stack CIDR network
+deny, cgroup-scoped policy, and a dedicated priority ring buffer for
+forensic-grade evidence.
+
+Where it fits on the runtime-security map:
+
+```
+                              ENFORCE
+                                │
+                    KubeArmor   │   Tetragon (signal)
+                   ┌────────────┼────────────┐
+                   │  AegisBPF  │  AegisBPF  │
+          POLICY ──┼────────────┼────────────┼── OBSERVE
+          (static) │            │            │  (pattern-match)
+                   │            │            │
+                   │   (none)   │  Falco     │
+                   │            │  Tracee    │
+                   └────────────┼────────────┘
+                                │
+                              DETECT
+```
+
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │                              AegisBPF                                         │
@@ -95,20 +123,63 @@ The operator includes a built-in web console for monitoring policy status, daemo
 
 ## Comparison with Other Tools
 
-### Architecture (design-level)
+### Architecture & feature matrix
+
+Legend: ✅ full · ◐ partial · ❌ absent
 
 | Capability | AegisBPF | Falco | Tetragon | Tracee | KubeArmor |
-|-----------|----------|-------|----------|--------|-----------|
-| **File enforcement** | ✅ Kernel deny (BPF LSM) | ❌ Detect only | ✅ Kernel deny | ⚠️ Limited | ✅ Kernel deny |
-| **Network enforcement** | ✅ Full socket lifecycle | ❌ Detect only | ✅ Socket hooks | ⚠️ Limited | ⚠️ Partial |
-| **OverlayFS copy-up propagation** | ✅ `inode_copy_up` hook | ❌ | ❌ | ❌ | ❌ |
-| **IMA-backed exec identity** | ✅ kernel 6.1+ (`bpf_ima_file_hash`) | ❌ | ❌ | ❌ | ❌ |
-| **Ptrace / module load / BPF blocking** | ✅ All three | ❌ | ⚠️ Partial | ❌ | ⚠️ Partial |
-| **Policy evaluation** | O(1) BPF hash-map lookup | O(rules) rule engine | In-kernel per TracingPolicy | Hybrid / signatures | In-kernel + userspace |
-| **Policy language** | Declarative INI + K8s CRD | YAML rules (DSL) | K8s CRD (TracingPolicy) | Rego / Go signatures | K8s CRD (KubeArmorPolicy) |
-| **Break-glass / deadman** | ✅ Emergency + TTL revert | ❌ | ❌ | ❌ | ❌ |
-| **Runtime** | C++20 + C (BPF), single binary | C++ | Go | Go | Go |
-| **SIEM integration** | ✅ Splunk, Elastic, OTLP | ✅ Falcosidekick | ⚠️ JSON | ⚠️ JSON | ⚠️ JSON |
+|---|---|---|---|---|---|
+| **Category** | Enforcement-first | Detect-only HIDS | Observe + enforce | Forensics + detect | Enforce-first (LSM-unified) |
+| **CNCF status** | — | Graduated (2024) | Sub-project of Graduated Cilium | — | Sandbox |
+| BPF LSM enforcement (`-EPERM`) | ✅ 15 hooks | ❌ | ✅ (`security_*`) | ❌ | ✅ |
+| Signal-based enforcement (SIGKILL) | ◐ escalation | ❌ | ✅ | ❌ | ❌ |
+| AppArmor / SELinux fallback | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Tracepoint audit when LSM absent | ✅ | ✅ | ✅ | ✅ | ◐ |
+| File enforcement | ✅ Kernel deny | ❌ Detect only | ✅ | ◐ | ✅ |
+| Network enforcement (full socket lifecycle) | ✅ connect/bind/listen/accept/sendmsg/recvmsg | ❌ | ✅ | ◐ | ◐ |
+| **OverlayFS `inode_copy_up` propagation** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **IMA-backed trusted exec** (kernel 6.1+) | ✅ `bpf_ima_file_hash` | ❌ | ◐ | ❌ | ❌ |
+| Process ancestry + argv | ✅ 4 MB priority ringbuf | ◐ | ✅ | ✅ | ◐ |
+| Cgroup-scoped policy | ✅ inode / IPv4 / port | ◐ | ✅ | ◐ | ✅ |
+| LPM CIDR v4/v6 network deny | ✅ | ◐ | ✅ | ◐ | ◐ |
+| Ptrace / module-load / BPF syscall blocking | ✅ all three | ❌ | ◐ | ❌ | ◐ |
+| Policy evaluation | O(1) BPF map lookup | O(rules) userspace | In-kernel TracingPolicy | Hybrid signatures | In-kernel + userspace |
+| Policy language | INI + K8s CRD | YAML DSL | K8s CRD TracingPolicy | Rego / Go signatures | K8s CRD KubeArmorPolicy |
+| Break-glass / deadman-TTL | ✅ Emergency + revert | ❌ | ❌ | ❌ | ❌ |
+| CO‑RE + BTF | ✅ | ✅ | ✅ | ✅ | ✅ |
+| BTFhub fallback (kernels w/o BTF) | ❌ (roadmap) | ✅ | ✅ | ✅ | ✅ |
+| Kubernetes CRD + validating webhook | ✅ v1alpha1 | ◐ | ✅ v1 | ◐ | ✅ |
+| Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
+| Signed BPF objects | ◐ (hash verify today, sig prep) | ❌ | ❌ | ❌ | ❌ |
+| SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
+| SLSA L3 build provenance | ❌ (roadmap) | ✅ | ✅ | ✅ | ◐ |
+| MITRE ATT&CK rule tags | ❌ (roadmap) | ✅ | ◐ | ◐ | ◐ |
+| CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
+| Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
+| OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
+| OCSF / ECS / CEF event schema | ❌ (roadmap; custom JSON + ECS today) | ✅ | ◐ | ✅ | ◐ |
+| SIEM integrations (Splunk / Elastic / OTLP) | ✅ | ✅ Falcosidekick | ◐ JSON | ◐ JSON | ◐ JSON |
+| Multi-cluster control plane | ❌ (roadmap) | ◐ | ◐ (Isovalent Ent) | ❌ | ◐ (AccuKnox) |
+| Community rule library | ❌ (roadmap) | ✅ large | ◐ | ◐ | ◐ |
+| 3rd-party security audit | ❌ (roadmap) | ✅ | ✅ | ◐ | ◐ |
+| Runtime | C++20 + C (BPF), single binary | C++ | Go | Go | Go |
+
+### Where AegisBPF is uniquely differentiated today
+
+- **OverlayFS copy-up propagation.** No other open-source runtime
+  security agent enforces on `lsm/inode_copy_up`. This closes a
+  real container-escape bypass class.
+- **IMA-backed trusted exec identity.** Kernel 6.1+ `bpf_ima_file_hash()`
+  integration ties allow-listed execs to cryptographic file hashes inside
+  `bprm_check_security`.
+- **Deterministic LSM `-EPERM` + signal escalation.** Per-policy choice
+  between fail-closed LSM denial, `SIGTERM`, or escalated `SIGKILL` with
+  a configurable rate/window.
+- **Break-glass + deadman TTL.** Revert to audit in one command; auto-revert
+  on deny-rate spikes; emergency override emits an auditable trail.
+- **Dedicated forensic priority ring buffer.** 4 MB ring buffer reserved for
+  enriched block events (UID/GID, exec identity, ancestor PIDs, cgroup),
+  separate from the 8 MB general-event buffer.
 
 ### Measured performance (same host, same kernel, same run)
 
@@ -312,6 +383,65 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 |              file/network ops: allowed, audited, or blocked          |
 +----------------------------------------------------------------------+
 ```
+
+## Standards Alignment
+
+| Area | Standard | Status |
+|---|---|---|
+| Kernel enforcement | BPF LSM (`CONFIG_BPF_LSM`, kernel ≥ 5.7) | ✅ 15 hooks attached |
+| Portability | CO‑RE + BTF | ✅ (min kernel 5.15) |
+| Portability | BTFhub fallback for kernels without `/sys/kernel/btf/vmlinux` | Roadmap |
+| Supply chain | SBOM (SPDX 2.3 + CycloneDX 1.6) | ✅ published per release |
+| Supply chain | SLSA v1.0 L3 build provenance | Roadmap (L1 today) |
+| Supply chain | cosign / Sigstore signatures | Roadmap |
+| Supply chain | OpenSSF Best Practices Badge | Roadmap |
+| Supply chain | OpenSSF Scorecard | Roadmap |
+| Daemon hardening | seccomp-bpf allowlist | ✅ |
+| Daemon hardening | Landlock self-sandbox | Roadmap |
+| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
+| Compliance | NIST SP 800‑53 Rev 5 control mapping | ✅ `docs/compliance/NIST_800_53_MAPPING.md` |
+| Compliance | NIST SP 800‑190 (container security) | Roadmap |
+| Compliance | ISO/IEC 27001:2022 | ✅ `docs/compliance/ISO_27001_CONTROLS.md` |
+| Compliance | SOC 2 Type II evidence kit | ✅ `docs/compliance/SOC2_EVIDENCE_KIT.md` |
+| Compliance | PCI DSS 4.0 | ✅ `docs/compliance/PCI_DSS_4_MAPPING.md` |
+| Compliance | CIS Kubernetes Benchmark v1.8 | ✅ `docs/compliance/CIS_KUBERNETES_BENCHMARK.md` |
+| Compliance | MITRE ATT&CK for Containers / Linux | Roadmap (rule tags) |
+| Event schema | OCSF 1.1 / ECS / CEF | Roadmap (custom JSON + ECS formatter today) |
+| Community | CNCF Sandbox → Incubating → Graduated | Pre-sandbox |
+
+Full compliance mappings live under [`docs/compliance/`](docs/compliance/).
+Detailed gap analysis and professional-product roadmap:
+[`docs/POSITIONING.md`](docs/POSITIONING.md).
+
+## Honest Limitations
+
+Professional security products admit their limits. These are AegisBPF's,
+in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.md).
+
+1. **TOCTOU on path-based rules.** Pathname → inode resolution can be
+   swapped between `inode_permission` and `file_open`. Path rules are
+   **detection-grade**; inode and IMA-hash rules are **prevention-grade**.
+   See [`docs/GUARANTEES.md`](docs/GUARANTEES.md).
+2. **Verifier / complexity limits.** Very large rulesets may hit BPF's
+   1M-instruction or 4K-stack caps. A policy compiler that partitions
+   large rulesets across tail-called programs is on the roadmap.
+3. **`socket_listen` / `socket_recvmsg` are kernel-version-gated.**
+   Runtime probing today; a machine-readable capability report is on
+   the roadmap.
+4. **Single-node control plane.** One operator pod per cluster; no fleet
+   view across clusters yet.
+5. **Policy language is INI + CRD only.** No CEL/Rego expressions, no
+   parent-process / label selectors in match criteria yet.
+6. **No BTFhub fallback.** Kernels without `/sys/kernel/btf/vmlinux`
+   (RHEL 7, very old embedded) are unsupported.
+7. **No distro packages yet.** Install requires build-from-source or
+   the provided container image; Ubuntu PPA / Fedora COPR are on the
+   roadmap.
+8. **Daemon runs as root for its full lifetime.** It should drop to
+   `CAP_BPF` + `CAP_PERFMON` after BPF load; tracked on roadmap.
+9. **No third-party security audit yet.** Planned before v1.0 GA.
+10. **Linux only.** Windows (`ebpf-for-windows`) is a v2.0 consideration;
+    macOS is an explicit non-goal.
 
 ## Quick Start
 
