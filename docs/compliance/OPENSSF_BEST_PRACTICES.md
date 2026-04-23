@@ -17,7 +17,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 
 | Tier | Criteria | Met | Partial | Unmet | Status |
 |------|---------:|----:|--------:|------:|:-------|
-| Passing | 66 | 62 | 4 | 0 | **Self-assessed PASS (pending formal submission)** |
+| Passing | 66 | 63 | 3 | 0 | **Self-assessed PASS (pending formal submission)** |
 | Silver  | ~40 added | 20 | 15 | 5 | In progress |
 | Gold    | ~30 added |  5 |  8 | 17 | Not targeted yet |
 
@@ -77,7 +77,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 | security_4 | Fixed vulnerabilities < 60 days | ✅ | TweetNaCl memory exhaustion fix in `v0.1.1` (see `SECURITY.md` fix history) |
 | security_5 | No unpatched known vulnerabilities > 60 days | ✅ | OSV + Dependabot + manual review |
 | security_6 | Static analysis | ✅ | CodeQL (C++, Go), clang-tidy, cargo clippy, `gosec` in `.github/workflows/` |
-| security_7 | Dynamic analysis | ◐ | `soak_reliability.sh` (long-running) and seccomp fuzz tests. AFL/libFuzzer harness on roadmap. |
+| security_7 | Dynamic analysis | ✅ | libFuzzer + AddressSanitizer on 5 targets (policy / bundle / network / path / event). Smoke fuzz (60s/target) on every CI run; parser-scoped gate (120s/target) on parser changes; nightly deep fuzz (600s/target). Plus `soak_reliability.sh` long-running stability tests. See `docs/FUZZING.md`. |
 
 ### Analysis
 
@@ -85,7 +85,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 |---|-----------|:------:|----------|
 | analysis_1 | At least one FLOSS static analysis | ✅ | See security_6 |
 | analysis_2 | Static analysis fixes applied | ✅ | CodeQL findings triaged; blockers prevent merge |
-| analysis_3 | Dynamic analysis run on releases | ◐ | Release workflow does not run long fuzz; soak harness runs separately. Tracked as roadmap. |
+| analysis_3 | Dynamic analysis run on releases | ✅ | Nightly deep fuzz (`.github/workflows/nightly-fuzz.yml`, 600s/target across 5 targets) with persistent corpus between runs. Every release is cut from a commit that has passed smoke fuzz + parser-scoped fuzz. See `docs/FUZZING.md`. |
 
 ### Gaps for Passing (formal submission blockers)
 
@@ -95,9 +95,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
    contribution, the Passing reviewer may flag the single-maintainer
    posture. Mitigation: keep `MAINTAINERS.md` honest; document the
    explicit call for co-maintainers.
-3. **security_7 / analysis_3**: Add a fuzz job to CI (libFuzzer over
-   policy parser + bundle parser) before formal submission.
-4. **Badge link**: Enrol at <https://www.bestpractices.dev/en> and link
+3. **Badge link**: Enrol at <https://www.bestpractices.dev/en> and link
    the badge URL + project ID here once issued.
 
 ## Silver Tier — Highlights
