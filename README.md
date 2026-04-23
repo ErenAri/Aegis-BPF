@@ -152,8 +152,8 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
 | Signed BPF objects | ◐ (hash verify today, sig prep) | ❌ | ❌ | ❌ | ❌ |
 | SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
-| SLSA L3 build provenance | ❌ (roadmap) | ✅ | ✅ | ✅ | ◐ |
-| MITRE ATT&CK rule tags | ❌ (roadmap) | ✅ | ◐ | ◐ | ◐ |
+| SLSA L3 build provenance | ✅ v1.0 Build L3 (self-verified) | ✅ | ✅ | ✅ | ◐ |
+| MITRE ATT&CK rule tags | ◐ schema + 5 shipped rules tagged | ✅ | ◐ | ◐ | ◐ |
 | CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
 | Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
@@ -314,10 +314,14 @@ Public proof lives in the docs and CI artifacts:
 
 **Compliance Frameworks:**
 - NIST SP 800-53 Rev. 5: `docs/compliance/NIST_800_53_MAPPING.md`
+- NIST SP 800-190 (container security): `docs/compliance/NIST_800_190_MAPPING.md`
 - ISO/IEC 27001:2022: `docs/compliance/ISO_27001_CONTROLS.md`
 - SOC 2 Type II evidence kit: `docs/compliance/SOC2_EVIDENCE_KIT.md`
 - PCI DSS 4.0: `docs/compliance/PCI_DSS_4_MAPPING.md`
 - CIS Kubernetes Benchmark v1.8: `docs/compliance/CIS_KUBERNETES_BENCHMARK.md`
+- OpenSSF Best Practices (self-assessment): `docs/compliance/OPENSSF_BEST_PRACTICES.md`
+- SLSA v1.0 Build L3 provenance: `docs/compliance/SLSA_PROVENANCE.md`
+- MITRE ATT&CK rule tag schema: `docs/rules/MITRE_ATTACK_TAG_SCHEMA.md`
 
 **Integrations:**
 - Grafana dashboards (4): `grafana/dashboards/`
@@ -392,10 +396,10 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 | Portability | CO‑RE + BTF | ✅ (min kernel 5.15) |
 | Portability | BTFhub fallback for kernels without `/sys/kernel/btf/vmlinux` | Roadmap |
 | Supply chain | SBOM (SPDX 2.3 + CycloneDX 1.6) | ✅ published per release |
-| Supply chain | SLSA v1.0 L3 build provenance | Roadmap (L1 today) |
-| Supply chain | cosign / Sigstore signatures | Roadmap |
-| Supply chain | OpenSSF Best Practices Badge | Roadmap |
-| Supply chain | OpenSSF Scorecard | Roadmap |
+| Supply chain | SLSA v1.0 L3 build provenance | ✅ `actions/attest-build-provenance` + self-verify in release workflow; see `docs/compliance/SLSA_PROVENANCE.md` |
+| Supply chain | cosign / Sigstore signatures | ✅ keyless via GitHub OIDC in release workflow |
+| Supply chain | OpenSSF Best Practices Badge | ◐ self-assessed Passing (`docs/compliance/OPENSSF_BEST_PRACTICES.md`); formal submission pending |
+| Supply chain | OpenSSF Scorecard | ✅ `.github/workflows/scorecard.yml` publishes weekly |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
 | Daemon hardening | Landlock self-sandbox | Roadmap |
 | Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
