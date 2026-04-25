@@ -2,13 +2,19 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 #include "bpf_ops.hpp"
+#include "bpf_signing.hpp"
+#include "crypto.hpp"
 #include "sha256.hpp"
 
 namespace aegis {
@@ -210,6 +216,199 @@ TEST(BpfIntegrityTest, ParsesRequireHashEnvFlag)
 {
     ScopedEnvVar env("AEGIS_REQUIRE_BPF_HASH", "true");
     EXPECT_TRUE(require_bpf_hash_enabled());
+}
+
+TEST(BpfIntegrityTest, ParsesRequireBpfSigEnvFlag)
+{
+    ScopedEnvVar env("AEGIS_REQUIRE_BPF_SIG", "1");
+    EXPECT_TRUE(require_bpf_sig_enabled());
+}
+
+// ---------------------------------------------------------------------------
+// Ed25519 BPF signature verification tests. These exercise verify_bpf_signature
+// directly so we don't depend on the full integrity pipeline / hash-file
+// resolution paths.
+
+namespace {
+
+// Write a binary blob and return its SHA-256 (32 bytes) and hex form.
+struct ObjectFixture {
+    std::filesystem::path obj_path;
+    std::array<uint8_t, 32> hash_bytes{};
+    std::string hash_hex;
+};
+
+ObjectFixture make_obj_fixture(const std::filesystem::path& dir, const std::string& contents)
+{
+    ObjectFixture f;
+    f.obj_path = dir / "aegis.bpf.o";
+    {
+        std::ofstream out(f.obj_path, std::ios::binary);
+        out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    }
+    auto digest = compute_file_sha256(f.obj_path.string());
+    EXPECT_TRUE(static_cast<bool>(digest));
+    f.hash_bytes = *digest;
+    std::ostringstream oss;
+    for (uint8_t b : f.hash_bytes) {
+        oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(b);
+    }
+    f.hash_hex = oss.str();
+    return f;
+}
+
+void write_sig_file(const std::filesystem::path& obj_path, const std::string& sha256_hex,
+                    const std::string& signer_pubkey_hex, const std::string& signature_hex)
+{
+    std::ofstream out(obj_path.string() + ".sig");
+    out << "format_version:1\n";
+    if (!sha256_hex.empty())
+        out << "sha256:" << sha256_hex << "\n";
+    if (!signer_pubkey_hex.empty())
+        out << "signer_pubkey:" << signer_pubkey_hex << "\n";
+    if (!signature_hex.empty())
+        out << "signature:" << signature_hex << "\n";
+    out << "signer:test-signer\n";
+}
+
+void write_pubkey_file(const std::filesystem::path& keys_dir, const std::string& name,
+                       const PublicKey& pk)
+{
+    std::filesystem::create_directories(keys_dir);
+    std::ofstream out(keys_dir / (name + ".pub"));
+    out << encode_hex(pk) << "\n";
+}
+
+} // namespace
+
+TEST(BpfSignatureTest, ValidEd25519SignaturePassesWithTrustedKey)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "valid-bpf-blob");
+
+    auto kp = generate_keypair();
+    ASSERT_TRUE(kp);
+    const auto& [pk, sk] = *kp;
+
+    auto sig = sign_bytes(fx.hash_bytes.data(), fx.hash_bytes.size(), sk);
+    ASSERT_TRUE(sig);
+
+    write_sig_file(fx.obj_path, fx.hash_hex, encode_hex(pk), encode_hex(*sig));
+
+    const auto keys_dir = temp.path() / "keys";
+    write_pubkey_file(keys_dir, "test", pk);
+
+    ScopedEnvVar env_keys("AEGIS_KEYS_DIR", keys_dir.string());
+    ScopedEnvVar env_require("AEGIS_REQUIRE_BPF_SIG", "1");
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_TRUE(result) << (result ? "" : result.error().to_string());
+}
+
+TEST(BpfSignatureTest, RejectsTamperedSignature)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "tampered-sig-blob");
+
+    auto kp = generate_keypair();
+    ASSERT_TRUE(kp);
+    const auto& [pk, sk] = *kp;
+    auto sig = sign_bytes(fx.hash_bytes.data(), fx.hash_bytes.size(), sk);
+    ASSERT_TRUE(sig);
+
+    // Flip a byte in the signature hex.
+    std::string sig_hex = encode_hex(*sig);
+    sig_hex[0] = (sig_hex[0] == '0') ? '1' : '0';
+
+    write_sig_file(fx.obj_path, fx.hash_hex, encode_hex(pk), sig_hex);
+
+    const auto keys_dir = temp.path() / "keys";
+    write_pubkey_file(keys_dir, "test", pk);
+
+    ScopedEnvVar env_keys("AEGIS_KEYS_DIR", keys_dir.string());
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_FALSE(result);
+}
+
+TEST(BpfSignatureTest, RejectsUntrustedPubkey)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "untrusted-key-blob");
+
+    auto signer_kp = generate_keypair();
+    auto trusted_kp = generate_keypair();
+    ASSERT_TRUE(signer_kp);
+    ASSERT_TRUE(trusted_kp);
+
+    auto sig = sign_bytes(fx.hash_bytes.data(), fx.hash_bytes.size(), signer_kp->second);
+    ASSERT_TRUE(sig);
+
+    write_sig_file(fx.obj_path, fx.hash_hex, encode_hex(signer_kp->first), encode_hex(*sig));
+
+    // Trusted-keys dir contains a different key.
+    const auto keys_dir = temp.path() / "keys";
+    write_pubkey_file(keys_dir, "other", trusted_kp->first);
+
+    ScopedEnvVar env_keys("AEGIS_KEYS_DIR", keys_dir.string());
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_FALSE(result);
+}
+
+TEST(BpfSignatureTest, RejectsLegacyHashOnlySigWhenRequireBpfSig)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "legacy-sig-blob");
+
+    // Legacy .sig: only the sha256 line, no Ed25519 fields.
+    write_sig_file(fx.obj_path, fx.hash_hex, "", "");
+
+    const auto keys_dir = temp.path() / "keys";
+    std::filesystem::create_directories(keys_dir);
+
+    ScopedEnvVar env_keys("AEGIS_KEYS_DIR", keys_dir.string());
+    ScopedEnvVar env_require("AEGIS_REQUIRE_BPF_SIG", "1");
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_FALSE(result);
+}
+
+TEST(BpfSignatureTest, AllowsLegacyHashOnlySigWhenRequireBpfSigOff)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "legacy-sig-blob-2");
+
+    write_sig_file(fx.obj_path, fx.hash_hex, "", "");
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_TRUE(result) << (result ? "" : result.error().to_string());
+}
+
+TEST(BpfSignatureTest, MissingSigFailsWhenRequireBpfSig)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "no-sig-blob");
+
+    ScopedEnvVar env_require("AEGIS_REQUIRE_BPF_SIG", "1");
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_FALSE(result);
+}
+
+TEST(BpfSignatureTest, BreakGlassOverridesInvalidSignature)
+{
+    TempDir temp;
+    auto fx = make_obj_fixture(temp.path(), "break-glass-blob");
+
+    // Invalid Ed25519 signature: 128 hex chars of zero, untrusted-anyway.
+    write_sig_file(fx.obj_path, fx.hash_hex, std::string(64, '0'), std::string(128, '0'));
+
+    ScopedEnvVar env_require("AEGIS_REQUIRE_BPF_SIG", "1");
+    ScopedEnvVar env_break("AEGIS_ALLOW_UNSIGNED_BPF", "1");
+
+    auto result = verify_bpf_signature(fx.obj_path.string());
+    EXPECT_TRUE(result) << "break-glass should override sig failure";
 }
 
 } // namespace

@@ -150,7 +150,7 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | BTFhub fallback (kernels w/o BTF) | ❌ (roadmap) | ✅ | ✅ | ✅ | ✅ |
 | Kubernetes CRD + validating webhook | ✅ v1alpha1 | ◐ | ✅ v1 | ◐ | ✅ |
 | Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
-| Signed BPF objects | ◐ (hash verify today, sig prep) | ❌ | ❌ | ❌ | ❌ |
+| Signed BPF objects | ✅ Ed25519 runtime verify (`AEGIS_REQUIRE_BPF_SIG`) | ❌ | ❌ | ❌ | ❌ |
 | SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
 | SLSA L3 build provenance | ❌ (roadmap) | ✅ | ✅ | ✅ | ◐ |
 | MITRE ATT&CK rule tags | ❌ (roadmap) | ✅ | ◐ | ◐ | ◐ |
