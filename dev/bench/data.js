@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777110441545,
+  "lastUpdate": 1777122982285,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -34200,6 +34200,102 @@ window.BENCHMARK_DATA = {
             "value": 53.98444542590111,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.98061217996071 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "791597591feec770267f6c6c6913be7e843e754a",
+          "message": "Merge pull request #96 from ErenAri/feat/landlock-daemon-sandbox\n\nfeat(daemon): Landlock LSM filesystem self-sandbox (--landlock)",
+          "timestamp": "2026-04-25T16:05:00+03:00",
+          "tree_id": "54b72d64f359aaa36186bc293a69f371ae7326fd",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/791597591feec770267f6c6c6913be7e843e754a"
+        },
+        "date": 1777122981655,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1505.8315389729387,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1505.7162033602483 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3606.50636457524,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3606.2407910573634 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20671.67951164756,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20668.266088464436 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 156801.40971288813,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 156790.2412821087 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1246948.922395837,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1246850.8716517861 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4984752.147983371,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4984347.94187426 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4550.595509720577,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4555.060563458755 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32900.40538819204,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32907.44273672768 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269271.28858982923,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269267.38133014925 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 807960.7227029311,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 808022.9095060447 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.79209691315916,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.77966518438724 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.87374251168791,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.869754126230106 ns\nthreads: 1"
           }
         ]
       }
