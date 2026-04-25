@@ -339,6 +339,30 @@ Public proof lives in the docs and CI artifacts:
 Kernel-matrix artifacts are uploaded by `.github/workflows/kernel-matrix.yml`
 as `kernel-matrix-<runner>` (kernel + distro + test logs).
 
+## Project & community
+
+| Resource | Location |
+|---|---|
+| Maintainers | [`MAINTAINERS.md`](MAINTAINERS.md) |
+| Governance | [`GOVERNANCE.md`](GOVERNANCE.md) |
+| Code of conduct | [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) |
+| Contributing guide | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Security policy | [`SECURITY.md`](SECURITY.md) |
+| Support | [`SUPPORT.md`](SUPPORT.md) · lifecycle in [`docs/SUPPORT_POLICY.md`](docs/SUPPORT_POLICY.md) |
+| Adopters | [`ADOPTERS.md`](ADOPTERS.md) |
+| CNCF Sandbox application draft | [`docs/CNCF_SANDBOX_APPLICATION.md`](docs/CNCF_SANDBOX_APPLICATION.md) |
+| Roadmap | [`docs/POSITIONING.md` §5](docs/POSITIONING.md#5-roadmap-to-v10-ga) |
+| Honest limitations | [`docs/POSITIONING.md` §4](docs/POSITIONING.md#4-honest-limitations) |
+| Questions, ideas, show-and-tell | GitHub [Discussions](https://github.com/ErenAri/Aegis-BPF/discussions) |
+| Defects, regressions | GitHub [Issues](https://github.com/ErenAri/Aegis-BPF/issues) |
+| Vulnerabilities | private intake per [`SECURITY.md`](SECURITY.md) |
+
+AegisBPF is a young project (first commit 2026-01-11) actively
+recruiting contributors and adopters. If you're piloting in any
+capacity — even a single staging cluster — please consider opening a
+PR against [`ADOPTERS.md`](ADOPTERS.md), with the option to be
+listed anonymously.
+
 ## Architecture
 
 ```

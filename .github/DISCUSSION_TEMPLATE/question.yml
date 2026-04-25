@@ -1,0 +1,68 @@
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for asking! Before opening a question:
+
+        - Check the [README](https://github.com/ErenAri/Aegis-BPF/blob/main/README.md) and the [tutorials](https://github.com/ErenAri/Aegis-BPF/tree/main/tutorials).
+        - Search existing discussions and issues — your question may already have an answer.
+        - For **defects** (something broken / regressed), open a GitHub Issue instead.
+        - For **vulnerabilities**, follow the private flow in [`SECURITY.md`](https://github.com/ErenAri/Aegis-BPF/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: Describe your goal in your own words. What did you expect to happen?
+      placeholder: |
+        I'm trying to enforce a deny rule on /usr/bin/curl for cgroup ABC,
+        but the rule doesn't seem to apply.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Commands you ran, configs you applied, docs you've read. Paste exact output where useful (sanitize secrets first).
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: aegis-version
+    attributes:
+      label: AegisBPF version
+      placeholder: e.g. v0.5.1, or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel + distro
+      placeholder: e.g. 6.8.0-1045-gcp on Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - audit
+        - enforce
+        - both / not sure
+        - n/a (not running yet)
+    validations:
+      required: true
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else?
+      description: Logs, metrics, screenshots, related links — anything that helps reproduce or understand the question.
+    validations:
+      required: false
