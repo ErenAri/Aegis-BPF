@@ -1,0 +1,88 @@
+name: Community Rules
+
+on:
+  pull_request:
+    paths:
+      - 'community-rules/**'
+      - 'scripts/validate_mitre_tags.sh'
+      - 'docs/rules/MITRE_ATTACK_TAG_SCHEMA.md'
+      - '.github/workflows/community-rules.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'community-rules/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tags:
+    name: Validate MITRE tag headers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run MITRE tag validator scoped to community-rules/
+        run: POLICY_DIR=community-rules ./scripts/validate_mitre_tags.sh
+
+  no-id-collision:
+    name: No id collision with shipped policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract ids from shipped + community
+        id: extract
+        run: |
+          shipped="$(grep -h '^#@id:' examples/policies/*.conf 2>/dev/null \
+            | sed 's/^#@id:[[:space:]]*//' | tr -d ' ' | sort -u)"
+          community="$(grep -h '^#@id:' community-rules/*.conf 2>/dev/null \
+            | sed 's/^#@id:[[:space:]]*//' | tr -d ' ' | sort -u)"
+          collisions="$(comm -12 <(echo "${shipped}") <(echo "${community}"))"
+          if [[ -n "${collisions}" ]]; then
+            echo "::error::Community rule id(s) collide with shipped examples/policies/:"
+            echo "${collisions}" | sed 's/^/  - /'
+            exit 1
+          fi
+          echo "no id collisions between shipped and community rules"
+
+  syntax-smoke:
+    name: INI syntax smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify each .conf parses as INI
+        run: |
+          fails=0
+          for f in community-rules/*.conf; do
+            [[ -f "${f}" ]] || continue
+            # The aegisbpf policy parser is INI-style; this is a
+            # python-based smoke test that catches obvious typos
+            # (unbalanced sections, stray whitespace headers).
+            python3 -c "
+          import configparser, sys
+          p = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+          try:
+              with open('${f}', 'r', encoding='utf-8') as fh:
+                  data = fh.read()
+              # Strip our custom #@... tag block (configparser doesn't know it)
+              p.read_string(data)
+              # Require at least one section
+              if not p.sections():
+                  print('::error file=${f}::no INI sections found', file=sys.stderr)
+                  sys.exit(1)
+          except configparser.Error as e:
+              print('::error file=${f}::parse error: ' + str(e), file=sys.stderr)
+              sys.exit(1)
+          " || fails=$((fails+1))
+          done
+          if [[ ${fails} -gt 0 ]]; then
+            echo "${fails} community rule(s) failed INI smoke test" >&2
+            exit 1
+          fi
+          echo "all community rules parsed cleanly"
