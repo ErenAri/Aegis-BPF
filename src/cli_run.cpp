@@ -66,6 +66,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
 {
     bool audit_only = false;
     bool enable_seccomp = false;
+    bool enable_landlock = false;
     bool allow_sigkill = false;
     bool allow_unsigned_bpf = false;
     bool allow_unknown_binary_identity = false;
@@ -102,6 +103,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             audit_only = false;
         } else if (arg == "--seccomp") {
             enable_seccomp = true;
+        } else if (arg == "--landlock") {
+            enable_landlock = true;
         } else if (arg == "--allow-sigkill") {
             allow_sigkill = true;
         } else if (arg == "--allow-unsigned-bpf") {
@@ -270,10 +273,10 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         set_max_network_entries(max_network_entries);
     }
 
-    return daemon_run(audit_only, enable_seccomp, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook, ringbuf_bytes,
-                      event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
-                      deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity,
-                      strict_degrade, enforce_gate_mode);
+    return daemon_run(audit_only, enable_seccomp, enable_landlock, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook,
+                      ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
+                      sigkill_escalation_window_seconds, deny_rate_threshold, deny_rate_breach_limit,
+                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode);
 }
 
 } // namespace aegis

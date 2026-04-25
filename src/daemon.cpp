@@ -29,6 +29,7 @@
 #include "events.hpp"
 #include "k8s_identity.hpp"
 #include "kernel_features.hpp"
+#include "landlock.hpp"
 #include "logging.hpp"
 #include "map_monitor.hpp"
 #include "proc_scan.hpp"
@@ -413,11 +414,12 @@ void reset_attach_all_for_test()
     g_deps.attach_all = make_default_deps().attach_all;
 }
 
-int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill,
-               LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
-               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
-               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode)
+int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl,
+               uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes,
+               uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
+               uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
+               uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
+               bool strict_degrade, EnforceGateMode enforce_gate_mode)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -807,6 +809,28 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
         }
     }
 
+    // Apply Landlock LSM filesystem sandbox before seccomp. This narrows
+    // the set of paths the daemon can open at all; seccomp narrows the
+    // set of syscalls. Doing Landlock first means a kernel that supports
+    // it gets the FS confinement even if seccomp later widens or fails.
+    if (enable_landlock) {
+        ScopedSpan ll_span("daemon.apply_landlock", trace_id, root_span.span_id());
+        const int abi = landlock_abi_version();
+        if (abi < 1) {
+            logger().log(SLOG_WARN("Landlock requested but unavailable on this kernel; continuing without it")
+                             .field("abi_version", static_cast<int64_t>(abi)));
+        } else {
+            auto cfg = default_landlock_config();
+            auto landlock_result = apply_landlock_sandbox(cfg);
+            if (!landlock_result) {
+                ll_span.fail(landlock_result.error().to_string());
+                logger().log(SLOG_ERROR("Failed to apply Landlock sandbox")
+                                 .field("error", landlock_result.error().to_string()));
+                return fail(landlock_result.error().to_string());
+            }
+        }
+    }
+
     // Apply seccomp filter after all initialization is complete
     if (enable_seccomp) {
         ScopedSpan seccomp_span("daemon.apply_seccomp", trace_id, root_span.span_id());
@@ -834,6 +858,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, uint32_t deadman_ttl, uint8
             .field("sigkill_escalation_window_seconds", static_cast<int64_t>(config.sigkill_escalation_window_seconds))
             .field("ringbuf_bytes", static_cast<int64_t>(ringbuf_bytes))
             .field("seccomp", enable_seccomp)
+            .field("landlock", enable_landlock)
+            .field("landlock_abi", static_cast<int64_t>(landlock_abi_version()))
             .field("break_glass", break_glass_active)
             .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
             .field("exec_identity_kernel", kernel_exec_identity_enabled)
