@@ -401,7 +401,7 @@ as `kernel-matrix-<runner>` (kernel + distro + test logs).
 | Supply chain | OpenSSF Best Practices Badge | ◐ self-assessed Passing (`docs/compliance/OPENSSF_BEST_PRACTICES.md`); formal submission pending |
 | Supply chain | OpenSSF Scorecard | ✅ `.github/workflows/scorecard.yml` publishes weekly |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
-| Daemon hardening | Landlock self-sandbox | Roadmap |
+| Daemon hardening | Landlock self-sandbox | ✅ opt-in via `--landlock` (`docs/HARDENING.md`) |
 | Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
 | Compliance | NIST SP 800‑53 Rev 5 control mapping | ✅ `docs/compliance/NIST_800_53_MAPPING.md` |
 | Compliance | NIST SP 800‑190 (container security) | Roadmap |

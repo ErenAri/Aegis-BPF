@@ -254,6 +254,7 @@ set(AEGIS_SOURCES
     src/policy_parse.cpp
     src/policy_runtime.cpp
     src/seccomp.cpp
+    src/landlock.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -310,6 +311,7 @@ set(AEGIS_HEADERS
     src/policy_runtime.hpp
     src/result.hpp
     src/seccomp.hpp
+    src/landlock.hpp
     src/sha256.hpp
     src/tracing.hpp
     src/tweetnacl.h
@@ -400,6 +402,7 @@ set(AEGIS_LIB_SOURCES
     src/policy_parse.cpp
     src/policy_runtime.cpp
     src/seccomp.cpp
+    src/landlock.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -475,6 +478,7 @@ if(BUILD_TESTING)
         tests/test_bpf_integrity.cpp
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
+        tests/test_landlock_sandbox.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

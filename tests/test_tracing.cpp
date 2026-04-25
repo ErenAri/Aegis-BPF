@@ -389,7 +389,7 @@ TEST(TracingTest, DaemonRunGuardsSigkillBehindBuildAndRuntimeFlags)
     logger().set_output(&output);
     logger().set_json_format(true);
     {
-        int rc = daemon_run(false, false, 0, kEnforceSignalKill, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalKill, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -413,7 +413,7 @@ TEST(TracingTest, DaemonRunForcesAuditOnlyWhenBreakGlassActive)
     {
         BreakGlassHookGuard break_glass(test_break_glass_true);
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -432,7 +432,7 @@ TEST(TracingTest, DaemonRunMarksRootSpanErrorWhenConfigValidationFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_fail, test_detect_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -455,7 +455,7 @@ TEST(TracingTest, DaemonRunMarksRootSpanErrorWhenFeatureDetectionFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -479,7 +479,7 @@ TEST(TracingTest, DaemonRunMarksLoadSpanErrorWhenLoadBpfFails)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -502,7 +502,7 @@ TEST(TracingTest, DaemonRunSurfacesVerifierRejectError)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_verifier_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -525,7 +525,7 @@ TEST(TracingTest, DaemonRunStrictDegradeFailsWhenEnforceFallsBack)
     logger().set_json_format(true);
     {
         DaemonHookGuard hooks(test_config_ok, test_detect_audit_only);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault, 0, 3, false,
                             false, true);
         EXPECT_EQ(rc, 1);
@@ -548,7 +548,7 @@ TEST(TracingTest, DaemonRunMarksAttachSpanErrorWhenAttachAllFails)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_fail);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -572,7 +572,7 @@ TEST(TracingTest, DaemonRunRejectsSilentPartialAttachContract)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_partial_contract);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::Both, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::Both, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -608,7 +608,7 @@ TEST(TracingTest, DaemonRunFailsClosedWhenNetworkPolicyHooksMissing)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_full_contract_no_network_hooks);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -643,7 +643,7 @@ TEST(TracingTest, DaemonRunFailsClosedWhenImaAppraisalRequiredButUnavailable)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_full_contract_with_network_hooks);
-        int rc = daemon_run(false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
@@ -669,7 +669,7 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
         DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
                               test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
                               test_setup_agent_cgroup_ok, test_attach_all_full_contract_no_network_hooks);
-        int rc = daemon_run(true, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+        int rc = daemon_run(true, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
                             kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault);
         EXPECT_EQ(rc, 1);
     }
