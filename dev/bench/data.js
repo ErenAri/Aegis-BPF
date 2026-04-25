@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777140592698,
+  "lastUpdate": 1777157164249,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -34494,6 +34494,102 @@ window.BENCHMARK_DATA = {
             "value": 54.86847295889083,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.864645396408605 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f925cd5a0114a662c2eb0ac110a781baa7013ca4",
+          "message": "Merge pull request #99 from ErenAri/docs/discoverability-community\n\ndocs: README Project & community section + GitHub Discussions templates",
+          "timestamp": "2026-04-26T01:34:37+03:00",
+          "tree_id": "bbb0113e363d75c9fe3468cde3fffc64e37c45ac",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/f925cd5a0114a662c2eb0ac110a781baa7013ca4"
+        },
+        "date": 1777157162821,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1510.1832979489657,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1510.013882389473 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3616.0817739802574,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3615.7244165008415 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20786.812639074324,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20784.72555011619 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157722.4657088342,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157690.61391102607 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1254024.1130739439,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1253890.229203934 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5033192.185483889,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5032593.578853054 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4573.223830006936,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4580.844511635884 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33125.408887892234,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33128.348770605444 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 271574.06157031044,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 271566.78122158436 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 812202.8677893566,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 812316.2085752239 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.31525833517618,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.3077143116786 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.61093914244531,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.60543348589794 ns\nthreads: 1"
           }
         ]
       }
