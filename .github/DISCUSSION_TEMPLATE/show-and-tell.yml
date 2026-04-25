@@ -1,0 +1,47 @@
+title: "[Show and tell] "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what you built / deployed / measured / wrote with AegisBPF.
+
+        This category is for sharing real usage — production deployments,
+        custom policies, blog posts, talks, integrations, comparison
+        results. **Anonymized stories are welcome.**
+
+        If you're using AegisBPF in any environment beyond local
+        development, please also consider adding yourself to
+        [`ADOPTERS.md`](https://github.com/ErenAri/Aegis-BPF/blob/main/ADOPTERS.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you do?
+      description: One paragraph. What was the goal, what did you build, and what was the outcome?
+    validations:
+      required: true
+
+  - type: textarea
+    id: deployment
+    attributes:
+      label: Deployment context (optional)
+      description: Cluster size, kernel, distro, audit vs. enforce, policy count — whatever you're comfortable sharing.
+    validations:
+      required: false
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Links / artifacts (optional)
+      description: Blog post, PR, dashboard screenshot, talk recording, public policy bundle — anything readers can follow.
+    validations:
+      required: false
+
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback for the maintainers (optional)
+      description: What worked? What was painful? What would have helped?
+    validations:
+      required: false

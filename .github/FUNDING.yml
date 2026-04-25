@@ -1,0 +1,25 @@
+# GitHub Sponsors / funding configuration for AegisBPF.
+#
+# This file is provided as a scaffold. To activate any of the channels
+# below, uncomment the relevant line and ensure the underlying account
+# has been set up (GitHub Sponsors must be enabled on the user/org;
+# Open Collective requires a registered collective; Liberapay /
+# tidelift / etc. require their own accounts).
+#
+# Documentation:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Once activated, GitHub renders a "Sponsor" button at the top of the
+# repository page that points at the configured channel(s).
+
+# github: ErenAri              # GitHub Sponsors handle (user or org)
+# open_collective: aegisbpf    # Open Collective slug
+# ko_fi: aegisbpf              # Ko-fi slug
+# tidelift: pkg/aegisbpf       # Tidelift package
+# community_bridge: aegisbpf   # CommunityBridge project
+# liberapay: aegisbpf          # Liberapay handle
+# issuehunt: aegisbpf          # IssueHunt slug
+# otechie: aegisbpf            # Otechie handle
+# patreon: aegisbpf            # Patreon handle
+# custom:                      # Up to 4 custom URLs
+#   - https://example.com/sponsor

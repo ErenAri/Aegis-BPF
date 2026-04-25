@@ -1,0 +1,58 @@
+title: "[Idea] "
+labels: ["enhancement", "idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an idea! Before posting:
+
+        - For **breaking changes** (policy format, BPF map layout, CLI compatibility), see `GOVERNANCE.md` — these need an RFC and 2 maintainer approvals.
+        - Check `docs/POSITIONING.md` §4 (honest limitations) and §5 (roadmap) — your idea may already be tracked.
+        - Ideas with concrete user stories and trade-off discussion get more traction than feature lists.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Who hits this today, how often, and what's the workaround?
+      placeholder: |
+        When I deploy AegisBPF on a node with N namespaces, I want to
+        scope deny rules per-namespace without writing a new policy
+        per workload. Today I do X as a workaround.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach (optional)
+      description: How would you build it? Code/config sketches welcome. If you don't have one, "I don't know" is a valid answer.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about? Why this over those? "Do nothing" is a valid alternative.
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope hints
+      description: BPF / daemon / operator / CRD / docs / CI / packaging — which areas are touched?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: willing-to-contribute
+    attributes:
+      label: Are you willing to contribute this?
+      options:
+        - "Yes, with maintainer guidance"
+        - "Maybe — depends on scope"
+        - "No, I'm just suggesting"
+    validations:
+      required: true
