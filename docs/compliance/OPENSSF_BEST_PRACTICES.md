@@ -106,7 +106,7 @@ additions:
 | Area | Silver requirement | Status |
 |------|--------------------|:------:|
 | Change control | Signed commits / tags | ✅ cosign keyless on release artifacts; git tag signing on roadmap |
-| Release | Reproducible build | ◐ CMake + pinned container; not yet bit-reproducible |
+| Release | Reproducible build | ✅ Bit-reproducible daemon binary under standard debug-info / build-id normalization; enforced by `.github/workflows/reproducibility.yml` on every PR + push to `main`. Methodology and section-by-section scope documented in `docs/REPRODUCIBLE_BUILDS.md`. |
 | Supply chain | SBOM published with each release | ✅ SPDX 2.3 + CycloneDX 1.6 in release assets |
 | Supply chain | Build provenance attestation | ✅ SLSA v1.0 Build L3 via `actions/attest-build-provenance` (see `docs/compliance/SLSA_PROVENANCE.md`) |
 | Cryptography | Crypto keys have documented key management | ✅ `docs/KEY_MANAGEMENT.md` |
@@ -118,12 +118,14 @@ additions:
 
 ### Gaps for Silver
 
-- Reproducible builds (bit-for-bit) not yet demonstrated.
 - Code coverage < 80% target (currently ~70%).
 - Signed git commits / tags not required for maintainers (only release
   artifacts are signed).
 - Second independent maintainer (strong indicator for reviewer
   confidence; CNCF Incubation actually *requires* this).
+- Operator (Go) reproducibility harness pending; daemon binary
+  reproducibility is enforced (`docs/REPRODUCIBLE_BUILDS.md`) but the
+  Go operator is not yet covered.
 
 ## Gold Tier — Posture
 
