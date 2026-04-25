@@ -78,7 +78,7 @@ Add these badges to your project README to showcase trustworthiness.
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?logo=files)
 ![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
 ![Dependencies: Verified](https://img.shields.io/badge/dependencies-verified-brightgreen)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 ```
 
 **Rendered:**
@@ -86,7 +86,7 @@ Add these badges to your project README to showcase trustworthiness.
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?logo=files)
 ![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
 ![Dependencies: Verified](https://img.shields.io/badge/dependencies-verified-brightgreen)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 ---
 
@@ -118,7 +118,7 @@ Add this to your README.md:
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue?style=flat-square)
 ![Memory Safety: Guaranteed](https://img.shields.io/badge/memory%20safety-guaranteed-brightgreen?style=flat-square)
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?style=flat-square)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)
 ```
 
 **Rendered (flat-square style):**
@@ -130,7 +130,7 @@ Add this to your README.md:
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue?style=flat-square)
 ![Memory Safety: Guaranteed](https://img.shields.io/badge/memory%20safety-guaranteed-brightgreen?style=flat-square)
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?style=flat-square)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)
 
 ---
 

@@ -1098,4 +1098,11 @@ The project follows an audit-first rollout strategy before enforcement mode.
 
 ## License
 
-MIT License See [LICENSE](LICENSE) for details.
+AegisBPF is licensed under the [Apache License, Version 2.0](LICENSE)
+(SPDX: `Apache-2.0`). See [`NOTICE`](NOTICE) for required attribution
+notices and third-party component licenses.
+
+The kernel-side BPF programs themselves carry the dual `BSD/GPL`
+license string at load time as required by the BPF subsystem
+(`char LICENSE[] SEC("license") = "Dual BSD/GPL";`). Apache-2.0
+governs the userspace daemon, operator, and supporting code.

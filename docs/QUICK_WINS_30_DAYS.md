@@ -21,7 +21,7 @@ Add after the title:
 ![Trust Score: 93/100](https://img.shields.io/badge/trust%20score-93%2F100-brightgreen?style=for-the-badge)
 ![Tests: 178/178](https://img.shields.io/badge/tests-178%2F178-brightgreen?style=for-the-badge)
 ![Build](https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/workflows/ci.yml/badge.svg)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)
 
 ![Security: Hardened](https://img.shields.io/badge/security-hardened-green?logo=security)
 ![Memory Safety: Guaranteed](https://img.shields.io/badge/memory%20safety-guaranteed-brightgreen)
@@ -82,7 +82,7 @@ title: "AegisBPF"
 description: "Production-grade eBPF security enforcement with LSM hooks, inode-first blocking, and network policy"
 website: "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype"
 github: "https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype"
-license: "MIT"
+license: "Apache-2.0"
 tags:
   - security
   - lsm

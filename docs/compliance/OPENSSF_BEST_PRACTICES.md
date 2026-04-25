@@ -30,8 +30,8 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 | basics_1 | Project website exists and describes what it does | ✅ | `README.md` top section, <https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype> |
 | basics_2 | Interact with potential users and contributors | ✅ | GitHub Issues + Discussions enabled; `CONTRIBUTING.md` |
 | basics_3 | Non-trivial contribution from multiple people possible | ◐ | Single primary maintainer; `MAINTAINERS.md` explicitly solicits co-maintainers. Contribution process is documented; the criterion is about *possibility*, not head-count. |
-| basics_4 | OSS license | ✅ | MIT, in `LICENSE` and SPDX headers |
-| basics_5 | License FLOSS-approved | ✅ | MIT is OSI-approved |
+| basics_4 | OSS license | ✅ | Apache License 2.0, in `LICENSE` (relicensed from MIT 2026-04-25 to align with CNCF preference for core code and to obtain the §3 explicit patent grant). `NOTICE` carries third-party attribution. |
+| basics_5 | License FLOSS-approved | ✅ | Apache-2.0 is OSI-approved and FSF-approved (GPLv3-compatible) |
 | basics_6 | License in standard location | ✅ | `LICENSE` at repo root |
 | basics_7 | Documentation: basics | ✅ | `README.md`, `docs/ARCHITECTURE.md`, `docs/QUICKSTART.md` equivalent |
 | basics_8 | Documentation: interfaces | ✅ | `docs/API_REFERENCE.md` |

@@ -2,6 +2,31 @@
 
 Thanks for contributing. Keep changes small, tested, and reviewable.
 
+## Licensing of contributions
+
+AegisBPF is licensed under the [Apache License, Version 2.0](LICENSE).
+
+By submitting a pull request, you agree that your contribution is
+licensed under Apache-2.0 — explicitly per Section 5 of the license:
+
+> Unless You explicitly state otherwise, any Contribution intentionally
+> submitted for inclusion in the Work by You to the Licensor shall be
+> under the terms and conditions of this License, without any
+> additional terms or conditions.
+
+This is the standard Apache-2.0 inbound-equals-outbound model and
+matches Falco, Tetragon, KubeArmor, bpfman, and other CNCF projects
+in this category. There is no separate Contributor License Agreement
+(CLA) to sign and no Developer Certificate of Origin (DCO) sign-off
+requirement at this time.
+
+If a contribution carries a different license (for example, code
+imported from another open-source project), call it out in the PR
+description and ensure the imported license is compatible with
+Apache-2.0. The maintainer will determine whether the import requires
+a `NOTICE` entry or a vendor-directory placement (e.g., `vendor/`
+with a preserved license header).
+
 ## Development setup
 
 ```bash
