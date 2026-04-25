@@ -1,0 +1,44 @@
+AegisBPF
+Copyright 2026 Eren Arı and AegisBPF contributors
+
+This product includes software developed by AegisBPF contributors
+(https://github.com/ErenAri/Aegis-BPF).
+
+Licensed under the Apache License, Version 2.0 (the "License").
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+----------------------------------------------------------------------
+Third-party components
+----------------------------------------------------------------------
+
+This product bundles or links against the following third-party
+components. Each component remains under its own license; see the
+SBOMs (sbom/, release artifacts) for the complete list.
+
+* TweetNaCl (vendored under src/tweetnacl.{c,h})
+  Public domain. See https://tweetnacl.cr.yp.to/.
+  Modifications applied: see src/tweetnacl_safe.hpp and
+  docs/SECURITY_FIX_TWEETNACL_MEMORY.md.
+
+* libbpf (linked at runtime)
+  Dual-licensed LGPL-2.1-only OR BSD-2-Clause.
+  See https://github.com/libbpf/libbpf.
+
+* Linux kernel BPF code (bpf/aegis*.bpf.h, bpf/aegis*.c)
+  The BPF programs themselves carry the dual "BSD/GPL" license string
+  at load time as required by the BPF subsystem
+  (`char LICENSE[] SEC("license") = "Dual BSD/GPL";`). The Apache-2.0
+  license above governs the userspace daemon, operator, and supporting
+  scripts.
+
+* htmx (operator console, fetched via CDN at runtime)
+  BSD 2-Clause. See https://htmx.org/.
+
+* Tailwind CSS (operator console, fetched via CDN at runtime)
+  MIT. See https://tailwindcss.com/.
+
+* Go module dependencies (operator/)
+  Various permissive licenses (Apache-2.0, BSD-2/3-Clause, MIT) as
+  enumerated in operator/go.sum and the project SBOM.
