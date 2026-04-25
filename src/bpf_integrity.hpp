@@ -21,6 +21,7 @@ struct BpfIntegrityStatus {
 std::string resolve_bpf_obj_path();
 bool allow_unsigned_bpf_enabled();
 bool require_bpf_hash_enabled();
+bool require_bpf_sig_enabled();
 Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned);
 Result<void> verify_bpf_integrity(const std::string& obj_path);
 

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <string>
 
+#include "bpf_signing.hpp"
 #include "logging.hpp"
 #include "sha256.hpp"
 #include "utils.hpp"
@@ -110,6 +111,11 @@ bool allow_unsigned_bpf_enabled()
 bool require_bpf_hash_enabled()
 {
     return env_flag_enabled("AEGIS_REQUIRE_BPF_HASH");
+}
+
+bool require_bpf_sig_enabled()
+{
+    return env_flag_enabled("AEGIS_REQUIRE_BPF_SIG");
 }
 
 Result<BpfIntegrityStatus> evaluate_bpf_integrity(bool require_hash, bool allow_unsigned)
@@ -215,6 +221,21 @@ Result<void> verify_bpf_integrity(const std::string& obj_path)
 
     logger().log(
         SLOG_INFO("BPF object integrity verified").field("path", obj_path).field("hash_path", status.hash_path));
+
+    // Hash verified. Now run the optional Ed25519 signature check. The
+    // helper is no-op if no .sig file exists and AEGIS_REQUIRE_BPF_SIG is
+    // not set, which preserves backward compatibility for hash-only
+    // deployments.
+    auto sig_result = verify_bpf_signature(obj_path);
+    if (!sig_result) {
+        if (allow_unsigned) {
+            logger().log(SLOG_WARN("BPF signature verification failed, allowed by break-glass")
+                             .field("path", obj_path)
+                             .field("error", sig_result.error().to_string()));
+            return {};
+        }
+        return sig_result.error();
+    }
     return {};
 }
 
