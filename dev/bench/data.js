@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777193919212,
+  "lastUpdate": 1777194571476,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -34890,6 +34890,108 @@ window.BENCHMARK_DATA = {
             "value": 53.60971265280805,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.60412578391702 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6e790b174ea660b64ee68fc71f26a9fe013063c",
+          "message": "Merge pull request #109 from ErenAri/feat/landlock-daemon-sandbox\n\n[codex] Fix clang-format CI failure",
+          "timestamp": "2026-04-26T11:58:05+03:00",
+          "tree_id": "5a17b073ed619a9aa45118a559bbbcfb0e6a0664",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/a6e790b174ea660b64ee68fc71f26a9fe013063c"
+        },
+        "date": 1777194570444,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1511.2344909095157,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1511.0637877584961 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3642.76778712214,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3642.3571612379656 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20986.76780156945,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20984.477264717967 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159479.00036831378,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159441.34194620728 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1263848.8823264276,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1263696.3517433133 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5042801.029976017,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5042216.704136708 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4718.751986678036,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4753.121530437863 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34473.55482033095,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34476.4412630426 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 283545.9921289462,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 283623.8890340468 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 882325.2448967426,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 882598.7619423582 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.78370586101105,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.778117514534365 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.48332674617338,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.468177626437 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.159212983621615,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.15292981368547 ns\nthreads: 1"
           }
         ]
       }
