@@ -266,6 +266,7 @@ set(AEGIS_SOURCES
     src/rule_engine.cpp
     src/plugin.cpp
     src/k8s_identity.cpp
+    src/ocsf_formatter.cpp
 )
 
 set(AEGIS_HEADERS
@@ -313,6 +314,7 @@ set(AEGIS_HEADERS
     src/seccomp.hpp
     src/landlock.hpp
     src/sha256.hpp
+    src/ocsf_formatter.hpp
     src/tracing.hpp
     src/tweetnacl.h
     src/types.hpp
@@ -414,6 +416,7 @@ set(AEGIS_LIB_SOURCES
     src/rule_engine.cpp
     src/plugin.cpp
     src/k8s_identity.cpp
+    src/ocsf_formatter.cpp
 )
 
 add_library(aegisbpf_lib STATIC ${AEGIS_LIB_SOURCES} ${AEGIS_HEADERS})
@@ -479,6 +482,7 @@ if(BUILD_TESTING)
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp
+        tests/test_ocsf_formatter.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

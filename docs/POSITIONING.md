@@ -103,7 +103,7 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 | **PCI‑DSS 4.0** | ✅ mapping shipped (Req 10/11) | Pre-built evidence pack |
 | **ISO/IEC 27001:2022** | ✅ mapping shipped | — |
 | **SOC 2 Type II** | ✅ evidence kit | — |
-| **OCSF 1.1** | Roadmap | `--output-format=ocsf` |
+| **OCSF 1.1.0** | ◐ shipped for File + Network Activity | `--event-format=ocsf` on `aegisbpfd run` emits OCSF JSON for `BlockEvent` (File Activity 1001) and `NetBlockEvent` (Network Activity 4001). Process Activity (1007) for `ExecEvent` and forensic Process Activity for `ForensicEvent` remain on roadmap. See `docs/SIEM_INTEGRATION.md` §OCSF and `src/ocsf_formatter.cpp`. |
 | **ECS (Elastic Common Schema)** | ✅ formatter | Promote to first-class |
 | **CEF** | Roadmap | Splunk-friendly alt format |
 | **STIX 2.1 / TAXII** | Roadmap | Ingest threat-intel → auto-deny rules |

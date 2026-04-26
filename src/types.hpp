@@ -143,6 +143,17 @@ enum HookId : uint32_t {
 
 enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
 
+/// Event payload format for stdout / journald sinks.
+///
+/// `Aegis` is the original AegisBPF-native JSON shape that ships in
+/// every release; consumers parse it via documented field names
+/// (`type`, `pid`, `path`, `action`, ...). `Ocsf` emits OCSF 1.1.0
+/// JSON (Open Cybersecurity Schema Framework) so SIEMs that ingest
+/// OCSF natively (Splunk, Elastic, Snowflake, AWS Security Lake)
+/// can parse without a custom mapping. See `src/ocsf_formatter.cpp`
+/// for the per-event-type class assignment.
+enum class EventFormat { Aegis, Ocsf };
+
 inline constexpr size_t kMaxArgvSize = 256;
 inline constexpr size_t kAncestorMaxDepth = 8;
 

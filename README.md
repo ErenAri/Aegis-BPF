@@ -157,7 +157,7 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
 | Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
-| OCSF / ECS / CEF event schema | ❌ (roadmap; custom JSON + ECS today) | ✅ | ◐ | ✅ | ◐ |
+| OCSF / ECS / CEF event schema | ◐ OCSF 1.1.0 (`--event-format=ocsf`) for File + Network Activity classes; ECS formatter; CEF roadmap | ✅ | ◐ | ✅ | ◐ |
 | SIEM integrations (Splunk / Elastic / OTLP) | ✅ | ✅ Falcosidekick | ◐ JSON | ◐ JSON | ◐ JSON |
 | Multi-cluster control plane | ❌ (roadmap) | ◐ | ◐ (Isovalent Ent) | ❌ | ◐ (AccuKnox) |
 | Community rule library | ❌ (roadmap) | ✅ large | ◐ | ◐ | ◐ |

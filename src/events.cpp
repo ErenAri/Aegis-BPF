@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <grp.h>
 #include <pwd.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cstring>
@@ -11,6 +12,7 @@
 
 #include "k8s_identity.hpp"
 #include "logging.hpp"
+#include "ocsf_formatter.hpp"
 #include "utils.hpp"
 
 #ifdef HAVE_SYSTEMD
@@ -47,10 +49,43 @@ std::string resolve_groupname(uint32_t gid)
 } // namespace
 
 EventLogSink g_event_sink = EventLogSink::Stdout;
+EventFormat g_event_format = EventFormat::Aegis;
+
+namespace {
+std::string& cached_hostname()
+{
+    static std::string h = []() {
+        char buf[256] = {};
+        if (::gethostname(buf, sizeof(buf) - 1) == 0) {
+            return std::string(buf);
+        }
+        return std::string{};
+    }();
+    return h;
+}
+}  // namespace
 
 bool sink_wants_stdout(EventLogSink sink)
 {
     return sink == EventLogSink::Stdout || sink == EventLogSink::StdoutAndJournald;
+}
+
+bool set_event_format(const std::string& value)
+{
+    if (value == "aegis" || value == "default" || value == "json") {
+        g_event_format = EventFormat::Aegis;
+        return true;
+    }
+    if (is_ocsf_format_keyword(value)) {
+        g_event_format = EventFormat::Ocsf;
+        return true;
+    }
+    return false;
+}
+
+EventFormat current_event_format()
+{
+    return g_event_format;
 }
 
 bool sink_wants_journald(EventLogSink sink)
@@ -251,7 +286,6 @@ void print_exec_event(const ExecEvent& ev)
 
 void print_block_event(const BlockEvent& ev)
 {
-    std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string path = to_string(ev.path, sizeof(ev.path));
     std::string resolved_path = resolve_relative_path(ev.pid, ev.start_time, path);
@@ -260,6 +294,23 @@ void print_block_event(const BlockEvent& ev)
     std::string exec_id = build_exec_id(ev.pid, ev.start_time);
     std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
 
+    if (g_event_format == EventFormat::Ocsf) {
+        std::string payload = format_block_event_ocsf(ev, cgpath, path, resolved_path, action, comm, exec_id,
+                                                       parent_exec_id, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            // OCSF payload still goes to journald with the same metadata
+            // fields; consumers that want OCSF read MESSAGE= directly.
+            journal_send_block(ev, payload, cgpath, path, resolved_path, action, comm, exec_id, parent_exec_id);
+        }
+#endif
+        return;
+    }
+
+    std::ostringstream oss;
     oss << "{\"type\":\"block\",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
         oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
@@ -327,7 +378,6 @@ static std::string protocol_to_string(uint8_t protocol)
 
 void print_net_block_event(const NetBlockEvent& ev)
 {
-    std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string action = to_string(ev.action, sizeof(ev.action));
     std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
@@ -357,6 +407,28 @@ void print_net_block_event(const NetBlockEvent& ev)
         direction = "recv";
     }
 
+    std::string remote_ip;
+    if (ev.family == kFamilyIPv4) {
+        remote_ip = format_ipv4_addr(ev.remote_ipv4);
+    } else if (ev.family == kFamilyIPv6) {
+        remote_ip = format_ipv6_addr(ev.remote_ipv6);
+    }
+
+    if (g_event_format == EventFormat::Ocsf) {
+        std::string payload = format_net_block_event_ocsf(ev, cgpath, comm, exec_id, parent_exec_id, event_type,
+                                                           remote_ip, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            journal_send_net_block(ev, payload, cgpath, comm, exec_id, parent_exec_id, event_type, remote_ip);
+        }
+#endif
+        return;
+    }
+
+    std::ostringstream oss;
     oss << "{\"type\":\"" << event_type << "\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
         << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
@@ -401,12 +473,6 @@ void print_net_block_event(const NetBlockEvent& ev)
     }
 #ifdef HAVE_SYSTEMD
     if (sink_wants_journald(g_event_sink)) {
-        std::string remote_ip;
-        if (ev.family == kFamilyIPv4) {
-            remote_ip = format_ipv4_addr(ev.remote_ipv4);
-        } else if (ev.family == kFamilyIPv6) {
-            remote_ip = format_ipv6_addr(ev.remote_ipv6);
-        }
         journal_send_net_block(ev, payload, cgpath, comm, exec_id, parent_exec_id, event_type, remote_ip);
     }
 #endif
