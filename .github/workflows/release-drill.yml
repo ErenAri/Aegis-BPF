@@ -1,9 +1,18 @@
 name: Release Drill
 
+# Schedule disabled 2026-04-26 (audit pass, see docs/CI_WORKFLOW_AUDIT.md
+# P1 action #2). Last run (2026-02-06) failed at the apt-get install
+# step with "sudo: a password is required" -- the self-hosted
+# `bpf-lsm` runner needs passwordless sudo configured for apt-get,
+# which is not the case today. Until the runner is reprovisioned (or
+# the install step is rewritten to not require sudo), the monthly
+# scheduled run is silently failing. Re-enable the cron once the
+# runner side is fixed; workflow remains usable via workflow_dispatch.
+
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 1 * *"
+  # schedule:
+  #   - cron: "0 6 1 * *"
 
 jobs:
   release-drill:

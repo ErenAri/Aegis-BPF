@@ -1,9 +1,18 @@
 name: Kernel Matrix (dispatch)
 
+# Schedule disabled 2026-04-26 (audit pass, see docs/CI_WORKFLOW_AUDIT.md
+# P1 action #2). The matrix invokes `kernel-matrix.yml` which runs on
+# self-hosted runners (`kernel-6.6`, `kernel-6.8`, etc.) that have
+# been unavailable since ~2026-02-22. The last completed dispatch
+# returned `cancelled` because no runner picked up the job. Until
+# the self-hosted runner gap is resolved (audit P0 #1), the weekly
+# cron just adds noise. Re-enable when runners come back; workflow
+# remains usable via workflow_dispatch for one-off matrix runs.
+
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 5 * * 0"
+  # schedule:
+  #   - cron: "0 5 * * 0"
 
 jobs:
   kernel-matrix:
