@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777194571476,
+  "lastUpdate": 1777211050728,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -34992,6 +34992,102 @@ window.BENCHMARK_DATA = {
             "value": 53.159212983621615,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.15292981368547 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de3327e7f663e80982fbb58246f7d675eb824d77",
+          "message": "Merge pull request #110 from ErenAri/feat/ocsf-output-format\n\nfeat(events): OCSF 1.1.0 output format for File + Network Activity",
+          "timestamp": "2026-04-26T16:32:52+03:00",
+          "tree_id": "b2daa4f1f32a8080fd3fee1736c75d8e0831739b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/de3327e7f663e80982fbb58246f7d675eb824d77"
+        },
+        "date": 1777211049336,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1523.999267618494,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1523.884195273081 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3747.564865389663,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3746.9001850980894 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21649.911321814234,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21648.490948524577 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 164616.11132001563,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 164604.08581081073 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1309401.943925223,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1309306.2737538952 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5240667.539800995,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5239832.394900487 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4756.566907804097,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4759.892579682042 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33068.243800434975,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33074.3395014026 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 270823.7413604535,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 270786.1535783339 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809476.061879614,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 809588.9148181343 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.21134539694887,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.206863233268 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.54858965666063,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.53978792939218 ns\nthreads: 1"
           }
         ]
       }
