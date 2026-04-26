@@ -16,6 +16,16 @@ bool sink_wants_stdout(EventLogSink sink);
 bool sink_wants_journald(EventLogSink sink);
 bool set_event_log_sink(const std::string& value);
 
+// Event format management. Default is `Aegis` (the AegisBPF-native
+// JSON shape described in `config/event-schema.json`). Setting
+// `Ocsf` makes the daemon emit OCSF 1.1.0 JSON for File and Network
+// Activity events, suitable for direct ingestion by SIEMs that
+// natively understand OCSF (Splunk, Elastic, Snowflake, AWS
+// Security Lake). See `docs/SIEM_INTEGRATION.md`.
+extern EventFormat g_event_format;
+bool set_event_format(const std::string& value);
+EventFormat current_event_format();
+
 using ExecEventCallback = void (*)(void* user_ctx, const ExecEvent& ev);
 using OverlayCopyUpCallback = void (*)(void* user_ctx, const OverlayCopyUpEvent& ev);
 

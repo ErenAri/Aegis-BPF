@@ -4,7 +4,10 @@ This document describes how to integrate AegisBPF events with popular Security I
 
 ## Event Format
 
-AegisBPF emits events in JSON format to stdout or journald. See [event-schema.json](../config/event-schema.json) for the complete JSON Schema.
+AegisBPF emits events in JSON format to stdout or journald. Two on-the-wire shapes are available:
+
+- **AegisBPF native** (default): the project-internal JSON shape documented in this guide and described by [`config/event-schema.json`](../config/event-schema.json).
+- **OCSF 1.1.0**: opt-in via `--event-format=ocsf`. File and network block events are reshaped into OCSF File Activity (class_uid 1001) and Network Activity (class_uid 4001) so SIEMs that ingest OCSF natively (Splunk, Elastic, Snowflake, AWS Security Lake) can parse without a custom mapping. See [§OCSF](#ocsf-1.1.0-output-format) below for the per-event mapping table.
 
 ### Event Types
 
@@ -41,6 +44,141 @@ AegisBPF emits events in JSON format to stdout or journald. See [event-schema.js
 | `action` | string | `AUDIT` (audit-only) or enforce action (`TERM`/`KILL`/`INT`/`BLOCK`) |
 
 Note: when enforcement is inode-based, `path` may be empty; use `ino` + `dev` for correlation.
+
+## OCSF 1.1.0 output format
+
+Pass `--event-format=ocsf` to `aegisbpfd run` to emit
+[OCSF 1.1.0](https://schema.ocsf.io/1.1.0/) JSON for File and Network
+block events. The `EventFormat` enum is global — every event of those
+types emitted by the daemon is reshaped, regardless of sink.
+
+```bash
+sudo ./build/aegisbpf run --enforce --event-format=ocsf
+sudo ./build/aegisbpf run --enforce --event-format=ocsf --log=both
+```
+
+Accepted aliases: `ocsf`, `OCSF`, `ocsf-1.1`, `ocsf-1.1.0`. The
+inverse keyword is `aegis` (or `default`, `json`).
+
+### What gets reshaped
+
+| AegisBPF event | OCSF class | activity_id |
+|---|---|---|
+| File deny block (`BlockEvent`) | File Activity (1001) | 14 (Open) |
+| Net deny block, egress / bind / listen / accept (`NetBlockEvent`) | Network Activity (4001) | 1 (Open) |
+| Net deny block, sendmsg / recvmsg (`NetBlockEvent`) | Network Activity (4001) | 6 (Traffic) |
+
+Out of scope today (still emitted in the AegisBPF-native shape):
+`ExecEvent`, `ExecArgvEvent`, `ForensicEvent`, `KernelBlockEvent`,
+`OverlayCopyUpEvent`, `state_change`, `control_change`. OCSF support
+for those is tracked in `docs/POSITIONING.md` §3.3.
+
+### Field mapping (BlockEvent → File Activity 1001)
+
+| OCSF field | Source / value |
+|---|---|
+| `class_uid`, `class_name` | `1001`, `"File Activity"` |
+| `category_uid`, `category_name` | `1`, `"System Activity"` |
+| `activity_id`, `activity_name` | `14`, `"Open"` (AegisBPF blocks `file_open` / `inode_permission`) |
+| `type_uid` | `100114` (= `class_uid * 100 + activity_id`) |
+| `action_id`, `action` | `2 / "Denied"` in enforce mode; `1 / "Allowed"` when `BlockEvent.action == "AUDIT"` |
+| `disposition_id`, `disposition` | `2 / "Blocked"` in enforce mode; **omitted** in audit mode |
+| `status_id`, `status` | `1 / "Success"` (the policy decision was applied) |
+| `severity_id`, `severity` | `4 / "High"` in enforce mode; `2 / "Low"` in audit mode |
+| `time` | Wall-clock epoch ms at format time |
+| `metadata.version` | `"1.1.0"` |
+| `metadata.product.{name,vendor_name,version}` | `"AegisBPF"`, `"AegisBPF Project"`, `AEGIS_VERSION_STRING` |
+| `metadata.uid` | `BlockEvent.exec_id` (== `pid:start_time`) |
+| `actor.process.{pid,name,parent_process.pid,created_time}` | `BlockEvent.{pid,comm,ppid,start_time/1e6}` |
+| `device.{type_id,type,hostname}` | `1`, `"Server"`, `gethostname()` |
+| `file.{type_id,type,name,path,parent_folder}` | `1`, `"Regular File"`, `basename(path)`, `path`, `dirname(path)` |
+| `unmapped.aegis_inode` | `BlockEvent.ino` |
+| `unmapped.aegis_device` | `BlockEvent.dev` |
+| `unmapped.aegis_cgroup_id` | `BlockEvent.cgid` |
+| `unmapped.aegis_cgroup_path` | resolved cgroup path |
+| `unmapped.aegis_parent_exec_id` | `ppid:parent_start_time` correlation handle |
+
+### Field mapping (NetBlockEvent → Network Activity 4001)
+
+| OCSF field | Source / value |
+|---|---|
+| `class_uid`, `class_name` | `4001`, `"Network Activity"` |
+| `category_uid`, `category_name` | `4`, `"Network Activity"` |
+| `activity_id`, `activity_name` | `1` Open for connect/bind/listen/accept; `6` Traffic for sendmsg/recvmsg |
+| `action_id` / `disposition_id` / `severity_id` | Same audit-vs-enforce semantics as File Activity above |
+| `connection_info.protocol_num` | `6` (TCP) or `17` (UDP) |
+| `connection_info.protocol_name` | `"tcp"` / `"udp"` |
+| `connection_info.protocol_ver_id` | `4` (IPv4) or `6` (IPv6) |
+| `dst_endpoint` | Remote peer for egress (connect/sendmsg); local port for bind/listen |
+| `src_endpoint` | Remote peer for accept/recvmsg (peer originated); local port otherwise |
+| `actor.process.{pid,name,parent_process.pid}` | Calling process |
+| `unmapped.aegis_direction` | `0`–`5` raw direction code |
+| `unmapped.aegis_event_type` | `net_connect_block` / `net_bind_block` / etc. |
+| `unmapped.aegis_rule_type` | `ip` / `port` / `cidr` / `ip_port` / `identity` |
+
+### Sample OCSF File Activity payload
+
+```json
+{
+  "class_uid": 1001,
+  "class_name": "File Activity",
+  "category_uid": 1,
+  "category_name": "System Activity",
+  "activity_id": 14,
+  "activity_name": "Open",
+  "type_uid": 100114,
+  "type_name": "File Activity: Open",
+  "action_id": 2,
+  "action": "Denied",
+  "disposition_id": 2,
+  "disposition": "Blocked",
+  "status_id": 1,
+  "status": "Success",
+  "severity_id": 4,
+  "severity": "High",
+  "time": 1745676543210,
+  "message": "AegisBPF: file open denied",
+  "metadata": {
+    "version": "1.1.0",
+    "product": {
+      "name": "AegisBPF",
+      "vendor_name": "AegisBPF Project",
+      "version": "0.5.1"
+    },
+    "uid": "exec-1234-deadbeef"
+  },
+  "actor": {
+    "process": {
+      "pid": 1234,
+      "name": "evil-proc",
+      "created_time": 1700000000000,
+      "parent_process": {"pid": 5678}
+    }
+  },
+  "device": {"type_id": 1, "type": "Server", "hostname": "node-01"},
+  "file": {
+    "type_id": 1,
+    "type": "Regular File",
+    "name": "shadow",
+    "path": "/etc/shadow",
+    "parent_folder": "/etc"
+  },
+  "unmapped": {
+    "aegis_inode": 4242,
+    "aegis_device": 99,
+    "aegis_cgroup_id": 3405691582,
+    "aegis_cgroup_path": "/sys/fs/cgroup/system.slice"
+  }
+}
+```
+
+### Compatibility
+
+OCSF format is opt-in and orthogonal to the sink (`--log=stdout|journald|both`).
+The journald path stores the OCSF payload in `MESSAGE=` while preserving the
+existing `AEGIS_*` field set on the journal entry — consumers that want OCSF
+read `MESSAGE=` directly; consumers that want raw fields read `AEGIS_*` (or
+parse `MESSAGE=` as their existing pipelines already do).
 
 ## Splunk Integration
 
