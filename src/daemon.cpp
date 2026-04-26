@@ -22,6 +22,7 @@
 #include <thread>
 
 #include "bpf_ops.hpp"
+#include "capabilities.hpp"
 #include "daemon_policy_gate.hpp"
 #include "daemon_posture.hpp"
 #include "daemon_runtime.hpp"
@@ -414,9 +415,9 @@ void reset_attach_all_for_test()
     g_deps.attach_all = make_default_deps().attach_all;
 }
 
-int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl,
-               uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes,
-               uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
+int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool enable_drop_caps,
+               uint32_t deadman_ttl, uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook,
+               uint32_t ringbuf_bytes, uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
                uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
                uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
                bool strict_degrade, EnforceGateMode enforce_gate_mode)
@@ -843,6 +844,24 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
         }
     }
 
+    // Drop to the minimum runtime capability set after Landlock + seccomp.
+    // Done last so the cap drop tightens what's already a narrow surface;
+    // done before any worker thread spawn (heartbeat, etc.) so the
+    // workers inherit the reduced set via the per-thread credential
+    // copy at clone() time. See docs/HARDENING.md for the cap-set
+    // contract and rationale.
+    if (enable_drop_caps) {
+        ScopedSpan caps_span("daemon.drop_caps", trace_id, root_span.span_id());
+        auto cfg = default_capability_config();
+        auto caps_result = drop_to_minimum(cfg);
+        if (!caps_result) {
+            caps_span.fail(caps_result.error().to_string());
+            logger().log(
+                SLOG_ERROR("Failed to drop capabilities").field("error", caps_result.error().to_string()));
+            return fail(caps_result.error().to_string());
+        }
+    }
+
     bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
     RuntimeStateTracker runtime_state = snapshot_runtime_state();
     logger().log(
@@ -860,6 +879,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
             .field("seccomp", enable_seccomp)
             .field("landlock", enable_landlock)
             .field("landlock_abi", static_cast<int64_t>(landlock_abi_version()))
+            .field("drop_caps", enable_drop_caps)
+            .field("caps_split_supported", capabilities_split_supported())
             .field("break_glass", break_glass_active)
             .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
             .field("exec_identity_kernel", kernel_exec_identity_enabled)

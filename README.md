@@ -426,7 +426,7 @@ listed anonymously.
 | Supply chain | OpenSSF Scorecard | ✅ `.github/workflows/scorecard.yml` publishes weekly |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
 | Daemon hardening | Landlock self-sandbox | ✅ opt-in via `--landlock` (`docs/HARDENING.md`) |
-| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
+| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | ✅ opt-in via `--drop-caps` (`docs/HARDENING.md`); retains `CAP_BPF + CAP_PERFMON + CAP_DAC_READ_SEARCH + CAP_SYS_RESOURCE`, drops everything else from effective/permitted/bounding. |
 | Compliance | NIST SP 800‑53 Rev 5 control mapping | ✅ `docs/compliance/NIST_800_53_MAPPING.md` |
 | Compliance | NIST SP 800‑190 (container security) | Roadmap |
 | Compliance | ISO/IEC 27001:2022 | ✅ `docs/compliance/ISO_27001_CONTROLS.md` |
@@ -465,8 +465,11 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
 7. **No distro packages yet.** Install requires build-from-source or
    the provided container image; Ubuntu PPA / Fedora COPR are on the
    roadmap.
-8. **Daemon runs as root for its full lifetime.** It should drop to
-   `CAP_BPF` + `CAP_PERFMON` after BPF load; tracked on roadmap.
+8. **Daemon runs as root by default.** Opt-in `--drop-caps` (kernel
+   ≥ 5.8) reduces the daemon to
+   `CAP_BPF + CAP_PERFMON + CAP_DAC_READ_SEARCH + CAP_SYS_RESOURCE`
+   after init, eliminating `CAP_SYS_ADMIN` from the runtime surface.
+   Default-on is a v0.6.x consideration. See `docs/HARDENING.md`.
 9. **No third-party security audit yet.** Planned before v1.0 GA.
 10. **Linux only.** Windows (`ebpf-for-windows`) is a v2.0 consideration;
     macOS is an explicit non-goal.
@@ -508,6 +511,11 @@ sudo ./build/aegisbpf run --audit
 
 # Enforce mode (block matching file opens)
 sudo ./build/aegisbpf run --enforce
+
+# Hardened: enforce + Landlock filesystem self-sandbox + seccomp
+# allowlist + post-init capability drop to CAP_BPF + CAP_PERFMON
+# + CAP_DAC_READ_SEARCH + CAP_SYS_RESOURCE. See docs/HARDENING.md.
+sudo ./build/aegisbpf run --enforce --landlock --seccomp --drop-caps
 
 # Enforce mode with explicit signal policy (default is SIGTERM)
 sudo ./build/aegisbpf run --enforce --enforce-signal=term

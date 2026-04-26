@@ -7,13 +7,102 @@ operators can adopt them at the pace their kernel/userland allows.
 |-------|------|---------|--------|--------|
 | seccomp-bpf syscall allowlist | `--seccomp` | off | ≥ 3.5 | Restricts the daemon to ~60 needed syscalls; default deny → `SECCOMP_RET_KILL_PROCESS`. |
 | Landlock filesystem sandbox | `--landlock` | off | ≥ 5.13 | Restricts the daemon to a fixed allowlist of paths (BPF maps, config, state, `/proc`). |
+| Capability drop (`CAP_BPF`/`CAP_PERFMON`) | `--drop-caps` | off | ≥ 5.8 | Reduces daemon capabilities to the minimum runtime set after init; eliminates `CAP_SYS_ADMIN` from the daemon's surface. |
 | Signed BPF objects | `AEGIS_REQUIRE_BPF_SIG=1` | off | n/a | Hard-requires Ed25519 signature on `aegis.bpf.o` (`docs/SIGNED_BPF_OBJECTS.md`). |
 | Anti-rollback policy versioning | always on | n/a | n/a | Monotonic counter in `/var/lib/aegisbpf/version_counter`. |
 | Break-glass disable | file marker | n/a | n/a | `/etc/aegisbpf/break_glass[.token]` short-circuits enforcement (audit-only). |
 
-This document focuses on the **Landlock** layer. The seccomp layer is
-described inline in `src/seccomp.cpp`; signing is in
+This document focuses on the **Landlock** layer and the
+**capability-drop** layer. The seccomp layer is described inline in
+`src/seccomp.cpp`; signing is in
 [`docs/SIGNED_BPF_OBJECTS.md`](SIGNED_BPF_OBJECTS.md).
+
+## Capability drop
+
+The kernel 5.8 capability split introduced `CAP_BPF` and `CAP_PERFMON`
+as fine-grained alternatives to `CAP_SYS_ADMIN` for BPF-related
+operations. Until then, every eBPF agent had to hold the all-powerful
+`CAP_SYS_ADMIN` for its full lifetime — even after BPF programs were
+loaded and attached and the only remaining runtime work was reading
+ringbuf events and updating maps. AegisBPF closes that window.
+
+### How to enable
+
+Pass `--drop-caps` to `aegisbpfd run`. It is independent of `--seccomp`
+and `--landlock` and stacks with both:
+
+```
+aegisbpfd run --enforce --seccomp --landlock --drop-caps
+```
+
+### What gets retained
+
+The default minimum runtime set is built by `default_capability_config()`
+in [`src/capabilities.cpp`](../src/capabilities.cpp):
+
+| Capability | Why retained |
+|---|---|
+| `CAP_BPF` | `bpf(2)` syscall for runtime map updates (policy reload, OverlayFS copy-up propagation, deny-rate counter writes). |
+| `CAP_PERFMON` | BPF helpers (e.g. tracepoint reads) and certain map-iteration ops. |
+| `CAP_DAC_READ_SEARCH` | Read `/proc/<pid>/*` across users (process-tree reconciliation, K8s identity cache reload). |
+| `CAP_SYS_RESOURCE` | Pre-5.11 `setrlimit(RLIMIT_MEMLOCK)` bumps for older kernels; redundant on 5.11+ where bpf() handles memlock automatically. Kept conservatively. |
+
+Everything else — including `CAP_SYS_ADMIN`, `CAP_NET_ADMIN`,
+`CAP_DAC_OVERRIDE`, `CAP_SETPCAP`, the ambient set, and the
+inheritable set — is removed from the effective, permitted, and
+bounding sets. The bounding set is dropped first (it requires
+`CAP_SETPCAP`, which is itself dropped from the effective set
+moments later); see the comment at the top of `drop_to_minimum()` in
+`src/capabilities.cpp`.
+
+### When the drop happens
+
+After every initialization step that needs `CAP_SYS_ADMIN` is
+complete (BPF program load, map setup, BPF-LSM hook attach, ringbuf
+creation, `/proc` reconciliation), and after Landlock + seccomp are
+applied, but **before** the heartbeat thread is spawned. Since Linux
+capabilities are per-thread and `pthread_create()` inherits the
+calling thread's set via `clone()`, dropping on the main thread
+before any worker thread spawn means the workers also start without
+`CAP_SYS_ADMIN`.
+
+### Failure modes
+
+| Condition | Behavior |
+|---|---|
+| Kernel < 5.8 (no `CAP_BPF` / `CAP_PERFMON`) | Log INFO ("Skipping capability drop: kernel < 5.8 lacks CAP_BPF / CAP_PERFMON"), continue without dropping. The daemon retains full caps; other defences (Landlock, seccomp) are unaffected. |
+| `capset(2)` returns `-EPERM` | Daemon refuses to start (`EXIT_FAILURE`). This indicates a kernel-side restriction the operator must investigate. |
+| `prctl(PR_CAPBSET_DROP)` returns an error other than `EINVAL` | Daemon refuses to start. (`EINVAL` on caps the kernel doesn't know about is tolerated.) |
+
+The daemon never fails open. If the drop fails it returns non-zero and
+the operator decides whether to retry without `--drop-caps` or to
+investigate the kernel side.
+
+### What capability drop does not protect
+
+- **Kernel exploits.** A bug in the BPF verifier or in any LSM hook
+  that lets the daemon escape the kernel's capability check is not
+  defended by this layer.
+- **Code already running before the drop.** The drop is post-init;
+  anything in `daemon_run()` before the drop point still runs with
+  full caps. (Landlock + seccomp narrow that surface separately.)
+- **Pre-existing FDs.** Any file descriptor the daemon already opened
+  before the drop remains usable. The drop affects future syscalls
+  that require a cap, not existing handles.
+
+### Verifying the drop
+
+After startup, the daemon logs:
+
+```
+Capability drop applied {retain_mask=0xc001000004, effective=0xc001000004,
+permitted=0xc001000004, inheritable=0, bounding=0xc001000004}
+```
+
+(`0xc001000004` decodes to `CAP_DAC_READ_SEARCH | CAP_SYS_RESOURCE |
+CAP_PERFMON | CAP_BPF`.) Operators can independently verify by
+reading `/proc/<pid>/status` and checking `CapEff` against the
+expected mask.
 
 ## Landlock self-sandbox
 
