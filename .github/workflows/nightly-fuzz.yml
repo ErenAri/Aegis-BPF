@@ -1,5 +1,13 @@
 name: Nightly Fuzz
 
+# Schedule disabled 2026-04-26 (audit pass, see docs/CI_WORKFLOW_AUDIT.md
+# P1 action #2). Last scheduled run failed 2026-02-27 with:
+#   "The job was not started because your account is locked due to a
+#    billing issue."
+# This is a GitHub Actions billing issue, not a workflow defect. Once
+# the billing situation is resolved, restore the cron line below to
+# re-enable nightly runs. Workflow remains usable via workflow_dispatch.
+
 on:
   workflow_dispatch:
     inputs:
@@ -7,8 +15,8 @@ on:
         description: "Per-target fuzz duration in seconds"
         default: "600"
         required: false
-  schedule:
-    - cron: "0 2 * * *"
+  # schedule:
+  #   - cron: "0 2 * * *"
 
 jobs:
   fuzz:
