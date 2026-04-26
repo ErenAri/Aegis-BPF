@@ -274,9 +274,9 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     }
 
     return daemon_run(audit_only, enable_seccomp, enable_landlock, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook,
-                      ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
-                      sigkill_escalation_window_seconds, deny_rate_threshold, deny_rate_breach_limit,
-                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode);
+                      ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
+                      deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity,
+                      strict_degrade, enforce_gate_mode);
 }
 
 } // namespace aegis

@@ -1,16 +1,17 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "landlock.hpp"
 
-#include <cerrno>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <fcntl.h>
-#include <string>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#include <cerrno>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <string>
 
 #if __has_include(<linux/landlock.h>)
 #    include <linux/landlock.h>
@@ -41,16 +42,12 @@ namespace {
 #        define __NR_landlock_restrict_self 446
 #    endif
 
-inline int sys_landlock_create_ruleset(const struct landlock_ruleset_attr* attr,
-                                       size_t size,
-                                       uint32_t flags) noexcept
+inline int sys_landlock_create_ruleset(const struct landlock_ruleset_attr* attr, size_t size, uint32_t flags) noexcept
 {
     return static_cast<int>(::syscall(__NR_landlock_create_ruleset, attr, size, flags));
 }
 
-inline int sys_landlock_add_rule(int ruleset_fd,
-                                 enum landlock_rule_type rule_type,
-                                 const void* rule_attr,
+inline int sys_landlock_add_rule(int ruleset_fd, enum landlock_rule_type rule_type, const void* rule_attr,
                                  uint32_t flags) noexcept
 {
     return static_cast<int>(::syscall(__NR_landlock_add_rule, ruleset_fd, rule_type, rule_attr, flags));
@@ -80,10 +77,10 @@ AccessMasks compute_access_masks(int abi)
 
     // ABI 1 (Linux 5.13)
     m.read_mask = LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR;
-    m.write_mask = LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_REMOVE_DIR | LANDLOCK_ACCESS_FS_REMOVE_FILE
-                 | LANDLOCK_ACCESS_FS_MAKE_CHAR | LANDLOCK_ACCESS_FS_MAKE_DIR | LANDLOCK_ACCESS_FS_MAKE_REG
-                 | LANDLOCK_ACCESS_FS_MAKE_SOCK | LANDLOCK_ACCESS_FS_MAKE_FIFO | LANDLOCK_ACCESS_FS_MAKE_BLOCK
-                 | LANDLOCK_ACCESS_FS_MAKE_SYM;
+    m.write_mask = LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_REMOVE_DIR | LANDLOCK_ACCESS_FS_REMOVE_FILE |
+                   LANDLOCK_ACCESS_FS_MAKE_CHAR | LANDLOCK_ACCESS_FS_MAKE_DIR | LANDLOCK_ACCESS_FS_MAKE_REG |
+                   LANDLOCK_ACCESS_FS_MAKE_SOCK | LANDLOCK_ACCESS_FS_MAKE_FIFO | LANDLOCK_ACCESS_FS_MAKE_BLOCK |
+                   LANDLOCK_ACCESS_FS_MAKE_SYM;
     // Execute on read paths (BPF object, /proc/self/exe, etc.).
     m.read_mask |= LANDLOCK_ACCESS_FS_EXECUTE;
 
@@ -112,7 +109,10 @@ int landlock_abi_version()
     return abi;
 }
 
-bool landlock_available() { return landlock_abi_version() >= 1; }
+bool landlock_available()
+{
+    return landlock_abi_version() >= 1;
+}
 
 Result<void> apply_landlock_sandbox(const LandlockConfig& config)
 {
@@ -129,7 +129,7 @@ Result<void> apply_landlock_sandbox(const LandlockConfig& config)
         return {};
     }
 
-    struct landlock_ruleset_attr ruleset_attr{};
+    struct landlock_ruleset_attr ruleset_attr {};
     ruleset_attr.handled_access_fs = masks.read_mask | masks.write_mask;
 
     const int ruleset_fd = sys_landlock_create_ruleset(&ruleset_attr, sizeof(ruleset_attr), 0);
@@ -157,7 +157,7 @@ Result<void> apply_landlock_sandbox(const LandlockConfig& config)
             continue;
         }
 
-        struct landlock_path_beneath_attr path_attr{};
+        struct landlock_path_beneath_attr path_attr {};
         path_attr.allowed_access = masks.read_mask;
         if (entry.writable) {
             path_attr.allowed_access |= masks.write_mask;
@@ -200,8 +200,14 @@ Result<void> apply_landlock_sandbox(const LandlockConfig& config)
 
 #else // !AEGIS_HAS_LANDLOCK_HEADER
 
-int landlock_abi_version() { return -1; }
-bool landlock_available() { return false; }
+int landlock_abi_version()
+{
+    return -1;
+}
+bool landlock_available()
+{
+    return false;
+}
 
 Result<void> apply_landlock_sandbox(const LandlockConfig& /*config*/)
 {

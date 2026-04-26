@@ -414,12 +414,11 @@ void reset_attach_all_for_test()
     g_deps.attach_all = make_default_deps().attach_all;
 }
 
-int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl,
-               uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes,
-               uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
-               uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
-               uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
-               bool strict_degrade, EnforceGateMode enforce_gate_mode)
+int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl, uint8_t enforce_signal,
+               bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
+               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
+               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
+               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -824,8 +823,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
             auto landlock_result = apply_landlock_sandbox(cfg);
             if (!landlock_result) {
                 ll_span.fail(landlock_result.error().to_string());
-                logger().log(SLOG_ERROR("Failed to apply Landlock sandbox")
-                                 .field("error", landlock_result.error().to_string()));
+                logger().log(
+                    SLOG_ERROR("Failed to apply Landlock sandbox").field("error", landlock_result.error().to_string()));
                 return fail(landlock_result.error().to_string());
             }
         }
