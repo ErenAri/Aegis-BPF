@@ -178,6 +178,25 @@ changes outside `.github/workflows/`.
 The maintainers should make those calls. This audit's job was to
 surface the data.
 
+## Refreshing this audit
+
+The "Inventory" table at the top of this document goes stale as
+new workflows are added and existing ones change status.
+[`scripts/audit_workflows.sh`](../scripts/audit_workflows.sh)
+regenerates that table from the live state of the repo:
+
+```bash
+scripts/audit_workflows.sh > /tmp/inventory.md
+# Diff against the table in this doc and hand-merge.
+```
+
+The script reads `.github/workflows/*.yml`, queries `gh run list`
+for the most recent run of each workflow, and emits a Markdown
+table to stdout. Re-run quarterly (or before any TOC review) and
+update the table here. The script does NOT modify this document
+in-place — that's deliberate, so the surrounding prose stays
+consistent with the data.
+
 ## See also
 
 - [`docs/CI_EXECUTION_STRATEGY.md`](CI_EXECUTION_STRATEGY.md) — design
@@ -186,3 +205,5 @@ surface the data.
   workflows back which production-readiness gates.
 - [`docs/QUALITY_GATES.md`](QUALITY_GATES.md) — the contract each
   workflow must uphold.
+- [`scripts/audit_workflows.sh`](../scripts/audit_workflows.sh) —
+  inventory regeneration helper.
