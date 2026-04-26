@@ -1,15 +1,16 @@
 // cppcheck-suppress-file missingIncludeSystem
+// cppcheck-suppress-file syntaxError
+#include <fcntl.h>
 #include <gtest/gtest.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
-#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include "landlock.hpp"
 
