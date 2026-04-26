@@ -61,19 +61,23 @@ jobs:
           fails=0
           for f in community-rules/*.conf; do
             [[ -f "${f}" ]] || continue
-            # The aegisbpf policy parser is INI-style; this is a
-            # python-based smoke test that catches obvious typos
-            # (unbalanced sections, stray whitespace headers).
+            # The AegisBPF policy parser accepts pre-section keys like
+            # `version=2` before the first `[deny_path]` block.
+            # configparser does not, so we synthesize a leading
+            # `[_aegis_top]` section before passing the file in.
+            # This matches how `src/policy_parse.cpp` actually reads
+            # the format and lets the smoke test catch only genuine
+            # structural problems.
             python3 -c "
           import configparser, sys
           p = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
           try:
               with open('${f}', 'r', encoding='utf-8') as fh:
-                  data = fh.read()
-              # Strip our custom #@... tag block (configparser doesn't know it)
+                  data = '[_aegis_top]\n' + fh.read()
               p.read_string(data)
-              # Require at least one section
-              if not p.sections():
+              # Require at least one real section (not just _aegis_top).
+              real_sections = [s for s in p.sections() if s != '_aegis_top']
+              if not real_sections:
                   print('::error file=${f}::no INI sections found', file=sys.stderr)
                   sys.exit(1)
           except configparser.Error as e:
