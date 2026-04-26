@@ -12,14 +12,17 @@ filing the actual issue is a copy-and-paste exercise.
 > 1. Identify a CNCF TOC sponsor.
 > 2. Add **at least one external maintainer** (different organization
 >    than the founder). Tracked in [`MAINTAINERS.md`](../MAINTAINERS.md).
-> 3. Decision: keep MIT or relicense to Apache-2.0. CNCF strongly
->    prefers Apache-2.0 for core project code; MIT is allowlisted
->    for dependencies but is unusual for new core CNCF projects.
+> 3. ~~Decision: keep MIT or relicense to Apache-2.0.~~ ✅ **Resolved
+>    2026-04-25 in #98**: project is now licensed under
+>    [Apache License 2.0](../LICENSE), aligning with every CNCF
+>    project in this category (Falco, Tetragon, Tracee, KubeArmor,
+>    bpfman) and obtaining the §3 explicit patent grant.
 > 4. Sign the [Contribution Agreement](https://github.com/cncf/foundation/blob/main/agreements/Sample%20Contribution%20Agreement%20(2025).pdf)
 >    once the application reaches that stage.
 >
-> The form fields below can be filled today; the four blockers above
-> determine *when* the application can actually be submitted.
+> The form fields below can be filled today; the three remaining
+> blockers above determine *when* the application can actually be
+> submitted.
 
 ---
 
@@ -81,7 +84,7 @@ program lifecycle management).
 | Maintainers | <https://github.com/ErenAri/Aegis-BPF/blob/main/MAINTAINERS.md> |
 | Governance | <https://github.com/ErenAri/Aegis-BPF/blob/main/GOVERNANCE.md> |
 | Security policy | <https://github.com/ErenAri/Aegis-BPF/blob/main/SECURITY.md> |
-| License | MIT _(see pre-submission blocker #3)_ |
+| License | Apache License 2.0 (relicensed from MIT in #98 on 2026-04-25). `NOTICE` file at repo root carries third-party attribution per Apache-2.0 §4(d). |
 | Communication channels | GitHub Issues + GitHub Discussions; community Slack/Discord planned post-Sandbox |
 | Public meeting cadence | Not yet established (planned post-Sandbox) |
 
@@ -208,7 +211,7 @@ this is disclosed honestly to the TOC.
 
 | Policy | AegisBPF posture |
 |---|---|
-| [IP Policy (Charter §11)](https://github.com/cncf/foundation/blob/main/charter.md#11-ip-policy) | Project is single-license MIT today (relicense decision pending — see blocker #3). All contributions to date are by the maintainer. |
+| [IP Policy (Charter §11)](https://github.com/cncf/foundation/blob/main/charter.md#11-ip-policy) | Project is single-license Apache-2.0 (relicensed from MIT in #98 on 2026-04-25). All contributions to date are by the project lead; the only other contributor entries are GitHub Copilot and dependabot bots, which do not assert IP. |
 | [Allowlist license policy for dependencies](https://github.com/cncf/foundation/blob/main/policies-guidance/allowed-third-party-license-policy.md) | Direct dependencies: libbpf (LGPL-2.1 / BSD-2-Clause), TweetNaCl (vendored, public domain), Go modules in operator (mostly BSD-3 / Apache-2.0 / MIT). SBOM (`sbom/` and `release/sbom.spdx.json`) enumerates every transitive dependency with license metadata; no copyleft-only or non-allowlisted licenses present. |
 | Code of Conduct | Contributor Covenant (`CODE_OF_CONDUCT.md`). |
 | Trademark | "AegisBPF" name is unregistered today; the project is willing to follow CNCF naming and trademark guidance upon acceptance. |
@@ -250,7 +253,7 @@ form:
 |---|---|:---:|---|
 | 1 | Identify CNCF TOC sponsor | ❌ | maintainer |
 | 2 | Recruit ≥1 maintainer from a different org | ❌ | maintainer |
-| 3 | Decide on license (MIT vs Apache-2.0) and document | ❌ | maintainer |
+| 3 | Decide on license (MIT vs Apache-2.0) and document | ✅ | resolved in #98 (2026-04-25) — Apache License 2.0 |
 | 4 | Confirm IP provenance for all current contributions | ✅ | maintainer (single contributor to date) |
 | 5 | Verify all CNCF dependency licenses are allowlisted | ✅ | SBOMs in `sbom/` |
 | 6 | OpenSSF Best Practices Badge — formal submission | ◐ | self-assessment complete in `docs/compliance/OPENSSF_BEST_PRACTICES.md`; needs formal submission to bestpractices.dev |
