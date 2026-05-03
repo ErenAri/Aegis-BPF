@@ -45,8 +45,7 @@ class ScopedEnvVar {
 // access(2) lookups here.
 std::string write_temp_blob(const std::string& name)
 {
-    auto path = std::filesystem::temp_directory_path() /
-                ("aegis_btfloader_" + std::to_string(::getpid()) + "_" + name);
+    auto path = std::filesystem::temp_directory_path() / ("aegis_btfloader_" + std::to_string(::getpid()) + "_" + name);
     std::ofstream(path) << "fake-btf";
     return path.string();
 }

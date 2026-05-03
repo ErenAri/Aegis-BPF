@@ -63,7 +63,7 @@ std::string& cached_hostname()
     }();
     return h;
 }
-}  // namespace
+} // namespace
 
 bool sink_wants_stdout(EventLogSink sink)
 {
@@ -296,7 +296,7 @@ void print_block_event(const BlockEvent& ev)
 
     if (g_event_format == EventFormat::Ocsf) {
         std::string payload = format_block_event_ocsf(ev, cgpath, path, resolved_path, action, comm, exec_id,
-                                                       parent_exec_id, cached_hostname());
+                                                      parent_exec_id, cached_hostname());
         if (sink_wants_stdout(g_event_sink)) {
             std::cout << payload << '\n';
         }
@@ -416,7 +416,7 @@ void print_net_block_event(const NetBlockEvent& ev)
 
     if (g_event_format == EventFormat::Ocsf) {
         std::string payload = format_net_block_event_ocsf(ev, cgpath, comm, exec_id, parent_exec_id, event_type,
-                                                           remote_ip, cached_hostname());
+                                                          remote_ip, cached_hostname());
         if (sink_wants_stdout(g_event_sink)) {
             std::cout << payload << '\n';
         }
