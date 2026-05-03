@@ -50,23 +50,22 @@ NetBlockEvent make_net_block_event(uint8_t direction, const char* action_str)
     ev.local_port = 0;
     ev.remote_port = 4444;
     ev.direction = direction;
-    ev.remote_ipv4 = 0x0100007FU;  // 127.0.0.1 in network byte order
+    ev.remote_ipv4 = 0x0100007FU; // 127.0.0.1 in network byte order
     std::strncpy(ev.comm, "curl", sizeof(ev.comm) - 1);
     std::strncpy(ev.action, action_str, sizeof(ev.action) - 1);
     std::strncpy(ev.rule_type, "ip", sizeof(ev.rule_type) - 1);
     return ev;
 }
 
-}  // namespace
+} // namespace
 
 // -------- format_block_event_ocsf -------------------------------------
 
 TEST(OcsfFormatterTest, BlockEventEnforceContainsRequiredFields)
 {
     auto ev = make_block_event("/etc/shadow", "BLOCK");
-    auto json = format_block_event_ocsf(ev, "/sys/fs/cgroup/system.slice", "/etc/shadow",
-                                         "/etc/shadow", "BLOCK", "evil-proc", "exec-1234-deadbeef",
-                                         "exec-5678-cafebabe", "test-host");
+    auto json = format_block_event_ocsf(ev, "/sys/fs/cgroup/system.slice", "/etc/shadow", "/etc/shadow", "BLOCK",
+                                        "evil-proc", "exec-1234-deadbeef", "exec-5678-cafebabe", "test-host");
 
     // OCSF required fields per File Activity 1001.
     EXPECT_TRUE(has_field(json, "class_uid"));
@@ -74,10 +73,10 @@ TEST(OcsfFormatterTest, BlockEventEnforceContainsRequiredFields)
     EXPECT_TRUE(has_value(json, "\"category_uid\":1"));
     EXPECT_TRUE(has_value(json, "\"activity_id\":14"));
     EXPECT_TRUE(has_value(json, "\"type_uid\":100114"));
-    EXPECT_TRUE(has_value(json, "\"action_id\":2"));        // Denied
-    EXPECT_TRUE(has_value(json, "\"disposition_id\":2"));   // Blocked
-    EXPECT_TRUE(has_value(json, "\"status_id\":1"));        // Success
-    EXPECT_TRUE(has_value(json, "\"severity_id\":4"));      // High
+    EXPECT_TRUE(has_value(json, "\"action_id\":2"));      // Denied
+    EXPECT_TRUE(has_value(json, "\"disposition_id\":2")); // Blocked
+    EXPECT_TRUE(has_value(json, "\"status_id\":1"));      // Success
+    EXPECT_TRUE(has_value(json, "\"severity_id\":4"));    // High
     EXPECT_TRUE(has_field(json, "time"));
 
     // Top-level structure.
@@ -111,9 +110,8 @@ TEST(OcsfFormatterTest, BlockEventEnforceContainsRequiredFields)
 TEST(OcsfFormatterTest, BlockEventAuditOnlyOmitsDispositionAndUsesAllowed)
 {
     auto ev = make_block_event("/var/run/secrets", "AUDIT");
-    auto json = format_block_event_ocsf(ev, "/sys/fs/cgroup/user.slice", "/var/run/secrets",
-                                         "/var/run/secrets", "AUDIT", "evil-proc", "exec-1234",
-                                         "exec-5678", "test-host");
+    auto json = format_block_event_ocsf(ev, "/sys/fs/cgroup/user.slice", "/var/run/secrets", "/var/run/secrets",
+                                        "AUDIT", "evil-proc", "exec-1234", "exec-5678", "test-host");
 
     // In audit mode the action is Allowed and disposition is omitted.
     EXPECT_TRUE(has_value(json, "\"action_id\":1"));
@@ -126,8 +124,8 @@ TEST(OcsfFormatterTest, BlockEventAuditOnlyOmitsDispositionAndUsesAllowed)
 TEST(OcsfFormatterTest, BlockEventFavorsResolvedPathOverRawPath)
 {
     auto ev = make_block_event("relative.txt", "BLOCK");
-    auto json = format_block_event_ocsf(ev, "", "relative.txt", "/abs/proj/relative.txt", "BLOCK",
-                                         "evil-proc", "", "", "test-host");
+    auto json = format_block_event_ocsf(ev, "", "relative.txt", "/abs/proj/relative.txt", "BLOCK", "evil-proc", "", "",
+                                        "test-host");
     EXPECT_TRUE(has_value(json, "\"path\":\"/abs/proj/relative.txt\""));
     EXPECT_TRUE(has_value(json, "\"parent_folder\":\"/abs/proj\""));
     EXPECT_TRUE(has_value(json, "\"name\":\"relative.txt\""));
@@ -136,8 +134,7 @@ TEST(OcsfFormatterTest, BlockEventFavorsResolvedPathOverRawPath)
 TEST(OcsfFormatterTest, BlockEventWithRootFile)
 {
     auto ev = make_block_event("/passwd", "BLOCK");
-    auto json = format_block_event_ocsf(ev, "", "/passwd", "/passwd", "BLOCK", "evil-proc", "", "",
-                                         "test-host");
+    auto json = format_block_event_ocsf(ev, "", "/passwd", "/passwd", "BLOCK", "evil-proc", "", "", "test-host");
     EXPECT_TRUE(has_value(json, "\"name\":\"passwd\""));
     EXPECT_TRUE(has_value(json, "\"parent_folder\":\"/\""));
 }
@@ -146,18 +143,17 @@ TEST(OcsfFormatterTest, BlockEventWithRootFile)
 
 TEST(OcsfFormatterTest, NetEgressBlockMapsToNetworkActivityOpen)
 {
-    auto ev = make_net_block_event(0, "BLOCK");  // direction 0 = egress
-    auto json = format_net_block_event_ocsf(ev, "/sys/fs/cgroup/system.slice", "curl", "exec-1111",
-                                             "exec-2222", "net_connect_block", "127.0.0.1",
-                                             "test-host");
+    auto ev = make_net_block_event(0, "BLOCK"); // direction 0 = egress
+    auto json = format_net_block_event_ocsf(ev, "/sys/fs/cgroup/system.slice", "curl", "exec-1111", "exec-2222",
+                                            "net_connect_block", "127.0.0.1", "test-host");
 
     EXPECT_TRUE(has_value(json, "\"class_uid\":4001"));
     EXPECT_TRUE(has_value(json, "\"category_uid\":4"));
-    EXPECT_TRUE(has_value(json, "\"activity_id\":1"));        // Open
+    EXPECT_TRUE(has_value(json, "\"activity_id\":1")); // Open
     EXPECT_TRUE(has_value(json, "\"type_uid\":400101"));
-    EXPECT_TRUE(has_value(json, "\"action_id\":2"));          // Denied
-    EXPECT_TRUE(has_value(json, "\"disposition_id\":2"));     // Blocked
-    EXPECT_TRUE(has_value(json, "\"severity_id\":4"));        // High
+    EXPECT_TRUE(has_value(json, "\"action_id\":2"));      // Denied
+    EXPECT_TRUE(has_value(json, "\"disposition_id\":2")); // Blocked
+    EXPECT_TRUE(has_value(json, "\"severity_id\":4"));    // High
 
     // For egress, peer is the destination.
     EXPECT_TRUE(has_field(json, "dst_endpoint"));
@@ -172,21 +168,19 @@ TEST(OcsfFormatterTest, NetEgressBlockMapsToNetworkActivityOpen)
 
 TEST(OcsfFormatterTest, NetSendmsgBlockMapsToTrafficActivity)
 {
-    auto ev = make_net_block_event(4, "BLOCK");  // direction 4 = sendmsg
-    auto json = format_net_block_event_ocsf(ev, "", "curl", "", "", "net_sendmsg_block",
-                                             "127.0.0.1", "test-host");
+    auto ev = make_net_block_event(4, "BLOCK"); // direction 4 = sendmsg
+    auto json = format_net_block_event_ocsf(ev, "", "curl", "", "", "net_sendmsg_block", "127.0.0.1", "test-host");
 
-    EXPECT_TRUE(has_value(json, "\"activity_id\":6"));   // Traffic
+    EXPECT_TRUE(has_value(json, "\"activity_id\":6")); // Traffic
     EXPECT_TRUE(has_value(json, "\"type_uid\":400106"));
     EXPECT_TRUE(has_value(json, "\"activity_name\":\"Traffic\""));
 }
 
 TEST(OcsfFormatterTest, NetAcceptBlockTreatsPeerAsSource)
 {
-    auto ev = make_net_block_event(3, "BLOCK");  // direction 3 = accept
+    auto ev = make_net_block_event(3, "BLOCK"); // direction 3 = accept
     ev.local_port = 8080;
-    auto json = format_net_block_event_ocsf(ev, "", "nginx", "", "", "net_accept_block",
-                                             "10.0.0.5", "test-host");
+    auto json = format_net_block_event_ocsf(ev, "", "nginx", "", "", "net_accept_block", "10.0.0.5", "test-host");
 
     // Accepted connection: remote peer is the source, our local socket is dest.
     EXPECT_TRUE(has_field(json, "src_endpoint"));
@@ -198,8 +192,7 @@ TEST(OcsfFormatterTest, NetAcceptBlockTreatsPeerAsSource)
 TEST(OcsfFormatterTest, NetAuditOnlyOmitsDispositionAndUsesAllowed)
 {
     auto ev = make_net_block_event(0, "AUDIT");
-    auto json = format_net_block_event_ocsf(ev, "", "curl", "", "", "net_connect_block",
-                                             "127.0.0.1", "test-host");
+    auto json = format_net_block_event_ocsf(ev, "", "curl", "", "", "net_connect_block", "127.0.0.1", "test-host");
     EXPECT_TRUE(has_value(json, "\"action_id\":1"));
     EXPECT_TRUE(has_value(json, "\"action\":\"Allowed\""));
     EXPECT_FALSE(has_value(json, "\"disposition_id\":"));
@@ -240,4 +233,4 @@ TEST(OcsfFormatterTest, SetEventFormatAcceptsKnownKeywords)
     }
 }
 
-}  // namespace aegis
+} // namespace aegis

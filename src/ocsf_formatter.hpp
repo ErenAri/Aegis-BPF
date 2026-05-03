@@ -25,15 +25,10 @@ namespace aegis {
 ///
 /// Pre-resolved strings are passed in to keep the formatter pure
 /// (no syscalls) so it can be unit-tested.
-std::string format_block_event_ocsf(const BlockEvent& ev,
-                                    const std::string& cgpath,
-                                    const std::string& path,
-                                    const std::string& resolved_path,
-                                    const std::string& action,
-                                    const std::string& comm,
-                                    const std::string& exec_id,
-                                    const std::string& parent_exec_id,
-                                    const std::string& hostname);
+std::string format_block_event_ocsf(const BlockEvent& ev, const std::string& cgpath, const std::string& path,
+                                    const std::string& resolved_path, const std::string& action,
+                                    const std::string& comm, const std::string& exec_id,
+                                    const std::string& parent_exec_id, const std::string& hostname);
 
 /// Format an AegisBPF network block event as an OCSF 1.1.0 Network
 /// Activity (class_uid 4001) JSON object.
@@ -55,13 +50,9 @@ std::string format_block_event_ocsf(const BlockEvent& ev,
 ///   src_endpoint / dst_endpoint = depending on direction
 ///   connection_info.protocol_num = 6 (TCP) or 17 (UDP)
 ///   actor.process = the calling subject
-std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
-                                        const std::string& cgpath,
-                                        const std::string& comm,
-                                        const std::string& exec_id,
-                                        const std::string& parent_exec_id,
-                                        const std::string& event_type,
-                                        const std::string& remote_ip,
+std::string format_net_block_event_ocsf(const NetBlockEvent& ev, const std::string& cgpath, const std::string& comm,
+                                        const std::string& exec_id, const std::string& parent_exec_id,
+                                        const std::string& event_type, const std::string& remote_ip,
                                         const std::string& hostname);
 
 /// Returns true if `value` selects the OCSF format and false for
@@ -69,4 +60,4 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
 /// values via the wrapper below.
 bool is_ocsf_format_keyword(const std::string& value);
 
-}  // namespace aegis
+} // namespace aegis

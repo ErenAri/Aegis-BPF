@@ -55,8 +55,7 @@ bool is_audit_action(const std::string& action) noexcept
 uint64_t epoch_ms_now() noexcept
 {
     using namespace std::chrono;
-    return static_cast<uint64_t>(
-        duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    return static_cast<uint64_t>(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 }
 
 std::string parent_folder_of(const std::string& path)
@@ -69,7 +68,7 @@ std::string parent_folder_of(const std::string& path)
         return {};
     }
     if (pos == 0) {
-        return "/";  // file at root
+        return "/"; // file at root
     }
     return path.substr(0, pos);
 }
@@ -88,41 +87,31 @@ std::string basename_of(const std::string& path)
 
 void write_metadata_block(std::ostringstream& oss, const std::string& uid)
 {
-    oss << "\"metadata\":{"
-        << "\"version\":\"1.1.0\","
-        << "\"product\":{"
-        << "\"name\":\"AegisBPF\","
-        << "\"vendor_name\":\"AegisBPF Project\","
-        << "\"version\":\"" << AEGIS_VERSION_STRING << "\""
-        << "}";
+    oss << "\"metadata\":{" << "\"version\":\"1.1.0\"," << "\"product\":{" << "\"name\":\"AegisBPF\","
+        << "\"vendor_name\":\"AegisBPF Project\"," << "\"version\":\"" << AEGIS_VERSION_STRING << "\"" << "}";
     if (!uid.empty()) {
         oss << ",\"uid\":\"" << json_escape(uid) << "\"";
     }
     oss << "}";
 }
 
-void write_actor_block(std::ostringstream& oss, uint32_t pid, uint32_t ppid,
-                       const std::string& comm, uint64_t start_time)
+void write_actor_block(std::ostringstream& oss, uint32_t pid, uint32_t ppid, const std::string& comm,
+                       uint64_t start_time)
 {
-    oss << "\"actor\":{"
-        << "\"process\":{"
-        << "\"pid\":" << pid;
+    oss << "\"actor\":{" << "\"process\":{" << "\"pid\":" << pid;
     if (!comm.empty()) {
         oss << ",\"name\":\"" << json_escape(comm) << "\"";
     }
-    oss << ",\"created_time\":" << (start_time / 1000000ULL);  // ns -> ms
+    oss << ",\"created_time\":" << (start_time / 1000000ULL); // ns -> ms
     if (ppid > 0) {
-        oss << ",\"parent_process\":{"
-            << "\"pid\":" << ppid
-            << "}";
+        oss << ",\"parent_process\":{" << "\"pid\":" << ppid << "}";
     }
     oss << "}}";
 }
 
 void write_device_block(std::ostringstream& oss, const std::string& hostname)
 {
-    oss << "\"device\":{"
-        << "\"type_id\":1"  // 1 = Server (closest match for a Linux host)
+    oss << "\"device\":{" << "\"type_id\":1" // 1 = Server (closest match for a Linux host)
         << ",\"type\":\"Server\"";
     if (!hostname.empty()) {
         oss << ",\"hostname\":\"" << json_escape(hostname) << "\"";
@@ -130,22 +119,17 @@ void write_device_block(std::ostringstream& oss, const std::string& hostname)
     oss << "}";
 }
 
-}  // namespace
+} // namespace
 
 bool is_ocsf_format_keyword(const std::string& value)
 {
     return value == "ocsf" || value == "OCSF" || value == "ocsf-1.1" || value == "ocsf-1.1.0";
 }
 
-std::string format_block_event_ocsf(const BlockEvent& ev,
-                                    const std::string& cgpath,
-                                    const std::string& path,
-                                    const std::string& resolved_path,
-                                    const std::string& action,
-                                    const std::string& comm,
-                                    const std::string& exec_id,
-                                    const std::string& parent_exec_id,
-                                    const std::string& hostname)
+std::string format_block_event_ocsf(const BlockEvent& ev, const std::string& cgpath, const std::string& path,
+                                    const std::string& resolved_path, const std::string& action,
+                                    const std::string& comm, const std::string& exec_id,
+                                    const std::string& parent_exec_id, const std::string& hostname)
 {
     const bool audit = is_audit_action(action);
     const int activity_id = kFileActivityOpen;
@@ -159,28 +143,17 @@ std::string format_block_event_ocsf(const BlockEvent& ev,
     const std::string basename = basename_of(effective_path);
 
     std::ostringstream oss;
-    oss << "{"
-        << "\"class_uid\":" << kClassFileActivity
-        << ",\"class_name\":\"File Activity\""
-        << ",\"category_uid\":" << kCategorySystemActivity
-        << ",\"category_name\":\"System Activity\""
-        << ",\"activity_id\":" << activity_id
-        << ",\"activity_name\":\"Open\""
-        << ",\"type_uid\":" << type_uid
-        << ",\"type_name\":\"File Activity: Open\""
-        << ",\"action_id\":" << action_id
-        << ",\"action\":\"" << (audit ? "Allowed" : "Denied") << "\"";
+    oss << "{" << "\"class_uid\":" << kClassFileActivity << ",\"class_name\":\"File Activity\""
+        << ",\"category_uid\":" << kCategorySystemActivity << ",\"category_name\":\"System Activity\""
+        << ",\"activity_id\":" << activity_id << ",\"activity_name\":\"Open\"" << ",\"type_uid\":" << type_uid
+        << ",\"type_name\":\"File Activity: Open\"" << ",\"action_id\":" << action_id << ",\"action\":\""
+        << (audit ? "Allowed" : "Denied") << "\"";
     if (!audit) {
-        oss << ",\"disposition_id\":" << kDispositionBlocked
-            << ",\"disposition\":\"Blocked\"";
+        oss << ",\"disposition_id\":" << kDispositionBlocked << ",\"disposition\":\"Blocked\"";
     }
-    oss << ",\"status_id\":" << kStatusSuccess
-        << ",\"status\":\"Success\""
-        << ",\"severity_id\":" << severity_id
-        << ",\"severity\":\"" << (audit ? "Low" : "High") << "\""
-        << ",\"time\":" << epoch_ms_now()
-        << ",\"message\":\"" << (audit ? "AegisBPF audit: file open observed" : "AegisBPF: file open denied")
-        << "\",";
+    oss << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\"" << ",\"severity_id\":" << severity_id
+        << ",\"severity\":\"" << (audit ? "Low" : "High") << "\"" << ",\"time\":" << epoch_ms_now() << ",\"message\":\""
+        << (audit ? "AegisBPF audit: file open observed" : "AegisBPF: file open denied") << "\",";
 
     write_metadata_block(oss, exec_id);
     oss << ",";
@@ -189,8 +162,7 @@ std::string format_block_event_ocsf(const BlockEvent& ev,
     write_device_block(oss, hostname);
 
     // file object
-    oss << ",\"file\":{"
-        << "\"type_id\":1"   // 1 = Regular File
+    oss << ",\"file\":{" << "\"type_id\":1" // 1 = Regular File
         << ",\"type\":\"Regular File\"";
     if (!basename.empty()) {
         oss << ",\"name\":\"" << json_escape(basename) << "\"";
@@ -205,9 +177,7 @@ std::string format_block_event_ocsf(const BlockEvent& ev,
 
     // unmapped attributes go under the OCSF `unmapped` extension to
     // preserve forensic-grade evidence without polluting the schema.
-    oss << ",\"unmapped\":{"
-        << "\"aegis_inode\":" << ev.ino
-        << ",\"aegis_device\":" << ev.dev
+    oss << ",\"unmapped\":{" << "\"aegis_inode\":" << ev.ino << ",\"aegis_device\":" << ev.dev
         << ",\"aegis_cgroup_id\":" << ev.cgid;
     if (!cgpath.empty()) {
         oss << ",\"aegis_cgroup_path\":\"" << json_escape(cgpath) << "\"";
@@ -220,13 +190,9 @@ std::string format_block_event_ocsf(const BlockEvent& ev,
     return oss.str();
 }
 
-std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
-                                        const std::string& cgpath,
-                                        const std::string& comm,
-                                        const std::string& exec_id,
-                                        const std::string& parent_exec_id,
-                                        const std::string& event_type,
-                                        const std::string& remote_ip,
+std::string format_net_block_event_ocsf(const NetBlockEvent& ev, const std::string& cgpath, const std::string& comm,
+                                        const std::string& exec_id, const std::string& parent_exec_id,
+                                        const std::string& event_type, const std::string& remote_ip,
                                         const std::string& hostname)
 {
     const std::string action(ev.action, strnlen(ev.action, sizeof(ev.action)));
@@ -238,15 +204,15 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
     int activity_id = kNetActivityOpen;
     const char* activity_name = "Open";
     switch (ev.direction) {
-        case 0:  // egress (connect)
-        case 1:  // bind
-        case 2:  // listen
-        case 3:  // accept
+        case 0: // egress (connect)
+        case 1: // bind
+        case 2: // listen
+        case 3: // accept
             activity_id = kNetActivityOpen;
             activity_name = "Open";
             break;
-        case 4:  // sendmsg
-        case 5:  // recvmsg
+        case 4: // sendmsg
+        case 5: // recvmsg
             activity_id = kNetActivityTraffic;
             activity_name = "Traffic";
             break;
@@ -264,29 +230,18 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
     const bool peer_is_source = (ev.direction == 3 || ev.direction == 5);
 
     std::ostringstream oss;
-    oss << "{"
-        << "\"class_uid\":" << kClassNetworkActivity
-        << ",\"class_name\":\"Network Activity\""
-        << ",\"category_uid\":" << kCategoryNetworkActivity
-        << ",\"category_name\":\"Network Activity\""
-        << ",\"activity_id\":" << activity_id
-        << ",\"activity_name\":\"" << activity_name << "\""
-        << ",\"type_uid\":" << type_uid
-        << ",\"type_name\":\"Network Activity: " << activity_name << "\""
-        << ",\"action_id\":" << action_id
-        << ",\"action\":\"" << (audit ? "Allowed" : "Denied") << "\"";
+    oss << "{" << "\"class_uid\":" << kClassNetworkActivity << ",\"class_name\":\"Network Activity\""
+        << ",\"category_uid\":" << kCategoryNetworkActivity << ",\"category_name\":\"Network Activity\""
+        << ",\"activity_id\":" << activity_id << ",\"activity_name\":\"" << activity_name << "\""
+        << ",\"type_uid\":" << type_uid << ",\"type_name\":\"Network Activity: " << activity_name << "\""
+        << ",\"action_id\":" << action_id << ",\"action\":\"" << (audit ? "Allowed" : "Denied") << "\"";
     if (!audit) {
-        oss << ",\"disposition_id\":" << kDispositionBlocked
-            << ",\"disposition\":\"Blocked\"";
+        oss << ",\"disposition_id\":" << kDispositionBlocked << ",\"disposition\":\"Blocked\"";
     }
-    oss << ",\"status_id\":" << kStatusSuccess
-        << ",\"status\":\"Success\""
-        << ",\"severity_id\":" << severity_id
-        << ",\"severity\":\"" << (audit ? "Low" : "High") << "\""
-        << ",\"time\":" << epoch_ms_now()
-        << ",\"message\":\"" << (audit ? "AegisBPF audit: network operation observed"
-                                       : "AegisBPF: network operation denied")
-        << " (" << json_escape(event_type) << ")\",";
+    oss << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\"" << ",\"severity_id\":" << severity_id
+        << ",\"severity\":\"" << (audit ? "Low" : "High") << "\"" << ",\"time\":" << epoch_ms_now() << ",\"message\":\""
+        << (audit ? "AegisBPF audit: network operation observed" : "AegisBPF: network operation denied") << " ("
+        << json_escape(event_type) << ")\",";
 
     write_metadata_block(oss, exec_id);
     oss << ",";
@@ -295,15 +250,13 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
     write_device_block(oss, hostname);
 
     // connection_info
-    oss << ",\"connection_info\":{"
-        << "\"protocol_num\":" << static_cast<int>(ev.protocol);
+    oss << ",\"connection_info\":{" << "\"protocol_num\":" << static_cast<int>(ev.protocol);
     if (ev.protocol == kProtoTCP) {
         oss << ",\"protocol_name\":\"tcp\"";
     } else if (ev.protocol == kProtoUDP) {
         oss << ",\"protocol_name\":\"udp\"";
     }
-    oss << ",\"protocol_ver_id\":" << (ev.family == kFamilyIPv4 ? 4 : 6)
-        << "}";
+    oss << ",\"protocol_ver_id\":" << (ev.family == kFamilyIPv4 ? 4 : 6) << "}";
 
     // Endpoints. We always emit dst_endpoint when there's a remote peer;
     // src_endpoint when we know the local side.
@@ -338,13 +291,10 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
         }
     }
 
-    oss << ",\"unmapped\":{"
-        << "\"aegis_cgroup_id\":" << ev.cgid
-        << ",\"aegis_direction\":" << static_cast<int>(ev.direction)
-        << ",\"aegis_event_type\":\"" << json_escape(event_type) << "\""
-        << ",\"aegis_rule_type\":\""
-        << json_escape(std::string(ev.rule_type, strnlen(ev.rule_type, sizeof(ev.rule_type))))
-        << "\"";
+    oss << ",\"unmapped\":{" << "\"aegis_cgroup_id\":" << ev.cgid
+        << ",\"aegis_direction\":" << static_cast<int>(ev.direction) << ",\"aegis_event_type\":\""
+        << json_escape(event_type) << "\"" << ",\"aegis_rule_type\":\""
+        << json_escape(std::string(ev.rule_type, strnlen(ev.rule_type, sizeof(ev.rule_type)))) << "\"";
     if (!cgpath.empty()) {
         oss << ",\"aegis_cgroup_path\":\"" << json_escape(cgpath) << "\"";
     }
@@ -356,4 +306,4 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev,
     return oss.str();
 }
 
-}  // namespace aegis
+} // namespace aegis
