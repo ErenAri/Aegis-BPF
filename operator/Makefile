@@ -5,11 +5,14 @@ IMG ?= ghcr.io/erenari/aegisbpf-operator:latest
 CONTROLLER_GEN_VERSION ?= v0.14.0
 CONTROLLER_GEN          = $(shell pwd)/bin/controller-gen
 
-.PHONY: build docker-build docker-push generate install run fmt vet test \
+.PHONY: build build-fleet docker-build docker-push generate install run fmt vet test \
         controller-gen manifests deepcopy verify-generated
 
 build:
 	go build -o bin/aegis-operator ./cmd/operator/
+
+build-fleet:
+	go build -o bin/aegisfleet ./cmd/aegisfleet/
 
 docker-build:
 	docker build -t $(IMG) .

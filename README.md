@@ -456,8 +456,11 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
 3. **`socket_listen` / `socket_recvmsg` are kernel-version-gated.**
    Runtime probing today; a machine-readable capability report is on
    the roadmap.
-4. **Single-node control plane.** One operator pod per cluster; no fleet
-   view across clusters yet.
+4. **Single-node control plane.** One operator pod per cluster.
+   Cross-cluster *fleet view* (read-only aggregation) is shipped via
+   the `aegisfleet` CLI ([`docs/MULTI_CLUSTER.md`](docs/MULTI_CLUSTER.md));
+   cross-cluster policy fan-out (a hub-side `AegisFleetPolicy` CRD) is
+   still on the roadmap.
 5. **Policy language is INI + CRD only.** No CEL/Rego expressions, no
    parent-process / label selectors in match criteria yet.
 6. **BTF fallback requires per-kernel blobs.** Kernels without
