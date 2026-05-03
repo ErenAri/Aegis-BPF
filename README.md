@@ -424,6 +424,7 @@ listed anonymously.
 | Supply chain | cosign / Sigstore signatures | ✅ keyless via GitHub OIDC in release workflow |
 | Supply chain | OpenSSF Best Practices Badge | ◐ self-assessed Passing (`docs/compliance/OPENSSF_BEST_PRACTICES.md`); formal submission pending |
 | Supply chain | OpenSSF Scorecard | ✅ `.github/workflows/scorecard.yml` publishes weekly |
+| Quality | Coverage gate (line ≥ 28%, branch ≥ 11%, ratchet to 80%) | ◐ floor enforced today (`docs/COVERAGE.md`); 80% target tracked via `coverage-ratchet.yml` |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
 | Daemon hardening | Landlock self-sandbox | ✅ opt-in via `--landlock` (`docs/HARDENING.md`) |
 | Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
