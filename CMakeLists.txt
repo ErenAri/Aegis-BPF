@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Local CMake module path so `include(Reproducibility)` works.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 include(GNUInstallDirs)
 
 # Match packaged/systemd paths unless caller overrides explicitly.
@@ -128,6 +131,11 @@ if(ENABLE_COVERAGE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
 endif()
+
+# Reproducibility flags (file-prefix-map, build-id=sha1, ar -D, etc.).
+# Must come AFTER all other CMAKE_*_FLAGS edits so the prefix-map flags
+# end up applying to every TU compiled below.
+include(Reproducibility)
 
 # BPF compilation settings
 set(BPF_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/aegis.bpf.c)
