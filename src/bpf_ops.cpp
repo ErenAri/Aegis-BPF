@@ -22,6 +22,7 @@
 
 #include "bpf_attach.hpp"
 #include "bpf_integrity.hpp"
+#include "btf_loader.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
@@ -193,35 +194,52 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
     {
         ScopedSpan span("bpf.open_object", trace_id, root_span.span_id());
 
-        // Check for custom BTF path when kernel doesn't have built-in BTF.
-        // This enables CO-RE on older kernels using BTFHub-generated minimized BTFs.
+        // Resolve a BTF blob to feed CO-RE relocations. On a modern
+        // kernel with /sys/kernel/btf/vmlinux this is a no-op (libbpf
+        // picks up the kernel-built-in automatically); on older
+        // kernels we fall back to BTFhub-generated blobs under
+        // /lib/modules, /var/lib/aegisbpf/btfs, /usr/lib/aegisbpf/btfs,
+        // or /etc/aegisbpf/btfs. Operators can override the choice
+        // via AEGIS_BTF_PATH.
         struct bpf_object_open_opts open_opts = {};
         open_opts.sz = sizeof(open_opts);
         std::string btf_custom_path;
 
-        if (access("/sys/kernel/btf/vmlinux", F_OK) != 0) {
-            // Try to find a matching BTF file for this kernel
-            struct utsname uname_buf = {};
-            if (uname(&uname_buf) == 0) {
-                const std::string kernel_release = uname_buf.release;
-                const std::vector<std::string> btf_search_paths = {
-                    "/usr/lib/aegisbpf/btfs/" + kernel_release + ".btf",
-                    "/etc/aegisbpf/btfs/" + kernel_release + ".btf",
-                };
-                for (const auto& path : btf_search_paths) {
-                    if (access(path.c_str(), R_OK) == 0) {
-                        btf_custom_path = path;
-                        open_opts.btf_custom_path = btf_custom_path.c_str();
-                        logger().log(LogLevel::Info, "Using custom BTF: " + btf_custom_path);
-                        break;
-                    }
-                }
-                if (btf_custom_path.empty()) {
-                    logger().log(LogLevel::Warn, "No kernel BTF at /sys/kernel/btf/vmlinux and no custom BTF "
-                                                 "found for kernel " +
-                                                     kernel_release);
-                }
+        std::string kernel_release;
+        struct utsname uname_buf = {};
+        if (uname(&uname_buf) == 0) {
+            kernel_release = uname_buf.release;
+        }
+
+        const BtfResolution btf = resolve_btf_path(kernel_release, btf_path_env_override());
+        if (btf.source == "override-missing") {
+            Error error(ErrorCode::BpfLoadFailed, "AEGIS_BTF_PATH points to an unreadable file",
+                        btf_path_env_override());
+            span.fail(error.to_string());
+            return fail(error);
+        }
+        if (!btf.path.empty()) {
+            btf_custom_path = btf.path;
+            open_opts.btf_custom_path = btf_custom_path.c_str();
+            logger().log(SLOG_INFO("Using custom BTF blob")
+                             .field("path", btf_custom_path)
+                             .field("source", btf.source)
+                             .field("kernel_release", kernel_release));
+        } else if (btf.source == "kernel") {
+            logger().log(SLOG_INFO("Using kernel built-in BTF").field("path", "/sys/kernel/btf/vmlinux"));
+        } else if (btf.source == "none") {
+            // No BTF at all — libbpf will likely fail to apply CO-RE
+            // relocations. Log loudly and let the open call fail
+            // organically with a sensible error message.
+            std::string searched;
+            for (const auto& p : btf.searched) {
+                if (!searched.empty())
+                    searched += ":";
+                searched += p;
             }
+            logger().log(SLOG_WARN("No BTF found; CO-RE relocations will likely fail")
+                             .field("kernel_release", kernel_release)
+                             .field("searched", searched));
         }
 
         state.obj = bpf_object__open_file(obj_path.c_str(), &open_opts);
