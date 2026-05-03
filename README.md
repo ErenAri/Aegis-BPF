@@ -418,7 +418,7 @@ listed anonymously.
 |---|---|---|
 | Kernel enforcement | BPF LSM (`CONFIG_BPF_LSM`, kernel ≥ 5.7) | ✅ 15 hooks attached |
 | Portability | CO‑RE + BTF | ✅ (min kernel 5.15) |
-| Portability | BTFhub fallback for kernels without `/sys/kernel/btf/vmlinux` | Roadmap |
+| Portability | BTFhub fallback for kernels without `/sys/kernel/btf/vmlinux` | ✅ multi-tier resolver + `AEGIS_BTF_PATH` override (`docs/BTF_FALLBACK.md`) |
 | Supply chain | SBOM (SPDX 2.3 + CycloneDX 1.6) | ✅ published per release |
 | Supply chain | SLSA v1.0 L3 build provenance | ✅ `actions/attest-build-provenance` + self-verify in release workflow; see `docs/compliance/SLSA_PROVENANCE.md` |
 | Supply chain | cosign / Sigstore signatures | ✅ keyless via GitHub OIDC in release workflow |
@@ -460,8 +460,13 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    view across clusters yet.
 5. **Policy language is INI + CRD only.** No CEL/Rego expressions, no
    parent-process / label selectors in match criteria yet.
-6. **No BTFhub fallback.** Kernels without `/sys/kernel/btf/vmlinux`
-   (RHEL 7, very old embedded) are unsupported.
+6. **BTF fallback requires per-kernel blobs.** Kernels without
+   `/sys/kernel/btf/vmlinux` (RHEL 7, very old embedded) need a
+   matching BTF blob staged under `/lib/modules/<release>/btf/vmlinux`,
+   `/var/lib/aegisbpf/btfs/<release>.btf`, `/usr/lib/aegisbpf/btfs/`,
+   `/etc/aegisbpf/btfs/`, or pointed at via `AEGIS_BTF_PATH`. Use
+   `scripts/btfgen.sh` to harvest from BTFhub-archive. See
+   [`docs/BTF_FALLBACK.md`](docs/BTF_FALLBACK.md).
 7. **No distro packages yet.** Install requires build-from-source or
    the provided container image; Ubuntu PPA / Fedora COPR are on the
    roadmap.

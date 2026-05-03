@@ -242,6 +242,7 @@ set(AEGIS_SOURCES
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
+    src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
@@ -300,6 +301,7 @@ set(AEGIS_HEADERS
     src/bpf_integrity.hpp
     src/bpf_maps.hpp
     src/bpf_ops.hpp
+    src/btf_loader.hpp
     src/crypto.hpp
     src/exec_identity.hpp
     src/events.hpp
@@ -392,6 +394,7 @@ set(AEGIS_LIB_SOURCES
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
+    src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
@@ -483,6 +486,7 @@ if(BUILD_TESTING)
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp
         tests/test_ocsf_formatter.cpp
+        tests/test_btf_loader.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})
