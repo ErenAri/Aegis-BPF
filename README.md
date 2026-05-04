@@ -455,8 +455,13 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    1M-instruction or 4K-stack caps. A policy compiler that partitions
    large rulesets across tail-called programs is on the roadmap.
 3. **`socket_listen` / `socket_recvmsg` are kernel-version-gated.**
-   Runtime probing today; a machine-readable capability report is on
-   the roadmap.
+   AegisBPF probes for the matching `bpf_lsm_*` BTF symbols at startup
+   and degrades gracefully on kernels that do not expose them.
+   Operators can predict the outcome before installation with
+   `aegisbpf probe` — no privileges required beyond reading
+   `/sys/kernel/btf/vmlinux` — whose `hook_probe.hooks.*` JSON block
+   reports per-hook attachability for all 14 LSM hooks AegisBPF
+   attaches. See [`docs/HOOK_CAPABILITY_PROBE.md`](docs/HOOK_CAPABILITY_PROBE.md).
 4. **Single-node control plane.** One operator pod per cluster; no fleet
    view across clusters yet.
 5. **Policy language is INI + CRD only.** No CEL/Rego expressions, no

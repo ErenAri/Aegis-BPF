@@ -254,6 +254,7 @@ set(AEGIS_SOURCES
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
+    src/hook_capabilities.cpp
     src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
@@ -313,6 +314,7 @@ set(AEGIS_HEADERS
     src/crypto.hpp
     src/exec_identity.hpp
     src/events.hpp
+    src/hook_capabilities.hpp
     src/json_scan.hpp
     src/kernel_features.hpp
     src/logging.hpp
@@ -406,6 +408,7 @@ set(AEGIS_LIB_SOURCES
     src/crypto.cpp
     src/exec_identity.cpp
     src/events.cpp
+    src/hook_capabilities.cpp
     src/json_scan.cpp
     src/kernel_features.cpp
     src/network_ops.cpp
@@ -495,6 +498,7 @@ if(BUILD_TESTING)
         tests/test_landlock_sandbox.cpp
         tests/test_ocsf_formatter.cpp
         tests/test_btf_loader.cpp
+        tests/test_hook_capabilities.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})
