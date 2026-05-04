@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777890909770,
+  "lastUpdate": 1777895973176,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -35670,6 +35670,108 @@ window.BENCHMARK_DATA = {
             "value": 54.14679264838022,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.14334413202493 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ad2d7c1a88f3e35181ee73c866b58441fcc4558",
+          "message": "Merge pull request #120 from ErenAri/productize/enforcement-adoption-docs\n\nProductize/enforcement adoption docs",
+          "timestamp": "2026-05-04T14:48:08+03:00",
+          "tree_id": "7e29ae969f1fadc3ba1151e435feaee10932bd3b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/4ad2d7c1a88f3e35181ee73c866b58441fcc4558"
+        },
+        "date": 1777895972456,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1529.8352637194278,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1529.6544577064178 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3690.4541801629402,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3690.0208556810535 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21032.23788233122,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21029.853769719342 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160060.24397081346,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160027.5757584484 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1271178.9713919058,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1271030.1678743947 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5088750.487620798,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5088097.964673917 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4821.926742759288,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4834.9113258531015 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34485.57592424832,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34485.2017652792 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 278310.98235965223,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 278412.0157756183 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 857641.3335369318,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 857955.5450010874 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.190156525689964,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.184395622047965 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.03552207655919,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.0208750383105 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.3884435936155,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.382724172911196 ns\nthreads: 1"
           }
         ]
       }
