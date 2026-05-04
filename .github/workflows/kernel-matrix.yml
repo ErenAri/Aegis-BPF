@@ -26,7 +26,7 @@ jobs:
             runs_on: '["self-hosted","kernel-latest"]'
     runs-on: ${{ fromJSON(matrix.runner.runs_on) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install dependencies (if apt-get is available)
         run: |
