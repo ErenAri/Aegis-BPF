@@ -87,9 +87,8 @@ Result<void> drop_capabilities(const std::vector<int>& caps_to_drop)
     uint64_t prm = pack(data[0].permitted, data[1].permitted);
     uint64_t inh = pack(data[0].inheritable, data[1].inheritable);
 
-    // 2. Lower from ambient (children won't inherit), then mask out of
-    //    effective / permitted / inheritable, then drop from bounding so
-    //    the cap can never be regained.
+    // 2. Lower from ambient (children won't inherit) and compute the
+    //    narrowed effective / permitted / inheritable masks.
     for (int cap : caps_to_drop) {
         if (cap < 0) {
             continue;
@@ -108,33 +107,41 @@ Result<void> drop_capabilities(const std::vector<int>& caps_to_drop)
         inh &= ~bit;
     }
 
-    // 3. Push the narrowed effective/permitted/inheritable set back in
-    //    one capset() call. Doing this before the bounding-set drops
-    //    avoids a window where the kernel still sees the cap in the
-    //    permitted set.
-    unpack(eff, data[0].effective, data[1].effective);
-    unpack(prm, data[0].permitted, data[1].permitted);
-    unpack(inh, data[0].inheritable, data[1].inheritable);
-    if (sys_capset(&hdr, data) != 0) {
-        return Error::system(errno, "capset");
-    }
-
-    // 4. Drop from the bounding set (irreversible).
+    // 3. Drop from the bounding set FIRST, while CAP_SETPCAP is still
+    //    in our effective set. PR_CAPBSET_DROP requires CAP_SETPCAP in
+    //    the caller's effective set, so we must do this before the
+    //    capset() shrink in step 4 -- otherwise CAP_SETPCAP itself
+    //    (which is in the drop list when starting as root) gets cleared
+    //    from effective and the subsequent PR_CAPBSET_DROP calls fail
+    //    with EPERM, leaking the bounding bits.
     for (int cap : caps_to_drop) {
         if (cap < 0) {
             continue;
         }
         const int bs_rc = ::prctl(PR_CAPBSET_DROP, cap, 0, 0, 0);
         if (bs_rc != 0) {
-            // EPERM here means the bounding set is already locked out
-            // (e.g. NoNewPrivileges); not fatal because effective/permitted
-            // were already cleared above.
+            // EPERM here means the caller never had CAP_SETPCAP to
+            // begin with (unprivileged container); EINVAL means the
+            // kernel doesn't know this cap number. Both are non-fatal:
+            // the capset() in step 4 still narrows effective/permitted
+            // for this process, even if the bounding bit survives.
             const int err = errno;
             if (err == EPERM || err == EINVAL) {
                 continue;
             }
             return Error::system(err, std::string("prctl(PR_CAPBSET_DROP, ") + cap_name(cap) + ")");
         }
+    }
+
+    // 4. Push the narrowed effective/permitted/inheritable set back in
+    //    one capset() call. After this point CAP_SETPCAP is gone, so
+    //    no further PR_CAPBSET_DROP is possible -- which is fine because
+    //    step 3 already shrank the bounding set.
+    unpack(eff, data[0].effective, data[1].effective);
+    unpack(prm, data[0].permitted, data[1].permitted);
+    unpack(inh, data[0].inheritable, data[1].inheritable);
+    if (sys_capset(&hdr, data) != 0) {
+        return Error::system(errno, "capset");
     }
 
     return {};

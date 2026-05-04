@@ -5,7 +5,10 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "capabilities.hpp"
@@ -130,6 +133,72 @@ TEST(CapabilitiesTest, DroppedCapDisappearsFromPermittedSet)
     EXPECT_EQ(WEXITSTATUS(status), 0)
         << "child exited with sentinel " << WEXITSTATUS(status)
         << " (10=drop_failed, 20=read_failed, 30=permitted_still_set, 40=effective_still_set)";
+}
+
+namespace {
+
+// Read a single Cap* line from /proc/self/status and decode the
+// 16-hex-digit bitmap into a uint64_t. Returns 0 if the line is
+// absent or malformed (only used in tests so this is fine).
+uint64_t read_proc_cap_line(const char* prefix)
+{
+    std::FILE* fp = std::fopen("/proc/self/status", "r");
+    if (!fp) {
+        return 0;
+    }
+    char line[256];
+    uint64_t value = 0;
+    const size_t prefix_len = std::strlen(prefix);
+    while (std::fgets(line, sizeof(line), fp)) {
+        if (std::strncmp(line, prefix, prefix_len) == 0) {
+            // Format: "CapBnd:\t<16 hex digits>\n"
+            std::sscanf(line + prefix_len, "%lx", &value);
+            break;
+        }
+    }
+    std::fclose(fp);
+    return value;
+}
+
+} // namespace
+
+TEST(CapabilitiesTest, DroppedCapDisappearsFromBoundingSet)
+{
+    // The bounding set is the cap-drop fix's most important invariant:
+    // it survives execve, so a leak there means a child process could
+    // re-acquire the cap via a setuid binary or fcaps. The drop_*
+    // function must reliably clear it; this test pins that behaviour
+    // so any future regression in the call order trips a unit test
+    // instead of being discovered by a security review.
+    auto initial = read_capabilities();
+    ASSERT_TRUE(initial);
+    const uint64_t initial_bnd = read_proc_cap_line("CapBnd:");
+    if ((initial_bnd & (1ULL << 5)) == 0) {
+        GTEST_SKIP() << "CAP_KILL not in bounding set (likely an unprivileged container)";
+    }
+    if ((initial->effective & (1ULL << 8)) == 0) { // CAP_SETPCAP
+        GTEST_SKIP() << "CAP_SETPCAP not in effective set; PR_CAPBSET_DROP requires it";
+    }
+
+    pid_t pid = ::fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        auto rc = drop_capabilities({5}); // CAP_KILL
+        if (!rc) {
+            _exit(10);
+        }
+        const uint64_t after_bnd = read_proc_cap_line("CapBnd:");
+        if ((after_bnd & (1ULL << 5)) != 0) {
+            _exit(20);
+        }
+        _exit(0);
+    }
+
+    int status = 0;
+    ASSERT_EQ(::waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    EXPECT_EQ(WEXITSTATUS(status), 0)
+        << "child exited with sentinel " << WEXITSTATUS(status) << " (10=drop_failed, 20=bounding_still_set)";
 }
 
 } // namespace aegis
