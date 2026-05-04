@@ -20,6 +20,7 @@
 #include <fstream>
 #include <memory>
 #include <thread>
+#include <vector>
 
 #include "bpf_ops.hpp"
 #include "daemon_policy_gate.hpp"
@@ -27,6 +28,7 @@
 #include "daemon_runtime.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
+#include "capabilities.hpp"
 #include "k8s_identity.hpp"
 #include "kernel_features.hpp"
 #include "landlock.hpp"
@@ -414,11 +416,12 @@ void reset_attach_all_for_test()
     g_deps.attach_all = make_default_deps().attach_all;
 }
 
-int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl, uint8_t enforce_signal,
-               bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
-               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
-               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode)
+int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool enable_cap_drop, uint32_t deadman_ttl,
+               uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes,
+               uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
+               uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
+               uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
+               bool strict_degrade, EnforceGateMode enforce_gate_mode)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -808,6 +811,33 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
         }
     }
 
+    // Drop capabilities that were only needed for BPF program load and
+    // attach. Map updates from this point onward use file descriptors
+    // that were already opened with the appropriate caps; we keep
+    // CAP_NET_ADMIN (cgroup-scoped network maps) and CAP_DAC_READ_SEARCH
+    // (read /proc/<pid>/{exe,cgroup,ns/*}). Best-effort: a failure here
+    // logs a WARN but does not stop the daemon, since LSM enforcement
+    // still works with wider caps.
+    std::vector<int> caps_dropped;
+    if (enable_cap_drop) {
+        ScopedSpan cap_span("daemon.drop_capabilities", trace_id, root_span.span_id());
+        if (!capabilities_split_supported()) {
+            logger().log(SLOG_WARN("Capability split (CAP_BPF/CAP_PERFMON) unsupported on this kernel; "
+                                   "continuing without post-attach drop"));
+        } else {
+            auto drop_result = apply_post_attach_cap_drop();
+            if (!drop_result) {
+                cap_span.fail(drop_result.error().to_string());
+                logger().log(SLOG_WARN("Failed to drop post-attach capabilities; continuing")
+                                 .field("error", drop_result.error().to_string()));
+            } else {
+                caps_dropped = std::move(*drop_result);
+                logger().log(SLOG_INFO("Capabilities dropped post-attach")
+                                 .field("count", static_cast<int64_t>(caps_dropped.size())));
+            }
+        }
+    }
+
     // Apply Landlock LSM filesystem sandbox before seccomp. This narrows
     // the set of paths the daemon can open at all; seccomp narrows the
     // set of syscalls. Doing Landlock first means a kernel that supports
@@ -859,6 +889,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
             .field("seccomp", enable_seccomp)
             .field("landlock", enable_landlock)
             .field("landlock_abi", static_cast<int64_t>(landlock_abi_version()))
+            .field("cap_drop", enable_cap_drop)
+            .field("caps_dropped", static_cast<int64_t>(caps_dropped.size()))
             .field("break_glass", break_glass_active)
             .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
             .field("exec_identity_kernel", kernel_exec_identity_enabled)

@@ -265,6 +265,7 @@ set(AEGIS_SOURCES
     src/policy_runtime.cpp
     src/seccomp.cpp
     src/landlock.cpp
+    src/capabilities.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -325,6 +326,7 @@ set(AEGIS_HEADERS
     src/result.hpp
     src/seccomp.hpp
     src/landlock.hpp
+    src/capabilities.hpp
     src/sha256.hpp
     src/ocsf_formatter.hpp
     src/tracing.hpp
@@ -419,6 +421,7 @@ set(AEGIS_LIB_SOURCES
     src/policy_runtime.cpp
     src/seccomp.cpp
     src/landlock.cpp
+    src/capabilities.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -496,6 +499,7 @@ if(BUILD_TESTING)
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp
+        tests/test_capabilities.cpp
         tests/test_ocsf_formatter.cpp
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp

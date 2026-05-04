@@ -427,7 +427,7 @@ listed anonymously.
 | Supply chain | Bit-for-bit reproducible builds | ✅ verified in CI (`scripts/check_reproducible_build.sh`, `docs/REPRODUCIBLE_BUILDS.md`) |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
 | Daemon hardening | Landlock self-sandbox | ✅ opt-in via `--landlock` (`docs/HARDENING.md`) |
-| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
+| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | ✅ opt-in post-attach drop via `--drop-caps` (`docs/HARDENING.md`) |
 | Compliance | NIST SP 800‑53 Rev 5 control mapping | ✅ `docs/compliance/NIST_800_53_MAPPING.md` |
 | Compliance | NIST SP 800‑190 (container security) | Roadmap |
 | Compliance | ISO/IEC 27001:2022 | ✅ `docs/compliance/ISO_27001_CONTROLS.md` |
@@ -476,8 +476,10 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
 7. **No distro packages yet.** Install requires build-from-source or
    the provided container image; Ubuntu PPA / Fedora COPR are on the
    roadmap.
-8. **Daemon runs as root for its full lifetime.** It should drop to
-   `CAP_BPF` + `CAP_PERFMON` after BPF load; tracked on roadmap.
+8. **Daemon runs as root for its full lifetime by default.** Opt-in
+   `--drop-caps` removes `CAP_SYS_ADMIN`/`CAP_BPF`/`CAP_PERFMON` after
+   BPF attach (kept: `CAP_NET_ADMIN`, `CAP_DAC_READ_SEARCH`); see
+   [`docs/HARDENING.md`](docs/HARDENING.md).
 9. **No third-party security audit yet.** Planned before v1.0 GA.
 10. **Linux only.** Windows (`ebpf-for-windows`) is a v2.0 consideration;
     macOS is an explicit non-goal.
