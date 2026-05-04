@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "hook_capabilities.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "types.hpp"
@@ -29,6 +30,9 @@ int cmd_probe()
     const auto& features = *features_result;
     auto cap = determine_capability(features);
 
+    bool btf_available_for_hooks = false;
+    const auto hooks = probe_hook_capabilities(&btf_available_for_hooks);
+
     std::ostringstream out;
     out << "{\n";
     out << "  \"kernel_release\": \"" << json_escape(features.kernel_version) << "\",\n";
@@ -42,7 +46,20 @@ int cmd_probe()
     out << "  \"capability\": \"" << json_escape(capability_name(cap)) << "\",\n";
     out << "  \"can_enforce_files\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
     out << "  \"can_enforce_network\": " << (features.bpf_lsm ? "true" : "false") << ",\n";
-    out << "  \"can_use_shadow_maps\": " << (features.bpf_syscall ? "true" : "false") << "\n";
+    out << "  \"can_use_shadow_maps\": " << (features.bpf_syscall ? "true" : "false") << ",\n";
+    out << "  \"hook_probe\": {\n";
+    out << "    \"btf_available\": " << (btf_available_for_hooks ? "true" : "false") << ",\n";
+    out << "    \"hooks\": {\n";
+    for (size_t i = 0; i < hooks.size(); ++i) {
+        out << "      \"" << json_escape(hooks[i].name) << "\": {"
+            << "\"kernel_supported\": " << (hooks[i].kernel_supported ? "true" : "false")
+            << ", \"required\": " << (hooks[i].required ? "true" : "false") << ", \"btf_symbol\": \""
+            << json_escape(hooks[i].btf_symbol) << "\"" << ", \"description\": \"" << json_escape(hooks[i].description)
+            << "\"}";
+        out << (i + 1 == hooks.size() ? "\n" : ",\n");
+    }
+    out << "    }\n";
+    out << "  }\n";
     out << "}\n";
     std::cout << out.str();
     return 0;
