@@ -88,10 +88,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create SSE event broker for the web console.
 	eventBroker := console.NewBroker()
 
-	// Register AegisPolicy controller.
 	if err := (&controllers.AegisPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -100,7 +98,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register AegisClusterPolicy controller.
+	// NEW: live agent sync controller
+	if err := (&controllers.AegisPolicyAgentReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		RestConfig: mgr.GetConfig(),
+	}).SetupWithManager(mgr); err != nil {
+		logger.Error(err, "Unable to create AegisPolicy agent sync controller")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.AegisClusterPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -109,8 +116,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register merged policy reconciler — watches all policies and produces
-	// a single merged ConfigMap consumed by the DaemonSet daemon.
 	if err := (&controllers.MergedPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -119,7 +124,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register validating admission webhook for policy CRDs.
 	if enableWebhook {
 		decoder := admission.NewDecoder(scheme)
 		validator := aegiswebhook.NewPolicyValidator(decoder)
@@ -128,7 +132,6 @@ func main() {
 		logger.Info("Validating webhook registered", "port", webhookPort)
 	}
 
-	// Start identity resolver if enabled.
 	if identityEnabled {
 		resolver := identity.NewResolver(mgr.GetClient(), identityInterval)
 		if err := mgr.Add(resolver); err != nil {
@@ -138,7 +141,6 @@ func main() {
 		logger.Info("Identity resolution enabled", "interval", identityInterval)
 	}
 
-	// Start web console if enabled.
 	if enableConsole {
 		consoleSrv, err := console.NewServer(mgr.GetClient(), consoleAddr, eventBroker)
 		if err != nil {
@@ -152,7 +154,6 @@ func main() {
 		logger.Info("Web console enabled", "addr", consoleAddr)
 	}
 
-	// Health and readiness probes.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		logger.Error(err, "Unable to set up health check")
 		os.Exit(1)
@@ -162,13 +163,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("Starting aegis-operator",
-		"version", "0.5.0",
-		"leaderElection", enableLeaderElection,
-		"identityResolution", identityEnabled,
-		"webhook", enableWebhook,
-		"console", enableConsole,
-	)
+	logger.Info("Starting aegis-operator", "version", "0.5.0")
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		logger.Error(err, "Problem running manager")

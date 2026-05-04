@@ -1,0 +1,21 @@
+apiVersion: aegisbpf.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: demo-block-file-and-network
+  namespace: aegisbpf-demo
+spec:
+  mode: enforce
+  workloadSelector:
+    matchNamespaceNames:
+      - aegisbpf-demo
+    podSelector:
+      matchLabels:
+        app: aegisbpf-demo
+  fileRules:
+    deny:
+      - path: /tmp/aegisbpf-demo-secret
+        action: Block
+  networkRules:
+    deny:
+      - ip: 1.1.1.1
+        action: Block
