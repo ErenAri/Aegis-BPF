@@ -25,6 +25,9 @@ jobs:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
 
+      - name: Hydrate Go modules
+        run: go mod tidy
+
       - name: Vet
         run: go vet ./...
 
@@ -41,6 +44,9 @@ jobs:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
 
+      - name: Hydrate Go modules
+        run: go mod tidy
+
       - name: Build
         run: go build ./cmd/operator/
 
@@ -53,6 +59,9 @@ jobs:
         with:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
+
+      - name: Hydrate Go modules
+        run: go mod tidy
 
       - name: Verify generated files are up to date
         run: make verify-generated
