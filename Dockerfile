@@ -51,6 +51,7 @@ WORKDIR /build
 
 # Copy source files
 COPY CMakeLists.txt ./
+COPY cmake/ ./cmake/
 COPY bpf/ ./bpf/
 COPY src/ ./src/
 COPY config/ ./config/
