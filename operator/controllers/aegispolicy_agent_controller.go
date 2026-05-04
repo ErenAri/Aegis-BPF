@@ -34,6 +34,8 @@ const (
 	AgentSyncInterval     = 30 * time.Second
 	AgentSyncFinalizer    = "aegisbpf.io/agent-sync-finalizer"
 	AgentStatePrefix      = "aegis-agent-state-"
+	ReasonAgentSyncFailed = "AgentSyncFailed"
+	ReasonAgentSynced     = "AgentSynced"
 )
 
 type agentRule struct {
@@ -44,6 +46,11 @@ type agentRule struct {
 
 type agentState struct {
 	Nodes map[string][]agentRule `json:"nodes"`
+}
+
+type agentSyncResult struct {
+	AppliedNodes int
+	FailedNodes  []string
 }
 
 // AegisPolicyAgentReconciler continuously applies namespaced AegisPolicy
@@ -82,6 +89,7 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if !ap.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&ap, AgentSyncFinalizer) {
 			if err := r.cleanupAppliedAgentState(ctx, clientset, ap.Namespace, ap.Name); err != nil {
+				_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup failed: %v", err), 0, true)
 				return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 			}
 			controllerutil.RemoveFinalizer(&ap, AgentSyncFinalizer)
@@ -103,11 +111,13 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	podSelector, err := podSelectorForPolicy(&ap)
 	if err != nil {
 		logger.Error(err, "invalid workload selector")
+		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Invalid workload selector: %v", err), 0, true)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 	}
 
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, client.InNamespace(ap.Namespace), client.MatchingLabelsSelector{Selector: podSelector}); err != nil {
+		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Pod list failed: %v", err), 0, true)
 		return ctrl.Result{}, err
 	}
 
@@ -120,10 +130,14 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	desiredRules := policyRules(ap.Spec)
 	if len(desiredRules) == 0 || nodes.Len() == 0 {
-		if err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, map[string][]agentRule{}); err != nil {
+		result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, map[string][]agentRule{})
+		if err != nil {
+			_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup reconcile failed: %v", err), result.AppliedNodes, true)
 			return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 		}
-		logger.Info("no desired live-agent rules or no matching workloads", "policy", ap.Name)
+		message := "No matching running workloads or no live-agent rules; stale rules cleaned up"
+		logger.Info(message, "policy", ap.Name)
+		_ = r.updateAgentSyncStatus(ctx, &ap, "Applied", message, result.AppliedNodes, false)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 	}
 
@@ -132,11 +146,16 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		desired[node] = desiredRules
 	}
 
-	if err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, desired); err != nil {
+	result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, desired)
+	if err != nil {
+		message := fmt.Sprintf("Agent sync failed after %d/%d nodes: %v", result.AppliedNodes, len(desired), err)
+		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", message, result.AppliedNodes, true)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 	}
 
+	message := fmt.Sprintf("Agent sync applied to %d node(s), %d rule(s) each", result.AppliedNodes, len(desiredRules))
 	logger.Info("policy agent state reconciled", "policy", ap.Name, "nodes", len(desired), "rules", len(desiredRules))
+	_ = r.updateAgentSyncStatus(ctx, &ap, "Applied", message, result.AppliedNodes, false)
 	return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 }
 
@@ -147,21 +166,25 @@ func (r *AegisPolicyAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, desired map[string][]agentRule) error {
+func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, desired map[string][]agentRule) (agentSyncResult, error) {
+	result := agentSyncResult{}
 	current, err := r.loadAgentState(ctx, namespace, name)
 	if err != nil {
-		return err
+		return result, err
 	}
 
+	failed := sets.New[string]()
 	for node, applied := range current.Nodes {
 		desiredForNode := desired[node]
 		for _, stale := range difference(applied, desiredForNode) {
 			agent, err := r.findAgentForNode(ctx, node)
 			if err != nil {
-				return err
+				failed.Insert(node)
+				continue
 			}
 			if err := r.execAgentCommand(ctx, clientset, agent, stale.Del); err != nil {
-				return err
+				failed.Insert(node)
+				continue
 			}
 		}
 	}
@@ -171,15 +194,24 @@ func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, cl
 		for _, missing := range difference(wanted, applied) {
 			agent, err := r.findAgentForNode(ctx, node)
 			if err != nil {
-				return err
+				failed.Insert(node)
+				continue
 			}
 			if err := r.execAgentCommand(ctx, clientset, agent, missing.Add); err != nil {
-				return err
+				failed.Insert(node)
+				continue
 			}
 		}
 	}
 
-	return r.saveAgentState(ctx, namespace, name, agentState{Nodes: desired})
+	if failed.Len() > 0 {
+		result.FailedNodes = failed.UnsortedList()
+		result.AppliedNodes = len(desired) - failed.Len()
+		return result, fmt.Errorf("agent sync failed on node(s): %s", strings.Join(result.FailedNodes, ","))
+	}
+
+	result.AppliedNodes = len(desired)
+	return result, r.saveAgentState(ctx, namespace, name, agentState{Nodes: desired})
 }
 
 func (r *AegisPolicyAgentReconciler) cleanupAppliedAgentState(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string) error {
@@ -197,6 +229,23 @@ func (r *AegisPolicyAgentReconciler) cleanupAppliedAgentState(ctx context.Contex
 		}
 	}
 	return r.deleteAgentState(ctx, namespace, name)
+}
+
+func (r *AegisPolicyAgentReconciler) updateAgentSyncStatus(ctx context.Context, ap *v1alpha1.AegisPolicy, phase, message string, appliedNodes int, degraded bool) error {
+	now := metav1.Now()
+	ap.Status.Phase = phase
+	ap.Status.Message = message
+	ap.Status.AppliedNodes = appliedNodes
+	ap.Status.ObservedGeneration = ap.Generation
+	ap.Status.LastAppliedAt = &now
+	if degraded {
+		markDegraded(&ap.Status, ap.Generation, ReasonAgentSyncFailed, message)
+		setCondition(&ap.Status, ap.Generation, v1alpha1.ConditionReady, metav1.ConditionFalse, ReasonAgentSyncFailed, message)
+	} else {
+		setCondition(&ap.Status, ap.Generation, v1alpha1.ConditionReady, metav1.ConditionTrue, ReasonAgentSynced, message)
+		setCondition(&ap.Status, ap.Generation, v1alpha1.ConditionDegraded, metav1.ConditionFalse, ReasonAgentSynced, "Live agent sync succeeded")
+	}
+	return r.Status().Update(ctx, ap)
 }
 
 func podSelectorForPolicy(ap *v1alpha1.AegisPolicy) (labels.Selector, error) {
