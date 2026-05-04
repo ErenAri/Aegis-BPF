@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,20 +30,25 @@ import (
 )
 
 const (
-	DefaultAgentNamespace = "aegisbpf"
-	AgentContainerName    = "aegisbpf"
-	AgentBinaryPath       = "/usr/bin/aegisbpf"
-	AgentSyncInterval     = 30 * time.Second
-	AgentSyncFinalizer    = "aegisbpf.io/agent-sync-finalizer"
-	AgentStatePrefix      = "aegis-agent-state-"
-	ReasonAgentSyncFailed = "AgentSyncFailed"
-	ReasonAgentSynced     = "AgentSynced"
+	DefaultAgentNamespace      = "aegisbpf"
+	AgentContainerName         = "aegisbpf"
+	AgentBinaryPath            = "/usr/bin/aegisbpf"
+	AgentSyncInterval          = 30 * time.Second
+	AgentSyncFinalizer         = "aegisbpf.io/agent-sync-finalizer"
+	AgentStatePrefix           = "aegis-agent-state-"
+	AgentAggregateStateName    = "__namespace-aggregate"
+	PolicyPriorityAnnotation   = "aegisbpf.io/priority"
+	ReasonAgentSyncFailed      = "AgentSyncFailed"
+	ReasonAgentSynced          = "AgentSynced"
 )
 
 type agentRule struct {
-	Key string   `json:"key"`
-	Add []string `json:"add"`
-	Del []string `json:"del"`
+	Key      string   `json:"key"`
+	Add      []string `json:"add"`
+	Del      []string `json:"del"`
+	Source   string   `json:"source,omitempty"`
+	Priority int      `json:"priority,omitempty"`
+	Action   string   `json:"action,omitempty"`
 }
 
 type agentState struct {
@@ -53,12 +60,20 @@ type agentSyncResult struct {
 	FailedNodes  []string
 }
 
+type policyDecision struct {
+	Key      string
+	Rule     agentRule
+	Action   v1alpha1.RuleAction
+	Priority int
+	Source   string
+}
+
 // AegisPolicyAgentReconciler continuously applies namespaced AegisPolicy
 // resources to the AegisBPF DaemonSet pods that run on matching workload nodes.
 //
-// It persists the last applied per-node rule set in a controller-owned
-// ConfigMap, then uses desired-vs-current diffing to avoid duplicate writes and
-// to remove stale rules on policy update/delete.
+// It builds a namespace-level aggregate from all AegisPolicy resources, resolves
+// duplicate targets deterministically using aegisbpf.io/priority, and persists
+// the last applied per-node rule set in a controller-owned ConfigMap.
 type AegisPolicyAgentReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
@@ -88,7 +103,12 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if !ap.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&ap, AgentSyncFinalizer) {
-			if err := r.cleanupAppliedAgentState(ctx, clientset, ap.Namespace, ap.Name); err != nil {
+			desired, _, err := r.aggregateDesiredAgentRules(ctx, ap.Namespace, &ap)
+			if err != nil {
+				_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup aggregation failed: %v", err), 0, true)
+				return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
+			}
+			if _, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, AgentAggregateStateName, desired); err != nil {
 				_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup failed: %v", err), 0, true)
 				return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 			}
@@ -108,53 +128,34 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	podSelector, err := podSelectorForPolicy(&ap)
+	desired, ruleCount, err := r.aggregateDesiredAgentRules(ctx, ap.Namespace, nil)
 	if err != nil {
-		logger.Error(err, "invalid workload selector")
-		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Invalid workload selector: %v", err), 0, true)
+		logger.Error(err, "namespace policy aggregation failed")
+		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Policy aggregation failed: %v", err), 0, true)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 	}
 
-	var pods corev1.PodList
-	if err := r.List(ctx, &pods, client.InNamespace(ap.Namespace), client.MatchingLabelsSelector{Selector: podSelector}); err != nil {
-		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Pod list failed: %v", err), 0, true)
-		return ctrl.Result{}, err
-	}
-
-	nodes := sets.New[string]()
-	for _, pod := range pods.Items {
-		if pod.Spec.NodeName != "" && pod.Status.Phase == corev1.PodRunning {
-			nodes.Insert(pod.Spec.NodeName)
-		}
-	}
-
-	desiredRules := policyRules(ap.Spec)
-	if len(desiredRules) == 0 || nodes.Len() == 0 {
-		result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, map[string][]agentRule{})
+	if ruleCount == 0 || len(desired) == 0 {
+		result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, AgentAggregateStateName, map[string][]agentRule{})
 		if err != nil {
 			_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup reconcile failed: %v", err), result.AppliedNodes, true)
 			return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 		}
-		message := "No matching running workloads or no live-agent rules; stale rules cleaned up"
+		message := "No matching running workloads or no live-agent rules; stale namespace aggregate rules cleaned up"
 		logger.Info(message, "policy", ap.Name)
 		_ = r.updateAgentSyncStatus(ctx, &ap, "Applied", message, result.AppliedNodes, false)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 	}
 
-	desired := map[string][]agentRule{}
-	for _, node := range nodes.UnsortedList() {
-		desired[node] = desiredRules
-	}
-
-	result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, desired)
+	result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, AgentAggregateStateName, desired)
 	if err != nil {
 		message := fmt.Sprintf("Agent sync failed after %d/%d nodes: %v", result.AppliedNodes, len(desired), err)
 		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", message, result.AppliedNodes, true)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 	}
 
-	message := fmt.Sprintf("Agent sync applied to %d node(s), %d rule(s) each", result.AppliedNodes, len(desiredRules))
-	logger.Info("policy agent state reconciled", "policy", ap.Name, "nodes", len(desired), "rules", len(desiredRules))
+	message := fmt.Sprintf("Namespace aggregate synced to %d node(s), %d resolved rule(s); priority annotation=%s", result.AppliedNodes, ruleCount, PolicyPriorityAnnotation)
+	logger.Info("namespace policy aggregate reconciled", "policy", ap.Name, "nodes", len(desired), "rules", ruleCount)
 	_ = r.updateAgentSyncStatus(ctx, &ap, "Applied", message, result.AppliedNodes, false)
 	return ctrl.Result{RequeueAfter: AgentSyncInterval}, nil
 }
@@ -164,6 +165,106 @@ func (r *AegisPolicyAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("aegispolicy-agent-sync").
 		For(&v1alpha1.AegisPolicy{}).
 		Complete(r)
+}
+
+func (r *AegisPolicyAgentReconciler) aggregateDesiredAgentRules(ctx context.Context, namespace string, exclude *v1alpha1.AegisPolicy) (map[string][]agentRule, int, error) {
+	var policies v1alpha1.AegisPolicyList
+	if err := r.List(ctx, &policies, client.InNamespace(namespace)); err != nil {
+		return nil, 0, err
+	}
+
+	nodeDecisions := map[string]map[string]policyDecision{}
+	for i := range policies.Items {
+		policy := policies.Items[i]
+		if !policy.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if exclude != nil && policy.Namespace == exclude.Namespace && policy.Name == exclude.Name {
+			continue
+		}
+
+		selector, err := podSelectorForPolicy(&policy)
+		if err != nil {
+			return nil, 0, fmt.Errorf("policy %s/%s selector: %w", policy.Namespace, policy.Name, err)
+		}
+
+		var pods corev1.PodList
+		if err := r.List(ctx, &pods, client.InNamespace(policy.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+			return nil, 0, err
+		}
+
+		nodes := sets.New[string]()
+		for _, pod := range pods.Items {
+			if pod.Spec.NodeName != "" && pod.Status.Phase == corev1.PodRunning {
+				nodes.Insert(pod.Spec.NodeName)
+			}
+		}
+		if nodes.Len() == 0 {
+			continue
+		}
+
+		priority := policyPriority(policy)
+		decisions := policyDecisions(policy.Spec, policy.Namespace+"/"+policy.Name, priority)
+		for _, node := range nodes.UnsortedList() {
+			if nodeDecisions[node] == nil {
+				nodeDecisions[node] = map[string]policyDecision{}
+			}
+			for _, decision := range decisions {
+				current, ok := nodeDecisions[node][decision.Key]
+				if !ok || decisionWins(decision, current) {
+					nodeDecisions[node][decision.Key] = decision
+				}
+			}
+		}
+	}
+
+	desired := map[string][]agentRule{}
+	resolvedRules := 0
+	for node, decisions := range nodeDecisions {
+		keys := make([]string, 0, len(decisions))
+		for key := range decisions {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			decision := decisions[key]
+			if decision.Action != v1alpha1.RuleActionBlock {
+				continue
+			}
+			rule := decision.Rule
+			rule.Source = decision.Source
+			rule.Priority = decision.Priority
+			rule.Action = string(decision.Action)
+			desired[node] = append(desired[node], rule)
+			resolvedRules++
+		}
+	}
+	return desired, resolvedRules, nil
+}
+
+func decisionWins(candidate, current policyDecision) bool {
+	if candidate.Priority != current.Priority {
+		return candidate.Priority > current.Priority
+	}
+	if candidate.Action != current.Action {
+		return candidate.Action == v1alpha1.RuleActionAllow
+	}
+	return candidate.Source < current.Source
+}
+
+func policyPriority(policy v1alpha1.AegisPolicy) int {
+	if policy.Annotations == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(policy.Annotations[PolicyPriorityAnnotation])
+	if raw == "" {
+		return 0
+	}
+	priority, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return priority
 }
 
 func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, desired map[string][]agentRule) (agentSyncResult, error) {
@@ -260,58 +361,93 @@ func podSelectorForPolicy(ap *v1alpha1.AegisPolicy) (labels.Selector, error) {
 
 func policyRules(spec v1alpha1.AegisPolicySpec) []agentRule {
 	var rules []agentRule
+	for _, decision := range policyDecisions(spec, "", 0) {
+		if decision.Action == v1alpha1.RuleActionBlock {
+			rules = append(rules, decision.Rule)
+		}
+	}
+	return dedupeRules(rules)
+}
+
+func policyDecisions(spec v1alpha1.AegisPolicySpec, source string, priority int) []policyDecision {
+	var decisions []policyDecision
 	if spec.FileRules != nil {
 		for _, rule := range spec.FileRules.Deny {
-			if rule.Action == v1alpha1.RuleActionAllow || rule.Path == "" {
+			if rule.Path == "" {
 				continue
 			}
-			rules = append(rules, agentRule{
-				Key: "file:path:" + rule.Path,
-				Add: []string{AgentBinaryPath, "block", "add", rule.Path},
-				Del: []string{AgentBinaryPath, "block", "del", rule.Path},
-			})
+			action := normalizedAction(rule.Action)
+			key := "file:path:" + rule.Path
+			decision := policyDecision{Key: key, Action: action, Priority: priority, Source: source}
+			if action == v1alpha1.RuleActionBlock {
+				decision.Rule = agentRule{
+					Key: key,
+					Add: []string{AgentBinaryPath, "block", "add", rule.Path},
+					Del: []string{AgentBinaryPath, "block", "del", rule.Path},
+				}
+			}
+			decisions = append(decisions, decision)
 		}
 	}
 	if spec.NetworkRules != nil {
 		for _, rule := range spec.NetworkRules.Deny {
-			if rule.Action == v1alpha1.RuleActionAllow {
-				continue
-			}
+			action := normalizedAction(rule.Action)
 			if rule.IP != "" {
-				rules = append(rules, agentRule{
-					Key: "net:ip:" + rule.IP,
-					Add: []string{AgentBinaryPath, "network", "deny", "add", "--ip", rule.IP},
-					Del: []string{AgentBinaryPath, "network", "deny", "del", "--ip", rule.IP},
-				})
+				key := "net:ip:" + rule.IP
+				decision := policyDecision{Key: key, Action: action, Priority: priority, Source: source}
+				if action == v1alpha1.RuleActionBlock {
+					decision.Rule = agentRule{
+						Key: key,
+						Add: []string{AgentBinaryPath, "network", "deny", "add", "--ip", rule.IP},
+						Del: []string{AgentBinaryPath, "network", "deny", "del", "--ip", rule.IP},
+					}
+				}
+				decisions = append(decisions, decision)
 			}
 			if rule.CIDR != "" {
-				rules = append(rules, agentRule{
-					Key: "net:cidr:" + rule.CIDR,
-					Add: []string{AgentBinaryPath, "network", "deny", "add", "--cidr", rule.CIDR},
-					Del: []string{AgentBinaryPath, "network", "deny", "del", "--cidr", rule.CIDR},
-				})
+				key := "net:cidr:" + rule.CIDR
+				decision := policyDecision{Key: key, Action: action, Priority: priority, Source: source}
+				if action == v1alpha1.RuleActionBlock {
+					decision.Rule = agentRule{
+						Key: key,
+						Add: []string{AgentBinaryPath, "network", "deny", "add", "--cidr", rule.CIDR},
+						Del: []string{AgentBinaryPath, "network", "deny", "del", "--cidr", rule.CIDR},
+					}
+				}
+				decisions = append(decisions, decision)
 			}
 			if rule.Port > 0 {
 				key := fmt.Sprintf("net:port:%d:%s:%s", rule.Port, rule.Protocol, rule.Direction)
-				add := []string{AgentBinaryPath, "network", "deny", "add", "--port", fmt.Sprintf("%d", rule.Port)}
-				del := []string{AgentBinaryPath, "network", "deny", "del", "--port", fmt.Sprintf("%d", rule.Port)}
-				if rule.Protocol != "" {
-					add = append(add, "--protocol", rule.Protocol)
-					del = append(del, "--protocol", rule.Protocol)
-				}
-				if rule.Direction != "" {
-					direction := "egress"
-					if rule.Direction == "inbound" {
-						direction = "bind"
+				decision := policyDecision{Key: key, Action: action, Priority: priority, Source: source}
+				if action == v1alpha1.RuleActionBlock {
+					add := []string{AgentBinaryPath, "network", "deny", "add", "--port", fmt.Sprintf("%d", rule.Port)}
+					del := []string{AgentBinaryPath, "network", "deny", "del", "--port", fmt.Sprintf("%d", rule.Port)}
+					if rule.Protocol != "" {
+						add = append(add, "--protocol", rule.Protocol)
+						del = append(del, "--protocol", rule.Protocol)
 					}
-					add = append(add, "--direction", direction)
-					del = append(del, "--direction", direction)
+					if rule.Direction != "" {
+						direction := "egress"
+						if rule.Direction == "inbound" {
+							direction = "bind"
+						}
+						add = append(add, "--direction", direction)
+						del = append(del, "--direction", direction)
+					}
+					decision.Rule = agentRule{Key: key, Add: add, Del: del}
 				}
-				rules = append(rules, agentRule{Key: key, Add: add, Del: del})
+				decisions = append(decisions, decision)
 			}
 		}
 	}
-	return dedupeRules(rules)
+	return decisions
+}
+
+func normalizedAction(action v1alpha1.RuleAction) v1alpha1.RuleAction {
+	if action == v1alpha1.RuleActionAllow {
+		return v1alpha1.RuleActionAllow
+	}
+	return v1alpha1.RuleActionBlock
 }
 
 func difference(left, right []agentRule) []agentRule {
