@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777895973176,
+  "lastUpdate": 1777898456476,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -35772,6 +35772,102 @@ window.BENCHMARK_DATA = {
             "value": 53.3884435936155,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.382724172911196 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91ea8114a275daabbaa833dd4b48942655f7dc6d",
+          "message": "Merge pull request #121 from ErenAri/productize/enforcement-adoption-docs\n\nfeat: Kubernetes-native enforcement with reconciliation, diff, cleanup and observability",
+          "timestamp": "2026-05-04T15:29:13+03:00",
+          "tree_id": "b7905ee4313cbed64a44ee8197a2ce491af05d0b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/91ea8114a275daabbaa833dd4b48942655f7dc6d"
+        },
+        "date": 1777898455728,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1510.295258401368,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1510.027643451195 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3735.598408996753,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3735.2857123765475 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21667.296377293984,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21665.59337776884 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 164715.58653543823,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 164700.95624115996 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1309299.257249768,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1309058.3442469598 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5231467.499063697,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5231008.094257173 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4778.11675607188,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4784.40952474325 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33042.3366358605,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33047.39495885975 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269379.20660991373,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269373.28208349465 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 805991.0048224364,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 806092.8201195789 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.25541342298037,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.25017341081532 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.650616414775236,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.64669244340831 ns\nthreads: 1"
           }
         ]
       }
