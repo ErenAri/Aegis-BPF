@@ -20,14 +20,32 @@ see `docs/THREAT_MODEL.md`.
   time.  The kernel-side lookup in `deny_inode_map` is O(1) hash lookup per
   checked inode.
 
-### Path-based deny (audit fallback)
+### Path-based deny
 
-- Path deny entries use **canonicalized absolute paths** resolved at
-  policy-apply time (via `realpath()`).
-- Path-based deny is the primary enforcement mechanism when the tracepoint
-  audit fallback is active (BPF LSM unavailable).
-- Path entries support the `deny_path_map` BPF hash map and are compared
-  byte-for-byte in the BPF program.
+Two distinct enforcement modes apply depending on which kernel surface is
+available:
+
+**LSM mode (race-free, prevention-grade).** When BPF LSM is available, path
+deny is enforced inside the `lsm/file_open` hook using the in-kernel
+`bpf_d_path()` helper.  The helper walks the same `struct path` the kernel
+is about to authorize, under the same kernel locks, and returns a canonical
+absolute path that the BPF program looks up in `deny_path_map` synchronously.
+There is **no userspace TOCTOU window**: resolution and enforcement happen in
+the same hook invocation, the open is rejected with `-EPERM` before the file
+descriptor is returned.  This brings path deny to parity with inode deny for
+the prevention guarantee.
+
+**Tracepoint fallback (audit-only, TOCTOU-prone).** When BPF LSM is not
+available, the agent falls back to `tracepoint/sys_enter_openat`.  The
+tracepoint sees the **userspace-supplied filename string before kernel path
+resolution** and does a byte-compare against `deny_path_map`.  This mode is
+audit-only — tracepoints cannot block the syscall — and is inherently
+TOCTOU-prone because the canonical path the kernel ultimately resolves may
+differ from what the userspace string suggests (symlink swaps, bind mount
+changes, relative-path racing).
+
+Path deny entries are populated from userspace `realpath()` at policy-apply
+time and stored in `deny_path_map` as fixed-length byte strings.
 
 ### Network deny
 
@@ -89,14 +107,20 @@ see `docs/THREAT_MODEL.md`.
   mode.
 - Mitigation: re-apply policy after file lifecycle events.
 
-### Path-based deny TOCTOU
+### Path-based deny TOCTOU (tracepoint fallback only)
 
-- There is an inherent TOCTOU window between userspace `realpath()` resolution
-  at policy-apply time and kernel-side enforcement.
-- If the filesystem layout changes between `realpath()` and the next `open()`
-  syscall, the resolved path may no longer be accurate.
-- **This does not affect inode-based deny**, which is resolved atomically by
-  the kernel.
+- The LSM `file_open` path-deny mode is race-free (see "Path-based deny"
+  above): canonical resolution happens inside the same hook that authorizes
+  the open, so there is no observable TOCTOU window.
+- The **tracepoint `sys_enter_openat` fallback remains TOCTOU-prone**: it
+  inspects the userspace-supplied filename string before kernel resolution.
+  Symlink swaps, bind-mount changes, or relative-path race conditions can
+  cause the canonical path the kernel resolves to diverge from what the
+  string would suggest.
+- The tracepoint fallback is **audit-only** and cannot block the syscall;
+  any logged hit should be treated as a possibly-false-positive observation,
+  not a guaranteed enforcement decision.
+- Inode-based deny remains the strongest primitive on either surface.
 
 ### Audit-only mode
 
@@ -125,7 +149,8 @@ see `docs/THREAT_MODEL.md`.
 
 | Bypass | Affected surface | Mitigation |
 |--------|-----------------|------------|
-| Rename denied file to new path | Path deny (audit) | Use inode deny; re-apply policy |
+| Rename denied file to new path | Path deny (any mode) | Use inode deny; re-apply policy |
+| Symlink-swap / bind-mount race | Path deny (tracepoint fallback) | Run on a kernel with BPF LSM (race-free `bpf_d_path` mode); use inode deny |
 | Delete + recreate at same path | Inode deny | Re-apply policy; monitor file lifecycle |
 | OverlayFS upper/lower inode split | Inode deny on overlay | Test with `kernel-matrix.yml` overlay scenarios |
 | Mount namespace path divergence | Path deny (audit) | Inode deny is namespace-independent |
@@ -137,11 +162,19 @@ see `docs/THREAT_MODEL.md`.
 **Inode-based enforcement is atomic.**  The kernel resolves `dentry → inode`
 before the LSM hook fires.  There is no userspace-visible window.
 
-**Path-based enforcement has inherent TOCTOU.**  Paths are resolved in
-userspace at policy-apply time.  Between resolution and the next kernel check,
-the filesystem can change.  For this reason, inode deny is the recommended
-enforcement primitive.  Path deny exists primarily for audit/observability and
-as a fallback when inode resolution is impractical.
+**Path-based enforcement is race-free under LSM.**  The `lsm/file_open`
+hook calls `bpf_d_path()` on the same `struct path` the kernel is
+authorizing, so canonical resolution and `deny_path_map` lookup happen
+atomically inside the same hook invocation.  Paths are resolved in
+userspace at policy-apply time only to populate the deny map; enforcement
+itself uses the kernel's resolution.
+
+**Path-based enforcement is TOCTOU-prone in tracepoint fallback mode.**
+Without LSM, the agent falls back to `tracepoint/sys_enter_openat`, which
+only sees the userspace-supplied filename string before kernel resolution.
+This mode is audit-only.  Inode deny remains the strongest primitive on
+either surface and is recommended for any rule whose target file already
+exists at policy-apply time.
 
 ## Related documents
 

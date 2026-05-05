@@ -325,7 +325,7 @@ struct agent_config {
     __u8 break_glass_active;
     __u8 enforce_signal;  /* 0=none, 2=SIGINT, 9=SIGKILL, 15=SIGTERM */
     __u8 emergency_disable;  /* bypass enforcement (force AUDIT) when set */
-    __u8 file_policy_empty;  /* optimization hint: no file deny rules loaded */
+    __u8 file_policy_empty;  /* optimization hint: no file deny rules loaded (any of inode/path/cg-inode) */
     __u8 net_policy_empty;   /* optimization hint: no network deny rules loaded */
     __u8 exec_identity_flags;  /* exec-identity policy + enforcement flags */
     __u64 deadman_deadline_ns;  /* ktime_get_boot_ns() deadline */
@@ -338,7 +338,8 @@ struct agent_config {
     __u8 deny_ptrace;        /* block ptrace attachment (MITRE T1055.008) */
     __u8 deny_module_load;   /* block kernel module loading (MITRE T1547.006) */
     __u8 deny_bpf;           /* block unauthorized BPF program load (MITRE T1562) */
-    __u8 _reserved[4];       /* alignment padding */
+    __u8 path_policy_empty;  /* optimization hint: deny_path_map has no entries (skip bpf_d_path()) */
+    __u8 _reserved[3];       /* alignment padding */
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -364,6 +365,7 @@ volatile struct agent_config agent_cfg = {
     .deny_ptrace = 0,
     .deny_module_load = 0,
     .deny_bpf = 0,
+    .path_policy_empty = 1,
     ._reserved = {0},
 };
 

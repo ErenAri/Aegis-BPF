@@ -44,6 +44,11 @@ bool file_policy_maps_empty(const BpfState& state)
     return map_is_empty(state.deny_inode) && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
 }
 
+bool path_policy_map_empty(const BpfState& state)
+{
+    return map_is_empty(state.deny_path);
+}
+
 bool net_policy_maps_empty(const BpfState& state)
 {
     return map_is_empty(state.deny_ipv4) && map_is_empty(state.deny_ipv6) && map_is_empty(state.deny_port) &&
@@ -175,6 +180,7 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 
     normalized.file_policy_empty = file_policy_maps_empty(state) ? 1 : 0;
     normalized.net_policy_empty = net_policy_maps_empty(state) ? 1 : 0;
+    normalized.path_policy_empty = path_policy_map_empty(state) ? 1 : 0;
     if (normalized.exec_identity_flags & kExecIdentityFlagProtectConnect) {
         normalized.net_policy_empty = 0;
     }
@@ -246,6 +252,7 @@ Result<void> refresh_policy_empty_hints(BpfState& state)
 
     cfg.file_policy_empty = file_empty ? 1 : 0;
     cfg.net_policy_empty = net_empty ? 1 : 0;
+    cfg.path_policy_empty = path_policy_map_empty(state) ? 1 : 0;
     if (cfg.exec_identity_flags & kExecIdentityFlagProtectConnect) {
         cfg.net_policy_empty = 0;
     }
