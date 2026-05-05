@@ -127,7 +127,7 @@ see `docs/THREAT_MODEL.md`.
 |--------|-----------------|------------|
 | Rename denied file to new path | Path deny (audit) | Use inode deny; re-apply policy |
 | Delete + recreate at same path | Inode deny | Re-apply policy; monitor file lifecycle |
-| OverlayFS upper/lower inode split | Inode deny on overlay | Test with `kernel-matrix.yml` overlay scenarios |
+| OverlayFS upper/lower inode split | Inode deny on overlay | Mitigated for `deny_always` rules via race-free `lsm/inode_copy_up` hook; `protect_verified_exec` rules use event-driven userspace propagation |
 | Mount namespace path divergence | Path deny (audit) | Inode deny is namespace-independent |
 | Privileged container (`CAP_SYS_ADMIN`) | All surfaces | Treat as trust boundary breach |
 | Kernel module / root compromise | All surfaces | Out of scope (see THREAT_MODEL.md) |

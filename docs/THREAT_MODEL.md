@@ -357,23 +357,45 @@ When a file is copied up from the lower layer to the upper layer (copy-on-write
 semantics), the upper layer file receives a **new inode** that differs from
 both the lower layer inode and any inode previously observed.
 
-**Impact:** An inode deny rule applied against a lower-layer file will not match
-after copy-up, because the upper-layer inode is different.  The file becomes
-accessible despite the deny rule.
+**Impact:** Without dedicated mitigation, an inode deny rule applied against a
+lower-layer file would not match after copy-up because the upper-layer inode
+is different — the file would become accessible despite the deny rule.
 
-**Analysis:**
-- This is inherent to overlayfs copy-on-write semantics and cannot be fully
-  resolved without filesystem-specific hooks.
-- The CI kernel-matrix workflow includes overlay-specific test scenarios to
-  validate behavior and detect regressions.
-- Container workloads using overlayfs are the primary affected environment.
+**Mitigations (current):**
+- **Race-free in-kernel deny on copy-up for `deny_always` rules.** AegisBPF
+  attaches an `lsm/inode_copy_up` hook (`handle_inode_copy_up`) that looks
+  up the source (lower-layer) inode in `deny_inode_map`. When the rule has
+  `RULE_FLAG_DENY_ALWAYS`, the hook returns `-EPERM` synchronously, so the
+  upper-layer inode is never created. This is a kernel-locked decision in
+  the same hook that authorises the copy-up; there is no userspace TOCTOU
+  window. An `EVENT_BLOCK` is emitted with the standard action string so
+  SIEM pipelines see overlay denies in the same shape as `file_open` denies.
+- **Userspace propagation for `protect_verified_exec` rules.** When the
+  source rule has only `RULE_FLAG_PROTECT_VERIFIED_EXEC` (no
+  `DENY_ALWAYS`), the copy-up is allowed and an `EVENT_OVERLAY_COPY_UP`
+  priority event drives the userspace propagator
+  (`on_overlay_copy_up_propagate()`), which `stat()`s the path and
+  inserts the new upper-layer inode into `deny_inode_map`. This preserves
+  the verified-exec workflow's need for the upper-layer inode to exist.
 
-**Accepted mitigations:**
+**Residual gaps:**
+- The `protect_verified_exec` propagation path retains a small window
+  between copy-up completion and userspace insertion; it is acceptable
+  for that rule class because verified-exec checks are evaluated at
+  `bprm_check_security` (exec) rather than at `file_open` time.
+- Cgroup-scoped (`deny_cgroup_inode`) rules are not consulted at the
+  copy-up hook; they continue to apply at `file_open` against the
+  upper-layer inode just as they would for any newly-created file.
+- Audit-only mode (`agent_cfg.audit_only`) downgrades the deny path to
+  observation: the BLOCK event still fires but the syscall succeeds.
+
+**Accepted residuals & operator guidance:**
 - Document overlay behavior in `docs/COMPATIBILITY.md`.
 - Test overlayfs scenarios in CI (`kernel-matrix.yml` overlay test).
 - For high-assurance use cases, apply deny rules from within the container's
   mount namespace where inodes are resolved against the merged view.
-- Re-apply policy after container image pulls or layer changes.
+- Re-apply policy after container image pulls or layer changes when
+  `protect_verified_exec` rules are in use.
 
 ### 6.3 tmpfs Volatility
 
@@ -402,7 +424,7 @@ across mounts.
 | Risk | Likelihood | Impact | Mitigation Status |
 |------|-----------|--------|-------------------|
 | TOCTOU at policy-apply (`stat()` vs BPF check) | Low (narrow window, requires racing policy apply) | Medium (missed deny for one file lifecycle) | Accepted; inode enforcement is atomic at check time |
-| OverlayFS inode indirection on copy-up | Medium (common in container workloads) | Medium (deny bypass for copied-up files) | Accepted; CI-tested, documented, re-apply guidance |
+| OverlayFS inode indirection on copy-up | Low (race-free in-kernel deny for `deny_always`; small userspace propagation window for `protect_verified_exec` only) | Medium (would be deny bypass for copied-up files without the LSM hook) | Mitigated via `lsm/inode_copy_up`; CI-tested, documented |
 | tmpfs inode volatility | Low (requires tmpfs remount) | Low (inode rules become stale) | Accepted; path-based deny recommended for tmpfs |
 | Ring buffer drops under extreme load | Low (sized for expected workload) | Low (audit events lost, enforcement unaffected) | Monitored; `aegisbpf_ringbuf_drops_total` metric + alerting |
 | Audit-only degradation (no BPF LSM) | Medium (kernel config dependent) | High (no enforcement) | Detected at startup; logged prominently; capability check in `daemon_run()` |
