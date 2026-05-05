@@ -42,12 +42,41 @@ int BPF_PROG(handle_file_open, struct file *file)
     /* Then check global deny list */
     __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
 
-    if (!rule && !cg_rule) {
-        record_hook_latency(HOOK_FILE_OPEN, _start_ns);
-        return 0;
+    /* Path-based deny via in-kernel canonical path resolution. The
+     * dentry pointed to by f_path is the same dentry the kernel is
+     * about to allow through file_open; bpf_d_path() walks it under
+     * the kernel's locks, so resolution and the deny lookup happen
+     * atomically inside this hook invocation -- no userspace TOCTOU
+     * window. Only consulted when the inode lookups missed and the
+     * deny_path_map has at least one entry (path_policy_empty == 0).
+     *
+     * The buffer doubles as the deny-map key (struct path_key is a
+     * single char[DENY_PATH_MAX]) and as the source for the event's
+     * path field, keeping the BPF stack budget within 512 bytes. */
+    struct path_key resolved = {};
+    long path_len = -1;
+    __u8 path_rule = 0;
+    /* Null-check `rule` explicitly and in isolation before any further
+     * use; the BPF verifier rejects combining a map_value_or_null
+     * pointer with other variables in a single boolean expression
+     * ("pointer arithmetic on map_value_or_null prohibited"). */
+    if (rule == NULL) {
+        if (cg_rule == 0 && !agent_cfg.path_policy_empty) {
+            path_len = bpf_d_path((struct path *)&file->f_path, resolved.path, sizeof(resolved.path));
+            if (path_len > 0) {
+                __u8 *p = bpf_map_lookup_elem(&deny_path_map, &resolved);
+                if (p) {
+                    path_rule = *p;
+                }
+            }
+        }
+        if (cg_rule == 0 && path_rule == 0) {
+            record_hook_latency(HOOK_FILE_OPEN, _start_ns);
+            return 0;
+        }
     }
 
-    const __u8 rule_flags = cg_rule ? cg_rule : (rule ? *rule : 0);
+    const __u8 rule_flags = cg_rule ? cg_rule : (rule ? *rule : path_rule);
     const __u8 protect_only = (rule_flags & RULE_FLAG_PROTECT_VERIFIED_EXEC) &&
                               !(rule_flags & RULE_FLAG_DENY_ALWAYS);
 
@@ -91,6 +120,12 @@ int BPF_PROG(handle_file_open, struct file *file)
             record_hook_latency(HOOK_FILE_OPEN, _start_ns);
             return 0;
         }
+        /* Resolve canonical path lazily for the event when we didn't
+         * already do it for the path-deny lookup above. Keeps the
+         * non-emitting hot path free of dentry walks. */
+        if (path_len < 0) {
+            path_len = bpf_d_path((struct path *)&file->f_path, resolved.path, sizeof(resolved.path));
+        }
         struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
         if (e) {
             e->type = EVENT_BLOCK;
@@ -99,7 +134,7 @@ int BPF_PROG(handle_file_open, struct file *file)
             bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
             e->block.ino = key.ino;
             e->block.dev = key.dev;
-            __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+            __builtin_memcpy(e->block.path, resolved.path, sizeof(e->block.path));
             set_action_string(e->block.action, 1, enforce_signal);
             bpf_ringbuf_submit(e, 0);
         } else {
@@ -136,6 +171,10 @@ int BPF_PROG(handle_file_open, struct file *file)
         record_hook_latency(HOOK_FILE_OPEN, _start_ns);
         return -EPERM;
     }
+    /* Resolve canonical path lazily; see audit branch for rationale. */
+    if (path_len < 0) {
+        path_len = bpf_d_path((struct path *)&file->f_path, resolved.path, sizeof(resolved.path));
+    }
     /* Try priority buffer first for enforce events, fall back to main */
     struct event *e = priority_event_reserve();
     int used_priority = (e != NULL);
@@ -148,7 +187,7 @@ int BPF_PROG(handle_file_open, struct file *file)
         bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
         e->block.ino = key.ino;
         e->block.dev = key.dev;
-        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+        __builtin_memcpy(e->block.path, resolved.path, sizeof(e->block.path));
         set_action_string(e->block.action, 0, enforce_signal);
         bpf_ringbuf_submit(e, 0);
         if (used_priority)
