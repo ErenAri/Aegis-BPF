@@ -176,6 +176,19 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
             return fail(attach_result.error());
         }
         state.file_hooks_attached = 1;
+
+        /* Path-deny via tracepoint is audit-only and TOCTOU-prone:
+         * sys_enter_openat sees the userspace filename string before
+         * kernel resolution, so symlink swaps and bind-mount races can
+         * cause the canonical path the kernel resolves to diverge from
+         * what we logged. Warn the operator at attach time so this
+         * degraded mode doesn't silently masquerade as enforcement. */
+        logger().log(SLOG_WARN("File-deny operating in tracepoint fallback "
+                               "(audit-only, TOCTOU-prone). "
+                               "BPF LSM is recommended for prevention-grade path enforcement.")
+                         .field("hook", "tracepoint/sys_enter_openat")
+                         .field("mode", "audit_only")
+                         .field("toctou", true));
     }
 
     result = attach_required_program(state, trace_id, root_span.span_id(), "bpf.attach.fork", "handle_fork",
