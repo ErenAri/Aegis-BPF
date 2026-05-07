@@ -264,6 +264,7 @@ set(AEGIS_SOURCES
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
+    src/ringbuf_policy.cpp
     src/seccomp.cpp
     src/landlock.cpp
     src/capabilities.cpp
@@ -326,6 +327,7 @@ set(AEGIS_HEADERS
     src/policy_parse.hpp
     src/policy_runtime.hpp
     src/result.hpp
+    src/ringbuf_policy.hpp
     src/seccomp.hpp
     src/landlock.hpp
     src/capabilities.hpp
@@ -422,6 +424,7 @@ set(AEGIS_LIB_SOURCES
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
+    src/ringbuf_policy.cpp
     src/seccomp.cpp
     src/landlock.cpp
     src/capabilities.cpp
@@ -507,6 +510,7 @@ if(BUILD_TESTING)
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
         tests/test_commands_simulate.cpp
+        tests/test_ringbuf_policy.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})
@@ -758,6 +762,18 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:aegisbpf> run --enforce --kill-escalation-window-seconds=0
     )
     set_tests_properties(cli_run_rejects_zero_kill_escalation_window PROPERTIES WILL_FAIL TRUE)
+
+    add_test(
+        NAME cli_run_rejects_unknown_ringbuf_overflow_policy
+        COMMAND $<TARGET_FILE:aegisbpf> run --audit --ringbuf-overflow-policy=not-a-policy
+    )
+    set_tests_properties(cli_run_rejects_unknown_ringbuf_overflow_policy PROPERTIES WILL_FAIL TRUE)
+
+    add_test(
+        NAME cli_run_rejects_reserved_ringbuf_overflow_policy
+        COMMAND $<TARGET_FILE:aegisbpf> run --audit --ringbuf-overflow-policy=spool-to-disk
+    )
+    set_tests_properties(cli_run_rejects_reserved_ringbuf_overflow_policy PROPERTIES WILL_FAIL TRUE)
 endif()
 
 # Fuzzing targets

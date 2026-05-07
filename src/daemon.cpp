@@ -421,7 +421,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
                uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
                uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
                uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
-               bool strict_degrade, EnforceGateMode enforce_gate_mode)
+               bool strict_degrade, EnforceGateMode enforce_gate_mode, RingbufOverflowPolicy ringbuf_overflow_policy)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -429,6 +429,14 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         root_span.fail(message);
         return 1;
     };
+
+    /* Make the ringbuf overflow contract explicit and operator-visible.
+     * Today only `priority-fallback` is implemented; logging it at startup
+     * gives operators a journal-grep'able assertion that the policy did
+     * not silently change. See docs/EVENT_LOSS_AND_BACKPRESSURE.md. */
+    logger().log(SLOG_INFO("Ringbuf overflow policy")
+                     .field("policy", std::string(ringbuf_overflow_policy_name(ringbuf_overflow_policy)))
+                     .field("description", std::string(ringbuf_overflow_policy_description(ringbuf_overflow_policy))));
 
     const bool enforce_requested = !audit_only;
     reset_runtime_control(strict_degrade, enforce_requested);

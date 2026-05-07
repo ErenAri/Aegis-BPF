@@ -137,8 +137,15 @@ Ordered by user-impact. Each has a tracked roadmap item.
 4. **`socket_listen` / `socket_recvmsg` are kernel-version-gated.** Runtime
    probed. Target: emit a machine-readable capability report at startup,
    surface as an operator `Status` condition.
-5. **Ring-buffer backpressure policy is implicit.** We count drops but don't
-   expose `drop | sample | overflow-to-disk` policy to operators.
+5. ~~**Ring-buffer backpressure policy is implicit.**~~ **Partially shipped:**
+   the dual-path priority/main + shed-telemetry-first behaviour is now a
+   named, operator-selectable policy (`priority-fallback`) controllable
+   via `--ringbuf-overflow-policy=...` (or `AEGIS_RINGBUF_OVERFLOW_POLICY`),
+   logged at startup, and locked in by CI rejection tests. The `sample`
+   and `spool-to-disk` policies remain reserved roadmap names that the
+   parser recognises and rejects with a "not yet implemented" error so a
+   future release cannot silently swap behaviour. See
+   [`EVENT_LOSS_AND_BACKPRESSURE.md`](EVENT_LOSS_AND_BACKPRESSURE.md).
 
 ### 4.2 Architectural
 
