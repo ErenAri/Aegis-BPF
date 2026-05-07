@@ -11,3 +11,4 @@
 #include "commands_network.hpp"
 #include "commands_policy.hpp"
 #include "commands_probe.hpp"
+#include "commands_simulate.hpp"

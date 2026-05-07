@@ -39,7 +39,9 @@ int usage(const char* prog)
         << " | emergency-disable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-enable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-status [--json] [--log=stdout|journald|both]" << " | probe"
-        << " | explain <event.json> [--policy <path>] [--json]" << " | version | --version | -V" << '\n';
+        << " | explain <event.json> [--policy <path>] [--json]"
+        << " | simulate <events.jsonl>|- --policy <candidate.conf> [--per-event] [--json]"
+        << " | version | --version | -V" << '\n';
     return 1;
 }
 
