@@ -85,6 +85,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t max_deny_paths = 0;
     uint32_t max_network_entries = 0;
     EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
+    uint32_t event_dedup_window_ms = 0;
+    uint32_t event_dedup_max_entries = 4096;
 
     const char* env_gate = std::getenv("AEGIS_ENFORCE_GATE_MODE");
     if (env_gate != nullptr && std::strlen(env_gate) > 0) {
@@ -93,6 +95,27 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             enforce_gate_mode = parsed;
         } else {
             logger().log(SLOG_WARN("Invalid AEGIS_ENFORCE_GATE_MODE; using default").field("value", env_gate));
+        }
+    }
+
+    const char* env_dedup_window = std::getenv("AEGIS_EVENT_DEDUP_WINDOW_MS");
+    if (env_dedup_window != nullptr && std::strlen(env_dedup_window) > 0) {
+        uint64_t parsed = 0;
+        if (parse_uint64(env_dedup_window, parsed) && parsed <= UINT32_MAX) {
+            event_dedup_window_ms = static_cast<uint32_t>(parsed);
+        } else {
+            logger().log(
+                SLOG_WARN("Invalid AEGIS_EVENT_DEDUP_WINDOW_MS; using default").field("value", env_dedup_window));
+        }
+    }
+    const char* env_dedup_max = std::getenv("AEGIS_EVENT_DEDUP_MAX_ENTRIES");
+    if (env_dedup_max != nullptr && std::strlen(env_dedup_max) > 0) {
+        uint64_t parsed = 0;
+        if (parse_uint64(env_dedup_max, parsed) && parsed <= UINT32_MAX && parsed > 0) {
+            event_dedup_max_entries = static_cast<uint32_t>(parsed);
+        } else {
+            logger().log(
+                SLOG_WARN("Invalid AEGIS_EVENT_DEDUP_MAX_ENTRIES; using default").field("value", env_dedup_max));
         }
     }
 
@@ -260,6 +283,24 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
                 return usage(prog);
             if (!parse_u32_option(argv[++i], max_network_entries, "Invalid max network entries", true))
                 return 1;
+        } else if (arg.rfind("--event-dedup-window-ms=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--event-dedup-window-ms="));
+            if (!parse_u32_option(value, event_dedup_window_ms, "Invalid event dedup window (milliseconds)", false))
+                return 1;
+        } else if (arg == "--event-dedup-window-ms") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], event_dedup_window_ms, "Invalid event dedup window (milliseconds)", false))
+                return 1;
+        } else if (arg.rfind("--event-dedup-max-entries=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--event-dedup-max-entries="));
+            if (!parse_u32_option(value, event_dedup_max_entries, "Invalid event dedup max entries", true))
+                return 1;
+        } else if (arg == "--event-dedup-max-entries") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], event_dedup_max_entries, "Invalid event dedup max entries", true))
+                return 1;
         } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
@@ -287,6 +328,13 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     }
     if (max_network_entries > 0) {
         set_max_network_entries(max_network_entries);
+    }
+
+    configure_block_event_dedup(event_dedup_window_ms, event_dedup_max_entries);
+    if (event_dedup_window_ms > 0) {
+        logger().log(SLOG_INFO("Block-event dedup enabled")
+                         .field("window_ms", static_cast<uint64_t>(event_dedup_window_ms))
+                         .field("max_entries", static_cast<uint64_t>(event_dedup_max_entries)));
     }
 
     return daemon_run(audit_only, enable_seccomp, enable_landlock, enable_cap_drop, deadman_ttl, enforce_signal,

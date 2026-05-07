@@ -148,9 +148,17 @@ Ordered by user-impact. Each has a tracked roadmap item.
 7. **Policy language is INI + CRD only.** No CEL/Rego expressions, no
    parent-process or label selectors in match criteria. Target: **CEL**
    (Kubernetes-native, aligns with admission policies).
-8. **No event dedup / aggregation on the agent.** High-rate events ship
-   individually. Target: bounded time-window dedup (Falco-style
-   `-o events.rate`).
+8. ~~**No event dedup / aggregation on the agent.**~~ **Partially shipped:**
+   bounded time-window dedup for `BlockEvent` is opt-in via
+   `--event-dedup-window-ms=N --event-dedup-max-entries=N`
+   (or the equivalent `AEGIS_EVENT_DEDUP_*` env vars). When enabled,
+   identical `(cgid, ino, pid, dev)` block events inside the window
+   are coalesced; the first emit after window expiry surfaces the
+   accumulated `suppressed_during_prior_window` count so the
+   downstream SIEM never silently loses information. Network, exec,
+   forensic, kernel and OCSF-augmented payloads are deferred to a
+   follow-up. See
+   [`EVENT_LOSS_AND_BACKPRESSURE.md`](EVENT_LOSS_AND_BACKPRESSURE.md).
 9. **No response actions.** Blocking is enforcement; *responses* (quarantine
    pod, kill tree, freeze cgroup, rotate creds, pause deployment) are a
    separate muscle. Target: pluggable response engine subscribed to the
