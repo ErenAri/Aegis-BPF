@@ -5,6 +5,8 @@
 
 #include "commands_explain.hpp"
 
+#include <arpa/inet.h>
+
 #include <cerrno>
 #include <filesystem>
 #include <fstream>
@@ -12,8 +14,11 @@
 #include <sstream>
 #include <vector>
 
+#include <cstring>
+
 #include "json_scan.hpp"
 #include "logging.hpp"
+#include "network_ops.hpp"
 #include "policy.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -27,6 +32,76 @@ std::string read_stream(std::istream& in)
     std::ostringstream oss;
     oss << in.rdbuf();
     return oss.str();
+}
+
+uint8_t protocol_string_to_num(const std::string& proto)
+{
+    if (proto == "tcp")
+        return 6;
+    if (proto == "udp")
+        return 17;
+    if (proto.empty() || proto == "any")
+        return 0;
+    /* Numeric fallback (e.g. "132" for SCTP). Anything unrecognized is
+     * treated as wildcard so it does not silently mis-classify. */
+    try {
+        const int n = std::stoi(proto);
+        if (n >= 0 && n <= 255)
+            return static_cast<uint8_t>(n);
+    } catch (...) {
+        /* fall through */
+    }
+    return 0;
+}
+
+bool direction_is_egress(const std::string& dir)
+{
+    return dir == "egress" || dir == "send" || dir == "recv";
+}
+
+bool direction_is_bind(const std::string& dir)
+{
+    return dir == "bind" || dir == "listen" || dir == "accept";
+}
+
+bool ipv4_in_cidr(uint32_t addr_be, uint32_t cidr_be, uint8_t prefix_len)
+{
+    if (prefix_len == 0)
+        return true;
+    if (prefix_len > 32)
+        return false;
+    /* Compare in host order so the prefix mask works regardless of endian. */
+    const uint32_t addr = ntohl(addr_be);
+    const uint32_t base = ntohl(cidr_be);
+    const uint32_t mask = (prefix_len == 32) ? 0xFFFFFFFFu : (~((1u << (32 - prefix_len)) - 1u));
+    return (addr & mask) == (base & mask);
+}
+
+bool ipv6_in_cidr(const Ipv6Key& addr, const Ipv6Key& cidr, uint8_t prefix_len)
+{
+    if (prefix_len == 0)
+        return true;
+    if (prefix_len > 128)
+        return false;
+    const uint8_t full_bytes = prefix_len / 8;
+    const uint8_t remainder = prefix_len % 8;
+    if (full_bytes > 0 && std::memcmp(addr.addr, cidr.addr, full_bytes) != 0)
+        return false;
+    if (remainder == 0)
+        return true;
+    const uint8_t mask = static_cast<uint8_t>(0xFFu << (8 - remainder));
+    return (addr.addr[full_bytes] & mask) == (cidr.addr[full_bytes] & mask);
+}
+
+bool port_rule_match(const PortRule& rule, uint16_t event_port, uint8_t event_proto, uint8_t event_dir)
+{
+    if (rule.port != event_port)
+        return false;
+    if (rule.protocol != 0 && rule.protocol != event_proto)
+        return false;
+    if (rule.direction != 2 && rule.direction != event_dir)
+        return false;
+    return true;
 }
 
 } // namespace
@@ -56,6 +131,153 @@ bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string
         out.has_cgid = true;
     }
     return true;
+}
+
+bool parse_net_explain_event(const std::string& json, NetExplainEvent& out, std::string& error)
+{
+    if (!json_scan::extract_string(json, "type", out.type)) {
+        error = "Event JSON missing required 'type' field";
+        return false;
+    }
+    json_scan::extract_string(json, "family", out.family);
+    json_scan::extract_string(json, "protocol", out.protocol);
+    json_scan::extract_string(json, "direction", out.direction);
+    json_scan::extract_string(json, "remote_ip", out.remote_ip);
+    json_scan::extract_string(json, "cgroup_path", out.cgroup_path);
+    json_scan::extract_string(json, "action", out.action);
+    json_scan::extract_string(json, "rule_type", out.rule_type);
+
+    uint64_t value = 0;
+    if (json_scan::extract_uint64(json, "remote_port", value) && value <= UINT16_MAX) {
+        out.remote_port = static_cast<uint16_t>(value);
+        out.has_remote_port = true;
+    }
+    if (json_scan::extract_uint64(json, "local_port", value) && value <= UINT16_MAX) {
+        out.local_port = static_cast<uint16_t>(value);
+        out.has_local_port = true;
+    }
+    if (json_scan::extract_uint64(json, "cgid", value)) {
+        out.cgid = value;
+        out.has_cgid = true;
+    }
+    return true;
+}
+
+NetExplainResult evaluate_net_event_against_policy(const NetExplainEvent& event, const Policy& policy)
+{
+    NetExplainResult result;
+
+    /* allow_cgroup precedence — mirrors the early-return is_cgroup_allowed()
+     * check in every BPF network hook. */
+    if (event.has_cgid) {
+        for (uint64_t id : policy.allow_cgroup_ids) {
+            if (id == event.cgid) {
+                result.allow_match = true;
+                break;
+            }
+        }
+    }
+    if (!result.allow_match && !event.cgroup_path.empty()) {
+        for (const auto& path : policy.allow_cgroup_paths) {
+            if (path == event.cgroup_path) {
+                result.allow_match = true;
+                break;
+            }
+        }
+    }
+
+    if (result.allow_match) {
+        result.inferred_rule = "allow_cgroup";
+        return result;
+    }
+
+    const uint8_t event_proto = protocol_string_to_num(event.protocol);
+    const bool is_egress = direction_is_egress(event.direction);
+    const bool is_bind = direction_is_bind(event.direction);
+
+    /* Check 1: exact remote_ip:port (deny_ip_port). Highest precedence in BPF. */
+    if (event.has_remote_port && !event.remote_ip.empty()) {
+        for (const auto& rule : policy.network.deny_ip_ports) {
+            if (rule.ip == event.remote_ip && rule.port == event.remote_port &&
+                (rule.protocol == 0 || rule.protocol == event_proto)) {
+                result.deny_ip_port_match = true;
+                break;
+            }
+        }
+    }
+
+    /* Check 2: deny_ips (exact remote IP). */
+    if (!event.remote_ip.empty()) {
+        for (const auto& ip : policy.network.deny_ips) {
+            if (ip == event.remote_ip) {
+                result.deny_ip_match = true;
+                break;
+            }
+        }
+    }
+
+    /* Check 3: deny_cidrs (LPM range). Matches BPF behaviour where the
+     * remote_ip is tested against every CIDR in the same address family. */
+    if (!event.remote_ip.empty()) {
+        const bool is_v4 = (event.family == "ipv4");
+        const bool is_v6 = (event.family == "ipv6");
+        uint32_t addr_v4 = 0;
+        Ipv6Key addr_v6{};
+        bool addr_v4_ok = is_v4 && parse_ipv4(event.remote_ip, addr_v4);
+        bool addr_v6_ok = is_v6 && parse_ipv6(event.remote_ip, addr_v6);
+
+        for (const auto& cidr : policy.network.deny_cidrs) {
+            uint32_t base_v4 = 0;
+            uint8_t prefix = 0;
+            if (addr_v4_ok && parse_cidr_v4(cidr, base_v4, prefix)) {
+                if (ipv4_in_cidr(addr_v4, base_v4, prefix)) {
+                    result.deny_cidr_match = true;
+                    break;
+                }
+                continue;
+            }
+            Ipv6Key base_v6{};
+            if (addr_v6_ok && parse_cidr_v6(cidr, base_v6, prefix)) {
+                if (ipv6_in_cidr(addr_v6, base_v6, prefix)) {
+                    result.deny_cidr_match = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* Check 4: deny_ports (port + protocol + direction). For egress-class
+     * events (connect/sendmsg/recvmsg) the BPF runtime evaluates the remote
+     * port with direction=0; for bind-class events (bind/listen/accept) it
+     * evaluates the local port with direction=1. */
+    if (is_egress && event.has_remote_port) {
+        for (const auto& rule : policy.network.deny_ports) {
+            if (port_rule_match(rule, event.remote_port, event_proto, /*event_dir=*/0)) {
+                result.deny_port_match = true;
+                break;
+            }
+        }
+    } else if (is_bind && event.has_local_port) {
+        for (const auto& rule : policy.network.deny_ports) {
+            if (port_rule_match(rule, event.local_port, event_proto, /*event_dir=*/1)) {
+                result.deny_port_match = true;
+                break;
+            }
+        }
+    }
+
+    if (result.deny_ip_port_match) {
+        result.inferred_rule = "deny_ip_port";
+    } else if (result.deny_ip_match) {
+        result.inferred_rule = "deny_ip";
+    } else if (result.deny_cidr_match) {
+        result.inferred_rule = "deny_cidr";
+    } else if (result.deny_port_match) {
+        result.inferred_rule = "deny_port";
+    } else {
+        result.inferred_rule = "no_policy_match";
+    }
+    return result;
 }
 
 ExplainResult evaluate_event_against_policy(const ExplainEvent& event, const Policy& policy)
