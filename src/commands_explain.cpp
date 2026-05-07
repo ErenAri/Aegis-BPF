@@ -47,8 +47,8 @@ uint8_t protocol_string_to_num(const std::string& proto)
         const int n = std::stoi(proto);
         if (n >= 0 && n <= 255)
             return static_cast<uint8_t>(n);
-    } catch (...) {
-        /* fall through */
+    } catch (const std::exception&) {
+        /* Numeric parse failed: fall through to wildcard. */
     }
     return 0;
 }
