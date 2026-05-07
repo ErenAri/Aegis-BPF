@@ -368,7 +368,12 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     return -EPERM;
 }
 
-SEC("lsm/file_mmap")
+/* Kernel hook name is `mmap_file` (renamed from `file_mmap` pre-5.6); the
+ * BPF-LSM trampoline is `bpf_lsm_mmap_file`. The program function name
+ * `handle_file_mmap` and operator-facing posture key `lsm_file_mmap`
+ * intentionally retain the legacy spelling so the JSON capability surface
+ * stays stable across the rename. */
+SEC("lsm/mmap_file")
 int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigned long prot, unsigned long flags)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
