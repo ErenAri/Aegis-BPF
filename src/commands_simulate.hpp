@@ -43,8 +43,8 @@ struct SimulateSummary {
 
     /* Network events */
     uint64_t net_block_events = 0;
-    uint64_t net_would_block = 0;          // any net deny match
-    uint64_t net_would_block_ip = 0;       // breakdown of `net_would_block` …
+    uint64_t net_would_block = 0;    // any net deny match
+    uint64_t net_would_block_ip = 0; // breakdown of `net_would_block` …
     uint64_t net_would_block_cidr = 0;
     uint64_t net_would_block_port = 0;
     uint64_t net_would_block_ip_port = 0;
@@ -80,15 +80,15 @@ struct SimulateRecord {
  * `SimulateRecord` but with the network-specific fields populated.
  */
 struct SimulateNetRecord {
-    std::string event_type;        // "net_connect_block" / "net_bind_block" / ...
-    std::string family;            // "ipv4" | "ipv6"
-    std::string protocol;          // "tcp" | "udp" | numeric
-    std::string direction;         // "egress" | "bind" | "listen" | "accept" | "send" | "recv"
+    std::string event_type; // "net_connect_block" / "net_bind_block" / ...
+    std::string family;     // "ipv4" | "ipv6"
+    std::string protocol;   // "tcp" | "udp" | numeric
+    std::string direction;  // "egress" | "bind" | "listen" | "accept" | "send" | "recv"
     std::string remote_ip;
     std::string cgroup_path;
-    std::string original_action;   // event's recorded action (typically "AUDIT")
+    std::string original_action;    // event's recorded action (typically "AUDIT")
     std::string original_rule_type; // event's recorded rule_type (e.g. "ip_port")
-    std::string simulated_rule;    // candidate-policy verdict
+    std::string simulated_rule;     // candidate-policy verdict
     uint16_t remote_port = 0;
     uint16_t local_port = 0;
     uint64_t cgid = 0;

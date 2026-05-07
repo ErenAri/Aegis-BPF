@@ -48,14 +48,14 @@ struct ExplainResult {
  * ignored to keep the parser forwards-compatible.
  */
 struct NetExplainEvent {
-    std::string type;        /* "net_connect_block" / "net_bind_block" / ... */
-    std::string family;      /* "ipv4" | "ipv6" */
-    std::string protocol;    /* "tcp" | "udp" | numeric */
-    std::string direction;   /* "egress" | "bind" | "listen" | "accept" | "send" | "recv" */
+    std::string type;      /* "net_connect_block" / "net_bind_block" / ... */
+    std::string family;    /* "ipv4" | "ipv6" */
+    std::string protocol;  /* "tcp" | "udp" | numeric */
+    std::string direction; /* "egress" | "bind" | "listen" | "accept" | "send" | "recv" */
     std::string remote_ip;
     std::string cgroup_path;
     std::string action;
-    std::string rule_type;   /* original rule_type (e.g. "ip", "port", "ip_port") */
+    std::string rule_type; /* original rule_type (e.g. "ip", "port", "ip_port") */
     uint16_t remote_port = 0;
     uint16_t local_port = 0;
     uint64_t cgid = 0;

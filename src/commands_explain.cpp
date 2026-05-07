@@ -8,13 +8,12 @@
 #include <arpa/inet.h>
 
 #include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
-
-#include <cstring>
 
 #include "json_scan.hpp"
 #include "logging.hpp"

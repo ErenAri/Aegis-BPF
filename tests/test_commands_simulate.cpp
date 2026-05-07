@@ -20,8 +20,7 @@ Policy build_policy(const std::vector<std::string>& deny_paths, const std::vecto
     return p;
 }
 
-std::string make_block_event(const std::string& path, const std::string& cgroup_path = std::string(),
-                             uint64_t cgid = 0)
+std::string make_block_event(const std::string& path, const std::string& cgroup_path = std::string(), uint64_t cgid = 0)
 {
     std::ostringstream oss;
     oss << "{\"type\":\"block\",\"path\":\"" << path << "\"";
@@ -100,8 +99,7 @@ TEST(SimulateOneEvent, ResolvedPathFallsBackWhenRawPathMissesDenyList)
     const Policy policy = build_policy({"/etc/shadow"}, {});
     SimulateSummary summary{};
     SimulateRecord rec{};
-    const std::string ev =
-        R"({"type":"block","path":"/etc/sh","resolved_path":"/etc/shadow","action":"AUDIT"})";
+    const std::string ev = R"({"type":"block","path":"/etc/sh","resolved_path":"/etc/shadow","action":"AUDIT"})";
 
     EXPECT_TRUE(simulate_one_event(ev, policy, summary, &rec));
     EXPECT_EQ(summary.would_block, 1u);
@@ -153,12 +151,12 @@ TEST(SimulateOneEvent, CountersPartitionBlockEvents)
     const Policy policy = build_policy({"/etc/shadow"}, {"/system.slice/agent.service"});
     SimulateSummary summary{};
 
-    simulate_one_event(make_block_event("/etc/shadow"), policy, summary, nullptr);                 // would_block
-    simulate_one_event(make_block_event("/etc/shadow", "/system.slice/agent.service", 1), policy,
-                       summary, nullptr);                                                          // would_allow
-    simulate_one_event(make_block_event("/tmp/x"), policy, summary, nullptr);                      // no_match
-    simulate_one_event(R"({"type":"exec"})", policy, summary, nullptr);                            // skipped_non_block
-    simulate_one_event("garbage", policy, summary, nullptr);                                       // skipped_non_json
+    simulate_one_event(make_block_event("/etc/shadow"), policy, summary, nullptr); // would_block
+    simulate_one_event(make_block_event("/etc/shadow", "/system.slice/agent.service", 1), policy, summary,
+                       nullptr);                                              // would_allow
+    simulate_one_event(make_block_event("/tmp/x"), policy, summary, nullptr); // no_match
+    simulate_one_event(R"({"type":"exec"})", policy, summary, nullptr);       // skipped_non_block
+    simulate_one_event("garbage", policy, summary, nullptr);                  // skipped_non_json
 
     EXPECT_EQ(summary.total_lines, 5u);
     EXPECT_EQ(summary.block_events, 3u);
@@ -202,9 +200,9 @@ Policy build_net_policy_with_ip_ports(std::vector<IpPortRule> rules)
     return p;
 }
 
-std::string make_net_connect_event(const std::string& remote_ip, uint16_t remote_port, const std::string& protocol = "tcp",
-                                   const std::string& family = "ipv4", const std::string& cgroup_path = std::string(),
-                                   uint64_t cgid = 0)
+std::string make_net_connect_event(const std::string& remote_ip, uint16_t remote_port,
+                                   const std::string& protocol = "tcp", const std::string& family = "ipv4",
+                                   const std::string& cgroup_path = std::string(), uint64_t cgid = 0)
 {
     std::ostringstream oss;
     oss << R"({"type":"net_connect_block","family":")" << family << R"(","protocol":")" << protocol
@@ -299,7 +297,7 @@ TEST(SimulateNetEvent, DenyPortEgressMatchesRemotePort)
 {
     PortRule rule{};
     rule.port = 6379;
-    rule.protocol = 6; // tcp
+    rule.protocol = 6;  // tcp
     rule.direction = 0; // egress
     const Policy policy = build_net_policy_with_ports({rule});
     SimulateSummary summary{};
@@ -332,7 +330,7 @@ TEST(SimulateNetEvent, DenyPortBothDirectionMatchesEgressEvent)
 {
     PortRule rule{};
     rule.port = 22;
-    rule.protocol = 6; // tcp
+    rule.protocol = 6;  // tcp
     rule.direction = 2; // both
     const Policy policy = build_net_policy_with_ports({rule});
     SimulateSummary summary{};
@@ -380,8 +378,8 @@ TEST(SimulateNetEvent, AllowCgroupOverridesNetDeny)
     policy.allow_cgroup_paths.push_back("/system.slice/aegisbpfd.service");
     SimulateSummary summary{};
     SimulateNetRecord rec{};
-    const std::string ev = make_net_connect_event("203.0.113.5", 443, "tcp", "ipv4",
-                                                   "/system.slice/aegisbpfd.service", 4242);
+    const std::string ev =
+        make_net_connect_event("203.0.113.5", 443, "tcp", "ipv4", "/system.slice/aegisbpfd.service", 4242);
 
     EXPECT_TRUE(simulate_one_event(ev, policy, summary, nullptr, &rec));
     EXPECT_EQ(summary.net_would_allow, 1u);
@@ -439,7 +437,8 @@ TEST(SimulateNetEvent, AnyProtocolRuleMatchesUdpEvent)
     const Policy policy = build_net_policy_with_ports({rule});
     SimulateSummary summary{};
 
-    EXPECT_TRUE(simulate_one_event(make_net_connect_event("203.0.113.9", 53, "udp"), policy, summary, nullptr, nullptr));
+    EXPECT_TRUE(
+        simulate_one_event(make_net_connect_event("203.0.113.9", 53, "udp"), policy, summary, nullptr, nullptr));
     EXPECT_EQ(summary.net_would_block_port, 1u);
 }
 

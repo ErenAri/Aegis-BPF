@@ -38,8 +38,7 @@ bool line_looks_like_json(const std::string& line)
 }
 
 void emit_json(std::ostream& out, const SimulateSummary& summary, const std::vector<SimulateRecord>& records,
-               const std::vector<SimulateNetRecord>& net_records, bool per_event,
-               const std::string& policy_source)
+               const std::vector<SimulateNetRecord>& net_records, bool per_event, const std::string& policy_source)
 {
     out << "{\"policy\":\"" << json_escape(policy_source) << "\"";
     out << ",\"summary\":{";
@@ -132,8 +131,7 @@ void emit_json(std::ostream& out, const SimulateSummary& summary, const std::vec
 }
 
 void emit_text(std::ostream& out, const SimulateSummary& summary, const std::vector<SimulateRecord>& records,
-               const std::vector<SimulateNetRecord>& net_records, bool per_event,
-               const std::string& policy_source)
+               const std::vector<SimulateNetRecord>& net_records, bool per_event, const std::string& policy_source)
 {
     out << "Simulate (dry-run) — candidate policy: " << policy_source << "\n";
     out << "  total_lines:           " << summary.total_lines << "\n";

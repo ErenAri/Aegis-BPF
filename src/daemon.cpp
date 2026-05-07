@@ -23,12 +23,12 @@
 #include <vector>
 
 #include "bpf_ops.hpp"
+#include "capabilities.hpp"
 #include "daemon_policy_gate.hpp"
 #include "daemon_posture.hpp"
 #include "daemon_runtime.hpp"
 #include "daemon_test_hooks.hpp"
 #include "events.hpp"
-#include "capabilities.hpp"
 #include "k8s_identity.hpp"
 #include "kernel_features.hpp"
 #include "landlock.hpp"
