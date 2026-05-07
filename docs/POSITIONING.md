@@ -155,9 +155,13 @@ Ordered by user-impact. Each has a tracked roadmap item.
    pod, kill tree, freeze cgroup, rotate creds, pause deployment) are a
    separate muscle. Target: pluggable response engine subscribed to the
    priority ringbuf.
-10. **No policy simulation / dry-run diffing.** We have audit; we don't yet
-    replay audit events against a candidate enforce policy to produce a
-    would-break report.
+10. ~~**No policy simulation / dry-run diffing.**~~ **Shipped:** `aegisbpf
+    simulate <events.jsonl>|- --policy <candidate.conf> [--per-event] [--json]`
+    replays an audit-mode JSONL event stream against a candidate enforce
+    policy and reports what would change. Reuses the live daemon's allow/deny
+    precedence via a shared `evaluate_event_against_policy()` helper so
+    simulator verdicts cannot drift from runtime decisions. Network event
+    simulation is deferred to a follow-up.
 
 ### 4.3 Distribution / ops
 

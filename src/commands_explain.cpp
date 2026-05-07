@@ -22,26 +22,14 @@ namespace aegis {
 
 namespace {
 
-struct ExplainEvent {
-    std::string type;
-    std::string path;
-    std::string resolved_path;
-    std::string cgroup_path;
-    std::string action;
-    uint64_t ino = 0;
-    uint64_t dev = 0;
-    uint64_t cgid = 0;
-    bool has_ino = false;
-    bool has_dev = false;
-    bool has_cgid = false;
-};
-
 std::string read_stream(std::istream& in)
 {
     std::ostringstream oss;
     oss << in.rdbuf();
     return oss.str();
 }
+
+} // namespace
 
 bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string& error)
 {
@@ -70,7 +58,65 @@ bool parse_explain_event(const std::string& json, ExplainEvent& out, std::string
     return true;
 }
 
-} // namespace
+ExplainResult evaluate_event_against_policy(const ExplainEvent& event, const Policy& policy)
+{
+    ExplainResult result;
+
+    if (event.has_cgid) {
+        for (uint64_t id : policy.allow_cgroup_ids) {
+            if (id == event.cgid) {
+                result.allow_match = true;
+                break;
+            }
+        }
+    }
+    if (!result.allow_match && !event.cgroup_path.empty()) {
+        for (const auto& path : policy.allow_cgroup_paths) {
+            if (path == event.cgroup_path) {
+                result.allow_match = true;
+                break;
+            }
+        }
+    }
+
+    if (event.has_ino && event.has_dev && event.dev <= UINT32_MAX) {
+        InodeId id{event.ino, static_cast<uint32_t>(event.dev), 0};
+        for (const auto& deny : policy.deny_inodes) {
+            if (deny == id) {
+                result.deny_inode_match = true;
+                break;
+            }
+        }
+    }
+
+    if (!event.path.empty()) {
+        for (const auto& deny : policy.deny_paths) {
+            if (deny == event.path) {
+                result.deny_path_match = true;
+                break;
+            }
+        }
+    }
+    if (!result.deny_path_match && !event.resolved_path.empty()) {
+        for (const auto& deny : policy.deny_paths) {
+            if (deny == event.resolved_path) {
+                result.deny_path_match = true;
+                break;
+            }
+        }
+    }
+
+    if (result.allow_match) {
+        result.inferred_rule = "allow_cgroup";
+    } else if (result.deny_inode_match) {
+        result.inferred_rule = "deny_inode";
+    } else if (result.deny_path_match) {
+        result.inferred_rule = "deny_path";
+    } else {
+        result.inferred_rule = "no_policy_match";
+    }
+    return result;
+}
 
 int cmd_explain(const std::string& event_path, const std::string& policy_path, bool json_output)
 {
@@ -123,68 +169,14 @@ int cmd_explain(const std::string& event_path, const std::string& policy_path, b
         policy_loaded = true;
     }
 
-    bool allow_match = false;
-    bool deny_inode_match = false;
-    bool deny_path_match = false;
-
+    ExplainResult eval{};
     if (policy_loaded) {
-        if (event.has_cgid) {
-            for (uint64_t id : policy.allow_cgroup_ids) {
-                if (id == event.cgid) {
-                    allow_match = true;
-                    break;
-                }
-            }
-        }
-        if (!allow_match && !event.cgroup_path.empty()) {
-            for (const auto& path : policy.allow_cgroup_paths) {
-                if (path == event.cgroup_path) {
-                    allow_match = true;
-                    break;
-                }
-            }
-        }
-
-        if (event.has_ino && event.has_dev && event.dev <= UINT32_MAX) {
-            InodeId id{event.ino, static_cast<uint32_t>(event.dev), 0};
-            for (const auto& deny : policy.deny_inodes) {
-                if (deny == id) {
-                    deny_inode_match = true;
-                    break;
-                }
-            }
-        }
-
-        if (!event.path.empty()) {
-            for (const auto& deny : policy.deny_paths) {
-                if (deny == event.path) {
-                    deny_path_match = true;
-                    break;
-                }
-            }
-        }
-        if (!deny_path_match && !event.resolved_path.empty()) {
-            for (const auto& deny : policy.deny_paths) {
-                if (deny == event.resolved_path) {
-                    deny_path_match = true;
-                    break;
-                }
-            }
-        }
+        eval = evaluate_event_against_policy(event, policy);
     }
-
-    std::string inferred_rule;
-    if (!policy_loaded) {
-        inferred_rule = "unknown";
-    } else if (allow_match) {
-        inferred_rule = "allow_cgroup";
-    } else if (deny_inode_match) {
-        inferred_rule = "deny_inode";
-    } else if (deny_path_match) {
-        inferred_rule = "deny_path";
-    } else {
-        inferred_rule = "no_policy_match";
-    }
+    const bool allow_match = eval.allow_match;
+    const bool deny_inode_match = eval.deny_inode_match;
+    const bool deny_path_match = eval.deny_path_match;
+    const std::string inferred_rule = policy_loaded ? eval.inferred_rule : std::string("unknown");
 
     std::vector<std::string> notes;
     notes.emplace_back("Best-effort: evaluation uses provided policy and event fields.");

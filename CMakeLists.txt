@@ -237,6 +237,7 @@ set(AEGIS_SOURCES
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
+    src/commands_simulate.cpp
     src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
@@ -299,6 +300,7 @@ set(AEGIS_HEADERS
     src/commands_network.hpp
     src/commands_policy.hpp
     src/commands_probe.hpp
+    src/commands_simulate.hpp
     src/commands.hpp
     src/control.hpp
     src/daemon.hpp
@@ -393,6 +395,7 @@ set(AEGIS_LIB_SOURCES
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
+    src/commands_simulate.cpp
     src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
@@ -503,6 +506,7 @@ if(BUILD_TESTING)
         tests/test_ocsf_formatter.cpp
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
+        tests/test_commands_simulate.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

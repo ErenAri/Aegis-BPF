@@ -152,6 +152,41 @@ int dispatch_explain_command(int argc, char** argv, const char* prog)
     return cmd_explain(event_path, policy_path, json_output);
 }
 
+int dispatch_simulate_command(int argc, char** argv, const char* prog)
+{
+    std::string events_path;
+    std::string policy_path;
+    bool per_event = false;
+    bool json_output = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--events") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            events_path = argv[++i];
+        } else if (arg == "--policy") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            policy_path = argv[++i];
+        } else if (arg == "--per-event") {
+            per_event = true;
+        } else if (arg == "--json") {
+            json_output = true;
+        } else if (events_path.empty() && arg.rfind("--", 0) != 0) {
+            events_path = arg;
+        } else {
+            return usage(prog);
+        }
+    }
+
+    if (events_path.empty() || policy_path.empty()) {
+        return usage(prog);
+    }
+
+    return cmd_simulate(events_path, policy_path, per_event, json_output);
+}
+
 int dispatch_metrics_command(int argc, char** argv, const char* prog)
 {
     std::string out_path;
@@ -302,6 +337,8 @@ int dispatch_cli(int argc, char** argv)
         return dispatch_doctor_command(argc, argv, argv[0]);
     if (cmd == "explain")
         return dispatch_explain_command(argc, argv, argv[0]);
+    if (cmd == "simulate")
+        return dispatch_simulate_command(argc, argv, argv[0]);
     if (cmd == "metrics")
         return dispatch_metrics_command(argc, argv, argv[0]);
     if (cmd == "capabilities")
