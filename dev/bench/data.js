@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778166201289,
+  "lastUpdate": 1778166574425,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -36366,6 +36366,102 @@ window.BENCHMARK_DATA = {
             "value": 53.401880932090535,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.393810286735 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d57292a7bc81ff6e42adbc72ccfa8e920221c3c9",
+          "message": "Merge pull request #130 from ErenAri/feat/policy-simulate-dryrun\n\nfeat(cli): aegisbpf simulate — policy dry-run / would-break report",
+          "timestamp": "2026-05-07T17:55:19+03:00",
+          "tree_id": "2c84596140fa93c3b406636a4a24e55cfea98be6",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/d57292a7bc81ff6e42adbc72ccfa8e920221c3c9"
+        },
+        "date": 1778166572478,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1543.3478759802458,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1543.2155195470787 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3793.1372920869985,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3792.7850537357754 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21921.067090902437,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21916.65295638515 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166145.24799399098,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166130.6958377802 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1326259.1863349092,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1326125.8349920989 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5350045.44160354,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5348958.821022731 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4744.1347098637225,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4747.4047843966955 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32583.67689741822,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32584.47065172799 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267605.70856476494,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267587.277570063 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 804666.0196841926,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 804678.2007663728 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.47275394833099,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.46797094754388 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.80144620002606,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.79762158362072 ns\nthreads: 1"
           }
         ]
       }
