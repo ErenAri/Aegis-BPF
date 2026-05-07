@@ -1,12 +1,14 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "capabilities.hpp"
 
-#include <cerrno>
-#include <cstring>
 #include <linux/capability.h>
+
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#include <cerrno>
+#include <cstring>
 
 #include "logging.hpp"
 
@@ -52,7 +54,7 @@ bool capabilities_split_supported()
 
 Result<CapabilitySnapshot> read_capabilities()
 {
-    struct __user_cap_header_struct hdr{};
+    struct __user_cap_header_struct hdr {};
     hdr.version = kCapVersion;
     hdr.pid = 0;
     struct __user_cap_data_struct data[kCapU32Words]{};
@@ -75,7 +77,7 @@ Result<void> drop_capabilities(const std::vector<int>& caps_to_drop)
     }
 
     // 1. Read the current cap state.
-    struct __user_cap_header_struct hdr{};
+    struct __user_cap_header_struct hdr {};
     hdr.version = kCapVersion;
     hdr.pid = 0;
     struct __user_cap_data_struct data[kCapU32Words]{};
@@ -209,48 +211,90 @@ Result<std::vector<int>> apply_post_attach_cap_drop()
 const char* cap_name(int cap)
 {
     switch (cap) {
-        case 0: return "CAP_CHOWN";
-        case 1: return "CAP_DAC_OVERRIDE";
-        case 2: return "CAP_DAC_READ_SEARCH";
-        case 3: return "CAP_FOWNER";
-        case 4: return "CAP_FSETID";
-        case 5: return "CAP_KILL";
-        case 6: return "CAP_SETGID";
-        case 7: return "CAP_SETUID";
-        case 8: return "CAP_SETPCAP";
-        case 9: return "CAP_LINUX_IMMUTABLE";
-        case 10: return "CAP_NET_BIND_SERVICE";
-        case 11: return "CAP_NET_BROADCAST";
-        case 12: return "CAP_NET_ADMIN";
-        case 13: return "CAP_NET_RAW";
-        case 14: return "CAP_IPC_LOCK";
-        case 15: return "CAP_IPC_OWNER";
-        case 16: return "CAP_SYS_MODULE";
-        case 17: return "CAP_SYS_RAWIO";
-        case 18: return "CAP_SYS_CHROOT";
-        case 19: return "CAP_SYS_PTRACE";
-        case 20: return "CAP_SYS_PACCT";
-        case 21: return "CAP_SYS_ADMIN";
-        case 22: return "CAP_SYS_BOOT";
-        case 23: return "CAP_SYS_NICE";
-        case 24: return "CAP_SYS_RESOURCE";
-        case 25: return "CAP_SYS_TIME";
-        case 26: return "CAP_SYS_TTY_CONFIG";
-        case 27: return "CAP_MKNOD";
-        case 28: return "CAP_LEASE";
-        case 29: return "CAP_AUDIT_WRITE";
-        case 30: return "CAP_AUDIT_CONTROL";
-        case 31: return "CAP_SETFCAP";
-        case 32: return "CAP_MAC_OVERRIDE";
-        case 33: return "CAP_MAC_ADMIN";
-        case 34: return "CAP_SYSLOG";
-        case 35: return "CAP_WAKE_ALARM";
-        case 36: return "CAP_BLOCK_SUSPEND";
-        case 37: return "CAP_AUDIT_READ";
-        case 38: return "CAP_PERFMON";
-        case 39: return "CAP_BPF";
-        case 40: return "CAP_CHECKPOINT_RESTORE";
-        default: return "CAP_UNKNOWN";
+        case 0:
+            return "CAP_CHOWN";
+        case 1:
+            return "CAP_DAC_OVERRIDE";
+        case 2:
+            return "CAP_DAC_READ_SEARCH";
+        case 3:
+            return "CAP_FOWNER";
+        case 4:
+            return "CAP_FSETID";
+        case 5:
+            return "CAP_KILL";
+        case 6:
+            return "CAP_SETGID";
+        case 7:
+            return "CAP_SETUID";
+        case 8:
+            return "CAP_SETPCAP";
+        case 9:
+            return "CAP_LINUX_IMMUTABLE";
+        case 10:
+            return "CAP_NET_BIND_SERVICE";
+        case 11:
+            return "CAP_NET_BROADCAST";
+        case 12:
+            return "CAP_NET_ADMIN";
+        case 13:
+            return "CAP_NET_RAW";
+        case 14:
+            return "CAP_IPC_LOCK";
+        case 15:
+            return "CAP_IPC_OWNER";
+        case 16:
+            return "CAP_SYS_MODULE";
+        case 17:
+            return "CAP_SYS_RAWIO";
+        case 18:
+            return "CAP_SYS_CHROOT";
+        case 19:
+            return "CAP_SYS_PTRACE";
+        case 20:
+            return "CAP_SYS_PACCT";
+        case 21:
+            return "CAP_SYS_ADMIN";
+        case 22:
+            return "CAP_SYS_BOOT";
+        case 23:
+            return "CAP_SYS_NICE";
+        case 24:
+            return "CAP_SYS_RESOURCE";
+        case 25:
+            return "CAP_SYS_TIME";
+        case 26:
+            return "CAP_SYS_TTY_CONFIG";
+        case 27:
+            return "CAP_MKNOD";
+        case 28:
+            return "CAP_LEASE";
+        case 29:
+            return "CAP_AUDIT_WRITE";
+        case 30:
+            return "CAP_AUDIT_CONTROL";
+        case 31:
+            return "CAP_SETFCAP";
+        case 32:
+            return "CAP_MAC_OVERRIDE";
+        case 33:
+            return "CAP_MAC_ADMIN";
+        case 34:
+            return "CAP_SYSLOG";
+        case 35:
+            return "CAP_WAKE_ALARM";
+        case 36:
+            return "CAP_BLOCK_SUSPEND";
+        case 37:
+            return "CAP_AUDIT_READ";
+        case 38:
+            return "CAP_PERFMON";
+        case 39:
+            return "CAP_BPF";
+        case 40:
+            return "CAP_CHECKPOINT_RESTORE";
+        default:
+            return "CAP_UNKNOWN";
     }
 }
 

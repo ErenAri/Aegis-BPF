@@ -1,8 +1,8 @@
 // cppcheck-suppress-file missingIncludeSystem
 // cppcheck-suppress-file syntaxError
-#include <gtest/gtest.h>
-
 #include <bpf/btf.h>
+
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -54,8 +54,8 @@ TEST(OptionalLsmHookCatalog, AllSymbolsUseBpfLsmPrefix)
         // hook name is *not* a top-level FUNC (it only appears as a struct
         // member of the LSM hooks list).
         EXPECT_EQ(spec.btf_symbol.rfind("bpf_lsm_", 0), 0u)
-            << "hook " << spec.hook_name << " has non-`bpf_lsm_` BTF symbol \""
-            << spec.btf_symbol << "\" — would silently regress to autoload=false";
+            << "hook " << spec.hook_name << " has non-`bpf_lsm_` BTF symbol \"" << spec.btf_symbol
+            << "\" — would silently regress to autoload=false";
     }
 }
 
@@ -113,12 +113,10 @@ TEST(OptionalLsmHookCatalog, AgreesWithProbeCatalog)
     for (const auto& spec : optional_catalog) {
         const std::string probe_key = "lsm_" + spec.hook_name;
         const auto it = probe_by_name.find(probe_key);
-        ASSERT_NE(it, probe_by_name.end())
-            << "optional hook " << spec.hook_name << " (probe key " << probe_key
-            << ") missing from hook_capabilities catalog";
-        EXPECT_EQ(it->second, spec.btf_symbol)
-            << "btf_symbol drift between catalogs for hook " << spec.hook_name
-            << " (optional=" << spec.btf_symbol << ", probe=" << it->second << ")";
+        ASSERT_NE(it, probe_by_name.end()) << "optional hook " << spec.hook_name << " (probe key " << probe_key
+                                           << ") missing from hook_capabilities catalog";
+        EXPECT_EQ(it->second, spec.btf_symbol) << "btf_symbol drift between catalogs for hook " << spec.hook_name
+                                               << " (optional=" << spec.btf_symbol << ", probe=" << it->second << ")";
     }
 }
 

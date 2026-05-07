@@ -8,13 +8,13 @@
 #include <arpa/inet.h>
 
 #include <cerrno>
+#include <charconv>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <vector>
-
-#include <cstring>
 
 #include "json_scan.hpp"
 #include "logging.hpp"
@@ -43,14 +43,16 @@ uint8_t protocol_string_to_num(const std::string& proto)
     if (proto.empty() || proto == "any")
         return 0;
     /* Numeric fallback (e.g. "132" for SCTP). Anything unrecognized is
-     * treated as wildcard so it does not silently mis-classify. */
-    try {
-        const int n = std::stoi(proto);
-        if (n >= 0 && n <= 255)
-            return static_cast<uint8_t>(n);
-    } catch (...) {
-        /* fall through */
-    }
+     * treated as wildcard so it does not silently mis-classify. Use
+     * std::from_chars (non-throwing) so the catch-all branch doesn't
+     * trip clang-tidy's bugprone-empty-catch on the "treat parse failure
+     * as wildcard" intent. */
+    int n = 0;
+    const auto* first = proto.data();
+    const auto* last = proto.data() + proto.size();
+    const auto [ptr, ec] = std::from_chars(first, last, n);
+    if (ec == std::errc{} && ptr == last && n >= 0 && n <= 255)
+        return static_cast<uint8_t>(n);
     return 0;
 }
 

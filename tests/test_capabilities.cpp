@@ -89,8 +89,8 @@ TEST(CapabilitiesTest, DropAlreadyAbsentCapabilityIsIdempotent)
     int status = 0;
     ASSERT_EQ(::waitpid(pid, &status, 0), pid);
     ASSERT_TRUE(WIFEXITED(status));
-    EXPECT_EQ(WEXITSTATUS(status), 0)
-        << "child exited with sentinel " << WEXITSTATUS(status) << " (10=first_drop_failed, 20=second_drop_failed)";
+    EXPECT_EQ(WEXITSTATUS(status), 0) << "child exited with sentinel " << WEXITSTATUS(status)
+                                      << " (10=first_drop_failed, 20=second_drop_failed)";
 }
 
 TEST(CapabilitiesTest, DroppedCapDisappearsFromPermittedSet)
@@ -197,8 +197,8 @@ TEST(CapabilitiesTest, DroppedCapDisappearsFromBoundingSet)
     int status = 0;
     ASSERT_EQ(::waitpid(pid, &status, 0), pid);
     ASSERT_TRUE(WIFEXITED(status));
-    EXPECT_EQ(WEXITSTATUS(status), 0)
-        << "child exited with sentinel " << WEXITSTATUS(status) << " (10=drop_failed, 20=bounding_still_set)";
+    EXPECT_EQ(WEXITSTATUS(status), 0) << "child exited with sentinel " << WEXITSTATUS(status)
+                                      << " (10=drop_failed, 20=bounding_still_set)";
 }
 
 } // namespace aegis
