@@ -11,6 +11,7 @@
 #include "daemon.hpp"
 #include "events.hpp"
 #include "logging.hpp"
+#include "ringbuf_policy.hpp"
 #include "utils.hpp"
 
 namespace aegis {
@@ -26,6 +27,25 @@ bool parse_u32_option(const std::string& value, uint32_t& out, const char* error
     }
     out = static_cast<uint32_t>(parsed);
     return true;
+}
+
+bool parse_ringbuf_overflow_policy_option(const std::string& value, RingbufOverflowPolicy& out)
+{
+    RingbufOverflowPolicyParseError err{};
+    if (parse_ringbuf_overflow_policy(value, out, err))
+        return true;
+    if (err == RingbufOverflowPolicyParseError::Reserved) {
+        logger().log(SLOG_ERROR("Ringbuf overflow policy reserved for a future release")
+                         .field("value", value)
+                         .field("supported",
+                                std::string(ringbuf_overflow_policy_name(RingbufOverflowPolicy::PriorityFallback))));
+    } else {
+        logger().log(SLOG_ERROR("Invalid ringbuf overflow policy")
+                         .field("value", value)
+                         .field("supported",
+                                std::string(ringbuf_overflow_policy_name(RingbufOverflowPolicy::PriorityFallback))));
+    }
+    return false;
 }
 
 bool parse_enforce_signal_option(const std::string& value, uint8_t& out)
@@ -85,6 +105,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t max_deny_paths = 0;
     uint32_t max_network_entries = 0;
     EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
+    RingbufOverflowPolicy ringbuf_overflow_policy = RingbufOverflowPolicy::PriorityFallback;
 
     const char* env_gate = std::getenv("AEGIS_ENFORCE_GATE_MODE");
     if (env_gate != nullptr && std::strlen(env_gate) > 0) {
@@ -93,6 +114,18 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             enforce_gate_mode = parsed;
         } else {
             logger().log(SLOG_WARN("Invalid AEGIS_ENFORCE_GATE_MODE; using default").field("value", env_gate));
+        }
+    }
+
+    const char* env_ringbuf_policy = std::getenv("AEGIS_RINGBUF_OVERFLOW_POLICY");
+    if (env_ringbuf_policy != nullptr && std::strlen(env_ringbuf_policy) > 0) {
+        RingbufOverflowPolicy parsed{};
+        RingbufOverflowPolicyParseError err{};
+        if (parse_ringbuf_overflow_policy(env_ringbuf_policy, parsed, err)) {
+            ringbuf_overflow_policy = parsed;
+        } else {
+            logger().log(
+                SLOG_WARN("Invalid AEGIS_RINGBUF_OVERFLOW_POLICY; using default").field("value", env_ringbuf_policy));
         }
     }
 
@@ -260,6 +293,15 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
                 return usage(prog);
             if (!parse_u32_option(argv[++i], max_network_entries, "Invalid max network entries", true))
                 return 1;
+        } else if (arg.rfind("--ringbuf-overflow-policy=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--ringbuf-overflow-policy="));
+            if (!parse_ringbuf_overflow_policy_option(value, ringbuf_overflow_policy))
+                return 1;
+        } else if (arg == "--ringbuf-overflow-policy") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_ringbuf_overflow_policy_option(argv[++i], ringbuf_overflow_policy))
+                return 1;
         } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
@@ -292,7 +334,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     return daemon_run(audit_only, enable_seccomp, enable_landlock, enable_cap_drop, deadman_ttl, enforce_signal,
                       allow_sigkill, lsm_hook, ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
                       sigkill_escalation_window_seconds, deny_rate_threshold, deny_rate_breach_limit,
-                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode);
+                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode,
+                      ringbuf_overflow_policy);
 }
 
 } // namespace aegis
