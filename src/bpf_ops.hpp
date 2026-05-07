@@ -304,6 +304,33 @@ class BpfState {
 };
 
 // BPF loading and lifecycle
+/**
+ * One entry in the optional-LSM-hook autoload-gating catalog.
+ *
+ * `hook_name` is the bare hook symbol (matches the keys passed to
+ * `disable_optional_program(...)` and the keys used internally by
+ * `detect_missing_optional_lsm_hooks`).
+ *
+ * `btf_symbol` is the `bpf_lsm_<hook>` trampoline FUNC entry that
+ * actually appears in vmlinux BTF and that the BPF-LSM attach path
+ * binds to. The two names diverge for `mmap_file` (kernel hook
+ * renamed from `file_mmap` pre-5.6); the catalog records the rename
+ * explicitly so it can be unit-tested against `hook_capabilities.cpp`.
+ */
+struct OptionalLsmHookSpec {
+    std::string hook_name;
+    std::string btf_symbol;
+};
+
+/**
+ * Catalog of optional LSM hooks that AegisBPF gates via
+ * `bpf_program__set_autoload(false)` when the kernel does not expose
+ * the matching `bpf_lsm_<hook>` trampoline. Returned by-value so
+ * tests can pin the catalog shape without reaching into TU-private
+ * state.
+ */
+std::vector<OptionalLsmHookSpec> optional_lsm_hook_catalog();
+
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
 void set_ringbuf_bytes(uint32_t bytes);
 void set_max_deny_inodes(uint32_t count);

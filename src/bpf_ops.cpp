@@ -85,6 +85,16 @@ std::set<std::string> detect_missing_optional_lsm_hooks()
 }
 } // namespace
 
+std::vector<OptionalLsmHookSpec> optional_lsm_hook_catalog()
+{
+    std::vector<OptionalLsmHookSpec> result;
+    result.reserve(kOptionalLsmHooks.size());
+    for (const auto& spec : kOptionalLsmHooks) {
+        result.push_back({spec.hook_name, spec.btf_symbol});
+    }
+    return result;
+}
+
 bool kernel_bpf_lsm_enabled()
 {
     return check_bpf_lsm_enabled();
