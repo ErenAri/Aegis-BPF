@@ -481,13 +481,14 @@ across mounts.
 | Syscall Path | Enforcement | Notes |
 |-------------|-------------|-------|
 | `open` / `openat` / `openat2` | In scope | LSM `file_open` and `inode_permission` hooks |
-| `execve` | Partial | Inode deny applies; exec telemetry is audit signal |
-| `mmap` (executable mapping) | Partial | Depends on kernel hook behavior and file-open path |
-| `socket_connect` | In scope | IPv4/IPv6 exact, CIDR, and port deny |
-| `socket_bind` | In scope | Port-oriented deny logic |
-| `socket_listen` | Partial | Port-oriented deny logic when the kernel hook is available |
-| `socket_accept` | Partial | Remote exact IP, CIDR, IP:port, and local-port deny logic when the kernel hook is available |
-| `socket_sendmsg` | Partial | Outbound exact IP, CIDR, IP:port, and egress-port logic when the kernel hook is available |
+| `execve` | In scope when LSM available | Inode deny via `file_open`; exec identity / allowlist via `bprm_check_security` (was silently disabled prior to v0.5.x — see CHANGELOG "Optional LSM Hook Attachment" fix) |
+| `mmap` (executable mapping) | In scope when LSM available | Runtime-deps verification via `mmap_file` hook (the kernel renamed `file_mmap` → `mmap_file` pre-5.6; `SEC()` now matches) |
+| `socket_connect` | In scope when LSM available | IPv4/IPv6 exact, CIDR, and port deny |
+| `socket_bind` | In scope when LSM available | Port-oriented deny logic |
+| `socket_listen` | In scope when LSM available | Port-oriented deny logic when the kernel hook is exposed (kernel-version-gated) |
+| `socket_accept` | In scope when LSM available | Remote exact IP, CIDR, IP:port, and local-port deny logic (kernel-version-gated) |
+| `socket_sendmsg` | In scope when LSM available | Outbound exact IP, CIDR, IP:port, and egress-port logic |
+| `socket_recvmsg` | In scope when LSM available | Inbound datagram authorization (kernel-version-gated) |
 
 ### 8.2 Filesystem Coverage
 

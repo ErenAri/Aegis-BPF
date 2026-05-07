@@ -37,28 +37,47 @@ std::atomic<uint32_t> g_max_deny_inodes{0};
 std::atomic<uint32_t> g_max_deny_paths{0};
 std::atomic<uint32_t> g_max_network_entries{0};
 
+struct OptionalLsmHook {
+    const char* hook_name;  // logical name used as the disable_optional_program key
+    const char* btf_symbol; // bpf_lsm_<name> trampoline FUNC in vmlinux BTF
+};
+
+// Catalog of optional LSM hooks that may or may not be present on a given
+// kernel. The `btf_symbol` is the actual `bpf_lsm_<hook>` trampoline FUNC
+// emitted in vmlinux BTF — that is what an LSM-attach BPF program binds to.
+// Looking up the bare hook name (e.g. "bprm_check_security") fails on every
+// supported kernel because those names only appear as struct members of the
+// LSM hooks list, not as standalone BTF FUNC entries. This catalog mirrors
+// the daemon-facing `lsm_*` capability table in `hook_capabilities.cpp`.
+constexpr std::array<OptionalLsmHook, 9> kOptionalLsmHooks = {{
+    {"bprm_check_security", "bpf_lsm_bprm_check_security"},
+    {"file_mmap", "bpf_lsm_mmap_file"},
+    {"socket_connect", "bpf_lsm_socket_connect"},
+    {"socket_bind", "bpf_lsm_socket_bind"},
+    {"socket_listen", "bpf_lsm_socket_listen"},
+    {"socket_accept", "bpf_lsm_socket_accept"},
+    {"socket_sendmsg", "bpf_lsm_socket_sendmsg"},
+    {"socket_recvmsg", "bpf_lsm_socket_recvmsg"},
+    {"inode_copy_up", "bpf_lsm_inode_copy_up"},
+}};
+
 std::set<std::string> detect_missing_optional_lsm_hooks()
 {
-    static constexpr std::array<const char*, 7> kOptionalHooks = {
-        "bprm_check_security", "file_mmap",     "socket_connect", "socket_bind",
-        "socket_listen",       "socket_accept", "socket_sendmsg",
-    };
-
     std::set<std::string> missing;
     struct btf* vmlinux = btf__load_vmlinux_btf();
     long btf_err = libbpf_get_error(vmlinux);
     if (btf_err != 0) {
         logger().log(SLOG_WARN("Failed to load vmlinux BTF; disabling optional LSM programs")
                          .field("error", static_cast<int64_t>(-btf_err)));
-        for (const char* hook : kOptionalHooks) {
-            missing.insert(hook);
+        for (const auto& spec : kOptionalLsmHooks) {
+            missing.insert(spec.hook_name);
         }
         return missing;
     }
 
-    for (const char* hook : kOptionalHooks) {
-        if (btf__find_by_name_kind(vmlinux, hook, BTF_KIND_FUNC) < 0) {
-            missing.insert(hook);
+    for (const auto& spec : kOptionalLsmHooks) {
+        if (btf__find_by_name_kind(vmlinux, spec.btf_symbol, BTF_KIND_FUNC) < 0) {
+            missing.insert(spec.hook_name);
         }
     }
     btf__free(vmlinux);
