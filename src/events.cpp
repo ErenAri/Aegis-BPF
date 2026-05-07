@@ -4,12 +4,14 @@
 #include <arpa/inet.h>
 #include <grp.h>
 #include <pwd.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstring>
 #include <sstream>
 
+#include "event_dedup.hpp"
 #include "k8s_identity.hpp"
 #include "logging.hpp"
 #include "ocsf_formatter.hpp"
@@ -50,6 +52,47 @@ std::string resolve_groupname(uint32_t gid)
 
 EventLogSink g_event_sink = EventLogSink::Stdout;
 EventFormat g_event_format = EventFormat::Aegis;
+
+namespace {
+
+// Block-event deduper. Owned by the ringbuf consumer thread; no
+// locking. Disabled by default; configured by the CLI before the
+// daemon's consumer loop starts.
+EventDeduper& block_event_deduper()
+{
+    static EventDeduper instance;
+    return instance;
+}
+
+uint64_t monotonic_now_ns()
+{
+    struct timespec ts {};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return static_cast<uint64_t>(ts.tv_sec) * 1'000'000'000ULL + static_cast<uint64_t>(ts.tv_nsec);
+}
+
+uint64_t block_event_dedup_key(const BlockEvent& ev)
+{
+    // Coalesce by (event-class, cgid, ino, pid). Same process repeating
+    // the same denied I/O against the same inode is the dominant
+    // SIEM-noise pattern; keying on cgid+ino+pid keeps cross-cgroup
+    // and cross-pid events distinct.
+    constexpr uint32_t kBlockEventTag = 1;
+    return event_dedup_hash(kBlockEventTag, ev.cgid, ev.ino,
+                            (static_cast<uint64_t>(ev.pid) << 32) | static_cast<uint64_t>(ev.dev));
+}
+
+} // namespace
+
+void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
+{
+    EventDedupConfig cfg{};
+    cfg.window_ns = window_ms * 1'000'000ULL;
+    cfg.max_entries = max_entries;
+    block_event_deduper() = EventDeduper(cfg);
+}
 
 namespace {
 std::string& cached_hostname()
@@ -286,6 +329,21 @@ void print_exec_event(const ExecEvent& ev)
 
 void print_block_event(const BlockEvent& ev)
 {
+    // Bounded time-window dedup: when enabled by the operator, identical
+    // (event-class, cgid, ino, pid, dev) repetitions inside the window
+    // are suppressed. The first emit after window expiry surfaces the
+    // accumulated suppressed count so the downstream consumer sees how
+    // many were collapsed - the count is never silently lost. When
+    // disabled (the default), the deduper short-circuits and behaviour
+    // is identical to before this code shipped.
+    EventDedupDecision dedup_decision{};
+    if (block_event_deduper().is_enabled()) {
+        dedup_decision = block_event_deduper().should_emit(block_event_dedup_key(ev), monotonic_now_ns());
+        if (!dedup_decision.emit) {
+            return;
+        }
+    }
+
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string path = to_string(ev.path, sizeof(ev.path));
     std::string resolved_path = resolve_relative_path(ev.pid, ev.start_time, path);
@@ -330,6 +388,9 @@ void print_block_event(const BlockEvent& ev)
     }
     oss << ",\"ino\":" << ev.ino << ",\"dev\":" << ev.dev << ",\"action\":\"" << json_escape(action) << "\",\"comm\":\""
         << json_escape(comm) << "\"";
+    if (dedup_decision.suppressed_during_prior_window > 0) {
+        oss << ",\"suppressed_during_prior_window\":" << dedup_decision.suppressed_during_prior_window;
+    }
     append_k8s_identity(oss, ev.pid);
     oss << "}";
 

@@ -254,6 +254,7 @@ set(AEGIS_SOURCES
     src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
+    src/event_dedup.cpp
     src/events.cpp
     src/hook_capabilities.cpp
     src/json_scan.cpp
@@ -316,6 +317,7 @@ set(AEGIS_HEADERS
     src/btf_loader.hpp
     src/crypto.hpp
     src/exec_identity.hpp
+    src/event_dedup.hpp
     src/events.hpp
     src/hook_capabilities.hpp
     src/json_scan.hpp
@@ -412,6 +414,7 @@ set(AEGIS_LIB_SOURCES
     src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
+    src/event_dedup.cpp
     src/events.cpp
     src/hook_capabilities.cpp
     src/json_scan.cpp
@@ -507,6 +510,7 @@ if(BUILD_TESTING)
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
         tests/test_commands_simulate.cpp
+        tests/test_event_dedup.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

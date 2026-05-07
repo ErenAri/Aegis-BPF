@@ -36,6 +36,12 @@ struct EventCallbacks {
     void* overlay_ctx = nullptr;
 };
 
+// Configure the bounded time-window deduper for block events. Pass
+// `window_ms == 0` to leave dedup disabled (the default and what
+// existing deployments see). Must be called before the daemon's
+// ringbuf consumer starts; the deduper is single-threaded.
+void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries);
+
 // Event handling
 int handle_event(void* ctx, void* data, size_t size);
 int handle_diag_event(void* ctx, void* data, size_t size);
