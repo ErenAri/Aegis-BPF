@@ -1,0 +1,50 @@
+#!/bin/sh
+# AegisBPF pre-removal maintainer script.
+#
+# Runs before files are removed. Responsibilities:
+#   1. Stop the running service (if any) so file removal does not race
+#      against an active daemon holding /sys/fs/bpf pins.
+#   2. On final-removal (Debian remove / RPM uninstall, NOT upgrade),
+#      disable the unit so a re-install does not silently restart a
+#      service that was deliberately removed.
+#
+# Argument convention (see postinst header for full table):
+#   Debian: $1 = "remove" or "upgrade" or "deconfigure" or "failed-upgrade"
+#   RPM:    $1 = 1 (upgrade) or 0 (final removal)
+# We branch accordingly so an `apt upgrade` does not deconfigure the
+# service while it is still active.
+
+set -e
+
+ACTION="${1:-remove}"
+
+stop_service() {
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl --no-reload disable --now aegisbpf.service >/dev/null 2>&1 || true
+    fi
+}
+
+case "${ACTION}" in
+    remove)
+        # Debian final-removal: stop and disable.
+        stop_service
+        if command -v deb-systemd-helper >/dev/null 2>&1; then
+            deb-systemd-helper mask aegisbpf.service >/dev/null 2>&1 || true
+        fi
+        ;;
+    upgrade|deconfigure|failed-upgrade)
+        # Debian upgrade: leave the service running so the new postinst
+        # can decide; only daemon-reload happens, in postinst.
+        :
+        ;;
+    0)
+        # RPM final-removal: stop and disable.
+        stop_service
+        ;;
+    1)
+        # RPM upgrade: do nothing; the new postinst handles daemon-reload.
+        :
+        ;;
+esac
+
+exit 0
