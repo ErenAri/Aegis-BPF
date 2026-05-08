@@ -53,9 +53,21 @@ jobs:
             pkg-config cmake ninja-build python3-jsonschema rpm \
             linux-tools-common
           # bpftool: try kernel-tools first, fall back to generic tools.
-          sudo apt-get install -y "linux-tools-$(uname -r)" || \
-            sudo apt-get install -y linux-tools-generic
-          command -v bpftool || (echo "bpftool missing" >&2; exit 1)
+          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
+          # dispatches to a per-kernel binary which is often absent for the
+          # exact running kernel. Same fallback chain as kernel-bpf-test.yml:
+          # if `bpftool version` does not actually work, grab any working
+          # bpftool from /usr/lib/linux-tools/<ver>/ and overwrite the wrapper.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
           command -v rpmbuild || (echo "rpmbuild missing" >&2; exit 1)
 
       - name: Configure (Release, full BPF)
