@@ -1,0 +1,24 @@
+=== AegisBPF laptop soak ===
+commit     7380126
+host       ern42-RLEFG-XX
+kernel     6.17.0-20-generic
+lsm        lockdown,capability,landlock,yama,apparmor,bpf,ima,evm
+duration   86400s
+workers    16
+mode       audit
+net        1
+out        /home/ern42/CLionProjects/aegisbpf/.claude/worktrees/quirky-aryabhata
+/evidence/soak-24h-laptop
+start      20260418T153413Z
+============================
+starting daemon for soak test (mode=audit duration=86400s workers=16 net=1)
+preloaded temporary soak block rule: /etc/hosts
+starting network workload workers (UDP connect to 127.0.0.1:9)
+initial RSS: 50804 kB
+
+
+
+
+
+
+
