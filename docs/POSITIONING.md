@@ -189,8 +189,12 @@ Ordered by user-impact. Each has a tracked roadmap item.
 
 16. **168 h soak evidence not yet published.** 24 h AWS soak is clean;
     laptop 24 h soak aborted at ~14.5 h due to a harness bug (daemon stdout
-    filled disk — not an AegisBPF defect; RSS was flat). FedRAMP expects
-    30-day continuous evidence.
+    filled disk — not an AegisBPF defect; RSS was flat across the run).
+    Harness bug fixed in `scripts/soak_reliability.sh` (cap+rotate
+    `daemon.log`, disk-free pre-flight, in-loop watchdog); aborted-run
+    evidence and laptop wrapper published under
+    `evidence/soak-24h-laptop/`. 168 h bare-metal re-run still pending.
+    FedRAMP expects 30-day continuous evidence.
 17. **No chaos testing.** What happens if the BPF object is corrupted
     mid-run, or the ringbuf is detached, or a new LSM loads after us?
 18. **Performance SLO unpublished.** Benchmarks exist; commitments do not.
@@ -229,7 +233,9 @@ of buyer. Dates are directional, not commitments.
   `SystemCallFilter=@system-service`).
 - Daemon post-init capability drop; Landlock self-sandbox; published
   seccomp profile artifact.
-- Fix soak harness bug (cap `daemon.log`, disk pre-flight, watchdog).
+- ~~Fix soak harness bug (cap `daemon.log`, disk pre-flight, watchdog).~~
+  Done — see `scripts/soak_reliability.sh` and
+  `evidence/soak-24h-laptop/NOTES.md`.
 - Publish 168 h bare-metal soak evidence.
 - Governance: `GOVERNANCE.md`, `MAINTAINERS.md` with ≥ 1 external
   maintainer.
@@ -284,7 +290,8 @@ of buyer. Dates are directional, not commitments.
 
 ## 6. Next-week priorities (concrete)
 
-1. **Fix the soak harness bug** that filled disk on the laptop 24 h run.
+1. ~~**Fix the soak harness bug** that filled disk on the laptop 24 h run.~~
+   Done. Re-run for 168 h on a host with adequate disk + thermal headroom.
 2. **Add MITRE ATT&CK tags** to built-in rules.
 3. **Turn on `slsa-github-generator`** in `release.yml` — jumps from SLSA L1
    to L3 for release artifacts.
