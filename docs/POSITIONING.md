@@ -173,8 +173,17 @@ Ordered by user-impact. Each has a tracked roadmap item.
 
 ### 4.3 Distribution / ops
 
-11. **No distro packages.** No Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch
-    AUR. Target: at least the first three.
+11. **Hosted distro repos not yet stood up.** As of this PR, every
+    release builds installable `aegisbpf_<ver>_<arch>.deb` and
+    `aegisbpf-<ver>-<rel>.<arch>.rpm` artefacts via CPack, and the
+    `packaging` CI gate smoke-tests `dpkg -i` on `debian:12` +
+    `ubuntu:24.04` and `rpm -ivh` on `fedora:40` + `rockylinux:9` per
+    PR. What's still missing is **hosted-repo upload** — Ubuntu PPA
+    (Launchpad), Fedora COPR, OpenSUSE OBS, Arch AUR — all of which
+    require maintainer-account credentials that should not live in
+    public CI. See `docs/PACKAGING.md` §5 for the maintainer-side
+    upload workflow. Target for Phase 1 GA: at least the first three
+    hosted, signed by a maintainer key.
 12. **No signed container images on a public registry.** Target:
     `ghcr.io/ErenAri/aegisbpf` + cosign.
 13. **Helm chart ships; OperatorHub / OpenShift catalog listings do not.**
@@ -227,7 +236,9 @@ of buyer. Dates are directional, not commitments.
 
 - SLSA L3 via `slsa-github-generator`; cosign-sign all artifacts; OpenSSF
   Best Practices gold badge; Scorecard ≥ 8.0; VEX alongside SBOM.
-- Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch AUR packages.
+- Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch AUR packages. (`.deb` +
+  `.rpm` artefacts now built and CI-smoke-tested per PR; hosted-repo
+  upload still pending — see `docs/PACKAGING.md`.)
 - Hardened systemd unit (`ProtectSystem=strict`,
   `CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE`,
   `SystemCallFilter=@system-service`).
@@ -296,7 +307,9 @@ of buyer. Dates are directional, not commitments.
 3. **Turn on `slsa-github-generator`** in `release.yml` — jumps from SLSA L1
    to L3 for release artifacts.
 4. **Stand up OpenSSF Best Practices badge** and OpenSSF Scorecard action.
-5. **Publish an Ubuntu PPA** of the current binary.
+5. **Publish an Ubuntu PPA** of the current binary. (`.deb` artefact +
+   CI gate landed; remaining step is `dput` from a maintainer
+   workstation — see `docs/PACKAGING.md` §5.1.)
 6. **Write a `GOVERNANCE.md`** + `MAINTAINERS.md` with an `external-maintainer`
    slot flagged open for a PR from a second contributor.
 

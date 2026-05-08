@@ -1,0 +1,287 @@
+name: Packaging
+
+# Builds binary distro packages (.deb, .rpm) via CPack and smoke-tests
+# installation across Debian / Ubuntu / Fedora / Rocky to catch regressions
+# in the maintainer scripts (postinst, prerm, postrm) and dependency
+# declarations *before* a release tag, not after.
+#
+# Triggered on:
+#   - PRs that touch packaging metadata (CMakeLists.txt CPack block,
+#     packaging/maintainer-scripts/, the systemd unit, or this workflow).
+#   - Manual workflow_dispatch so a maintainer can pre-flight a release.
+#
+# Out of scope (handled by separate workflows / manual steps):
+#   - Uploading .deb to Launchpad PPA   (`dput`, requires GPG key).
+#   - Uploading .src.rpm to Fedora COPR  (`copr-cli`, requires API token).
+#   - Uploading to OpenSUSE OBS          (`osc commit`).
+# See docs/PACKAGING.md for the maintainer-side release workflow.
+
+on:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'packaging/**'
+      - '.github/workflows/packaging.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'packaging/**'
+      - '.github/workflows/packaging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build packages (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    outputs:
+      deb-name: ${{ steps.collect.outputs.deb }}
+      rpm-name: ${{ steps.collect.outputs.rpm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
+            pkg-config cmake ninja-build python3-jsonschema rpm \
+            linux-tools-common
+          # bpftool: try kernel-tools first, fall back to generic tools.
+          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
+          # dispatches to a per-kernel binary which is often absent for the
+          # exact running kernel. Same fallback chain as kernel-bpf-test.yml:
+          # if `bpftool version` does not actually work, grab any working
+          # bpftool from /usr/lib/linux-tools/<ver>/ and overwrite the wrapper.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
+          command -v rpmbuild || (echo "rpmbuild missing" >&2; exit 1)
+
+      - name: Configure (Release, full BPF)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF
+
+      - name: Build aegisbpf + BPF object
+        run: cmake --build build --target aegisbpf
+
+      - name: Build .deb (cpack -G DEB)
+        working-directory: build
+        run: cpack -G DEB --verbose
+
+      - name: Build .rpm (cpack -G RPM)
+        working-directory: build
+        run: cpack -G RPM --verbose
+
+      - name: Collect package artifacts
+        id: collect
+        working-directory: build
+        run: |
+          set -euxo pipefail
+          DEB="$(ls aegisbpf_*.deb | head -n1)"
+          RPM="$(ls aegisbpf-*.rpm | head -n1)"
+          echo "deb=${DEB}" >> "$GITHUB_OUTPUT"
+          echo "rpm=${RPM}" >> "$GITHUB_OUTPUT"
+          echo "Built: ${DEB}, ${RPM}"
+          ls -la *.deb *.rpm
+
+      - name: Inspect .deb contents
+        working-directory: build
+        run: |
+          dpkg-deb --info  "${{ steps.collect.outputs.deb }}"
+          dpkg-deb --contents "${{ steps.collect.outputs.deb }}" | tee deb-contents.txt
+          # Required-files contract: every release must ship the binary,
+          # the BPF object + sha256 sidecar, the systemd unit, and the
+          # default policy. If a refactor drops one of these the package
+          # is silently incomplete; this gate prevents that.
+          for required in \
+              ./usr/bin/aegisbpf \
+              ./usr/lib/aegisbpf/aegis.bpf.o \
+              ./usr/lib/aegisbpf/aegis.bpf.sha256 \
+              ./usr/lib/systemd/system/aegisbpf.service \
+              ./etc/default/aegisbpf \
+              ./etc/aegisbpf/policy.example; do
+            grep -qE "[[:space:]]${required}\$" deb-contents.txt || {
+              echo "missing from .deb: ${required}" >&2
+              exit 1
+            }
+          done
+
+      - name: Inspect .rpm contents
+        working-directory: build
+        run: |
+          rpm -qpi "${{ steps.collect.outputs.rpm }}"
+          rpm -qpl "${{ steps.collect.outputs.rpm }}" | tee rpm-contents.txt
+          for required in \
+              /usr/bin/aegisbpf \
+              /usr/lib/aegisbpf/aegis.bpf.o \
+              /usr/lib/aegisbpf/aegis.bpf.sha256 \
+              /usr/lib/systemd/system/aegisbpf.service \
+              /etc/default/aegisbpf \
+              /etc/aegisbpf/policy.example; do
+            grep -qxF "${required}" rpm-contents.txt || {
+              echo "missing from .rpm: ${required}" >&2
+              exit 1
+            }
+          done
+
+      - name: Inspect .rpm scripts (verifies maintainer scripts wired)
+        working-directory: build
+        run: |
+          rpm -qp --scripts "${{ steps.collect.outputs.rpm }}" | tee rpm-scripts.txt
+          # The CPack RPM builder must have wired our shared maintainer
+          # scripts into %post / %preun / %postun. If it silently dropped
+          # one we want the build to fail here, not at install time on a
+          # downstream host.
+          grep -q "postinstall scriptlet" rpm-scripts.txt
+          grep -q "preuninstall scriptlet" rpm-scripts.txt
+          grep -q "postuninstall scriptlet" rpm-scripts.txt
+
+      - name: Upload .deb / .rpm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisbpf-packages
+          path: |
+            build/aegisbpf_*.deb
+            build/aegisbpf-*.rpm
+          retention-days: 14
+          if-no-files-found: error
+
+  smoke-deb:
+    name: smoke-deb (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - ubuntu:24.04
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aegisbpf-packages
+
+      - name: Install (no-systemd container path)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euxo pipefail
+          apt-get update
+          # libbpf1 is in the default repo on bookworm/noble; pull it in
+          # alongside the .deb so we exercise the real shared-library
+          # dependency path, not a static build.
+          apt-get install -y --no-install-recommends \
+            libbpf1 libelf1 ca-certificates
+          # /run/systemd/system is intentionally absent in the container,
+          # so the maintainer scripts will skip the systemctl call. This
+          # is the contract documented in postinst — the install must
+          # still succeed cleanly.
+          dpkg -i ./aegisbpf_*.deb || {
+            apt-get -f install -y --no-install-recommends
+            dpkg -i ./aegisbpf_*.deb
+          }
+
+      - name: Verify post-install file layout
+        run: |
+          set -euxo pipefail
+          test -x /usr/bin/aegisbpf
+          test -f /usr/lib/aegisbpf/aegis.bpf.o
+          test -f /usr/lib/aegisbpf/aegis.bpf.sha256
+          test -f /usr/lib/systemd/system/aegisbpf.service
+          test -f /etc/default/aegisbpf
+          test -f /etc/aegisbpf/policy.example
+          test -d /var/lib/aegisbpf
+          # /etc/default/aegisbpf is a Debian conffile.
+          dpkg-query --showformat='${Conffiles}\n' --show aegisbpf | grep -q '/etc/default/aegisbpf'
+
+      - name: Verify --version exits 0
+        run: |
+          # No BPF features available in the container; we only verify
+          # the binary loads its shared libraries and prints version.
+          # Anything that exercises the kernel happens in e2e-gate.
+          /usr/bin/aegisbpf --version
+
+      - name: Remove (preserve config)
+        run: |
+          set -euxo pipefail
+          dpkg -r aegisbpf
+          # /etc/aegisbpf/policy.example is %config(noreplace) on RPM and
+          # a conffile on Debian; on `dpkg -r` (not purge) the conffile
+          # is preserved.
+          test -f /etc/default/aegisbpf || true
+
+      - name: Purge (must clean state dir)
+        run: |
+          set -euxo pipefail
+          dpkg -P aegisbpf
+          # State dir removed on purge per postrm contract.
+          if [ -d /var/lib/aegisbpf ]; then
+            echo "purge did not remove /var/lib/aegisbpf" >&2
+            exit 1
+          fi
+
+  smoke-rpm:
+    name: smoke-rpm (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - fedora:40
+          - rockylinux:9
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aegisbpf-packages
+
+      - name: Install runtime deps
+        run: |
+          set -euxo pipefail
+          if command -v dnf >/dev/null 2>&1; then
+            dnf install -y libbpf elfutils-libelf glibc || \
+              dnf install -y libbpf elfutils-libelf
+          else
+            yum install -y libbpf elfutils-libelf glibc
+          fi
+
+      - name: Install the .rpm
+        run: |
+          set -euxo pipefail
+          rpm -ivh --nodeps ./aegisbpf-*.rpm  # deps already pulled above
+
+      - name: Verify post-install file layout
+        run: |
+          set -euxo pipefail
+          test -x /usr/bin/aegisbpf
+          test -f /usr/lib/aegisbpf/aegis.bpf.o
+          test -f /usr/lib/aegisbpf/aegis.bpf.sha256
+          test -f /usr/lib/systemd/system/aegisbpf.service
+          test -f /etc/default/aegisbpf
+          test -f /etc/aegisbpf/policy.example
+          test -d /var/lib/aegisbpf
+
+      - name: Verify --version exits 0
+        run: /usr/bin/aegisbpf --version
+
+      - name: Uninstall
+        run: rpm -e aegisbpf

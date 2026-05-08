@@ -1,0 +1,65 @@
+#!/bin/sh
+# AegisBPF post-install maintainer script.
+#
+# Runs after files have been unpacked. Responsibilities:
+#   1. Ensure /var/lib/aegisbpf and /etc/aegisbpf exist with correct mode.
+#   2. Tell systemd about the new unit (daemon-reload).
+#   3. Honour distro convention on auto-enable:
+#        - Debian/Ubuntu: deb-systemd-helper auto-enables by default
+#          (Debian Policy 9.3.3.1 + dh_installsystemd behaviour).
+#        - Fedora/RHEL/SUSE: do not auto-enable; operators run
+#          `systemctl enable --now aegisbpf` themselves (Fedora packaging
+#          guidelines, %systemd_post macro).
+#
+# This script is invoked both as a Debian postinst and as an RPM %post.
+# The two ABIs differ in arguments:
+#   Debian: $1 = "configure" on install/upgrade.
+#   RPM:    $1 = 1 on install, 2 on upgrade.
+# We branch on the first arg accordingly.
+#
+# All systemd interaction is best-effort: a missing systemctl simply means
+# the package was installed on a non-systemd host (container, chroot,
+# minimal install) and the operator is expected to wire up their own
+# supervisor.
+
+set -e
+
+ACTION="${1:-configure}"
+
+# 1. State + config directories. The systemd unit declares
+#    StateDirectory=aegisbpf which would create /var/lib/aegisbpf at
+#    service start, but CLI invocations (`aegisbpf policy apply ...`)
+#    can run before the service ever starts, so create it here too.
+install -d -m 0755 /var/lib/aegisbpf
+install -d -m 0755 /etc/aegisbpf
+
+# 2. Notify systemd if it's around. Failure is non-fatal: see header comment.
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+# 3. Distro-specific auto-enable hook.
+case "${ACTION}" in
+    configure)
+        # Debian / Ubuntu install or upgrade.
+        if command -v deb-systemd-helper >/dev/null 2>&1; then
+            # was-enabled probe matches dh_installsystemd's default
+            # behaviour: only enable on first install, not on upgrades.
+            deb-systemd-helper unmask aegisbpf.service >/dev/null 2>&1 || true
+            if deb-systemd-helper --quiet was-enabled aegisbpf.service; then
+                deb-systemd-helper enable aegisbpf.service >/dev/null 2>&1 || true
+            else
+                deb-systemd-helper update-state aegisbpf.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+    1|2)
+        # RPM %post. $1 == 1 means fresh install, 2 means upgrade.
+        # Fedora packaging guidelines say do NOT auto-enable system
+        # services on install — the operator opts in. We only refresh
+        # systemd's view of the unit file here.
+        :
+        ;;
+esac
+
+exit 0

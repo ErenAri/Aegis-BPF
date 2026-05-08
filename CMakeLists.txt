@@ -818,19 +818,80 @@ install(FILES config/policy.example DESTINATION /etc/aegisbpf)
 set(CPACK_PACKAGE_NAME "aegisbpf")
 set(CPACK_PACKAGE_VENDOR "AegisBPF")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AegisBPF runtime security agent")
+set(CPACK_PACKAGE_DESCRIPTION
+    "AegisBPF is an eBPF + LSM runtime security agent.\n\
+It enforces deny / audit policy for file, exec, and network events on\n\
+modern Linux kernels with BPF-LSM enabled. The daemon is managed via\n\
+the bundled aegisbpf.service systemd unit and configured through\n\
+/etc/default/aegisbpf and /etc/aegisbpf/policy.example.")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_CONTACT "aegisbpf@localhost")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/ErenAri/Aegis-BPF")
+set(CPACK_PACKAGE_CONTACT "AegisBPF maintainers <aegisbpf-maintainers@users.noreply.github.com>")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_SET_DESTDIR ON)
+# Default CPack generator is TGZ; downstream callers (release tooling,
+# CI packaging job, distro maintainers) override on the command line:
+#   cpack -G DEB    # produces aegisbpf_<ver>_<arch>.deb
+#   cpack -G RPM    # produces aegisbpf-<ver>-<rel>.<arch>.rpm
 set(CPACK_GENERATOR "TGZ")
+
+# --- Debian package metadata -------------------------------------------------
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# systemd is a Recommends, not a hard Depends, so the package can also be
+# installed on minimal containers / non-systemd hosts (operators run the
+# binary directly under their own supervisor in that case).
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "systemd")
 if(STATIC_LIBBPF)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1")
-    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, libc6")
 else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0")
-    set(CPACK_RPM_PACKAGE_REQUIRES "libbpf")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0, libelf1t64 | libelf1, libc6")
 endif()
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postinst;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/prerm;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm")
+
+# --- RPM package metadata ----------------------------------------------------
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_LICENSE "Apache-2.0")
+set(CPACK_RPM_PACKAGE_GROUP "System Environment/Daemons")
+# We install to absolute paths (/etc/default, /etc/aegisbpf, ...) so the
+# package is non-relocatable; CPack defaults handle this correctly when
+# CPACK_RPM_PACKAGE_RELOCATABLE is left unset.
+set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_RPM_PACKAGE_VENDOR "${CPACK_PACKAGE_VENDOR}")
+# CPack's RPM generator falls back to a placeholder if this is unset;
+# pin the description explicitly so `rpm -qpi` shows real text.
+set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
+set(CPACK_RPM_PACKAGE_SUMMARY "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+if(STATIC_LIBBPF)
+    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, glibc")
+else()
+    set(CPACK_RPM_PACKAGE_REQUIRES "libbpf, elfutils-libelf, glibc")
+endif()
+set(CPACK_RPM_PACKAGE_REQUIRES_POST "systemd")
+set(CPACK_RPM_PACKAGE_REQUIRES_PREUN "systemd")
+set(CPACK_RPM_PACKAGE_REQUIRES_POSTUN "systemd")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postinst")
+set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/prerm")
+set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm")
+# Strip is intentionally disabled so debug-info post-builders don't change
+# the binary in a way that defeats reproducibility verification.
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __brp_strip /bin/true\n%global __brp_strip_static_archive /bin/true")
+# Keep RPM file ownership stable across staging directory variation.
+set(CPACK_RPM_USER_FILELIST
+    "%config(noreplace) /etc/default/aegisbpf"
+    "%config(noreplace) /etc/aegisbpf/policy.example")
+# /etc/aegisbpf is created by the install rule for policy.example; ensure
+# /etc/default/aegisbpf is not flagged %ghost.
+set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+
 include(CPack)
