@@ -294,7 +294,7 @@ TEST(OcsfFormatterTest, ForensicEventEnforceMapsToProcessActivityDeniedLaunch)
 
     EXPECT_TRUE(has_value(json, "\"class_uid\":1007"));
     EXPECT_TRUE(has_value(json, "\"category_uid\":1"));
-    EXPECT_TRUE(has_value(json, "\"activity_id\":1"));    // Launch
+    EXPECT_TRUE(has_value(json, "\"activity_id\":1")); // Launch
     EXPECT_TRUE(has_value(json, "\"type_uid\":100701"));
     EXPECT_TRUE(has_value(json, "\"action_id\":2"));      // Denied
     EXPECT_TRUE(has_value(json, "\"disposition_id\":2")); // Blocked

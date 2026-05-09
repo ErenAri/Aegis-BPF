@@ -328,9 +328,9 @@ std::string format_exec_event_ocsf(const ExecEvent& ev, const std::string& cgpat
     oss << "{" << "\"class_uid\":" << kClassProcessActivity << ",\"class_name\":\"Process Activity\""
         << ",\"category_uid\":" << kCategorySystemActivity << ",\"category_name\":\"System Activity\""
         << ",\"activity_id\":" << activity_id << ",\"activity_name\":\"Launch\"" << ",\"type_uid\":" << type_uid
-        << ",\"type_name\":\"Process Activity: Launch\"" << ",\"action_id\":" << action_id
-        << ",\"action\":\"Allowed\"" << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\""
-        << ",\"severity_id\":" << severity_id << ",\"severity\":\"Informational\"" << ",\"time\":" << epoch_ms_now()
+        << ",\"type_name\":\"Process Activity: Launch\"" << ",\"action_id\":" << action_id << ",\"action\":\"Allowed\""
+        << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\"" << ",\"severity_id\":" << severity_id
+        << ",\"severity\":\"Informational\"" << ",\"time\":" << epoch_ms_now()
         << ",\"message\":\"AegisBPF audit: process launch observed\",";
 
     write_metadata_block(oss, exec_id);

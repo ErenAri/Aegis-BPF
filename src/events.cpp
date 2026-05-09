@@ -118,19 +118,16 @@ uint64_t net_block_event_dedup_key(const NetBlockEvent& ev)
         addr_slot = static_cast<uint64_t>(ev.remote_ipv4);
     }
 
-    const uint64_t shape_slot = (static_cast<uint64_t>(ev.pid) << 32) |
-                                (static_cast<uint64_t>(ev.direction) << 24) |
-                                (static_cast<uint64_t>(ev.protocol) << 16) |
-                                (static_cast<uint64_t>(ev.family) << 8);
+    const uint64_t shape_slot = (static_cast<uint64_t>(ev.pid) << 32) | (static_cast<uint64_t>(ev.direction) << 24) |
+                                (static_cast<uint64_t>(ev.protocol) << 16) | (static_cast<uint64_t>(ev.family) << 8);
 
     // Mix address + ports without shifting bits off the high end. The
     // earlier `(addr_slot << 32)` form silently aliased IPv6 addresses
     // that differed only in their upper 64 bits (e.g. `::1` vs `::2`
     // after the XOR-fold) — see test_net_block_event_dedup.cpp's
     // DistinctRemoteIPv6DoNotCollapse case for the regression contract.
-    const uint64_t port_slot = addr_slot ^
-                               ((static_cast<uint64_t>(ev.remote_port) << 32) |
-                                static_cast<uint64_t>(ev.local_port));
+    const uint64_t port_slot =
+        addr_slot ^ ((static_cast<uint64_t>(ev.remote_port) << 32) | static_cast<uint64_t>(ev.local_port));
 
     return event_dedup_hash(kNetBlockEventTag, ev.cgid, shape_slot, port_slot);
 }
@@ -521,8 +518,7 @@ void print_net_block_event(const NetBlockEvent& ev)
     // analog field, and we will not invent one off-spec).
     EventDedupDecision dedup_decision{};
     if (net_block_event_deduper().is_enabled()) {
-        dedup_decision =
-            net_block_event_deduper().should_emit(net_block_event_dedup_key(ev), monotonic_now_ns());
+        dedup_decision = net_block_event_deduper().should_emit(net_block_event_dedup_key(ev), monotonic_now_ns());
         if (!dedup_decision.emit) {
             return;
         }
