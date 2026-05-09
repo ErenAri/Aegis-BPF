@@ -149,15 +149,20 @@ Ordered by user-impact. Each has a tracked roadmap item.
    parent-process or label selectors in match criteria. Target: **CEL**
    (Kubernetes-native, aligns with admission policies).
 8. ~~**No event dedup / aggregation on the agent.**~~ **Partially shipped:**
-   bounded time-window dedup for `BlockEvent` is opt-in via
-   `--event-dedup-window-ms=N --event-dedup-max-entries=N`
-   (or the equivalent `AEGIS_EVENT_DEDUP_*` env vars). When enabled,
-   identical `(cgid, ino, pid, dev)` block events inside the window
-   are coalesced; the first emit after window expiry surfaces the
-   accumulated `suppressed_during_prior_window` count so the
-   downstream SIEM never silently loses information. Network, exec,
-   forensic, kernel and OCSF-augmented payloads are deferred to a
-   follow-up. See
+   bounded time-window dedup for `BlockEvent` and `NetBlockEvent` is
+   opt-in via `--event-dedup-window-ms=N --event-dedup-max-entries=N`
+   (or the equivalent `AEGIS_EVENT_DEDUP_*` env vars). The same flags
+   drive both dedupers, but their state is independent and the key
+   includes a per-event-class tag so domains never alias. When
+   enabled, identical `(cgid, ino, pid, dev)` block events and
+   identical `(cgid, pid|direction|protocol|family, addr|ports)`
+   net-block events inside the window are coalesced; the first emit
+   after window expiry surfaces the accumulated
+   `suppressed_during_prior_window` count so the downstream SIEM never
+   silently loses information. Exec, forensic, kernel and
+   OCSF-augmented payloads are deferred to a follow-up (OCSF *suppresses*
+   correctly today but does not carry the count, since OCSF 1.1 has
+   no analog field). See
    [`EVENT_LOSS_AND_BACKPRESSURE.md`](EVENT_LOSS_AND_BACKPRESSURE.md).
 9. **No response actions.** Blocking is enforcement; *responses* (quarantine
    pod, kill tree, freeze cgroup, rotate creds, pause deployment) are a

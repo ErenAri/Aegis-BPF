@@ -42,6 +42,16 @@ struct EventCallbacks {
 // ringbuf consumer starts; the deduper is single-threaded.
 void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries);
 
+// Configure the bounded time-window deduper for network block events
+// (`net_connect_block`, `net_bind_block`, `net_listen_block`,
+// `net_accept_block`, `net_sendmsg_block`, `net_recvmsg_block`). Same
+// semantics and disabled-by-default contract as
+// `configure_block_event_dedup`. Must be called before the ringbuf
+// consumer starts; the deduper is single-threaded. The two dedupers
+// are independent — keying domains do not overlap because the hash
+// includes a per-event-class tag.
+void configure_net_block_event_dedup(uint64_t window_ms, std::size_t max_entries);
+
 // Event handling
 int handle_event(void* ctx, void* data, size_t size);
 int handle_diag_event(void* ctx, void* data, size_t size);
