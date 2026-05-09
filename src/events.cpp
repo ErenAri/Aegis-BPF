@@ -351,11 +351,27 @@ void append_k8s_identity(std::ostringstream& oss, uint32_t pid)
 
 void print_exec_event(const ExecEvent& ev)
 {
-    std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string comm = to_string(ev.comm, sizeof(ev.comm));
     std::string exec_id = build_exec_id(ev.pid, ev.start_time);
 
+    if (g_event_format == EventFormat::Ocsf) {
+        std::string payload = format_exec_event_ocsf(ev, cgpath, comm, exec_id, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            // OCSF payload reuses the existing journald sender —
+            // MESSAGE= will carry the OCSF JSON; AEGIS_* metadata
+            // fields are still attached to the journal entry.
+            journal_send_exec(ev, payload, cgpath, comm, exec_id);
+        }
+#endif
+        return;
+    }
+
+    std::ostringstream oss;
     oss << "{\"type\":\"exec\",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
         oss << ",\"exec_id\":\"" << json_escape(exec_id) << "\"";
@@ -644,13 +660,25 @@ void print_exec_argv_event(const ExecArgvEvent& ev)
 
 void print_forensic_event(const ForensicEvent& ev)
 {
-    std::ostringstream oss;
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string comm = to_string(ev.comm, sizeof(ev.comm));
     std::string action = to_string(ev.action, sizeof(ev.action));
     std::string exec_id = build_exec_id(ev.pid, ev.start_time);
     std::string parent_exec_id = build_exec_id(ev.ppid, ev.parent_start_time);
 
+    if (g_event_format == EventFormat::Ocsf) {
+        std::string payload =
+            format_forensic_event_ocsf(ev, cgpath, action, comm, exec_id, parent_exec_id, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+        // No journald sender for ForensicEvent today — the existing
+        // Aegis-native path also only writes to stdout, so behaviour
+        // is symmetric between the two formats.
+        return;
+    }
+
+    std::ostringstream oss;
     oss << "{\"type\":\"forensic_block\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
         << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {

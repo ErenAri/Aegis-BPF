@@ -199,6 +199,151 @@ TEST(OcsfFormatterTest, NetAuditOnlyOmitsDispositionAndUsesAllowed)
     EXPECT_TRUE(has_value(json, "\"severity_id\":2"));
 }
 
+// -------- format_exec_event_ocsf ---------------------------------------
+
+namespace {
+
+ExecEvent make_exec_event(const char* comm_str)
+{
+    ExecEvent ev{};
+    ev.pid = 9001;
+    ev.ppid = 9000;
+    ev.start_time = 1700000000000000000ULL;
+    ev.cgid = 0xC0FFEEULL;
+    std::strncpy(ev.comm, comm_str, sizeof(ev.comm) - 1);
+    ev.ancestor_count = 2;
+    ev.ancestor_pids[0] = 8000;
+    ev.ancestor_pids[1] = 1;
+    return ev;
+}
+
+ForensicEvent make_forensic_event(const char* comm_str, const char* action_str)
+{
+    ForensicEvent ev{};
+    ev.pid = 7777;
+    ev.ppid = 7776;
+    ev.start_time = 1700000000000000000ULL;
+    ev.parent_start_time = 1700000000000000000ULL - 2000000000ULL;
+    ev.cgid = 0xBADF00DULL;
+    ev.ino = 5151;
+    ev.dev = 42;
+    ev.uid = 1000;
+    ev.gid = 1000;
+    ev.exec_ino = 7373;
+    ev.exec_dev = 42;
+    ev.exec_stage = 2;
+    ev.verified_exec = 1;
+    ev.exec_identity_known = 1;
+    std::strncpy(ev.comm, comm_str, sizeof(ev.comm) - 1);
+    std::strncpy(ev.action, action_str, sizeof(ev.action) - 1);
+    return ev;
+}
+
+} // namespace
+
+TEST(OcsfFormatterTest, ExecEventMapsToProcessActivityLaunch)
+{
+    auto ev = make_exec_event("bash");
+    auto json = format_exec_event_ocsf(ev, "/sys/fs/cgroup/user.slice", "bash", "exec-9001", "test-host");
+
+    // Required Process Activity 1007 fields.
+    EXPECT_TRUE(has_value(json, "\"class_uid\":1007"));
+    EXPECT_TRUE(has_value(json, "\"category_uid\":1"));
+    EXPECT_TRUE(has_value(json, "\"activity_id\":1")); // Launch
+    EXPECT_TRUE(has_value(json, "\"type_uid\":100701"));
+    EXPECT_TRUE(has_value(json, "\"action_id\":1"));   // Allowed (exec is observation)
+    EXPECT_TRUE(has_value(json, "\"status_id\":1"));   // Success
+    EXPECT_TRUE(has_value(json, "\"severity_id\":1")); // Informational
+
+    // Exec is never a deny — disposition must be omitted.
+    EXPECT_FALSE(has_value(json, "\"disposition_id\":"));
+
+    // Required `process` object carries pid + name + parent.
+    EXPECT_TRUE(has_field(json, "process"));
+    EXPECT_TRUE(has_value(json, "\"pid\":9001"));
+    EXPECT_TRUE(has_value(json, "\"name\":\"bash\""));
+    EXPECT_TRUE(has_value(json, "\"parent_process\":{\"pid\":9000}"));
+
+    // Top-level structure.
+    EXPECT_TRUE(has_field(json, "metadata"));
+    EXPECT_TRUE(has_field(json, "actor"));
+    EXPECT_TRUE(has_field(json, "device"));
+    EXPECT_TRUE(has_field(json, "unmapped"));
+
+    // Ancestor lineage survives in unmapped.
+    EXPECT_TRUE(has_value(json, "\"aegis_ancestors\":[8000,1]"));
+    EXPECT_TRUE(has_value(json, "\"aegis_cgroup_id\":12648430"));
+    EXPECT_TRUE(has_value(json, "\"hostname\":\"test-host\""));
+}
+
+TEST(OcsfFormatterTest, ExecEventOmitsParentWhenPpidZero)
+{
+    auto ev = make_exec_event("init");
+    ev.ppid = 0;
+    auto json = format_exec_event_ocsf(ev, "", "init", "exec-init", "test-host");
+    EXPECT_FALSE(has_value(json, "\"parent_process\":"));
+}
+
+// -------- format_forensic_event_ocsf -----------------------------------
+
+TEST(OcsfFormatterTest, ForensicEventEnforceMapsToProcessActivityDeniedLaunch)
+{
+    auto ev = make_forensic_event("malware", "BLOCK");
+    auto json = format_forensic_event_ocsf(ev, "/sys/fs/cgroup/system.slice", "BLOCK", "malware", "exec-7777",
+                                           "exec-7776", "test-host");
+
+    EXPECT_TRUE(has_value(json, "\"class_uid\":1007"));
+    EXPECT_TRUE(has_value(json, "\"category_uid\":1"));
+    EXPECT_TRUE(has_value(json, "\"activity_id\":1"));    // Launch
+    EXPECT_TRUE(has_value(json, "\"type_uid\":100701"));
+    EXPECT_TRUE(has_value(json, "\"action_id\":2"));      // Denied
+    EXPECT_TRUE(has_value(json, "\"disposition_id\":2")); // Blocked
+    EXPECT_TRUE(has_value(json, "\"status_id\":1"));      // Success
+    EXPECT_TRUE(has_value(json, "\"severity_id\":4"));    // High
+
+    EXPECT_TRUE(has_field(json, "process"));
+    EXPECT_TRUE(has_value(json, "\"pid\":7777"));
+    EXPECT_TRUE(has_value(json, "\"name\":\"malware\""));
+    EXPECT_TRUE(has_value(json, "\"parent_process\":{\"pid\":7776}"));
+
+    // OCSF User/Group typing — uid is a String at the schema level.
+    EXPECT_TRUE(has_value(json, "\"user\":{\"uid\":\"1000\"}"));
+    EXPECT_TRUE(has_value(json, "\"group\":{\"uid\":\"1000\"}"));
+
+    // Numeric duplicates plus all forensic-grade fields survive in unmapped.
+    EXPECT_TRUE(has_value(json, "\"aegis_uid_int\":1000"));
+    EXPECT_TRUE(has_value(json, "\"aegis_gid_int\":1000"));
+    EXPECT_TRUE(has_value(json, "\"aegis_inode\":5151"));
+    EXPECT_TRUE(has_value(json, "\"aegis_device\":42"));
+    EXPECT_TRUE(has_value(json, "\"aegis_exec_inode\":7373"));
+    EXPECT_TRUE(has_value(json, "\"aegis_exec_device\":42"));
+    EXPECT_TRUE(has_value(json, "\"aegis_exec_stage\":2"));
+    EXPECT_TRUE(has_value(json, "\"aegis_verified_exec\":true"));
+    EXPECT_TRUE(has_value(json, "\"aegis_exec_identity_known\":true"));
+    EXPECT_TRUE(has_value(json, "\"aegis_parent_exec_id\":\"exec-7776\""));
+}
+
+TEST(OcsfFormatterTest, ForensicEventAuditOmitsDispositionAndDowngradesSeverity)
+{
+    auto ev = make_forensic_event("noisy", "AUDIT");
+    auto json = format_forensic_event_ocsf(ev, "", "AUDIT", "noisy", "exec-7777", "exec-7776", "test-host");
+
+    EXPECT_TRUE(has_value(json, "\"action_id\":1"));
+    EXPECT_TRUE(has_value(json, "\"action\":\"Allowed\""));
+    EXPECT_FALSE(has_value(json, "\"disposition_id\":"));
+    EXPECT_TRUE(has_value(json, "\"severity_id\":2")); // Low
+}
+
+TEST(OcsfFormatterTest, ForensicEventVerifiedExecFalseSerializesAsLiteralFalse)
+{
+    auto ev = make_forensic_event("unknown", "BLOCK");
+    ev.verified_exec = 0;
+    ev.exec_identity_known = 0;
+    auto json = format_forensic_event_ocsf(ev, "", "BLOCK", "unknown", "", "", "test-host");
+    EXPECT_TRUE(has_value(json, "\"aegis_verified_exec\":false"));
+    EXPECT_TRUE(has_value(json, "\"aegis_exec_identity_known\":false"));
+}
+
 // -------- set_event_format / current_event_format ----------------------
 
 TEST(OcsfFormatterTest, SetEventFormatAcceptsKnownKeywords)

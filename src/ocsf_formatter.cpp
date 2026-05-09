@@ -17,6 +17,7 @@ namespace aegis {
 namespace {
 
 constexpr int kClassFileActivity = 1001;
+constexpr int kClassProcessActivity = 1007;
 constexpr int kClassNetworkActivity = 4001;
 
 constexpr int kCategorySystemActivity = 1;
@@ -24,6 +25,11 @@ constexpr int kCategoryNetworkActivity = 4;
 
 // File Activity activity_id values (subset relevant to AegisBPF).
 constexpr int kFileActivityOpen = 14;
+
+// Process Activity activity_id values (subset relevant to AegisBPF).
+// Both ExecEvent and ForensicEvent map to Launch — the difference is
+// whether the launch was allowed (Exec) or denied (Forensic).
+constexpr int kProcessActivityLaunch = 1;
 
 // Network Activity activity_id values.
 constexpr int kNetActivityOpen = 1;
@@ -43,7 +49,9 @@ constexpr int kStatusSuccess = 1;
 
 // severity_id values per OCSF: 1 Informational, 2 Low, 3 Medium,
 // 4 High, 5 Critical, 6 Fatal. Audit-only is Low; an enforced block
-// is High.
+// is High. Pure observations (allowed exec) are Informational —
+// labelling every successful exec as Low would drown SIEMs.
+constexpr int kSeverityInformational = 1;
 constexpr int kSeverityLow = 2;
 constexpr int kSeverityHigh = 4;
 
@@ -295,6 +303,140 @@ std::string format_net_block_event_ocsf(const NetBlockEvent& ev, const std::stri
         << ",\"aegis_direction\":" << static_cast<int>(ev.direction) << ",\"aegis_event_type\":\""
         << json_escape(event_type) << "\"" << ",\"aegis_rule_type\":\""
         << json_escape(std::string(ev.rule_type, strnlen(ev.rule_type, sizeof(ev.rule_type)))) << "\"";
+    if (!cgpath.empty()) {
+        oss << ",\"aegis_cgroup_path\":\"" << json_escape(cgpath) << "\"";
+    }
+    if (!parent_exec_id.empty()) {
+        oss << ",\"aegis_parent_exec_id\":\"" << json_escape(parent_exec_id) << "\"";
+    }
+    oss << "}}";
+
+    return oss.str();
+}
+
+std::string format_exec_event_ocsf(const ExecEvent& ev, const std::string& cgpath, const std::string& comm,
+                                   const std::string& exec_id, const std::string& hostname)
+{
+    // Exec is always an observation (Allowed). Deny-at-exec emits a
+    // ForensicEvent through the dedicated formatter below.
+    constexpr int activity_id = kProcessActivityLaunch;
+    constexpr int action_id = kActionAllowed;
+    constexpr int severity_id = kSeverityInformational;
+    constexpr int type_uid = kClassProcessActivity * 100 + activity_id;
+
+    std::ostringstream oss;
+    oss << "{" << "\"class_uid\":" << kClassProcessActivity << ",\"class_name\":\"Process Activity\""
+        << ",\"category_uid\":" << kCategorySystemActivity << ",\"category_name\":\"System Activity\""
+        << ",\"activity_id\":" << activity_id << ",\"activity_name\":\"Launch\"" << ",\"type_uid\":" << type_uid
+        << ",\"type_name\":\"Process Activity: Launch\"" << ",\"action_id\":" << action_id
+        << ",\"action\":\"Allowed\"" << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\""
+        << ",\"severity_id\":" << severity_id << ",\"severity\":\"Informational\"" << ",\"time\":" << epoch_ms_now()
+        << ",\"message\":\"AegisBPF audit: process launch observed\",";
+
+    write_metadata_block(oss, exec_id);
+    oss << ",";
+    // Per OCSF Process Activity guidance, `process` is the target
+    // (the newly-execed program) and `actor.process` is whoever
+    // caused the launch. For Linux exec there is no separate caller
+    // identity post-exec, so we duplicate the subject — losing this
+    // would make the event unsearchable as either subject *or* actor.
+    write_actor_block(oss, ev.pid, ev.ppid, comm, ev.start_time);
+    oss << ",";
+    write_device_block(oss, hostname);
+
+    // process object — required field per the class. Use the same
+    // (pid, name, parent_process.pid) shape as the actor block but
+    // emit it under the class-required `process` key.
+    oss << ",\"process\":{" << "\"pid\":" << ev.pid;
+    if (!comm.empty()) {
+        oss << ",\"name\":\"" << json_escape(comm) << "\"";
+    }
+    oss << ",\"created_time\":" << (ev.start_time / 1000000ULL); // ns -> ms
+    if (ev.ppid > 0) {
+        oss << ",\"parent_process\":{\"pid\":" << ev.ppid << "}";
+    }
+    oss << "}";
+
+    // unmapped — preserve cgroup + ancestor lineage so SIEMs that
+    // index unmapped extensions can still pivot on them.
+    oss << ",\"unmapped\":{" << "\"aegis_cgroup_id\":" << ev.cgid;
+    if (!cgpath.empty()) {
+        oss << ",\"aegis_cgroup_path\":\"" << json_escape(cgpath) << "\"";
+    }
+    if (ev.ancestor_count > 0) {
+        oss << ",\"aegis_ancestors\":[";
+        for (uint8_t i = 0; i < ev.ancestor_count && i < kAncestorMaxDepth; ++i) {
+            if (i > 0) {
+                oss << ",";
+            }
+            oss << ev.ancestor_pids[i];
+        }
+        oss << "]";
+    }
+    oss << "}}";
+
+    return oss.str();
+}
+
+std::string format_forensic_event_ocsf(const ForensicEvent& ev, const std::string& cgpath, const std::string& action,
+                                       const std::string& comm, const std::string& exec_id,
+                                       const std::string& parent_exec_id, const std::string& hostname)
+{
+    const bool audit = is_audit_action(action);
+    constexpr int activity_id = kProcessActivityLaunch;
+    const int action_id = audit ? kActionAllowed : kActionDenied;
+    const int severity_id = audit ? kSeverityLow : kSeverityHigh;
+    constexpr int type_uid = kClassProcessActivity * 100 + activity_id;
+
+    std::ostringstream oss;
+    oss << "{" << "\"class_uid\":" << kClassProcessActivity << ",\"class_name\":\"Process Activity\""
+        << ",\"category_uid\":" << kCategorySystemActivity << ",\"category_name\":\"System Activity\""
+        << ",\"activity_id\":" << activity_id << ",\"activity_name\":\"Launch\"" << ",\"type_uid\":" << type_uid
+        << ",\"type_name\":\"Process Activity: Launch\"" << ",\"action_id\":" << action_id << ",\"action\":\""
+        << (audit ? "Allowed" : "Denied") << "\"";
+    if (!audit) {
+        oss << ",\"disposition_id\":" << kDispositionBlocked << ",\"disposition\":\"Blocked\"";
+    }
+    oss << ",\"status_id\":" << kStatusSuccess << ",\"status\":\"Success\"" << ",\"severity_id\":" << severity_id
+        << ",\"severity\":\"" << (audit ? "Low" : "High") << "\"" << ",\"time\":" << epoch_ms_now() << ",\"message\":\""
+        << (audit ? "AegisBPF audit: process launch observed at exec gate"
+                  : "AegisBPF: process launch denied at exec gate")
+        << "\",";
+
+    write_metadata_block(oss, exec_id);
+    oss << ",";
+    write_actor_block(oss, ev.pid, ev.ppid, comm, ev.start_time);
+    oss << ",";
+    write_device_block(oss, hostname);
+
+    // process object — required field per the class.
+    oss << ",\"process\":{" << "\"pid\":" << ev.pid;
+    if (!comm.empty()) {
+        oss << ",\"name\":\"" << json_escape(comm) << "\"";
+    }
+    oss << ",\"created_time\":" << (ev.start_time / 1000000ULL); // ns -> ms
+    if (ev.ppid > 0) {
+        oss << ",\"parent_process\":{\"pid\":" << ev.ppid << "}";
+    }
+    // OCSF User object: `uid` is documented as a string (the canonical
+    // identifier, e.g. SID/UUID). Linux uid is numeric, so emit it
+    // under the unmapped `uid_int` field where downstream parsers can
+    // type it as an integer; mirror the same for gid via the OCSF
+    // Group object. This avoids violating the OCSF schema's String
+    // typing while preserving the actual evidence.
+    oss << ",\"user\":{\"uid\":\"" << ev.uid << "\"}";
+    oss << ",\"group\":{\"uid\":\"" << ev.gid << "\"}";
+    oss << "}";
+
+    // unmapped — every AegisBPF-specific forensic field that the OCSF
+    // schema has no equivalent for. The exec-gate evidence is the
+    // *whole point* of the event so it must survive verbatim.
+    oss << ",\"unmapped\":{" << "\"aegis_inode\":" << ev.ino << ",\"aegis_device\":" << ev.dev
+        << ",\"aegis_uid_int\":" << ev.uid << ",\"aegis_gid_int\":" << ev.gid << ",\"aegis_exec_inode\":" << ev.exec_ino
+        << ",\"aegis_exec_device\":" << ev.exec_dev << ",\"aegis_exec_stage\":" << static_cast<int>(ev.exec_stage)
+        << ",\"aegis_verified_exec\":" << (ev.verified_exec ? "true" : "false")
+        << ",\"aegis_exec_identity_known\":" << (ev.exec_identity_known ? "true" : "false")
+        << ",\"aegis_cgroup_id\":" << ev.cgid;
     if (!cgpath.empty()) {
         oss << ",\"aegis_cgroup_path\":\"" << json_escape(cgpath) << "\"";
     }
