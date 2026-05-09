@@ -473,9 +473,14 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    `/etc/aegisbpf/btfs/`, or pointed at via `AEGIS_BTF_PATH`. Use
    `scripts/btfgen.sh` to harvest from BTFhub-archive. See
    [`docs/BTF_FALLBACK.md`](docs/BTF_FALLBACK.md).
-7. **No distro packages yet.** Install requires build-from-source or
-   the provided container image; Ubuntu PPA / Fedora COPR are on the
-   roadmap.
+7. **Distro packages: `.deb` and `.rpm` artefacts ship per release; hosted
+   repos still pending.** Every release builds installable
+   `aegisbpf_<ver>_<arch>.deb` and `aegisbpf-<ver>-<rel>.<arch>.rpm`
+   via CPack and CI smoke-tests `dpkg -i` on `debian:12` /
+   `ubuntu:24.04` and `rpm -ivh` on `fedora:40` / `rockylinux:9`.
+   Hosted-repo upload (Ubuntu PPA / Fedora COPR / OpenSUSE OBS / Arch
+   AUR) requires maintainer-account credentials and is on the Phase 1
+   GA roadmap. See [`docs/PACKAGING.md`](docs/PACKAGING.md).
 8. **Daemon runs as root for its full lifetime by default.** Opt-in
    `--drop-caps` removes `CAP_SYS_ADMIN`/`CAP_BPF`/`CAP_PERFMON` after
    BPF attach (kept: `CAP_NET_ADMIN`, `CAP_DAC_READ_SEARCH`); see
@@ -497,7 +502,31 @@ Optional environment check:
 scripts/verify_env.sh --strict
 ```
 
-### Install Dependencies (Ubuntu/Debian)
+### Install from a package (Debian / Ubuntu / Fedora / Rocky / RHEL)
+
+Every release publishes installable `.deb` and `.rpm` artefacts under
+the [GitHub Releases](https://github.com/ErenAri/Aegis-BPF/releases)
+page. The packages drop the binary at `/usr/bin/aegisbpf`, the
+systemd unit at `/lib/systemd/system/aegisbpf.service`, and starter
+config at `/etc/default/aegisbpf` + `/etc/aegisbpf/policy.example`.
+
+```bash
+# Debian / Ubuntu
+sudo dpkg -i aegisbpf_<ver>_amd64.deb
+sudo apt-get install -f       # pull libbpf1, libelf1, libsystemd0 if needed
+
+# Fedora / RHEL / Rocky
+sudo dnf install ./aegisbpf-<ver>-<rel>.x86_64.rpm
+```
+
+Then configure `/etc/default/aegisbpf` (mode, log target, optional
+policy path) and `systemctl enable --now aegisbpf`. See
+[`docs/PACKAGING.md`](docs/PACKAGING.md) for the full layout, the
+maintainer-script ABI, and the hosted-repo upload runbook.
+
+### Build from source
+
+#### Install build dependencies (Ubuntu/Debian)
 
 ```bash
 sudo apt-get update
@@ -506,7 +535,7 @@ sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev \
 sudo apt-get install -y "linux-tools-$(uname -r)" || true
 ```
 
-### Build
+#### Build
 
 ```bash
 cmake -S . -B build -G Ninja
@@ -548,6 +577,35 @@ sudo ./build/aegisbpf run --enforce --lsm-hook=both
 # Increase ring buffer and sample events to reduce drops under heavy load
 sudo ./build/aegisbpf run --audit --ringbuf-bytes=67108864 --event-sample-rate=10
 ```
+
+### Apply a starter rule pack
+
+Six audited, MITRE-tagged starter rule packs ship in-tree under
+[`rules/`](rules/) and are validated on every PR by the
+`rule-library` CI gate:
+
+| Pack | Coverage | MITRE / CIS |
+|------|----------|-------------|
+| `kernel-tampering` | `deny_module_load`, `deny_bpf`, `deny_ptrace` toggles | T1547.006, T1014, T1620 |
+| `secrets-protection` | `/etc/shadow`, SSH host keys, auth logs, root cloud creds, K8s SA tokens, krb5 keytab | T1003.008, T1552.001, T1552.004 |
+| `ssh-hardening` | `sshd_config{,.d}`, PAM stack, sshd systemd unit, `/root/.ssh/authorized_keys{,2}` | T1098.004, T1556, T1543.002 |
+| `cis-k8s-control-plane` | apiserver/controller/scheduler/etcd manifests, kubeconfigs, PKI, etcd data dir | CIS K8s v1.9.0 §1.1.1–1.1.20 |
+| `cis-k8s-worker-node` | kubelet systemd unit + kubeconfigs + runtime config + PKI, container runtime sockets | CIS K8s v1.9.0 §4.1.1–4.1.10 |
+| `cryptominers` | XMRig, T-Rex, lolMiner, NBMiner, CCMiner, Ethminer, PhoenixMiner install paths + Pacha / WatchDog / Kinsing dropper paths | T1496 |
+
+Every pack ships a sibling `README.md` documenting threat model,
+coverage matrix, false-positive vectors, and the exact
+`aegisbpf policy apply` invocation. Always dry-run in audit first:
+
+```bash
+sudo aegisbpf policy validate rules/secrets-protection/secrets-protection.conf
+sudo aegisbpf policy apply --reset rules/secrets-protection/secrets-protection.conf
+sudo aegisbpf run --audit
+# 24h audit; if clean for your workload, switch to enforce.
+```
+
+See [`rules/README.md`](rules/README.md) for the full layout,
+contribution model, and provenance / trust posture.
 
 ## Code Layout
 
