@@ -217,9 +217,15 @@ Ordered by user-impact. Each has a tracked roadmap item.
 ### 4.5 Positioning / go-to-market
 
 21. **No named adopters.** CNCF Incubation requires three.
-22. **No community rule library.** Falco's is its moat. Target:
-    `aegisbpf/rules` repo with MITRE-tagged, community-contributed deny
-    bundles (cryptominers, reverse shells, CIS Kubernetes packs).
+22. ~~**No community rule library.**~~ **Starter set shipped:** six
+    audited, MITRE-tagged packs live under `rules/`
+    (`kernel-tampering`, `secrets-protection`, `ssh-hardening`,
+    `cis-k8s-control-plane`, `cis-k8s-worker-node`, `cryptominers`),
+    each validated on every PR by `.github/workflows/rule-library.yml`.
+    See `rules/README.md` for the contribution model. The standalone
+    `aegisbpf/rules` repo is still pending — extracting the in-tree
+    starter packs into a dedicated repo is a follow-up once the
+    contribution flow has been exercised against in-tree.
 23. **Single-maintainer project.** Professional procurement and CNCF both
     require multi-maintainer, multi-org stewardship.
 

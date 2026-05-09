@@ -1,0 +1,97 @@
+name: Rule Library
+
+# Validates that every shipped community rule pack under rules/ parses
+# cleanly with `aegisbpf policy validate`. Runs only when a rule pack
+# or the policy parser changes, so it does not impose any cost on
+# unrelated PRs.
+#
+# Out of scope: behavioural correctness of the rules (does pack X
+# actually block exec of binary Y on a real system). That requires
+# integration tests with mounted procfs / running daemons; covered by
+# the smoke-test suite rather than this gate.
+
+on:
+  pull_request:
+    paths:
+      - 'rules/**'
+      - 'src/policy_parse.cpp'
+      - 'src/commands_policy.cpp'
+      - '.github/workflows/rule-library.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'rules/**'
+      - 'src/policy_parse.cpp'
+      - 'src/commands_policy.cpp'
+      - '.github/workflows/rule-library.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate rule packs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
+            pkg-config cmake ninja-build
+
+      - name: Configure (SKIP_BPF_BUILD — parser only)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DSKIP_BPF_BUILD=ON
+
+      - name: Build aegisbpf binary
+        run: cmake --build build --target aegisbpf
+
+      - name: Validate every shipped rule pack
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packs=(rules/*/*.conf)
+          if [[ ${#packs[@]} -eq 0 ]]; then
+            echo "::error::No rule packs found under rules/*/*.conf"
+            exit 1
+          fi
+          rc=0
+          for f in "${packs[@]}"; do
+            echo "::group::$f"
+            if ./build/aegisbpf policy validate "$f"; then
+              echo "OK: $f"
+            else
+              echo "::error file=$f::policy validate failed"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$rc"
+
+      - name: Verify each pack ships a sibling README.md
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          rc=0
+          for d in rules/*/; do
+            # Skip the top-level rules/README.md case.
+            [[ -f "${d}README.md" ]] || {
+              echo "::error file=${d}::missing README.md"
+              rc=1
+            }
+            confs=("${d}"*.conf)
+            (( ${#confs[@]} >= 1 )) || {
+              echo "::error file=${d}::pack has no .conf file"
+              rc=1
+            }
+          done
+          exit "$rc"
