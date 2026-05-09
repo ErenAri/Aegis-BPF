@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778327415723,
+  "lastUpdate": 1778330388673,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -37140,6 +37140,102 @@ window.BENCHMARK_DATA = {
             "value": 66.28424897525063,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.28052281892509 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d86e13adf13961612e4384370e2d6ebea62f3d5",
+          "message": "Merge pull request #142 from ErenAri/feat/cef-format\n\nfeat(events): ArcSight CEF event format for File + Network Activity",
+          "timestamp": "2026-05-09T15:28:30+03:00",
+          "tree_id": "18ee8d1f2b384a8a405a4186f44054e1404cad46",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/5d86e13adf13961612e4384370e2d6ebea62f3d5"
+        },
+        "date": 1778330387544,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1554.1340017936857,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1553.9958062174776 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3795.542467705043,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3794.796532182736 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21894.11489663986,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21891.630501029635 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166320.05976731208,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166304.87728425884 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1324688.9898989897,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1324415.6544349727 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5297716.865723243,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5297121.503144655 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4718.302223429993,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4721.312608965637 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32435.033012843898,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32434.68477366684 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 266332.4881705764,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 266295.88640428527 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 801871.409940877,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 801950.8993988422 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.6097879099874,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.60285591397997 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.79563261853793,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.78602817656639 ns\nthreads: 1"
           }
         ]
       }
