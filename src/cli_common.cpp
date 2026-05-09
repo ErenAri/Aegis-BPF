@@ -27,7 +27,7 @@ int usage(const char* prog)
            "[--drop-caps] "
            "[--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] "
            "[--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json] "
-           "[--event-format=aegis|ocsf]"
+           "[--event-format=aegis|ocsf|cef]"
         << " | block {add|del|list|clear} [path]" << " | allow {add|del} <cgroup_path> | allow list"
         << " | network deny {add|del} --ip <ipv4|ipv6> | --cidr <cidr> | --ip-port <ip:port[:protocol]> "
            "| --port <port> [--protocol tcp|udp|any] [--direction egress|bind|both]"

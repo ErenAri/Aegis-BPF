@@ -11,6 +11,7 @@
 #include <cstring>
 #include <sstream>
 
+#include "cef_formatter.hpp"
 #include "event_dedup.hpp"
 #include "k8s_identity.hpp"
 #include "logging.hpp"
@@ -180,6 +181,10 @@ bool set_event_format(const std::string& value)
     }
     if (is_ocsf_format_keyword(value)) {
         g_event_format = EventFormat::Ocsf;
+        return true;
+    }
+    if (is_cef_format_keyword(value)) {
+        g_event_format = EventFormat::Cef;
         return true;
     }
     return false;
@@ -427,6 +432,23 @@ void print_block_event(const BlockEvent& ev)
         return;
     }
 
+    if (g_event_format == EventFormat::Cef) {
+        std::string payload = format_block_event_cef(ev, cgpath, path, resolved_path, action, comm, exec_id,
+                                                     parent_exec_id, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            // CEF payload rides the same journald entry; consumers
+            // wanting CEF read MESSAGE= directly. Other AEGIS_* fields
+            // remain identical so journald-side filters keep working.
+            journal_send_block(ev, payload, cgpath, path, resolved_path, action, comm, exec_id, parent_exec_id);
+        }
+#endif
+        return;
+    }
+
     std::ostringstream oss;
     oss << "{\"type\":\"block\",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid << ",\"start_time\":" << ev.start_time;
     if (!exec_id.empty()) {
@@ -551,6 +573,20 @@ void print_net_block_event(const NetBlockEvent& ev)
     if (g_event_format == EventFormat::Ocsf) {
         std::string payload = format_net_block_event_ocsf(ev, cgpath, comm, exec_id, parent_exec_id, event_type,
                                                           remote_ip, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            journal_send_net_block(ev, payload, cgpath, comm, exec_id, parent_exec_id, event_type, remote_ip);
+        }
+#endif
+        return;
+    }
+
+    if (g_event_format == EventFormat::Cef) {
+        std::string payload = format_net_block_event_cef(ev, cgpath, comm, exec_id, parent_exec_id, event_type,
+                                                         remote_ip, cached_hostname());
         if (sink_wants_stdout(g_event_sink)) {
             std::cout << payload << '\n';
         }

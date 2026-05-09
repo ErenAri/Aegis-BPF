@@ -280,6 +280,7 @@ set(AEGIS_SOURCES
     src/plugin.cpp
     src/k8s_identity.cpp
     src/ocsf_formatter.cpp
+    src/cef_formatter.cpp
 )
 
 set(AEGIS_HEADERS
@@ -333,6 +334,7 @@ set(AEGIS_HEADERS
     src/capabilities.hpp
     src/sha256.hpp
     src/ocsf_formatter.hpp
+    src/cef_formatter.hpp
     src/tracing.hpp
     src/tweetnacl.h
     src/types.hpp
@@ -440,6 +442,7 @@ set(AEGIS_LIB_SOURCES
     src/plugin.cpp
     src/k8s_identity.cpp
     src/ocsf_formatter.cpp
+    src/cef_formatter.cpp
 )
 
 add_library(aegisbpf_lib STATIC ${AEGIS_LIB_SOURCES} ${AEGIS_HEADERS})
@@ -507,6 +510,7 @@ if(BUILD_TESTING)
         tests/test_landlock_sandbox.cpp
         tests/test_capabilities.cpp
         tests/test_ocsf_formatter.cpp
+        tests/test_cef_formatter.cpp
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
         tests/test_commands_simulate.cpp
