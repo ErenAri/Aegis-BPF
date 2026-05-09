@@ -58,16 +58,28 @@ jobs:
           # exact running kernel. Same fallback chain as kernel-bpf-test.yml:
           # if `bpftool version` does not actually work, grab any working
           # bpftool from /usr/lib/linux-tools/<ver>/ and overwrite the wrapper.
-          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
-            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
-            sudo apt-get install -y bpftool 2>/dev/null || true
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
+          sudo apt-get install -y linux-tools-generic 2>/dev/null || true
+          sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            # Azure-flavoured kernel-tools packages install bpftool to a path
+            # that is NOT under /usr/lib/linux-tools/<ver>/, so the original
+            # narrow find missed it. Resolve via dpkg -L (authoritative for the
+            # currently-running kernel) first, then a broader filesystem walk.
+            REAL=$(dpkg -L "linux-tools-$(uname -r)" 2>/dev/null | grep -E '/bpftool$' | head -1)
+            if [[ -z "$REAL" ]]; then
+              REAL=$(find /usr/lib /usr/libexec -maxdepth 5 -name bpftool -type f -executable 2>/dev/null | sort -V | tail -1)
+            fi
             if [[ -n "$REAL" ]]; then
+              echo "Using bpftool from: $REAL"
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
-          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
+          bpftool version >/dev/null 2>&1 || {
+            echo "bpftool not functional. dpkg -L linux-tools-$(uname -r):" >&2
+            dpkg -L "linux-tools-$(uname -r)" 2>&1 | head -40 >&2
+            exit 1
+          }
           command -v rpmbuild || (echo "rpmbuild missing" >&2; exit 1)
 
       - name: Configure (Release, full BPF)
