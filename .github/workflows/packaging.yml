@@ -66,9 +66,12 @@ jobs:
             # that is NOT under /usr/lib/linux-tools/<ver>/, so the original
             # narrow find missed it. Resolve via dpkg -L (authoritative for the
             # currently-running kernel) first, then a broader filesystem walk.
-            REAL=$(dpkg -L "linux-tools-$(uname -r)" 2>/dev/null | grep -E '/bpftool$' | head -1)
+            # `grep` returns 1 when it finds nothing; combined with the
+            # outer `set -euo pipefail` that would trip errexit. Tolerate
+            # the empty-match case explicitly with `|| true` per pipeline.
+            REAL=$(dpkg -L "linux-tools-$(uname -r)" 2>/dev/null | grep -E '/bpftool$' | head -1 || true)
             if [[ -z "$REAL" ]]; then
-              REAL=$(find /usr/lib /usr/libexec -maxdepth 5 -name bpftool -type f -executable 2>/dev/null | sort -V | tail -1)
+              REAL=$(find /usr/lib /usr/libexec -maxdepth 5 -name bpftool -type f -executable 2>/dev/null | sort -V | tail -1 || true)
             fi
             if [[ -n "$REAL" ]]; then
               echo "Using bpftool from: $REAL"
