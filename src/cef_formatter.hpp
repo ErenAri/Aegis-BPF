@@ -37,9 +37,9 @@ namespace aegis {
 /// Pre-resolved strings are passed in so the formatter is pure
 /// (no syscalls) and unit-testable.
 std::string format_block_event_cef(const BlockEvent& ev, const std::string& cgpath, const std::string& path,
-                                   const std::string& resolved_path, const std::string& action,
-                                   const std::string& comm, const std::string& exec_id,
-                                   const std::string& parent_exec_id, const std::string& hostname);
+                                   const std::string& resolved_path, const std::string& action, const std::string& comm,
+                                   const std::string& exec_id, const std::string& parent_exec_id,
+                                   const std::string& hostname);
 
 /// Format an AegisBPF network block event as an ArcSight CEF record.
 ///

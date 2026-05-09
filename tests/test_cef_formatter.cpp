@@ -157,8 +157,8 @@ TEST(CefFormatterTest, BlockEventEnforceProducesCanonicalHeader)
 TEST(CefFormatterTest, BlockEventAuditUsesMediumSeverityAndAuditAct)
 {
     auto ev = make_block_event("/var/run/secrets", "AUDIT");
-    auto cef = format_block_event_cef(ev, "", "/var/run/secrets", "/var/run/secrets", "AUDIT", "evil-proc",
-                                      "exec-1234", "", "test-host");
+    auto cef = format_block_event_cef(ev, "", "/var/run/secrets", "/var/run/secrets", "AUDIT", "evil-proc", "exec-1234",
+                                      "", "test-host");
 
     // Severity 4 (Medium) for audit-only — name flips too.
     EXPECT_TRUE(contains(cef, "|aegis:file:open|AegisBPF File Open Audit Observed|4|"));
@@ -186,8 +186,8 @@ TEST(CefFormatterTest, BlockEventEscapesEqualsAndBackslashInExtensionValues)
     // value to ever contain user-controlled bytes (mount of a path with
     // `=` in its name, for example).
     auto ev = make_block_event("/srv/data=v2/bad\\file", "BLOCK");
-    auto cef = format_block_event_cef(ev, "", "/srv/data=v2/bad\\file", "/srv/data=v2/bad\\file", "BLOCK",
-                                      "evil-proc", "exec-1234", "", "test-host");
+    auto cef = format_block_event_cef(ev, "", "/srv/data=v2/bad\\file", "/srv/data=v2/bad\\file", "BLOCK", "evil-proc",
+                                      "exec-1234", "", "test-host");
     // After escaping: `=` -> `\=`, `\` -> `\\`.
     EXPECT_TRUE(contains(cef, " filePath=/srv/data\\=v2/bad\\\\file"));
 }
@@ -236,8 +236,8 @@ TEST(CefFormatterTest, NetBlockEventAcceptMapsRemoteToSrc)
 {
     auto ev = make_net_block_event(/*direction=*/3, "BLOCK"); // accept
     ev.local_port = 8080;
-    auto cef = format_net_block_event_cef(ev, "", "sshd", "exec-1111", "", "net_accept_block", "203.0.113.42",
-                                          "test-host");
+    auto cef =
+        format_net_block_event_cef(ev, "", "sshd", "exec-1111", "", "net_accept_block", "203.0.113.42", "test-host");
     // Accept: peer is source, local is destination.
     EXPECT_TRUE(contains(cef, " src=203.0.113.42"));
     EXPECT_TRUE(contains(cef, " spt=4444"));
@@ -251,8 +251,7 @@ TEST(CefFormatterTest, NetBlockEventBindOmitsRemoteIpAndUsesLocalPortAsDpt)
     ev.local_port = 8443;
     ev.remote_port = 0;
     ev.remote_ipv4 = 0;
-    auto cef = format_net_block_event_cef(ev, "", "nginx", "exec-1111", "", "net_bind_block", "0.0.0.0",
-                                          "test-host");
+    auto cef = format_net_block_event_cef(ev, "", "nginx", "exec-1111", "", "net_bind_block", "0.0.0.0", "test-host");
     EXPECT_TRUE(contains(cef, "|aegis:net:bind|AegisBPF Network Bind Denied|8|"));
     // 0.0.0.0 is suppressed (no remote peer for a bind).
     EXPECT_FALSE(contains(cef, " dst=0.0.0.0"));
@@ -264,8 +263,8 @@ TEST(CefFormatterTest, NetBlockEventBindOmitsRemoteIpAndUsesLocalPortAsDpt)
 TEST(CefFormatterTest, NetBlockEventAuditUsesMediumSeverity)
 {
     auto ev = make_net_block_event(/*direction=*/0, "AUDIT");
-    auto cef = format_net_block_event_cef(ev, "", "curl", "exec-1111", "", "net_connect_block", "127.0.0.1",
-                                          "test-host");
+    auto cef =
+        format_net_block_event_cef(ev, "", "curl", "exec-1111", "", "net_connect_block", "127.0.0.1", "test-host");
     EXPECT_TRUE(contains(cef, "|aegis:net:connect|AegisBPF Network Connect Audit Observed|4|"));
     EXPECT_TRUE(contains(cef, " act=AUDIT"));
 }
@@ -274,8 +273,8 @@ TEST(CefFormatterTest, NetBlockEventUdpSendUsesTrafficSemantics)
 {
     auto ev = make_net_block_event(/*direction=*/4, "BLOCK"); // sendmsg
     ev.protocol = kProtoUDP;
-    auto cef = format_net_block_event_cef(ev, "", "stunnel", "exec-1111", "", "net_sendmsg_block", "10.0.0.5",
-                                          "test-host");
+    auto cef =
+        format_net_block_event_cef(ev, "", "stunnel", "exec-1111", "", "net_sendmsg_block", "10.0.0.5", "test-host");
     EXPECT_TRUE(contains(cef, "|aegis:net:send|AegisBPF Network Send Denied|8|"));
     EXPECT_TRUE(contains(cef, " proto=udp"));
     EXPECT_TRUE(contains(cef, " dst=10.0.0.5"));
@@ -285,8 +284,8 @@ TEST(CefFormatterTest, NetBlockEventIPv6PreservesFullAddress)
 {
     auto ev = make_net_block_event(/*direction=*/0, "BLOCK");
     ev.family = kFamilyIPv6;
-    auto cef = format_net_block_event_cef(ev, "", "curl", "exec-1111", "", "net_connect_block", "2001:db8::1",
-                                          "test-host");
+    auto cef =
+        format_net_block_event_cef(ev, "", "curl", "exec-1111", "", "net_connect_block", "2001:db8::1", "test-host");
     EXPECT_TRUE(contains(cef, " dst=2001:db8::1"));
 }
 
@@ -297,8 +296,8 @@ TEST(CefFormatterTest, RecordIsSingleLineNoEmbeddedNewlines)
     // a regression contract), the formatter must escape it.
     auto ev = make_block_event("/etc/shadow", "BLOCK");
     std::strncpy(ev.comm, "ev\nil", sizeof(ev.comm) - 1);
-    auto cef = format_block_event_cef(ev, "", "/etc/shadow", "/etc/shadow", "BLOCK", std::string("ev\nil"),
-                                      "exec-1234", "", "test-host");
+    auto cef = format_block_event_cef(ev, "", "/etc/shadow", "/etc/shadow", "BLOCK", std::string("ev\nil"), "exec-1234",
+                                      "", "test-host");
     EXPECT_EQ(cef.find('\n'), std::string::npos);
     EXPECT_TRUE(contains(cef, "ev\\nil"));
 }

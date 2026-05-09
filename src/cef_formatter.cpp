@@ -123,18 +123,14 @@ std::string cef_escape_extension(const std::string& in)
 
 void write_header(std::ostringstream& oss, const std::string& signature_id, const std::string& name, int severity)
 {
-    oss << "CEF:0"
-        << "|" << cef_escape_header("AegisBPF Project") << "|" << cef_escape_header("AegisBPF") << "|"
+    oss << "CEF:0" << "|" << cef_escape_header("AegisBPF Project") << "|" << cef_escape_header("AegisBPF") << "|"
         << cef_escape_header(AEGIS_VERSION_STRING) << "|" << cef_escape_header(signature_id) << "|"
         << cef_escape_header(name) << "|" << severity << "|";
 }
 
-class ExtensionWriter
-{
-public:
-    explicit ExtensionWriter(std::ostringstream& oss) : oss_(oss)
-    {
-    }
+class ExtensionWriter {
+  public:
+    explicit ExtensionWriter(std::ostringstream& oss) : oss_(oss) {}
 
     // Emit a `key=value` pair only when value is non-empty. CEF
     // permits omitting unknown fields entirely; an empty `key=` would
@@ -169,7 +165,7 @@ public:
         first_ = false;
     }
 
-private:
+  private:
     std::ostringstream& oss_;
     bool first_ = true;
 };
@@ -222,9 +218,9 @@ bool is_cef_format_keyword(const std::string& value)
 }
 
 std::string format_block_event_cef(const BlockEvent& ev, const std::string& cgpath, const std::string& path,
-                                   const std::string& resolved_path, const std::string& action,
-                                   const std::string& comm, const std::string& exec_id,
-                                   const std::string& parent_exec_id, const std::string& hostname)
+                                   const std::string& resolved_path, const std::string& action, const std::string& comm,
+                                   const std::string& exec_id, const std::string& parent_exec_id,
+                                   const std::string& hostname)
 {
     const bool audit = is_audit_action(action);
     const int severity = audit ? kSeverityAudit : kSeverityEnforce;
