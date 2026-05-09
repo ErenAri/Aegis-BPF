@@ -331,6 +331,12 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     }
 
     configure_block_event_dedup(event_dedup_window_ms, event_dedup_max_entries);
+    // Same flags drive the network-block-event deduper. The two
+    // dedupers maintain independent state (and the key includes a
+    // per-event-class tag, so domains never overlap) but operators
+    // configure both at once - they think in terms of "duplicate
+    // suppression window", not "block vs net-block window".
+    configure_net_block_event_dedup(event_dedup_window_ms, event_dedup_max_entries);
     if (event_dedup_window_ms > 0) {
         logger().log(SLOG_INFO("Block-event dedup enabled")
                          .field("window_ms", static_cast<uint64_t>(event_dedup_window_ms))

@@ -84,6 +84,57 @@ uint64_t block_event_dedup_key(const BlockEvent& ev)
                             (static_cast<uint64_t>(ev.pid) << 32) | static_cast<uint64_t>(ev.dev));
 }
 
+// Network-block deduper. Mirrors block_event_deduper(): owned by the
+// ringbuf consumer thread, no locking, disabled by default.
+EventDeduper& net_block_event_deduper()
+{
+    static EventDeduper instance;
+    return instance;
+}
+
+uint64_t net_block_event_dedup_key(const NetBlockEvent& ev)
+{
+    // Coalesce by (event-class, cgid, pid, direction, protocol, family,
+    // remote-address, remote_port, local_port). Same workload retrying
+    // the same denied (ip, port, direction) tuple is the dominant
+    // SIEM-noise pattern; widening past direction/protocol would
+    // collapse semantically distinct events (e.g. egress connect vs
+    // bind to the same port).
+    //
+    // For IPv6 the 128-bit remote address is XOR-folded into 64 bits
+    // before mixing - acceptable for collision-rate control on bounded
+    // tables given the daemon is the trusted producer of these keys
+    // (see EventDeduper class comment).
+    constexpr uint32_t kNetBlockEventTag = 2;
+
+    uint64_t addr_slot = 0;
+    if (ev.family == kFamilyIPv6) {
+        uint64_t hi = 0;
+        uint64_t lo = 0;
+        std::memcpy(&hi, &ev.remote_ipv6[0], sizeof(hi));
+        std::memcpy(&lo, &ev.remote_ipv6[8], sizeof(lo));
+        addr_slot = hi ^ lo;
+    } else {
+        addr_slot = static_cast<uint64_t>(ev.remote_ipv4);
+    }
+
+    const uint64_t shape_slot = (static_cast<uint64_t>(ev.pid) << 32) |
+                                (static_cast<uint64_t>(ev.direction) << 24) |
+                                (static_cast<uint64_t>(ev.protocol) << 16) |
+                                (static_cast<uint64_t>(ev.family) << 8);
+
+    // Mix address + ports without shifting bits off the high end. The
+    // earlier `(addr_slot << 32)` form silently aliased IPv6 addresses
+    // that differed only in their upper 64 bits (e.g. `::1` vs `::2`
+    // after the XOR-fold) — see test_net_block_event_dedup.cpp's
+    // DistinctRemoteIPv6DoNotCollapse case for the regression contract.
+    const uint64_t port_slot = addr_slot ^
+                               ((static_cast<uint64_t>(ev.remote_port) << 32) |
+                                static_cast<uint64_t>(ev.local_port));
+
+    return event_dedup_hash(kNetBlockEventTag, ev.cgid, shape_slot, port_slot);
+}
+
 } // namespace
 
 void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
@@ -92,6 +143,14 @@ void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
     cfg.window_ns = window_ms * 1'000'000ULL;
     cfg.max_entries = max_entries;
     block_event_deduper() = EventDeduper(cfg);
+}
+
+void configure_net_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
+{
+    EventDedupConfig cfg{};
+    cfg.window_ns = window_ms * 1'000'000ULL;
+    cfg.max_entries = max_entries;
+    net_block_event_deduper() = EventDeduper(cfg);
 }
 
 namespace {
@@ -439,6 +498,20 @@ static std::string protocol_to_string(uint8_t protocol)
 
 void print_net_block_event(const NetBlockEvent& ev)
 {
+    // Bounded time-window dedup, mirroring print_block_event(). The
+    // gate runs before the OCSF branch so suppression applies in both
+    // output formats; only the Aegis-native JSON shape carries the
+    // accumulated `suppressed_during_prior_window` counter (OCSF has no
+    // analog field, and we will not invent one off-spec).
+    EventDedupDecision dedup_decision{};
+    if (net_block_event_deduper().is_enabled()) {
+        dedup_decision =
+            net_block_event_deduper().should_emit(net_block_event_dedup_key(ev), monotonic_now_ns());
+        if (!dedup_decision.emit) {
+            return;
+        }
+    }
+
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string action = to_string(ev.action, sizeof(ev.action));
     std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
@@ -525,6 +598,9 @@ void print_net_block_event(const NetBlockEvent& ev)
 
     oss << ",\"rule_type\":\"" << json_escape(rule_type) << "\"" << ",\"action\":\"" << json_escape(action) << "\""
         << ",\"comm\":\"" << json_escape(comm) << "\"";
+    if (dedup_decision.suppressed_during_prior_window > 0) {
+        oss << ",\"suppressed_during_prior_window\":" << dedup_decision.suppressed_during_prior_window;
+    }
     append_k8s_identity(oss, ev.pid);
     oss << "}";
 
