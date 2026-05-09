@@ -59,7 +59,7 @@ NetBlockEvent make_net_block_event_ipv4()
     ev.protocol = kProtoTCP;
     ev.local_port = 0;
     ev.remote_port = 443;
-    ev.direction = 0; // egress connect
+    ev.direction = 0;             // egress connect
     ev.remote_ipv4 = 0x0100007fU; // 127.0.0.1 in network byte order
     std::strncpy(ev.action, "BLOCK", sizeof(ev.action) - 1);
     std::strncpy(ev.rule_type, "ip", sizeof(ev.rule_type) - 1);

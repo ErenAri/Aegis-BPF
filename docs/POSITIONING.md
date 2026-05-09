@@ -105,7 +105,7 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 | **SOC 2 Type II** | ✅ evidence kit | — |
 | **OCSF 1.1.0** | ◐ shipped for File + Network Activity | `--event-format=ocsf` on `aegisbpfd run` emits OCSF JSON for `BlockEvent` (File Activity 1001) and `NetBlockEvent` (Network Activity 4001). Process Activity (1007) for `ExecEvent` and forensic Process Activity for `ForensicEvent` remain on roadmap. See `docs/SIEM_INTEGRATION.md` §OCSF and `src/ocsf_formatter.cpp`. |
 | **ECS (Elastic Common Schema)** | ✅ formatter | Promote to first-class |
-| **CEF** | Roadmap | Splunk-friendly alt format |
+| **CEF (ArcSight Common Event Format)** | ◐ shipped for File + Network Activity | `--event-format=cef` on `aegisbpfd run` emits single-line CEF records for `BlockEvent` (signature `aegis:file:open`) and `NetBlockEvent` (signature `aegis:net:{connect,bind,listen,accept,send,recv}`). Header escaping (`\`, `|`, CR/LF) and extension escaping (`\`, `=`, CR/LF) follow the ArcSight Implementation Standard; severity remaps audit to 4 (Medium) and enforce to 8 (High); AegisBPF-specific forensic context (cgroup_path, parent_exec_id, rule_type, event_type, cgid, inode, device, direction) is preserved under custom slots (`cs1..cs4`/`cn1..cn3` with explicit `*Label` keys). CEF for `ExecEvent` / `ForensicEvent` / `KernelBlockEvent` is deferred until OCSF Process Activity (1007) lands so the two formats stay class-aligned. See `src/cef_formatter.cpp`. |
 | **STIX 2.1 / TAXII** | Roadmap | Ingest threat-intel → auto-deny rules |
 
 ### 3.4 CNCF maturity ladder
