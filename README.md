@@ -8,6 +8,10 @@
 
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
+<p align="center">
+  <img width="1672" height="941" alt="ChatGPT Image May 9, 2026, 05_23_06 PM" src="https://github.com/user-attachments/assets/81f06a21-a1b1-42bf-8cb3-39acb90d3dab" />
+</p>
+
 ### Positioning
 
 AegisBPF is an **enforcement-first** eBPF runtime security engine for Linux
