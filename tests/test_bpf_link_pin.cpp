@@ -34,7 +34,8 @@ void rm_rf(const std::string& path)
     // Test-only helper; recursive deletion via shell since we never
     // build nested trees in these tests, only flat directories.
     const std::string cmd = "rm -rf '" + path + "'";
-    (void)std::system(cmd.c_str());
+    int rc = std::system(cmd.c_str());
+    (void)rc;
 }
 
 void touch(const std::string& path)
