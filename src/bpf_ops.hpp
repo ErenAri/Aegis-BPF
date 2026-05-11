@@ -76,7 +76,15 @@ class BpfState {
             enforce_pin_links = other.enforce_pin_links;
             pin_root = std::move(other.pin_root);
             pinned_hooks = std::move(other.pinned_hooks);
+            enable_pin_heal = other.enable_pin_heal;
+            pin_heal_attempts = other.pin_heal_attempts;
+            pin_heal_successes = other.pin_heal_successes;
+            pin_heal_failures = other.pin_heal_failures;
             other.enforce_pin_links = false;
+            other.enable_pin_heal = false;
+            other.pin_heal_attempts = 0;
+            other.pin_heal_successes = 0;
+            other.pin_heal_failures = 0;
             inode_reused = other.inode_reused;
             deny_path_reused = other.deny_path_reused;
             cgroup_reused = other.cgroup_reused;
@@ -259,6 +267,19 @@ class BpfState {
     bool enforce_pin_links = false;
     std::string pin_root; // populated only when enforce_pin_links is true
     std::vector<PinnedHook> pinned_hooks;
+
+    // When true (default when enforce_pin_links is enabled), the heartbeat
+    // thread re-pins any link whose bpffs entry disappears. The userspace
+    // bpf_link* stays alive in `links`, so heal is just a fresh
+    // bpf_link__pin() call — no kernel attach syscall is invoked.
+    // Set to false via `AEGIS_PIN_HEAL=0` to fall back to warn-only verify.
+    bool enable_pin_heal = false;
+
+    // Heartbeat-visible counters for the heal watchdog. Aggregated across
+    // the daemon's lifetime; surfaced via diagnostics for SIEMs.
+    uint64_t pin_heal_attempts = 0;
+    uint64_t pin_heal_successes = 0;
+    uint64_t pin_heal_failures = 0;
 
     // Reuse flags
     bool inode_reused = false;

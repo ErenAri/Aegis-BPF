@@ -128,4 +128,51 @@ size_t verify_pinned_hooks(BpfState& state)
     return missing;
 }
 
+size_t heal_pinned_hooks(BpfState& state)
+{
+    size_t still_missing = 0;
+    for (auto& hook : state.pinned_hooks) {
+        struct stat st {};
+        if (stat(hook.pin_path.c_str(), &st) == 0) {
+            continue; // pin healthy — nothing to do
+        }
+        const int stat_errno = errno;
+
+        // The userspace bpf_link* is owned by BpfState::links and stays
+        // alive for the daemon's lifetime, so on missing-pin we can just
+        // re-issue bpf_link__pin() without a kernel attach. If the link
+        // pointer is null (e.g. recovered from disk, no userspace fd),
+        // heal is impossible and we fall through to "still missing".
+        if (hook.link == nullptr) {
+            ++still_missing;
+            logger().log(SLOG_ERROR("Pinned LSM hook missing and link handle unavailable — cannot heal")
+                             .field("program", hook.program_name)
+                             .field("pin_path", hook.pin_path)
+                             .field("stat_errno", static_cast<int64_t>(stat_errno)));
+            continue;
+        }
+
+        ++state.pin_heal_attempts;
+        int err = bpf_link__pin(hook.link, hook.pin_path.c_str());
+        if (err) {
+            ++state.pin_heal_failures;
+            ++still_missing;
+            logger().log(SLOG_ERROR("Pin heal failed — hook remains unpinned")
+                             .field("program", hook.program_name)
+                             .field("pin_path", hook.pin_path)
+                             .field("stat_errno", static_cast<int64_t>(stat_errno))
+                             .field("pin_err", static_cast<int64_t>(err)));
+            continue;
+        }
+
+        ++state.pin_heal_successes;
+        logger().log(SLOG_INFO("Pin healed — bpffs entry restored")
+                         .field("program", hook.program_name)
+                         .field("pin_path", hook.pin_path)
+                         .field("stat_errno", static_cast<int64_t>(stat_errno))
+                         .field("total_heals", static_cast<int64_t>(state.pin_heal_successes)));
+    }
+    return still_missing;
+}
+
 } // namespace aegis

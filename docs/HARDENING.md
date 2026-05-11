@@ -12,6 +12,7 @@ operators can adopt them at the pace their kernel/userland allows.
 | Anti-rollback policy versioning | always on | n/a | n/a | Monotonic counter in `/var/lib/aegisbpf/version_counter`. |
 | Break-glass disable | file marker | n/a | n/a | `/etc/aegisbpf/break_glass[.token]` short-circuits enforcement (audit-only). |
 | Pinned-link crash fail-safe | `AEGIS_ENFORCE_PIN_LINKS=1` | off | ≥ 5.7 (BPF LSM) | Pins LSM links into bpffs so enforcement survives daemon crash / `SIGKILL` / OOM. |
+| Pin auto-heal watchdog | `AEGIS_PIN_HEAL=1` | on (when pin-links enabled) | ≥ 5.7 (BPF LSM) | Heartbeat re-pins any link whose bpffs entry disappears, restoring enforcement without a kernel attach syscall. |
 
 ## Pinned-link daemon-crash fail-safe
 
@@ -47,11 +48,24 @@ audit logs and require `CAP_SYS_ADMIN`.
 
 ### Watchdog
 
-The heartbeat thread additionally `stat()`s every pinned link each
-tick and emits a structured ERROR if any are missing — this catches
-operator `rm`, `bpftool link detach`, or kernel-module reload events
-that would otherwise silently degrade enforcement. Auto-reattach is
-deferred to a follow-up release; today the watchdog is read-only.
+The heartbeat thread `stat()`s every pinned link each tick. When
+`AEGIS_PIN_HEAL=1` (the default whenever `AEGIS_ENFORCE_PIN_LINKS=1`
+is set), any missing pin is **healed in-place** by re-issuing
+`bpf_link__pin()` on the still-live userspace `bpf_link*` — this
+restores the bpffs entry without invoking a kernel attach syscall,
+because the kernel link object stayed alive across the missing-pin
+window (userspace held the fd). Set `AEGIS_PIN_HEAL=0` to fall back
+to warn-only verify (useful while debugging a flaky bpffs).
+
+The watchdog catches operator `rm`, `bpftool link detach`, or
+kernel-module reload events that would otherwise silently degrade
+enforcement. Each successful heal emits a structured
+`INFO Pin healed — bpffs entry restored` log with the cumulative
+heal count, so a SIEM can alert on "heal rate non-zero" as
+drift-detection. Pins that cannot be healed (e.g. orphan entries
+with no userspace `bpf_link*` handle, reserved for a future cold-
+start adoption feature) emit
+`ERROR Pinned LSM hook missing and link handle unavailable — cannot heal`.
 
 ### Operator runbook
 

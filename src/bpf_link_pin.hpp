@@ -43,11 +43,20 @@ constexpr const char* kDefaultPinRoot = "/sys/fs/bpf/aegisbpf";
 /// Per-tick verification (called from the heartbeat thread). For each
 /// entry in `state.pinned_hooks`, checks the pin path still exists. Emits
 /// a forensic log line for each missing pin so SIEMs see the regression.
-/// Auto-reattach is intentionally **not** performed in this PR — it is
-/// deferred to a follow-up so the timer thread never invokes kernel
-/// attach syscalls without a dedicated integration test.
 ///
 /// Returns the number of missing pins detected this tick (0 on healthy).
 size_t verify_pinned_hooks(BpfState& state);
+
+/// Per-tick verify+heal (called from the heartbeat thread when
+/// `state.enable_pin_heal` is true). On each missing pin, calls
+/// `bpf_link__pin()` again on the still-live userspace `bpf_link*` to
+/// restore the bpffs entry. Does NOT call kernel attach syscalls — the
+/// kernel link object remained alive across the missing-pin window
+/// because userspace held an fd to it; only the bpffs path needs
+/// rewriting. Updates `pin_heal_{attempts,successes,failures}` counters.
+///
+/// Returns the number of pins still missing AFTER heal attempts (0 on
+/// fully healed or already-healthy).
+size_t heal_pinned_hooks(BpfState& state);
 
 } // namespace aegis

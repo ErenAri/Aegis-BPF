@@ -220,5 +220,82 @@ TEST(BpfLinkPin, VerifyPinnedHooksCountsMissing)
     rm_rf(scratch);
 }
 
+TEST(BpfLinkPin, HealPinnedHooksReportsZeroOnHealthy)
+{
+    std::string scratch = make_scratch_dir("heal_healthy");
+    rm_rf(scratch);
+    ASSERT_EQ(::mkdir(scratch.c_str(), 0700), 0);
+
+    BpfState state;
+    PinnedHook hook;
+    hook.program_name = "handle_execve";
+    hook.link = nullptr; // healthy path never dereferences link
+    hook.pin_path = scratch + "/handle_execve";
+    touch(hook.pin_path);
+    state.pinned_hooks.push_back(hook);
+
+    EXPECT_EQ(heal_pinned_hooks(state), 0u);
+    EXPECT_EQ(state.pin_heal_attempts, 0u);
+    EXPECT_EQ(state.pin_heal_successes, 0u);
+    EXPECT_EQ(state.pin_heal_failures, 0u);
+
+    rm_rf(scratch);
+}
+
+TEST(BpfLinkPin, HealPinnedHooksReportsMissingWhenLinkIsNull)
+{
+    // When daemon has no userspace link handle (e.g. future "pin
+    // adoption" path from a previous run), heal cannot recover the
+    // bpffs entry. We must count it as still-missing and NOT count
+    // an attempt in the heal stats — there was nothing to attempt.
+    std::string scratch = make_scratch_dir("heal_null_link");
+    rm_rf(scratch);
+    ASSERT_EQ(::mkdir(scratch.c_str(), 0700), 0);
+
+    BpfState state;
+    PinnedHook orphan;
+    orphan.program_name = "handle_execve";
+    orphan.link = nullptr;
+    orphan.pin_path = scratch + "/handle_execve";
+    // Intentionally do not create the file.
+    state.pinned_hooks.push_back(orphan);
+
+    EXPECT_EQ(heal_pinned_hooks(state), 1u);
+    EXPECT_EQ(state.pin_heal_attempts, 0u);
+    EXPECT_EQ(state.pin_heal_successes, 0u);
+    EXPECT_EQ(state.pin_heal_failures, 0u);
+
+    rm_rf(scratch);
+}
+
+TEST(BpfLinkPin, HealPinnedHooksLeavesHealthyEntriesUntouched)
+{
+    // Mix of healthy + null-link-missing in the same vector: only the
+    // missing one should be counted, and stats should remain zero
+    // because the null link blocks the heal attempt.
+    std::string scratch = make_scratch_dir("heal_mixed");
+    rm_rf(scratch);
+    ASSERT_EQ(::mkdir(scratch.c_str(), 0700), 0);
+
+    BpfState state;
+    PinnedHook ok;
+    ok.program_name = "handle_execve";
+    ok.link = nullptr;
+    ok.pin_path = scratch + "/handle_execve";
+    touch(ok.pin_path);
+    state.pinned_hooks.push_back(ok);
+
+    PinnedHook gone;
+    gone.program_name = "handle_file_open";
+    gone.link = nullptr;
+    gone.pin_path = scratch + "/handle_file_open";
+    state.pinned_hooks.push_back(gone);
+
+    EXPECT_EQ(heal_pinned_hooks(state), 1u);
+    EXPECT_EQ(state.pin_heal_attempts, 0u);
+
+    rm_rf(scratch);
+}
+
 } // namespace
 } // namespace aegis

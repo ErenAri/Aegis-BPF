@@ -722,8 +722,16 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
         state.enforce_pin_links = true;
         state.pin_root = pin_root;
+
+        // Heartbeat auto-heal: default ON whenever pin-links is enabled.
+        // Operators can disable via `AEGIS_PIN_HEAL=0` to fall back to
+        // warn-only verify (useful while debugging a flaky bpffs).
+        const char* heal_env = std::getenv("AEGIS_PIN_HEAL");
+        state.enable_pin_heal = (heal_env == nullptr) || (heal_env[0] != '0');
+
         logger().log(SLOG_INFO("Pinned-link fail-safe ENABLED — LSM hooks will survive daemon crash")
-                         .field("pin_root", pin_root));
+                         .field("pin_root", pin_root)
+                         .field("auto_heal", state.enable_pin_heal));
     }
 
     ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
