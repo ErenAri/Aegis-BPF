@@ -8,6 +8,7 @@
 #include <ctime>
 #include <mutex>
 
+#include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
 #include "events.hpp"
 #include "logging.hpp"
@@ -93,6 +94,22 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                     rate_breach_count = 0;
                 }
                 last_block_count = current_blocks;
+            }
+        }
+
+        // Verify pinned LSM hooks still exist in bpffs. When
+        // --enforce-pin-links is set, the heartbeat thread acts as a
+        // read-only watchdog: each tick stat()s every pin and warns if
+        // any have disappeared (kernel module reload, operator `rm`).
+        // Auto-reattach is intentionally deferred to a follow-up PR so
+        // this timer never invokes kernel attach syscalls without a
+        // dedicated integration test.
+        if (state->enforce_pin_links && !state->pinned_hooks.empty()) {
+            size_t missing = verify_pinned_hooks(*state);
+            if (missing > 0) {
+                logger().log(SLOG_ERROR("Pinned LSM hooks missing — daemon-crash fail-safe degraded")
+                                 .field("missing_count", static_cast<int64_t>(missing))
+                                 .field("total_pinned", static_cast<int64_t>(state->pinned_hooks.size())));
             }
         }
 
