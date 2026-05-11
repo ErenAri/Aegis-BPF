@@ -11,6 +11,86 @@ operators can adopt them at the pace their kernel/userland allows.
 | Signed BPF objects | `AEGIS_REQUIRE_BPF_SIG=1` | off | n/a | Hard-requires Ed25519 signature on `aegis.bpf.o` (`docs/SIGNED_BPF_OBJECTS.md`). |
 | Anti-rollback policy versioning | always on | n/a | n/a | Monotonic counter in `/var/lib/aegisbpf/version_counter`. |
 | Break-glass disable | file marker | n/a | n/a | `/etc/aegisbpf/break_glass[.token]` short-circuits enforcement (audit-only). |
+| Pinned-link crash fail-safe | `AEGIS_ENFORCE_PIN_LINKS=1` | off | ≥ 5.7 (BPF LSM) | Pins LSM links into bpffs so enforcement survives daemon crash / `SIGKILL` / OOM. |
+| Pin auto-heal watchdog | `AEGIS_PIN_HEAL=1` | on (when pin-links enabled) | ≥ 5.7 (BPF LSM) | Heartbeat re-pins any link whose bpffs entry disappears, restoring enforcement without a kernel attach syscall. |
+
+## Pinned-link daemon-crash fail-safe
+
+When `AEGIS_ENFORCE_PIN_LINKS=1` is set in the daemon's environment,
+every successful BPF program attach is immediately followed by
+`bpf_link__pin(link, "<pin_root>/<program_name>")` where `<pin_root>`
+defaults to `/sys/fs/bpf/aegisbpf` (overridable via `AEGIS_PIN_ROOT`).
+The pin holds an independent kernel reference to the LSM link object,
+so closing the userspace fd — whether from a normal shutdown, a
+segfault, an OOM-kill, `systemctl stop aegisbpfd`, or a hostile
+`kill -9` against the daemon — **does not detach the LSM hook**.
+Enforcement continues until a sysadmin explicitly unpins (`rm
+/sys/fs/bpf/aegisbpf/<program>` or `bpftool link detach`).
+
+### Why it matters
+
+Without pinning, the kill chain to disable AegisBPF is a single
+syscall: an attacker who has gained `CAP_KILL` against root only
+needs to SIGKILL `aegisbpfd` and every LSM hook detaches with it.
+With pinning, the same attacker must additionally `umount` or `rm`
+inside `/sys/fs/bpf/aegisbpf/` — operations that themselves trigger
+audit logs and require `CAP_SYS_ADMIN`.
+
+### Prerequisites
+
+- bpffs mounted at the parent of `<pin_root>` (default
+  `/sys/fs/bpf`). The daemon refuses to start with a remediation
+  message if `statfs(2).f_type != BPF_FS_MAGIC`:
+  ```
+  mount -t bpf bpf /sys/fs/bpf
+  ```
+- `CAP_BPF` or `CAP_SYS_ADMIN` (already required by the daemon).
+
+### Watchdog
+
+The heartbeat thread `stat()`s every pinned link each tick. When
+`AEGIS_PIN_HEAL=1` (the default whenever `AEGIS_ENFORCE_PIN_LINKS=1`
+is set), any missing pin is **healed in-place** by re-issuing
+`bpf_link__pin()` on the still-live userspace `bpf_link*` — this
+restores the bpffs entry without invoking a kernel attach syscall,
+because the kernel link object stayed alive across the missing-pin
+window (userspace held the fd). Set `AEGIS_PIN_HEAL=0` to fall back
+to warn-only verify (useful while debugging a flaky bpffs).
+
+The watchdog catches operator `rm`, `bpftool link detach`, or
+kernel-module reload events that would otherwise silently degrade
+enforcement. Each successful heal emits a structured
+`INFO Pin healed — bpffs entry restored` log with the cumulative
+heal count, so a SIEM can alert on "heal rate non-zero" as
+drift-detection. Pins that cannot be healed (e.g. orphan entries
+with no userspace `bpf_link*` handle, reserved for a future cold-
+start adoption feature) emit
+`ERROR Pinned LSM hook missing and link handle unavailable — cannot heal`.
+
+### Operator runbook
+
+```bash
+# Enable
+sudo AEGIS_ENFORCE_PIN_LINKS=1 systemctl restart aegisbpfd
+
+# Inspect
+sudo ls -la /sys/fs/bpf/aegisbpf/
+sudo bpftool link show
+
+# Disable enforcement after daemon stop (operator-initiated)
+sudo rm -rf /sys/fs/bpf/aegisbpf/
+```
+
+### Limitations
+
+- The pin survives daemon **crash**; it does not survive **reboot**
+  (bpffs is tmpfs-backed).
+- On daemon **restart with the flag set**, the existing pins from
+  the prior daemon are not auto-recovered or auto-unpinned. Operator
+  must `rm -rf /sys/fs/bpf/aegisbpf/` before starting the new daemon
+  if the policy or BPF object has changed between versions. A future
+  release will add stale-pin handling.
+- `AEGIS_UNPIN_ON_EXIT=1` for clean shutdowns is on the roadmap.
 
 This document focuses on the **Landlock** layer. The seccomp layer is
 described inline in `src/seccomp.cpp`; signing is in

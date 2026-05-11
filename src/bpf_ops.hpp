@@ -17,6 +17,22 @@
 
 namespace aegis {
 
+/// One pinned LSM/tracepoint hook tracked alongside `BpfState::links` so
+/// the heartbeat thread can verify the bpffs pin still exists. The `link`
+/// pointer is **borrowed** — its lifetime is owned by `BpfState::links`
+/// and freed by `cleanup_bpf()`; this struct does not own it.
+struct PinnedHook {
+    /// libbpf program name (`bpf_program__name()`), used both as the
+    /// basename of the pin path and as a stable key for diagnostics.
+    std::string program_name;
+
+    /// Borrowed; do NOT destroy from this struct.
+    bpf_link* link = nullptr;
+
+    /// Absolute pin path, e.g. `/sys/fs/bpf/aegisbpf/handle_inode_permission`.
+    std::string pin_path;
+};
+
 /**
  * RAII wrapper for BPF state
  *
@@ -57,6 +73,18 @@ class BpfState {
             deny_cgroup_ipv4 = other.deny_cgroup_ipv4;
             deny_cgroup_port = other.deny_cgroup_port;
             links = std::move(other.links);
+            enforce_pin_links = other.enforce_pin_links;
+            pin_root = std::move(other.pin_root);
+            pinned_hooks = std::move(other.pinned_hooks);
+            enable_pin_heal = other.enable_pin_heal;
+            pin_heal_attempts = other.pin_heal_attempts;
+            pin_heal_successes = other.pin_heal_successes;
+            pin_heal_failures = other.pin_heal_failures;
+            other.enforce_pin_links = false;
+            other.enable_pin_heal = false;
+            other.pin_heal_attempts = 0;
+            other.pin_heal_successes = 0;
+            other.pin_heal_failures = 0;
             inode_reused = other.inode_reused;
             deny_path_reused = other.deny_path_reused;
             cgroup_reused = other.cgroup_reused;
@@ -223,6 +251,35 @@ class BpfState {
     bpf_map* agent_meta = nullptr;
     bpf_map* config_map = nullptr;
     std::vector<bpf_link*> links;
+
+    // ------------------------------------------------------------------
+    // Pinned-link fail-safe (gated by `enforce_pin_links`, default OFF)
+    // ------------------------------------------------------------------
+    // When `enforce_pin_links` is true, each successful attach in
+    // `attach_prog()` is immediately pinned at
+    // `<pin_root>/<program_name>` inside bpffs. This keeps LSM hooks
+    // active even if `aegisbpfd` segfaults / is OOM-killed, so a hostile
+    // process cannot disable enforcement just by killing the daemon.
+    //
+    // `pinned_hooks` records each pin so the heartbeat thread can
+    // periodically verify the pin still exists (auto re-attach is
+    // deferred to a follow-up PR — this PR is warn-only on missing pin).
+    bool enforce_pin_links = false;
+    std::string pin_root; // populated only when enforce_pin_links is true
+    std::vector<PinnedHook> pinned_hooks;
+
+    // When true (default when enforce_pin_links is enabled), the heartbeat
+    // thread re-pins any link whose bpffs entry disappears. The userspace
+    // bpf_link* stays alive in `links`, so heal is just a fresh
+    // bpf_link__pin() call — no kernel attach syscall is invoked.
+    // Set to false via `AEGIS_PIN_HEAL=0` to fall back to warn-only verify.
+    bool enable_pin_heal = false;
+
+    // Heartbeat-visible counters for the heal watchdog. Aggregated across
+    // the daemon's lifetime; surfaced via diagnostics for SIEMs.
+    uint64_t pin_heal_attempts = 0;
+    uint64_t pin_heal_successes = 0;
+    uint64_t pin_heal_failures = 0;
 
     // Reuse flags
     bool inode_reused = false;

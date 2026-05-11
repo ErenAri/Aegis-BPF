@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstring>
 
+#include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
 #include "logging.hpp"
 #include "tracing.hpp"
@@ -25,6 +26,28 @@ Result<void> attach_prog(bpf_program* prog, BpfState& state)
         return Error::bpf_error(err, "Failed to attach BPF program");
     }
     state.links.push_back(link);
+
+    // Fail-safe pinning: when --enforce-pin-links is set, immediately
+    // pin the new link into bpffs so it survives daemon crash/kill. The
+    // pin holds a kernel ref to the LSM link object; closing our fd in
+    // cleanup_bpf() will not detach the hook as long as the pin exists.
+    if (state.enforce_pin_links && !state.pin_root.empty()) {
+        const char* prog_name = bpf_program__name(prog);
+        if (prog_name == nullptr || prog_name[0] == '\0') {
+            logger().log(SLOG_WARN("Skipping pin: BPF program has no name").field("section", sec ? sec : ""));
+        } else {
+            auto pin_result = pin_attached_link(prog_name, link, state.pin_root, state);
+            if (!pin_result) {
+                // Attach succeeded; pinning failed. Surface the error so
+                // the operator sees it, but keep the program attached —
+                // refusing to start because of a pin failure would be
+                // worse than running unpinned.
+                logger().log(SLOG_ERROR("BPF link pin failed — daemon-crash fail-safe NOT in effect for this hook")
+                                 .field("program", prog_name)
+                                 .field("error", pin_result.error().to_string()));
+            }
+        }
+    }
     return {};
 }
 

@@ -156,6 +156,12 @@ Result<void> pin_map(bpf_map* map, const char* path)
 
 void cleanup_bpf(BpfState& state)
 {
+    // Drop pinned-hook bookkeeping first. The `bpf_link*` borrowed here is
+    // owned by `state.links` and will be destroyed in the loop below; the
+    // bpffs pin itself (if `enforce_pin_links` was set) holds an
+    // independent kernel ref and survives the fd close — that is exactly
+    // the daemon-crash fail-safe guarantee we want.
+    state.pinned_hooks.clear();
     for (auto* link : state.links) {
         bpf_link__destroy(link);
     }

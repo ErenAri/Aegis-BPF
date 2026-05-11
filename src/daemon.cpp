@@ -22,6 +22,7 @@
 #include <thread>
 #include <vector>
 
+#include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
 #include "capabilities.hpp"
 #include "daemon_policy_gate.hpp"
@@ -693,6 +694,46 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
         attach_network_hooks = false;
     }
+    // Configure pinned-link fail-safe before attach. Off by default;
+    // operators opt in via env var so this change cannot regress any
+    // existing deployment. The pin root defaults to
+    // `/sys/fs/bpf/aegisbpf` and must already be on a mounted bpffs.
+    // Failure to set up bpffs / mkdir is fatal when the flag is on —
+    // partial pinning would silently weaken the guarantee.
+    state.enforce_pin_links = false;
+    state.pin_root.clear();
+    if (const char* env = std::getenv("AEGIS_ENFORCE_PIN_LINKS"); env != nullptr && env[0] == '1') {
+        const char* pin_root_env = std::getenv("AEGIS_PIN_ROOT");
+        std::string pin_root = (pin_root_env != nullptr && pin_root_env[0] != '\0') ? pin_root_env : kDefaultPinRoot;
+        // Parent of pin_root must be a mounted bpffs.
+        std::string parent = pin_root;
+        auto slash = parent.find_last_of('/');
+        if (slash != std::string::npos && slash > 0) {
+            parent.resize(slash);
+        }
+        if (!is_bpffs_mounted(parent)) {
+            return fail(Error(ErrorCode::IoError, "AEGIS_ENFORCE_PIN_LINKS=1 but bpffs is not mounted at " + parent +
+                                                      " (try: mount -t bpf bpf /sys/fs/bpf)")
+                            .to_string());
+        }
+        auto ensure_result = ensure_pin_root(pin_root);
+        if (!ensure_result) {
+            return fail(ensure_result.error().to_string());
+        }
+        state.enforce_pin_links = true;
+        state.pin_root = pin_root;
+
+        // Heartbeat auto-heal: default ON whenever pin-links is enabled.
+        // Operators can disable via `AEGIS_PIN_HEAL=0` to fall back to
+        // warn-only verify (useful while debugging a flaky bpffs).
+        const char* heal_env = std::getenv("AEGIS_PIN_HEAL");
+        state.enable_pin_heal = (heal_env == nullptr) || (heal_env[0] != '0');
+
+        logger().log(SLOG_INFO("Pinned-link fail-safe ENABLED — LSM hooks will survive daemon crash")
+                         .field("pin_root", pin_root)
+                         .field("auto_heal", state.enable_pin_heal));
+    }
+
     ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
     auto attach_result =
         g_deps.attach_all(state, lsm_enabled, use_inode_permission, use_file_open, attach_network_hooks);

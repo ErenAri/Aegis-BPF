@@ -248,6 +248,7 @@ set(AEGIS_SOURCES
     src/daemon_runtime.cpp
     src/bpf_attach.cpp
     src/bpf_config.cpp
+    src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
@@ -312,6 +313,7 @@ set(AEGIS_HEADERS
     src/daemon_test_hooks.hpp
     src/bpf_attach.hpp
     src/bpf_config.hpp
+    src/bpf_link_pin.hpp
     src/bpf_integrity.hpp
     src/bpf_maps.hpp
     src/bpf_ops.hpp
@@ -410,6 +412,7 @@ set(AEGIS_LIB_SOURCES
     src/daemon_runtime.cpp
     src/bpf_attach.cpp
     src/bpf_config.cpp
+    src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
@@ -511,6 +514,7 @@ if(BUILD_TESTING)
         tests/test_capabilities.cpp
         tests/test_ocsf_formatter.cpp
         tests/test_cef_formatter.cpp
+        tests/test_bpf_link_pin.cpp
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
         tests/test_commands_simulate.cpp

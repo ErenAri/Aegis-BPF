@@ -8,6 +8,7 @@
 #include <ctime>
 #include <mutex>
 
+#include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
 #include "events.hpp"
 #include "logging.hpp"
@@ -93,6 +94,23 @@ void heartbeat_thread(BpfState* state, uint32_t ttl_seconds, uint32_t deny_rate_
                     rate_breach_count = 0;
                 }
                 last_block_count = current_blocks;
+            }
+        }
+
+        // Pinned LSM hook watchdog. When --enforce-pin-links is set,
+        // the heartbeat thread stat()s every pin each tick. If
+        // AEGIS_PIN_HEAL=1 (default when enforce_pin_links is on), any
+        // missing pin is healed in-place by re-issuing bpf_link__pin()
+        // on the still-live userspace bpf_link*. No kernel attach
+        // syscall is invoked — the kernel link object survived the
+        // missing-pin window because userspace kept the fd open.
+        if (state->enforce_pin_links && !state->pinned_hooks.empty()) {
+            const size_t missing = state->enable_pin_heal ? heal_pinned_hooks(*state) : verify_pinned_hooks(*state);
+            if (missing > 0) {
+                logger().log(SLOG_ERROR("Pinned LSM hooks missing — daemon-crash fail-safe degraded")
+                                 .field("missing_count", static_cast<int64_t>(missing))
+                                 .field("total_pinned", static_cast<int64_t>(state->pinned_hooks.size()))
+                                 .field("heal_enabled", state->enable_pin_heal));
             }
         }
 
