@@ -25,41 +25,18 @@
 #include <ctime>
 #include <unistd.h>
 
+#include "aegis_next_prov.hpp"
+#include "prov_walk.hpp"
 #include "provenance.skel.h"
 
 namespace {
 
-// Must match prototype/aegis-next/bpf/provenance.bpf.c exactly.
-constexpr std::size_t kArenaPages = 16384;
-constexpr std::size_t kArenaBytes = kArenaPages * 4096ULL;
-constexpr std::size_t kMaxNodes = 1ULL << 20;
-
-struct ProvHeader {
-    std::uint64_t magic;
-    std::uint64_t next_index;
-    std::uint64_t dropped;
-    std::uint64_t reserved;
-};
-
-struct ProvNode {
-    std::uint64_t ts_ns;
-    std::uint32_t pid;
-    std::uint32_t ppid;
-    std::uint32_t tgid;
-    std::uint32_t uid;
-    std::uint64_t cgid;
-    std::uint64_t exec_inode;
-    std::uint64_t prev_index;
-    char          comm[16];
-};
-
-static_assert(sizeof(ProvHeader) == 32, "ProvHeader layout drift");
-static_assert(sizeof(ProvNode) == 64, "ProvNode layout drift");
-
-struct ProvLayout {
-    ProvHeader hdr;
-    ProvNode   nodes[kMaxNodes];
-};
+using aegis_next::kArenaBytes;
+using aegis_next::kMaxNodes;
+using aegis_next::kRootSentinel;
+using aegis_next::LineageEntry;
+using aegis_next::ProvLayout;
+using aegis_next::ProvNode;
 
 std::atomic<bool> g_stop{false};
 
@@ -102,7 +79,6 @@ void print_node_row(const ProvNode& n, const char* lineage_marker)
 
 void dump(const ProvLayout* layout)
 {
-    constexpr std::uint64_t kSentinel = static_cast<std::uint64_t>(-1);
     const std::uint64_t total = layout->hdr.next_index;
     const std::uint64_t shown = total < 32 ? total : 32;
     std::printf("\naegis-next: arena header\n");
@@ -118,7 +94,7 @@ void dump(const ProvLayout* layout)
     for (std::uint64_t i = start; i < total; ++i) {
         const ProvNode& n = layout->nodes[i % kMaxNodes];
         char marker[32];
-        if (n.prev_index == kSentinel) {
+        if (n.prev_index == kRootSentinel) {
             std::snprintf(marker, sizeof(marker), "(root)");
         } else {
             std::snprintf(marker, sizeof(marker), "%lu",
@@ -127,30 +103,28 @@ void dump(const ProvLayout* layout)
         print_node_row(n, marker);
     }
 
-    // Walk lineage backwards from the most recent exec to demonstrate
-    // the hash-indexed parent lookup is wired end-to-end.
     if (total == 0) {
         return;
     }
     std::printf("\nlineage of most recent exec (walking prev_index):\n");
     std::printf("  %-19s %-7s %-7s %-7s %-16s %-12s %s\n",
                 "ts_ns", "pid", "ppid", "uid", "comm", "exec_inode", "depth");
-    std::uint64_t cursor = (total - 1) % kMaxNodes;
-    int depth = 0;
-    constexpr int kMaxDepth = 64;
-    while (depth < kMaxDepth) {
-        const ProvNode& n = layout->nodes[cursor];
-        char depth_str[16];
-        std::snprintf(depth_str, sizeof(depth_str), "%d", depth);
-        print_node_row(n, depth_str);
-        if (n.prev_index == kSentinel) {
-            break;
-        }
-        cursor = n.prev_index % kMaxNodes;
-        ++depth;
-    }
-    if (depth == kMaxDepth) {
-        std::printf("  (truncated at depth %d)\n", kMaxDepth);
+
+    const std::uint64_t start_slot = (total - 1);
+    const std::size_t visited = aegis_next::walk_lineage(
+        start_slot,
+        kMaxNodes,
+        [layout](std::uint64_t slot) -> ProvNode {
+            return layout->nodes[slot];
+        },
+        [](const LineageEntry& e) {
+            char depth_str[16];
+            std::snprintf(depth_str, sizeof(depth_str), "%d", e.depth);
+            print_node_row(e.node, depth_str);
+        });
+
+    if (visited == static_cast<std::size_t>(aegis_next::kMaxLineageDepth)) {
+        std::printf("  (truncated at depth %d)\n", aegis_next::kMaxLineageDepth);
     }
 }
 

@@ -109,6 +109,16 @@ if(TARGET bpf_skel)
     add_dependencies(aegis_next_skel bpf_skel)
 endif()
 
+# Static lib for the testable userspace pieces. Keeps the test
+# target and the daemon target in sync without re-listing files.
+add_library(aegis_next_core STATIC
+    src/prov_walk.cpp
+)
+target_include_directories(aegis_next_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 add_executable(aegisbpf-next
     src/main.cpp
     ${AEGIS_NEXT_SKEL_HEADER}
@@ -123,10 +133,43 @@ target_include_directories(aegisbpf-next PRIVATE
 )
 
 target_link_directories(aegisbpf-next PRIVATE ${LIBBPF_LIBRARY_DIRS})
-target_link_libraries(aegisbpf-next PRIVATE ${LIBBPF_LIBRARIES})
+target_link_libraries(aegisbpf-next PRIVATE
+    aegis_next_core
+    ${LIBBPF_LIBRARIES}
+)
 
 # Mark as non-installed: prototype binaries must not collide with
 # the shipped aegisbpf release artifact.
 set_target_properties(aegisbpf-next PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/prototype
 )
+
+# ----- selftests --------------------------------------------------
+#
+# Only built when the parent project enables testing AND has
+# already discovered GTest. We hard-skip on missing GTest rather
+# than re-running FetchContent: the parent project owns that
+# decision.
+if(BUILD_TESTING AND TARGET GTest::gtest)
+    add_executable(aegis_next_test
+        tests/test_prov_walk.cpp
+    )
+    target_link_libraries(aegis_next_test PRIVATE
+        aegis_next_core
+        GTest::gtest
+        GTest::gtest_main
+    )
+    set_target_properties(aegis_next_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/prototype
+    )
+    include(GoogleTest)
+    gtest_discover_tests(aegis_next_test
+        DISCOVERY_MODE PRE_TEST
+        TEST_PREFIX "aegis_next."
+    )
+elseif(BUILD_TESTING)
+    message(STATUS
+        "aegis-next: BUILD_TESTING is ON but GTest::gtest is not "
+        "yet defined at this point in configure. Selftests skipped."
+    )
+endif()
