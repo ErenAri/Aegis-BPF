@@ -46,12 +46,22 @@ ever issuing a `bpf_map_lookup_elem`.
   │                                                           │
   │  ┌────────────┐  ┌────────────────────────────────────┐   │
   │  │ prov_header│  │ prov_node[0..1<<20]                │   │
-  │  │  next_idx  │  │  {pid,ppid,tgid,uid,cgid,ino,...}  │   │
-  │  └────────────┘  └────────────────────────────────────┘   │
-  └───────────────────────────────────────────────────────────┘
-       ▲  ▲                                ▲
-       │  │ BPF lsm/bprm_check_security    │ userspace mmap
-       │  └────────────────────────────────┘
+  │  │  next_idx  │  │  {pid,ppid,tgid,uid,cgid,ino,      │   │
+  │  └────────────┘  │   prev_index ─┐, ...}              │   │
+  │                  └───────────────│────────────────────┘   │
+  └──────────────────────────────────│────────────────────────┘
+       ▲  ▲                          │     ▲
+       │  │                          │     │ userspace mmap
+       │  │ BPF lsm/bprm_check_security    │
+       │  │                          │     │
+       │  ├──────────────────────────┘     │
+       │  │
+       │  ▼
+       │  ┌──────────────────────────────────┐
+       │  │ aegis_next_pid_slot (LRU_HASH)   │
+       │  │  tgid -> last slot in prov_node  │
+       │  │  used to populate prev_index     │
+       │  └──────────────────────────────────┘
        │
    bpf_arena_alloc_pages() once, lazily, from inside BPF
 ```
@@ -97,19 +107,32 @@ Requires:
   including `bpf`.
 - `CAP_BPF` + `CAP_SYS_ADMIN` (typical: run as root).
 
+## What's wired up so far
+
+- ✅ **Arena map + LSM hook + userspace mmap** (scaffold PR).
+- ✅ **Hash-indexed parent lookup.** `aegis_next_pid_slot`
+  (`BPF_MAP_TYPE_LRU_HASH`, 64K entries) maps `tgid -> last slot
+  index`. Each exec records its parent's slot in `prev_index`,
+  and userspace can walk the chain backwards to reconstruct
+  lineage. Misses (e.g. for processes already running at attach
+  time) render as `(root)`.
+
 ## What's deliberately NOT here (yet)
 
-This is the scaffold PR. The following are explicitly out of scope
-and tracked for follow-up PRs:
+The following are explicitly out of scope and tracked for
+follow-up PRs:
 
-- **Hash-indexed parent lookup** (`prev_index` is currently always
-  `U64_MAX`). Needs a hash map of `pid -> last_slot`.
-- **GC / eviction** beyond modular wrap on overflow.
+- **Exec catch-up via open-coded iterator** to seed the hash with
+  pre-existing processes on attach. Without this, lineage chains
+  always terminate at the first exec we observe.
+- **GC / eviction** beyond modular wrap on overflow and LRU on
+  the pid hash.
 - **sched_ext integration** for quarantine verdicts. The next track
   (F2) wires LSM verdicts into a `sched_ext` policy that throttles
   or pins offending tasks.
-- **Open-coded iterators** to walk `task_struct` lists without
-  bpf_loop. Adopt as foundation infra.
+- **Multi-hook nodes**: file_open / socket_connect events linked
+  to their owning exec node. Required for the graph to be more
+  than an exec log.
 
 ## What's deliberately deferred indefinitely
 
