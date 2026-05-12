@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778517544411,
+  "lastUpdate": 1778623655927,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -37428,6 +37428,102 @@ window.BENCHMARK_DATA = {
             "value": 55.32683592622076,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.32265583008296 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dc3e0b9d6f11ebd5a7e37cb159273a12f3c03ce",
+          "message": "Merge pull request #147 from ErenAri/feat/aegis-next-scaffold\n\nfeat(prototype): aegis-next arena-backed provenance graph scaffold",
+          "timestamp": "2026-05-13T00:56:11+03:00",
+          "tree_id": "2aea34458549d845db56bb362cc6a9022f5730e3",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/6dc3e0b9d6f11ebd5a7e37cb159273a12f3c03ce"
+        },
+        "date": 1778623655229,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1513.7171052251172,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1513.4159984662836 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3632.0486384758683,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3631.658538844375 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20708.34558250869,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20706.200999578356 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157430.27799010853,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157394.96041291987 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1249151.2762138813,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1249025.4801906457 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 4999401.799702359,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4998867.150297615 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4610.581253498496,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4613.090591547371 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32981.75453666179,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32974.68083172752 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267104.71024669096,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267088.35726854036 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809473.9241150985,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 809530.3521957803 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 73.36003423986959,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 73.35306926709406 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.35206504293391,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.34690874114826 ns\nthreads: 1"
           }
         ]
       }
