@@ -98,6 +98,20 @@ struct {
     __uint(max_entries, 1);
 } aegis_next_layout_ptr SEC(".maps");
 
+// tgid -> most-recent slot index in the arena. Lets a child exec
+// find its parent's exec record in O(1) so we can populate
+// prev_index and build an actual lineage chain.
+//
+// Sized at 64K entries: enough for typical workloads, falls back
+// to "parent unknown" on overflow (LRU eviction). The hash holds
+// integers only, so KASLR rules are not implicated.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, __u32);   // tgid
+    __type(value, __u64); // slot index into prov_layout.nodes[]
+    __uint(max_entries, 65536);
+} aegis_next_pid_slot SEC(".maps");
+
 // Best-effort one-time initializer. Returns the arena base or NULL.
 // We accept the very small race window of two CPUs both allocating;
 // only one wins the array store, the loser's pages stay reserved
@@ -174,10 +188,20 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
             node->exec_inode = BPF_CORE_READ(ino, i_ino);
     }
 
-    // prev_index left as U64_MAX in this scaffold; a real impl
-    // would look up the parent's most recent slot. That belongs
-    // in the follow-up PR introducing the hash-indexed lookup.
-    node->prev_index = (__u64)-1;
+    // Resolve parent's most recent exec slot from the pid->slot
+    // hash. Miss is expected for the first exec we see for a
+    // given parent (e.g. processes already running at attach time);
+    // we record U64_MAX so userspace can render that as "root".
+    __u32 ppid_key = node->ppid;
+    __u64 *parent_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &ppid_key);
+    node->prev_index = parent_slot ? *parent_slot : (__u64)-1;
+
+    // Publish OUR slot under our tgid so the next child exec from
+    // this process can find us. Overwrites any older entry — by
+    // design: a process's "current" exec record is its most recent
+    // one (e.g. after execve replaces the image).
+    __u32 my_key = node->tgid;
+    bpf_map_update_elem(&aegis_next_pid_slot, &my_key, &slot, BPF_ANY);
 
     // bpf_get_current_comm writes into non-arena memory only, and
     // bpf_probe_read_kernel_str refuses arena destinations, so we

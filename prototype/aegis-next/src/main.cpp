@@ -86,30 +86,71 @@ void bump_memlock_rlimit()
     }
 }
 
+void print_node_row(const ProvNode& n, const char* lineage_marker)
+{
+    char safe_comm[17] = {};
+    std::memcpy(safe_comm, n.comm, sizeof(n.comm));
+    std::printf("  %-19lu %-7u %-7u %-7u %-16s %-12lu %s\n",
+                (unsigned long)n.ts_ns,
+                n.pid,
+                n.ppid,
+                n.uid,
+                safe_comm,
+                (unsigned long)n.exec_inode,
+                lineage_marker);
+}
+
 void dump(const ProvLayout* layout)
 {
+    constexpr std::uint64_t kSentinel = static_cast<std::uint64_t>(-1);
     const std::uint64_t total = layout->hdr.next_index;
     const std::uint64_t shown = total < 32 ? total : 32;
     std::printf("\naegis-next: arena header\n");
     std::printf("  magic       = 0x%016lx\n", (unsigned long)layout->hdr.magic);
     std::printf("  next_index  = %lu\n", (unsigned long)total);
     std::printf("  dropped     = %lu\n", (unsigned long)layout->hdr.dropped);
+
     std::printf("\nlast %lu exec node(s):\n", (unsigned long)shown);
-    std::printf("  %-19s %-7s %-7s %-7s %-16s %s\n",
-                "ts_ns", "pid", "ppid", "uid", "comm", "exec_inode");
+    std::printf("  %-19s %-7s %-7s %-7s %-16s %-12s %s\n",
+                "ts_ns", "pid", "ppid", "uid", "comm", "exec_inode", "prev_slot");
 
     const std::uint64_t start = (total > shown) ? (total - shown) : 0;
     for (std::uint64_t i = start; i < total; ++i) {
         const ProvNode& n = layout->nodes[i % kMaxNodes];
-        char safe_comm[17] = {};
-        std::memcpy(safe_comm, n.comm, sizeof(n.comm));
-        std::printf("  %-19lu %-7u %-7u %-7u %-16s %lu\n",
-                    (unsigned long)n.ts_ns,
-                    n.pid,
-                    n.ppid,
-                    n.uid,
-                    safe_comm,
-                    (unsigned long)n.exec_inode);
+        char marker[32];
+        if (n.prev_index == kSentinel) {
+            std::snprintf(marker, sizeof(marker), "(root)");
+        } else {
+            std::snprintf(marker, sizeof(marker), "%lu",
+                          (unsigned long)n.prev_index);
+        }
+        print_node_row(n, marker);
+    }
+
+    // Walk lineage backwards from the most recent exec to demonstrate
+    // the hash-indexed parent lookup is wired end-to-end.
+    if (total == 0) {
+        return;
+    }
+    std::printf("\nlineage of most recent exec (walking prev_index):\n");
+    std::printf("  %-19s %-7s %-7s %-7s %-16s %-12s %s\n",
+                "ts_ns", "pid", "ppid", "uid", "comm", "exec_inode", "depth");
+    std::uint64_t cursor = (total - 1) % kMaxNodes;
+    int depth = 0;
+    constexpr int kMaxDepth = 64;
+    while (depth < kMaxDepth) {
+        const ProvNode& n = layout->nodes[cursor];
+        char depth_str[16];
+        std::snprintf(depth_str, sizeof(depth_str), "%d", depth);
+        print_node_row(n, depth_str);
+        if (n.prev_index == kSentinel) {
+            break;
+        }
+        cursor = n.prev_index % kMaxNodes;
+        ++depth;
+    }
+    if (depth == kMaxDepth) {
+        std::printf("  (truncated at depth %d)\n", kMaxDepth);
     }
 }
 
