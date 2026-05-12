@@ -813,6 +813,10 @@ if(ENABLE_FUZZING)
     target_link_options(fuzz_event PRIVATE -fsanitize=fuzzer,address)
 endif()
 
+# Optional post-2024 BPF stack prototype (BPF arena, sched_ext, ...).
+# Gated off by default; see prototype/aegis-next/README.md.
+add_subdirectory(prototype/aegis-next)
+
 # Installation
 install(TARGETS aegisbpf RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(NOT SKIP_BPF_BUILD)
