@@ -1,0 +1,14 @@
+{
+  "kernel": "6.17.0-20-generic",
+  "iterations": 2000,
+  "workers": 4,
+  "timestamp": "2026-05-15T00:20:51+03:00",
+  "results": {
+    "baseline": 1615,
+    "tetragon": 1792,
+    "falco": 2057,
+    "tracee": 2324,
+    "aegis_next": null,
+    "_end": null
+  }
+}
