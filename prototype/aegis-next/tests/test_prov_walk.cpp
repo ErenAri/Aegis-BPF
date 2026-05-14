@@ -73,6 +73,24 @@ TEST(AegisNextLayout, PrevIndexOffsetMatchesBpfSide)
     EXPECT_EQ(offsetof(ProvNode, prev_index), 40u);
 }
 
+TEST(AegisNextLayout, KindOffsetMatchesBpfSide)
+{
+    EXPECT_EQ(offsetof(ProvNode, kind), 48u);
+}
+
+TEST(AegisNextLayout, CommOffsetMatchesBpfSide)
+{
+    EXPECT_EQ(offsetof(ProvNode, comm), 52u);
+}
+
+TEST(AegisNextLayout, KindNameReturnsExpected)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_EXEC), "exec");
+    EXPECT_STREQ(kind_name(PROV_KIND_FILE_OPEN), "file");
+    EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_CONNECT), "sock");
+    EXPECT_STREQ(kind_name(255), "???");
+}
+
 // ----- walk_lineage --------------------------------------------
 
 TEST(WalkLineage, ZeroModulusReturnsZero)

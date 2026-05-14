@@ -13,6 +13,9 @@
 #include <cstddef>
 #include <cstdint>
 
+// Event-kind constants shared with BPF side.
+#include "../bpf/prov_types.h"
+
 namespace aegis_next {
 
 // ----- arena geometry (matches BPF side) -----
@@ -42,9 +45,12 @@ struct ProvNode {
     std::uint32_t tgid;
     std::uint32_t uid;
     std::uint64_t cgid;
-    std::uint64_t exec_inode;
+    std::uint64_t object_id;
     std::uint64_t prev_index;
-    char          comm[16];
+    std::uint8_t  kind;
+    std::uint8_t  flags;
+    std::uint16_t extra;
+    char          comm[12];
 };
 
 struct ProvLayout {
@@ -58,5 +64,19 @@ static_assert(sizeof(ProvNode) == 64,
               "ProvNode layout drift — must match BPF side");
 static_assert(offsetof(ProvNode, prev_index) == 40,
               "ProvNode.prev_index offset drift");
+static_assert(offsetof(ProvNode, kind) == 48,
+              "ProvNode.kind offset drift");
+static_assert(offsetof(ProvNode, comm) == 52,
+              "ProvNode.comm offset drift");
+
+inline const char* kind_name(std::uint8_t kind)
+{
+    switch (kind) {
+    case PROV_KIND_EXEC:           return "exec";
+    case PROV_KIND_FILE_OPEN:      return "file";
+    case PROV_KIND_SOCKET_CONNECT: return "sock";
+    default:                       return "???";
+    }
+}
 
 } // namespace aegis_next
