@@ -31,4 +31,33 @@ std::size_t walk_lineage(std::uint64_t         start_slot,
     return static_cast<std::size_t>(kMaxLineageDepth);
 }
 
+std::uint64_t find_slot_by_pid(std::uint32_t     target_pid,
+                                std::uint64_t     total_nodes,
+                                std::uint64_t     slot_modulus,
+                                const SlotReader& read_slot,
+                                std::uint64_t     scan_limit)
+{
+    if (slot_modulus == 0 || total_nodes == 0) {
+        return kRootSentinel;
+    }
+    // Default: scan the entire populated range (capped at modulus).
+    const std::uint64_t effective_total =
+        (total_nodes < slot_modulus) ? total_nodes : slot_modulus;
+    const std::uint64_t limit =
+        (scan_limit > 0 && scan_limit < effective_total)
+            ? scan_limit
+            : effective_total;
+
+    // Walk backwards from the most recent entry so we find the
+    // freshest exec for this pid.
+    for (std::uint64_t i = 0; i < limit; ++i) {
+        const std::uint64_t idx = (total_nodes - 1 - i) % slot_modulus;
+        ProvNode node = read_slot(idx);
+        if (node.tgid == target_pid) {
+            return idx;
+        }
+    }
+    return kRootSentinel;
+}
+
 } // namespace aegis_next

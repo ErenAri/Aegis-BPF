@@ -206,5 +206,83 @@ TEST(WalkLineage, RootSentinelStopsTraversalImmediately)
     EXPECT_EQ(visited[0].node.pid, 1u);
 }
 
+// ----- find_slot_by_pid ----------------------------------------
+
+TEST(FindSlotByPid, ReturnsRootSentinelOnEmptyArena)
+{
+    EXPECT_EQ(find_slot_by_pid(1000, 0, 8,
+                               [](std::uint64_t) { return ProvNode{}; }),
+              kRootSentinel);
+}
+
+TEST(FindSlotByPid, ReturnsRootSentinelOnZeroModulus)
+{
+    EXPECT_EQ(find_slot_by_pid(1000, 5, 0,
+                               [](std::uint64_t) { return ProvNode{}; }),
+              kRootSentinel);
+}
+
+TEST(FindSlotByPid, FindsSingleNodeByTgid)
+{
+    std::vector<ProvNode> nodes(1);
+    nodes[0].tgid = 42;
+    EXPECT_EQ(find_slot_by_pid(42, 1, nodes.size(),
+                               [&](std::uint64_t s) { return nodes[s]; }),
+              0u);
+}
+
+TEST(FindSlotByPid, FindsMostRecentExecWhenDuplicatePids)
+{
+    // Two execs from the same pid: slot 0 is older, slot 1 is newer.
+    // find_slot_by_pid scans backwards and must return slot 1.
+    std::vector<ProvNode> nodes(2);
+    nodes[0].tgid = 99;
+    nodes[0].ts_ns = 100;
+    nodes[1].tgid = 99;
+    nodes[1].ts_ns = 200;
+
+    EXPECT_EQ(find_slot_by_pid(99, 2, nodes.size(),
+                               [&](std::uint64_t s) { return nodes[s]; }),
+              1u);
+}
+
+TEST(FindSlotByPid, ReturnsRootSentinelWhenPidNotPresent)
+{
+    auto chain = make_chain(5);
+    EXPECT_EQ(find_slot_by_pid(9999, 5, chain.size(),
+                               [&](std::uint64_t s) { return chain[s]; }),
+              kRootSentinel);
+}
+
+TEST(FindSlotByPid, RespectsScanLimit)
+{
+    // Place target at slot 0, but limit scan to last 2 of 5 nodes.
+    // The scanner only sees slots 4 and 3, never slot 0.
+    std::vector<ProvNode> nodes(5);
+    nodes[0].tgid = 42;
+    for (std::size_t i = 1; i < 5; ++i) {
+        nodes[i].tgid = static_cast<std::uint32_t>(100 + i);
+    }
+
+    EXPECT_EQ(find_slot_by_pid(42, 5, nodes.size(),
+                               [&](std::uint64_t s) { return nodes[s]; },
+                               2),
+              kRootSentinel);
+}
+
+TEST(FindSlotByPid, WrapsAroundModulus)
+{
+    // total_nodes > slot_modulus simulates wrap. With modulus 3 and
+    // total 5, the most recent entry is at (5-1)%3 = slot 1.
+    std::vector<ProvNode> nodes(3);
+    nodes[0].tgid = 10;
+    nodes[1].tgid = 42; // this is the most recent write (total=5 -> slot 1)
+    nodes[2].tgid = 20;
+
+    EXPECT_EQ(find_slot_by_pid(42, 5, nodes.size(),
+                               [&](std::uint64_t s) { return nodes[s]; }),
+              1u);
+}
+
 } // namespace
 } // namespace aegis_next
