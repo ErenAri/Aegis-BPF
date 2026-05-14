@@ -114,17 +114,24 @@ Requires:
   (`BPF_MAP_TYPE_LRU_HASH`, 64K entries) maps `tgid -> last slot
   index`. Each exec records its parent's slot in `prev_index`,
   and userspace can walk the chain backwards to reconstruct
-  lineage. Misses (e.g. for processes already running at attach
-  time) render as `(root)`.
+  lineage.
+- ✅ **Graph CLI subcommands.** `aegisbpf-next attach`,
+  `graph dump`, `graph lineage <pid>`, `graph stats`. Arena map
+  is pinned in bpffs so graph commands work from a separate
+  process while the daemon is live.
+- ✅ **Exec catch-up via open-coded task iterator.** A
+  `SEC("syscall")` BPF program runs once after attach, iterating
+  all thread-group leaders via `bpf_for_each(task, ...)` (kfuncs
+  from Linux 6.4). Seeds the arena with existing processes so
+  lineage chains are reachable from attach-time onward — not just
+  from the first exec we observe. This is the first load-bearing
+  use of open-coded iterators in the prototype.
 
 ## What's deliberately NOT here (yet)
 
 The following are explicitly out of scope and tracked for
 follow-up PRs:
 
-- **Exec catch-up via open-coded iterator** to seed the hash with
-  pre-existing processes on attach. Without this, lineage chains
-  always terminate at the first exec we observe.
 - **GC / eviction** beyond modular wrap on overflow and LRU on
   the pid hash.
 - **sched_ext integration** for quarantine verdicts. The next track

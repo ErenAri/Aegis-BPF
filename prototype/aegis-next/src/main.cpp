@@ -206,6 +206,27 @@ int cmd_attach()
         return 1;
     }
 
+    // Run one-shot catch-up scan to seed the arena with all
+    // existing processes. This makes lineage chains reachable
+    // for processes that were already running before attach.
+    int catchup_fd = bpf_program__fd(skel->progs.aegis_next_catchup);
+    if (catchup_fd >= 0) {
+        LIBBPF_OPTS(bpf_test_run_opts, run_opts);
+        int rc = bpf_prog_test_run_opts(catchup_fd, &run_opts);
+        auto* layout_snap = static_cast<const ProvLayout*>(arena);
+        if (rc == 0 && run_opts.retval == 0) {
+            std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
+                        (unsigned long)layout_snap->hdr.next_index);
+        } else {
+            std::fprintf(stderr,
+                         "warning: catch-up scan failed (rc=%d retval=%d): %s\n",
+                         rc, run_opts.retval, std::strerror(errno));
+            std::fprintf(stderr,
+                         "  lineage chains for pre-existing processes will "
+                         "show as (root)\n");
+        }
+    }
+
     std::signal(SIGINT, on_sigint);
     std::signal(SIGTERM, on_sigint);
 
