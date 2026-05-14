@@ -7,11 +7,14 @@ namespace aegis_next {
 std::size_t walk_lineage(std::uint64_t         start_slot,
                          std::uint64_t         slot_modulus,
                          const SlotReader&     read_slot,
-                         const LineageVisitor& visit)
+                         const LineageVisitor& visit,
+                         std::uint64_t         generation)
 {
     if (slot_modulus == 0) {
         return 0;
     }
+
+    const bool check_gen = (generation != kRootSentinel);
 
     std::uint64_t cursor = start_slot % slot_modulus;
     int depth = 0;
@@ -20,9 +23,15 @@ std::size_t walk_lineage(std::uint64_t         start_slot,
         entry.depth = depth;
         entry.slot  = cursor;
         entry.node  = read_slot(cursor);
+        entry.stale = check_gen && is_node_stale(entry.node, generation);
         visit(entry);
 
         if (entry.node.prev_index == kRootSentinel) {
+            return static_cast<std::size_t>(depth + 1);
+        }
+        // Stop following prev_index if this node is stale —
+        // the pointer likely points to overwritten data.
+        if (entry.stale) {
             return static_cast<std::size_t>(depth + 1);
         }
         cursor = entry.node.prev_index % slot_modulus;

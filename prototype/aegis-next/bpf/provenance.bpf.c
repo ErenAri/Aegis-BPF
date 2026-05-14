@@ -47,7 +47,7 @@ struct prov_header {
     __u64 magic;       // sentinel: 0xA591_5BPF_A5E61571 (truncated to 64b)
     __u64 next_index;  // monotonic write cursor, wraps modulo MAX_NODES
     __u64 dropped;     // count of events lost to verifier/alloc failure
-    __u64 reserved;
+    __u64 generation;  // incremented each time next_index wraps past MAX_NODES
 };
 
 struct prov_node {
@@ -155,7 +155,7 @@ aegis_next_layout(void)
     layout->hdr.magic = 0xA5E61500A5E61500ULL;
     layout->hdr.next_index = 0;
     layout->hdr.dropped = 0;
-    layout->hdr.reserved = 0;
+    layout->hdr.generation = 0;
 
     __u64 addr = (__u64)(unsigned long)base;
     bpf_map_update_elem(&aegis_next_layout_ptr, &key, &addr, BPF_ANY);
@@ -171,6 +171,11 @@ record_base(struct prov_layout __arena *layout,
 {
     __u64 idx = __sync_fetch_and_add(&layout->hdr.next_index, 1);
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+
+    // Bump generation counter when the arena wraps around.
+    if (slot == 0 && idx > 0)
+        __sync_fetch_and_add(&layout->hdr.generation, 1);
+
     struct prov_node __arena *node = &layout->nodes[slot];
 
     struct task_struct *parent = BPF_CORE_READ(task, real_parent);
@@ -183,7 +188,8 @@ record_base(struct prov_layout __arena *layout,
     node->cgid      = 0; // patched by LSM context helpers when available
     node->object_id = object_id;
     node->kind      = kind;
-    node->flags     = 0;
+    // Tag with low byte of generation so userspace can detect stale nodes.
+    node->flags     = (__u8)(layout->hdr.generation & 0xFF);
     node->extra     = extra;
 
     // Stage comm through a stack buffer.

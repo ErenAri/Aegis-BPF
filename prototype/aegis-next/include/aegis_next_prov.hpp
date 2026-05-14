@@ -35,7 +35,7 @@ struct ProvHeader {
     std::uint64_t magic;
     std::uint64_t next_index;
     std::uint64_t dropped;
-    std::uint64_t reserved;
+    std::uint64_t generation;  // incremented each time next_index wraps past kMaxNodes
 };
 
 struct ProvNode {
@@ -68,6 +68,14 @@ static_assert(offsetof(ProvNode, kind) == 48,
               "ProvNode.kind offset drift");
 static_assert(offsetof(ProvNode, comm) == 52,
               "ProvNode.comm offset drift");
+
+// A node is "stale" if its generation tag (flags byte) doesn't match
+// the current generation's low byte. This catches overwrites after
+// the arena wraps. False negatives occur every 256 wraps (~256M nodes).
+inline bool is_node_stale(const ProvNode& node, std::uint64_t current_generation)
+{
+    return node.flags != static_cast<std::uint8_t>(current_generation & 0xFF);
+}
 
 inline const char* kind_name(std::uint8_t kind)
 {
