@@ -65,6 +65,7 @@ std::string pin_dir()
 
 std::string arena_pin_path() { return pin_dir() + "/arena"; }
 std::string quarantine_pin_path() { return pin_dir() + "/quarantine"; }
+std::string gc_state_pin_path() { return pin_dir() + "/gc_state"; }
 
 std::atomic<bool> g_stop{false};
 
@@ -158,6 +159,7 @@ void usage(const char* prog)
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
+                 "  graph gc               print GC timer statistics\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
                  "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n"
                  "  sched status           list quarantined cgroups\n",
@@ -192,6 +194,14 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         return 1;
     }
     std::printf("aegis-next: arena pinned at %s\n", path.c_str());
+
+    // Pin GC state map for the `graph gc` subcommand.
+    std::string gc_path = gc_state_pin_path();
+    int gc_pin_err = bpf_map__pin(skel->maps.aegis_next_gc_state, gc_path.c_str());
+    if (gc_pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin gc_state at %s: %s\n",
+                     gc_path.c_str(), std::strerror(errno));
+    }
 
     int arena_fd = bpf_map__fd(skel->maps.aegis_next_arena);
     if (arena_fd < 0) {
@@ -238,6 +248,20 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
             std::fprintf(stderr,
                          "  lineage chains for pre-existing processes will "
                          "show as (root)\n");
+        }
+    }
+
+    // Arm the in-kernel GC timer for pid_slot sweep.
+    int gc_fd = bpf_program__fd(skel->progs.aegis_next_gc_start);
+    if (gc_fd >= 0) {
+        LIBBPF_OPTS(bpf_test_run_opts, gc_opts);
+        int gc_rc = bpf_prog_test_run_opts(gc_fd, &gc_opts);
+        if (gc_rc == 0 && gc_opts.retval == 0) {
+            std::printf("aegis-next: GC timer armed (30s interval)\n");
+        } else {
+            std::fprintf(stderr,
+                         "warning: GC timer arm failed (rc=%d retval=%d): %s\n",
+                         gc_rc, gc_opts.retval, std::strerror(errno));
         }
     }
 
@@ -338,6 +362,44 @@ int cmd_graph_stats()
 
     munmap(const_cast<void*>(static_cast<const void*>(layout)),
            kArenaBytes);
+    return 0;
+}
+
+int cmd_graph_gc()
+{
+    std::string path = gc_state_pin_path();
+    int fd = bpf_obj_get(path.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned gc_state at %s: %s\n"
+                     "hint: run 'aegisbpf-next attach' first.\n",
+                     path.c_str(), std::strerror(errno));
+        return 1;
+    }
+
+    // gc_state layout: bpf_timer (opaque, skip), then u64 runs, u64 evicted.
+    // bpf_timer is 16 bytes on most kernels. We read the full value
+    // and extract the trailing stats fields.
+    // The struct in BPF is: { bpf_timer(16B), u64 runs, u64 evicted }
+    // Total: 32 bytes.
+    struct {
+        char timer_opaque[16]; // bpf_timer is opaque to userspace
+        std::uint64_t runs;
+        std::uint64_t evicted;
+    } state{};
+
+    __u32 key = 0;
+    if (bpf_map_lookup_elem(fd, &key, &state) != 0) {
+        std::fprintf(stderr, "failed to read gc_state: %s\n",
+                     std::strerror(errno));
+        close(fd);
+        return 1;
+    }
+
+    std::printf("aegis-next GC stats\n");
+    std::printf("  gc passes   = %lu\n", (unsigned long)state.runs);
+    std::printf("  evicted     = %lu\n", (unsigned long)state.evicted);
+    close(fd);
     return 0;
 }
 
@@ -583,7 +645,7 @@ int main(int argc, char** argv)
 
     if (cmd == "graph") {
         if (argc < 3) {
-            std::fprintf(stderr, "graph requires a subcommand: dump, lineage, stats\n");
+            std::fprintf(stderr, "graph requires a subcommand: dump, lineage, stats, gc\n");
             return 1;
         }
         const std::string sub = argv[2];
@@ -592,6 +654,9 @@ int main(int argc, char** argv)
         }
         if (sub == "stats") {
             return cmd_graph_stats();
+        }
+        if (sub == "gc") {
+            return cmd_graph_gc();
         }
         if (sub == "lineage") {
             if (argc < 4) {

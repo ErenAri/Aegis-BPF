@@ -368,4 +368,95 @@ int aegis_next_catchup(void *ctx)
     return 0;
 }
 
+// ---- in-kernel GC (timer-based pid_slot sweep) ----------------
+//
+// A BPF timer fires every GC_INTERVAL_NS nanoseconds, iterates the
+// pid_slot LRU hash, and deletes entries whose referenced arena
+// slot has been overwritten (generation tag mismatch). This keeps
+// pid_slot accurate after arena wrap, preventing lineage lookups
+// from following stale pointers.
+//
+// The timer lives inside a single-entry array map so the verifier
+// can associate it with a map lifetime.
+
+#define GC_INTERVAL_NS (30ULL * 1000 * 1000 * 1000) // 30 seconds
+
+struct gc_state {
+    struct bpf_timer timer;
+    __u64 runs;       // number of GC passes completed
+    __u64 evicted;    // total pid_slot entries evicted
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct gc_state);
+    __uint(max_entries, 1);
+} aegis_next_gc_state SEC(".maps");
+
+// Context passed to the bpf_for_each_map_elem callback.
+struct gc_ctx {
+    struct prov_layout __arena *layout;
+    __u8  current_gen_tag;
+    __u64 evicted;
+};
+
+// Callback: check one pid_slot entry for staleness.
+static long gc_check_entry(struct bpf_map *map, const __u32 *key,
+                           __u64 *value, struct gc_ctx *ctx)
+{
+    if (!ctx->layout)
+        return 1; // stop
+
+    __u64 slot = *value % AEGIS_NEXT_MAX_NODES;
+    struct prov_node __arena *node = &ctx->layout->nodes[slot];
+
+    // If the node's generation tag doesn't match, the slot has been
+    // overwritten since this pid_slot entry was created.
+    if (node->flags != ctx->current_gen_tag) {
+        bpf_map_delete_elem(map, key);
+        ctx->evicted++;
+    }
+    return 0; // continue
+}
+
+// Timer callback: runs the GC sweep.
+static int gc_timer_cb(void *map, __u32 *key, struct gc_state *state)
+{
+    struct prov_layout __arena *layout = aegis_next_layout();
+    if (!layout)
+        goto reschedule;
+
+    struct gc_ctx ctx = {
+        .layout = layout,
+        .current_gen_tag = (__u8)(layout->hdr.generation & 0xFF),
+        .evicted = 0,
+    };
+
+    bpf_for_each_map_elem(&aegis_next_pid_slot, gc_check_entry, &ctx, 0);
+
+    state->runs++;
+    state->evicted += ctx.evicted;
+
+reschedule:
+    bpf_timer_start(&state->timer, GC_INTERVAL_NS, 0);
+    return 0;
+}
+
+// Arm the GC timer. Called once from userspace via
+// bpf_prog_test_run_opts() after attach.
+SEC("syscall")
+int aegis_next_gc_start(void *ctx)
+{
+    __u32 key = 0;
+    struct gc_state *state = bpf_map_lookup_elem(&aegis_next_gc_state, &key);
+    if (!state)
+        return -1;
+
+    bpf_timer_init(&state->timer, &aegis_next_gc_state, 0 /* CLOCK_MONOTONIC */);
+    bpf_timer_set_callback(&state->timer, gc_timer_cb);
+    bpf_timer_start(&state->timer, GC_INTERVAL_NS, 0);
+    return 0;
+}
+
 char LICENSE[] SEC("license") = "GPL";

@@ -167,13 +167,12 @@ Requires:
   `STATIC_LIBBPF=ON` (1.5.0) and `BUILD_AEGIS_NEXT=ON`.
   Kernel ≥ 6.9 gets full BPF compile + skeleton; older runners
   build and run the userspace selftest suite only.
-
-## What's deliberately NOT here (yet)
-
-The following are explicitly out of scope and tracked for
-follow-up PRs:
-
-- **In-kernel eviction** (BPF-side GC of cold arena slots).
+- ✅ **In-kernel GC (BPF timer).** A `bpf_timer` fires every 30s
+  and iterates the `pid_slot` LRU hash via
+  `bpf_for_each_map_elem`. Entries whose referenced arena slot
+  has been overwritten (generation tag mismatch) are deleted,
+  keeping pid_slot accurate after arena wrap. GC stats (pass
+  count, eviction count) are exposed via `graph gc`.
 
 ## What's deliberately deferred indefinitely
 
