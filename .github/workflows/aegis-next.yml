@@ -34,18 +34,31 @@ jobs:
             fi
           fi
 
-      - name: Check kernel version
+      - name: Check kernel version and bpftool
         id: kernel
         run: |
           KVER=$(uname -r)
           MAJOR=$(echo "$KVER" | cut -d. -f1)
           MINOR=$(echo "$KVER" | cut -d. -f2)
           echo "version=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
+          KERN_OK=false
           if [ "$MAJOR" -gt 6 ] || { [ "$MAJOR" -eq 6 ] && [ "$MINOR" -ge 9 ]; }; then
+            KERN_OK=true
+          fi
+
+          # Arena build also requires a working bpftool for vmlinux.h
+          BPFTOOL_OK=false
+          if bpftool btf dump file /sys/kernel/btf/vmlinux format c > /dev/null 2>&1; then
+            BPFTOOL_OK=true
+          fi
+
+          if [ "$KERN_OK" = true ] && [ "$BPFTOOL_OK" = true ]; then
             echo "arena_ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "arena_ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Kernel ${MAJOR}.${MINOR} < 6.9 — BPF arena not available, building userspace only"
+            [ "$KERN_OK" = false ] && echo "::warning::Kernel ${MAJOR}.${MINOR} < 6.9 — BPF arena not available, building userspace only"
+            [ "$BPFTOOL_OK" = false ] && echo "::warning::bpftool cannot generate vmlinux.h — building userspace only"
           fi
 
       - name: Configure (full, kernel >= 6.9)
