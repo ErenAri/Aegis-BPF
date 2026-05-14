@@ -84,22 +84,24 @@ void bump_memlock_rlimit()
 
 void print_node_row(const ProvNode& n, const char* tag)
 {
-    char safe_comm[17] = {};
+    char safe_comm[13] = {};
     std::memcpy(safe_comm, n.comm, sizeof(n.comm));
-    std::printf("  %-19lu %-7u %-7u %-7u %-16s %-12lu %s\n",
+    std::printf("  %-19lu %-5s %-7u %-7u %-7u %-12s %-12lu %s\n",
                 (unsigned long)n.ts_ns,
+                aegis_next::kind_name(n.kind),
                 n.pid,
                 n.ppid,
                 n.uid,
                 safe_comm,
-                (unsigned long)n.exec_inode,
+                (unsigned long)n.object_id,
                 tag);
 }
 
 void print_table_header()
 {
-    std::printf("  %-19s %-7s %-7s %-7s %-16s %-12s %s\n",
-                "ts_ns", "pid", "ppid", "uid", "comm", "exec_inode", "info");
+    std::printf("  %-19s %-5s %-7s %-7s %-7s %-12s %-12s %s\n",
+                "ts_ns", "kind", "pid", "ppid", "uid", "comm",
+                "object_id", "info");
 }
 
 // ---- arena open helpers ----

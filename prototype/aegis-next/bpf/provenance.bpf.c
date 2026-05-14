@@ -29,6 +29,8 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
+#include "prov_types.h"
+
 #ifndef BPF_F_MMAPABLE
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
@@ -55,9 +57,12 @@ struct prov_node {
     __u32 tgid;
     __u32 uid;
     __u64 cgid;
-    __u64 exec_inode;
-    __u64 prev_index;  // index of parent node in the arena, or U64_MAX
-    char  comm[16];
+    __u64 object_id;   // inode for exec/file_open, port<<32|addr for socket
+    __u64 prev_index;  // owning exec node slot (for non-exec kinds), or parent
+    __u8  kind;        // PROV_KIND_*
+    __u8  flags;       // reserved
+    __u16 extra;       // open_flags / addr_family per kind
+    char  comm[12];
 };
 
 // Arena map. Userspace mmaps this fd; BPF accesses via __arena ptrs.
@@ -157,13 +162,12 @@ aegis_next_layout(void)
     return layout;
 }
 
-// Record a single process node into the arena from a task_struct.
-// Shared between the live LSM hook and the one-shot catch-up scan.
-// exec_inode is passed separately because only bprm_check_security
-// has the binprm pointer; the catch-up scan passes 0.
-static __always_inline void
-record_task(struct prov_layout __arena *layout,
-            struct task_struct *task, __u64 exec_inode)
+// Reserve a slot and fill the common fields from a task_struct.
+// Returns the slot index (for callers that need to patch fields).
+static __always_inline __u64
+record_base(struct prov_layout __arena *layout,
+            struct task_struct *task, __u8 kind,
+            __u64 object_id, __u16 extra)
 {
     __u64 idx = __sync_fetch_and_add(&layout->hdr.next_index, 1);
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
@@ -171,28 +175,66 @@ record_task(struct prov_layout __arena *layout,
 
     struct task_struct *parent = BPF_CORE_READ(task, real_parent);
 
-    node->ts_ns      = bpf_ktime_get_ns();
-    node->pid        = BPF_CORE_READ(task, pid);
-    node->tgid       = BPF_CORE_READ(task, tgid);
-    node->ppid       = parent ? BPF_CORE_READ(parent, tgid) : 0;
-    node->uid        = BPF_CORE_READ(task, cred, uid.val);
-    node->cgid       = 0; // cgroup_id requires task context; best-effort
-    node->exec_inode = exec_inode;
+    node->ts_ns     = bpf_ktime_get_ns();
+    node->pid       = BPF_CORE_READ(task, pid);
+    node->tgid      = BPF_CORE_READ(task, tgid);
+    node->ppid      = parent ? BPF_CORE_READ(parent, tgid) : 0;
+    node->uid       = BPF_CORE_READ(task, cred, uid.val);
+    node->cgid      = 0; // patched by LSM context helpers when available
+    node->object_id = object_id;
+    node->kind      = kind;
+    node->flags     = 0;
+    node->extra     = extra;
 
+    // Stage comm through a stack buffer.
+    char tmp[16];
+    bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
+    #pragma unroll
+    for (int i = 0; i < 12; i++)
+        node->comm[i] = tmp[i];
+
+    return slot;
+}
+
+// Record a process exec event. Updates the pid->slot hash and
+// links to the parent's exec node via prev_index.
+static __always_inline void
+record_task(struct prov_layout __arena *layout,
+            struct task_struct *task, __u64 exec_inode)
+{
+    __u64 slot = record_base(layout, task, PROV_KIND_EXEC,
+                             exec_inode, 0);
+    struct prov_node __arena *node = &layout->nodes[slot];
+
+    // Link to parent's most recent exec node.
     __u32 ppid_key = node->ppid;
     __u64 *parent_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &ppid_key);
     node->prev_index = parent_slot ? *parent_slot : (__u64)-1;
 
+    // Publish our slot for future children.
     __u32 my_key = node->tgid;
     bpf_map_update_elem(&aegis_next_pid_slot, &my_key, &slot, BPF_ANY);
+}
 
-    // Stage comm through a stack buffer (arena pointers are not
-    // accepted by bpf_probe_read_kernel_str / bpf_get_current_comm).
-    char tmp[16];
-    bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
-    #pragma unroll
-    for (int i = 0; i < 16; i++)
-        node->comm[i] = tmp[i];
+// Record a non-exec event (file_open, socket_connect, ...).
+// prev_index points to the OWNING exec node (current process's
+// most recent exec), not to the parent process.
+static __always_inline void
+record_event(struct prov_layout __arena *layout,
+             __u8 kind, __u64 object_id, __u16 extra)
+{
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    __u64 slot = record_base(layout, task, kind, object_id, extra);
+    struct prov_node __arena *node = &layout->nodes[slot];
+
+    // Link to owning exec node, not to parent process.
+    __u32 tgid = BPF_CORE_READ(task, tgid);
+    __u64 *exec_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &tgid);
+    node->prev_index = exec_slot ? *exec_slot : (__u64)-1;
+
+    // Patch context-available fields.
+    node->uid  = bpf_get_current_uid_gid() & 0xffffffff;
+    node->cgid = bpf_get_current_cgroup_id();
 }
 
 SEC("lsm/bprm_check_security")
@@ -226,6 +268,60 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
     layout->nodes[slot].uid  = bpf_get_current_uid_gid() & 0xffffffff;
     layout->nodes[slot].cgid = bpf_get_current_cgroup_id();
 
+    return 0;
+}
+
+SEC("lsm/file_open")
+int BPF_PROG(aegis_next_on_file_open, struct file *file)
+{
+    struct prov_layout __arena *layout = aegis_next_layout();
+    if (!layout)
+        return 0;
+
+    __u64 inode = 0;
+    struct inode *ino = BPF_CORE_READ(file, f_inode);
+    if (ino)
+        inode = BPF_CORE_READ(ino, i_ino);
+
+    __u16 open_flags = (__u16)(BPF_CORE_READ(file, f_flags) & 0xFFFF);
+    record_event(layout, PROV_KIND_FILE_OPEN, inode, open_flags);
+    return 0;
+}
+
+SEC("lsm/socket_connect")
+int BPF_PROG(aegis_next_on_socket_connect,
+             struct socket *sock, struct sockaddr *address, int addrlen)
+{
+    struct prov_layout __arena *layout = aegis_next_layout();
+    if (!layout)
+        return 0;
+
+    __u16 family = BPF_CORE_READ(address, sa_family);
+
+    // Encode destination as object_id: port in high 32 bits,
+    // IPv4 addr (or lower 32 bits of IPv6) in low 32 bits.
+    __u64 object_id = 0;
+    if (family == 2 /* AF_INET */ && addrlen >= 8) {
+        // struct sockaddr_in: { sa_family, sin_port, sin_addr }
+        __u16 port = 0;
+        __u32 addr = 0;
+        bpf_probe_read_kernel(&port, 2,
+                              (const char *)address + 2);
+        bpf_probe_read_kernel(&addr, 4,
+                              (const char *)address + 4);
+        object_id = ((__u64)port << 32) | addr;
+    } else if (family == 10 /* AF_INET6 */ && addrlen >= 28) {
+        __u16 port = 0;
+        __u32 addr_low = 0;
+        bpf_probe_read_kernel(&port, 2,
+                              (const char *)address + 2);
+        // Take last 4 bytes of in6_addr for a coarse fingerprint.
+        bpf_probe_read_kernel(&addr_low, 4,
+                              (const char *)address + 24);
+        object_id = ((__u64)port << 32) | addr_low;
+    }
+
+    record_event(layout, PROV_KIND_SOCKET_CONNECT, object_id, family);
     return 0;
 }
 

@@ -126,6 +126,13 @@ Requires:
   lineage chains are reachable from attach-time onward — not just
   from the first exec we observe. This is the first load-bearing
   use of open-coded iterators in the prototype.
+- ✅ **Multi-hook nodes.** Three LSM hooks now write to the arena:
+  `bprm_check_security` (exec, kind=0), `file_open` (kind=1),
+  `socket_connect` (kind=2). Non-exec events link to the owning
+  exec node (current process's most recent exec) via
+  `prev_index`, turning the slot array into a proper provenance
+  graph with typed edges. Struct stays at 64 bytes (comm shrunk
+  to 12, added kind/flags/extra fields).
 
 ## What's deliberately NOT here (yet)
 
