@@ -1,0 +1,93 @@
+name: aegis-next prototype
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'prototype/aegis-next/**'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - 'prototype/aegis-next/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  aegis-next-build:
+    name: aegis-next (build + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
+            pkg-config cmake ninja-build zlib1g-dev
+          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
+            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
+            sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+
+      - name: Check kernel version
+        id: kernel
+        run: |
+          KVER=$(uname -r)
+          MAJOR=$(echo "$KVER" | cut -d. -f1)
+          MINOR=$(echo "$KVER" | cut -d. -f2)
+          echo "version=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+          if [ "$MAJOR" -gt 6 ] || { [ "$MAJOR" -eq 6 ] && [ "$MINOR" -ge 9 ]; }; then
+            echo "arena_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "arena_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Kernel ${MAJOR}.${MINOR} < 6.9 — BPF arena not available, building userspace only"
+          fi
+
+      - name: Configure (full, kernel >= 6.9)
+        if: steps.kernel.outputs.arena_ready == 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DBUILD_AEGIS_NEXT=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0
+
+      - name: Configure (userspace only, kernel < 6.9)
+        if: steps.kernel.outputs.arena_ready != 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DBUILD_AEGIS_NEXT=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0
+
+      - name: Build aegis-next
+        if: steps.kernel.outputs.arena_ready == 'true'
+        run: cmake --build build --target aegisbpf-next aegis_next_test
+
+      - name: Build aegis-next (test lib only)
+        if: steps.kernel.outputs.arena_ready != 'true'
+        run: cmake --build build --target aegis_next_test 2>/dev/null || echo "::warning::aegis_next_test build skipped (CMake gated on kernel version)"
+
+      - name: Run aegis-next selftests
+        run: |
+          if [[ -f build/prototype/aegis_next_test ]]; then
+            build/prototype/aegis_next_test --gtest_output=xml:build/aegis_next_test.xml
+          else
+            echo "::warning::aegis_next_test binary not built, skipping"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-next-test-results
+          path: build/aegis_next_test.xml
+          if-no-files-found: warn

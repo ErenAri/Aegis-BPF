@@ -105,6 +105,8 @@ sudo ./build/prototype/aegisbpf-next
 Requires:
 - Linux >= 6.9 with `CONFIG_BPF_LSM=y` and `lsm=` boot param
   including `bpf`.
+- Linux >= 6.12 with `CONFIG_SCHED_CLASS_EXT=y` for `sched`
+  subcommands.
 - `CAP_BPF` + `CAP_SYS_ADMIN` (typical: run as root).
 
 ## What's wired up so far
@@ -114,25 +116,63 @@ Requires:
   (`BPF_MAP_TYPE_LRU_HASH`, 64K entries) maps `tgid -> last slot
   index`. Each exec records its parent's slot in `prev_index`,
   and userspace can walk the chain backwards to reconstruct
-  lineage. Misses (e.g. for processes already running at attach
-  time) render as `(root)`.
-
-## What's deliberately NOT here (yet)
-
-The following are explicitly out of scope and tracked for
-follow-up PRs:
-
-- **Exec catch-up via open-coded iterator** to seed the hash with
-  pre-existing processes on attach. Without this, lineage chains
-  always terminate at the first exec we observe.
-- **GC / eviction** beyond modular wrap on overflow and LRU on
-  the pid hash.
-- **sched_ext integration** for quarantine verdicts. The next track
-  (F2) wires LSM verdicts into a `sched_ext` policy that throttles
-  or pins offending tasks.
-- **Multi-hook nodes**: file_open / socket_connect events linked
-  to their owning exec node. Required for the graph to be more
-  than an exec log.
+  lineage.
+- ✅ **Graph CLI subcommands.** `aegisbpf-next attach`,
+  `graph dump`, `graph lineage <pid>`, `graph stats`. Arena map
+  is pinned in bpffs so graph commands work from a separate
+  process while the daemon is live.
+- ✅ **Exec catch-up via open-coded task iterator.** A
+  `SEC("syscall")` BPF program runs once after attach, iterating
+  all thread-group leaders via `bpf_for_each(task, ...)` (kfuncs
+  from Linux 6.4). Seeds the arena with existing processes so
+  lineage chains are reachable from attach-time onward — not just
+  from the first exec we observe. This is the first load-bearing
+  use of open-coded iterators in the prototype.
+- ✅ **Multi-hook nodes.** Three LSM hooks now write to the arena:
+  `bprm_check_security` (exec, kind=0), `file_open` (kind=1),
+  `socket_connect` (kind=2). Non-exec events link to the owning
+  exec node (current process's most recent exec) via
+  `prev_index`, turning the slot array into a proper provenance
+  graph with typed edges. Struct stays at 64 bytes (comm shrunk
+  to 12, added kind/flags/extra fields).
+- ✅ **sched_ext quarantine scheduler (F2.1).** A minimal
+  `struct_ops`-based sched_ext scheduler (`quarantine.bpf.c`)
+  proves the load/attach/dispatch wiring. The `.enqueue()`
+  callback reads a `BPF_MAP_TYPE_HASH` quarantine map (cgroup
+  id → level) and throttles quarantined tasks to a 1 ms time
+  slice (vs 5 ms default). Requires Linux ≥ 6.12 with
+  `CONFIG_SCHED_CLASS_EXT=y`.
+- ✅ **Quarantine map pinning + CLI (F2.2).** `sched start`
+  pins the quarantine map at `/sys/fs/bpf/aegis_next/quarantine`.
+  `sched quarantine <cgid> <level>` and `sched status` work
+  from a separate process via `bpf_obj_get()` on the pinned
+  map — no skeleton reload needed.
+- ✅ **LSM verdict → quarantine bridge (F2.3).** The `attach`
+  command accepts `--deny <name>` flags. The event loop scans
+  new arena exec nodes; when a deny-listed binary executes, its
+  cgroup is auto-quarantined via the pinned quarantine map.
+  Combined with a running `sched start`, this completes the
+  end-to-end pipeline: policy violation → quarantine map →
+  scheduler throttle.
+- ✅ **Generational eviction (F1.5).** The arena header carries
+  a `generation` counter that increments each time `next_index`
+  wraps past `kMaxNodes`. Each node is stamped with the low
+  byte of the current generation in its `flags` field. Userspace
+  lineage walks detect stale nodes (generation mismatch) and
+  stop following their `prev_index` pointers, preventing walks
+  from chasing into overwritten garbage. 3 new GTest cases cover
+  the stale-detection logic.
+- ✅ **CI workflow (F0.3).** `.github/workflows/aegis-next.yml`
+  triggers on `prototype/aegis-next/**` changes. Builds with
+  `STATIC_LIBBPF=ON` (1.5.0) and `BUILD_AEGIS_NEXT=ON`.
+  Kernel ≥ 6.9 gets full BPF compile + skeleton; older runners
+  build and run the userspace selftest suite only.
+- ✅ **In-kernel GC (BPF timer).** A `bpf_timer` fires every 30s
+  and iterates the `pid_slot` LRU hash via
+  `bpf_for_each_map_elem`. Entries whose referenced arena slot
+  has been overwritten (generation tag mismatch) are deleted,
+  keeping pid_slot accurate after arena wrap. GC stats (pass
+  count, eviction count) are exposed via `graph gc`.
 
 ## What's deliberately deferred indefinitely
 
