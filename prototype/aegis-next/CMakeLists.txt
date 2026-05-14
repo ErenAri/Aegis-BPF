@@ -104,10 +104,40 @@ add_custom_command(
 set_source_files_properties(${AEGIS_NEXT_SKEL_HEADER} PROPERTIES GENERATED TRUE)
 add_custom_target(aegis_next_skel DEPENDS ${AEGIS_NEXT_SKEL_HEADER})
 
+# ---- sched_ext quarantine scheduler ----------------------------
+set(AEGIS_NEXT_SCHED_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/quarantine.bpf.c)
+set(AEGIS_NEXT_SCHED_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/quarantine.bpf.o)
+set(AEGIS_NEXT_SCHED_SKEL   ${CMAKE_CURRENT_BINARY_DIR}/quarantine.skel.h)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_SCHED_OBJECT}
+    COMMAND ${CLANG} -g -O2 -target bpf
+            -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
+            ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
+            -c ${AEGIS_NEXT_SCHED_SOURCE}
+            -o ${AEGIS_NEXT_SCHED_OBJECT}
+    DEPENDS ${AEGIS_NEXT_SCHED_SOURCE}
+            ${AEGIS_NEXT_VMLINUX_HEADER}
+    VERBATIM
+    COMMENT "Compiling aegis-next sched_ext quarantine scheduler"
+)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_SCHED_SKEL}
+    COMMAND ${BASH} -c "${BPFTOOL} gen skeleton ${AEGIS_NEXT_SCHED_OBJECT} > ${AEGIS_NEXT_SCHED_SKEL}"
+    DEPENDS ${AEGIS_NEXT_SCHED_OBJECT}
+    VERBATIM
+    COMMENT "Generating aegis-next quarantine skeleton"
+)
+
+set_source_files_properties(${AEGIS_NEXT_SCHED_SKEL} PROPERTIES GENERATED TRUE)
+add_custom_target(aegis_next_sched_skel DEPENDS ${AEGIS_NEXT_SCHED_SKEL})
+
 # We depend on the parent project's bpf_skel target indirectly via
 # vmlinux.h. Express this explicitly so a clean build can't race.
 if(TARGET bpf_skel)
     add_dependencies(aegis_next_skel bpf_skel)
+    add_dependencies(aegis_next_sched_skel bpf_skel)
 endif()
 
 # Static lib for the testable userspace pieces. Keeps the test
@@ -123,9 +153,10 @@ target_include_directories(aegis_next_core PUBLIC
 add_executable(aegisbpf-next
     src/main.cpp
     ${AEGIS_NEXT_SKEL_HEADER}
+    ${AEGIS_NEXT_SCHED_SKEL}
 )
 
-add_dependencies(aegisbpf-next aegis_next_skel)
+add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel)
 
 target_include_directories(aegisbpf-next PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -137,6 +168,7 @@ target_link_directories(aegisbpf-next PRIVATE ${LIBBPF_LIBRARY_DIRS})
 target_link_libraries(aegisbpf-next PRIVATE
     aegis_next_core
     ${LIBBPF_LIBRARIES}
+    ZLIB::ZLIB
 )
 
 # Mark as non-installed: prototype binaries must not collide with

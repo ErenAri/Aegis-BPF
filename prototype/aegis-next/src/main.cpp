@@ -31,6 +31,7 @@
 #include "aegis_next_prov.hpp"
 #include "prov_walk.hpp"
 #include "provenance.skel.h"
+#include "quarantine.skel.h"
 
 namespace {
 
@@ -148,7 +149,9 @@ void usage(const char* prog)
                  "  attach                 load BPF, pin maps, attach LSM, loop\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
-                 "  graph stats            print arena header statistics\n",
+                 "  graph stats            print arena header statistics\n"
+                 "  sched start            load sched_ext quarantine scheduler\n"
+                 "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n",
                  prog);
 }
 
@@ -349,6 +352,101 @@ int cmd_graph_lineage(std::uint32_t target_pid)
     return 0;
 }
 
+// ---- sched_ext subcommands ------------------------------------
+
+int cmd_sched_start()
+{
+    libbpf_set_print(libbpf_print);
+    bump_memlock_rlimit();
+
+    quarantine_bpf* skel = quarantine_bpf__open_and_load();
+    if (!skel) {
+        std::fprintf(stderr, "failed to open+load quarantine scheduler: %s\n",
+                     std::strerror(errno));
+        std::fprintf(stderr,
+                     "hint: requires kernel >= 6.12 with CONFIG_SCHED_CLASS_EXT=y\n");
+        return 1;
+    }
+
+    struct bpf_link* link = bpf_map__attach_struct_ops(skel->maps.aegis_next_sched);
+    if (!link) {
+        std::fprintf(stderr, "failed to attach sched_ext scheduler: %s\n",
+                     std::strerror(errno));
+        quarantine_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::signal(SIGINT, on_sigint);
+    std::signal(SIGTERM, on_sigint);
+
+    std::printf("aegis-next: sched_ext scheduler 'aegis_next' attached.\n");
+    std::printf("  quarantine map: bpf_map_update_elem on aegis_next_quarantine\n");
+    std::printf("  throttled slice: 1ms, default slice: 5ms\n");
+    std::printf("press Ctrl-C to detach.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        sleep(2);
+    }
+
+    std::printf("\naegis-next: detaching sched_ext scheduler.\n");
+    bpf_link__destroy(link);
+    quarantine_bpf__destroy(skel);
+    return 0;
+}
+
+int cmd_sched_quarantine(std::uint64_t cgid, std::uint32_t level)
+{
+    // We need the quarantine map fd. Load the skeleton just to get
+    // the map definition, then use bpf_obj_get if pinned, or error.
+    // For the prototype, we require `sched start` to be running and
+    // write directly via the map fd from a fresh skeleton open.
+    //
+    // A cleaner approach would pin the quarantine map like we pin
+    // the arena, but that's F2.2 scope. For now, open a second
+    // skeleton just to get the BTF-defined map and update it.
+    libbpf_set_print(libbpf_print);
+
+    quarantine_bpf* skel = quarantine_bpf__open_and_load();
+    if (!skel) {
+        std::fprintf(stderr,
+                     "failed to load quarantine skeleton for map access: %s\n",
+                     std::strerror(errno));
+        return 1;
+    }
+
+    int map_fd = bpf_map__fd(skel->maps.aegis_next_quarantine);
+    if (map_fd < 0) {
+        std::fprintf(stderr, "quarantine map fd unavailable\n");
+        quarantine_bpf__destroy(skel);
+        return 1;
+    }
+
+    int err;
+    if (level == 0) {
+        err = bpf_map_delete_elem(map_fd, &cgid);
+        if (err && errno != ENOENT) {
+            std::fprintf(stderr, "failed to clear quarantine for cgid %lu: %s\n",
+                         (unsigned long)cgid, std::strerror(errno));
+            quarantine_bpf__destroy(skel);
+            return 1;
+        }
+        std::printf("quarantine cleared for cgid %lu\n", (unsigned long)cgid);
+    } else {
+        err = bpf_map_update_elem(map_fd, &cgid, &level, BPF_ANY);
+        if (err) {
+            std::fprintf(stderr, "failed to set quarantine for cgid %lu: %s\n",
+                         (unsigned long)cgid, std::strerror(errno));
+            quarantine_bpf__destroy(skel);
+            return 1;
+        }
+        std::printf("quarantine set for cgid %lu: level=%u\n",
+                    (unsigned long)cgid, level);
+    }
+
+    quarantine_bpf__destroy(skel);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -390,6 +488,28 @@ int main(int argc, char** argv)
             return cmd_graph_lineage(static_cast<std::uint32_t>(pid_arg));
         }
         std::fprintf(stderr, "unknown graph subcommand: %s\n", sub.c_str());
+        return 1;
+    }
+
+    if (cmd == "sched") {
+        if (argc < 3) {
+            std::fprintf(stderr, "sched requires a subcommand: start, quarantine\n");
+            return 1;
+        }
+        const std::string sub = argv[2];
+        if (sub == "start") {
+            return cmd_sched_start();
+        }
+        if (sub == "quarantine") {
+            if (argc < 5) {
+                std::fprintf(stderr, "usage: %s sched quarantine <cgid> <level>\n", argv[0]);
+                return 1;
+            }
+            const auto cgid = static_cast<std::uint64_t>(std::strtoull(argv[3], nullptr, 0));
+            const auto level = static_cast<std::uint32_t>(std::strtoul(argv[4], nullptr, 0));
+            return cmd_sched_quarantine(cgid, level);
+        }
+        std::fprintf(stderr, "unknown sched subcommand: %s\n", sub.c_str());
         return 1;
     }
 

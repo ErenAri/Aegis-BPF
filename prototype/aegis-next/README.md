@@ -105,6 +105,8 @@ sudo ./build/prototype/aegisbpf-next
 Requires:
 - Linux >= 6.9 with `CONFIG_BPF_LSM=y` and `lsm=` boot param
   including `bpf`.
+- Linux >= 6.12 with `CONFIG_SCHED_CLASS_EXT=y` for `sched`
+  subcommands.
 - `CAP_BPF` + `CAP_SYS_ADMIN` (typical: run as root).
 
 ## What's wired up so far
@@ -133,6 +135,15 @@ Requires:
   `prev_index`, turning the slot array into a proper provenance
   graph with typed edges. Struct stays at 64 bytes (comm shrunk
   to 12, added kind/flags/extra fields).
+- ✅ **sched_ext quarantine scheduler (F2.1).** A minimal
+  `struct_ops`-based sched_ext scheduler (`quarantine.bpf.c`)
+  proves the load/attach/dispatch wiring. The `.enqueue()`
+  callback reads a `BPF_MAP_TYPE_HASH` quarantine map (cgroup
+  id → level) and throttles quarantined tasks to a 1 ms time
+  slice (vs 5 ms default). Userspace CLI: `sched start` loads
+  and attaches the scheduler; `sched quarantine <cgid> <level>`
+  writes the map. Requires Linux ≥ 6.12 with
+  `CONFIG_SCHED_CLASS_EXT=y`.
 
 ## What's deliberately NOT here (yet)
 
@@ -141,12 +152,12 @@ follow-up PRs:
 
 - **GC / eviction** beyond modular wrap on overflow and LRU on
   the pid hash.
-- **sched_ext integration** for quarantine verdicts. The next track
-  (F2) wires LSM verdicts into a `sched_ext` policy that throttles
-  or pins offending tasks.
-- **Multi-hook nodes**: file_open / socket_connect events linked
-  to their owning exec node. Required for the graph to be more
-  than an exec log.
+- **Quarantine map pinning + CLI** (F2.2). Pin the quarantine
+  map in bpffs so `sched quarantine` works from a separate process.
+- **LSM verdict → quarantine bridge** (F2.3). LSM hooks write
+  quarantine entries based on policy violations.
+- **Full sched_ext + LSM pipeline** (F2.4). End-to-end:
+  policy violation → quarantine map → scheduler throttle.
 
 ## What's deliberately deferred indefinitely
 
