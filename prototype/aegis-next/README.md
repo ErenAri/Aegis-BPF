@@ -140,10 +140,13 @@ Requires:
   proves the load/attach/dispatch wiring. The `.enqueue()`
   callback reads a `BPF_MAP_TYPE_HASH` quarantine map (cgroup
   id → level) and throttles quarantined tasks to a 1 ms time
-  slice (vs 5 ms default). Userspace CLI: `sched start` loads
-  and attaches the scheduler; `sched quarantine <cgid> <level>`
-  writes the map. Requires Linux ≥ 6.12 with
+  slice (vs 5 ms default). Requires Linux ≥ 6.12 with
   `CONFIG_SCHED_CLASS_EXT=y`.
+- ✅ **Quarantine map pinning + CLI (F2.2).** `sched start`
+  pins the quarantine map at `/sys/fs/bpf/aegis_next/quarantine`.
+  `sched quarantine <cgid> <level>` and `sched status` work
+  from a separate process via `bpf_obj_get()` on the pinned
+  map — no skeleton reload needed.
 
 ## What's deliberately NOT here (yet)
 
@@ -152,8 +155,6 @@ follow-up PRs:
 
 - **GC / eviction** beyond modular wrap on overflow and LRU on
   the pid hash.
-- **Quarantine map pinning + CLI** (F2.2). Pin the quarantine
-  map in bpffs so `sched quarantine` works from a separate process.
 - **LSM verdict → quarantine bridge** (F2.3). LSM hooks write
   quarantine entries based on policy violations.
 - **Full sched_ext + LSM pipeline** (F2.4). End-to-end:

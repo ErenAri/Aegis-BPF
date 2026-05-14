@@ -57,6 +57,7 @@ std::string pin_dir()
 }
 
 std::string arena_pin_path() { return pin_dir() + "/arena"; }
+std::string quarantine_pin_path() { return pin_dir() + "/quarantine"; }
 
 std::atomic<bool> g_stop{false};
 
@@ -151,7 +152,8 @@ void usage(const char* prog)
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
-                 "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n",
+                 "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n"
+                 "  sched status           list quarantined cgroups\n",
                  prog);
 }
 
@@ -368,6 +370,21 @@ int cmd_sched_start()
         return 1;
     }
 
+    // Pin quarantine map in bpffs so CLI commands can reach it.
+    std::string dir = pin_dir();
+    (void)::mkdir(dir.c_str(), 0700);
+    std::string qpath = quarantine_pin_path();
+    int pin_err = bpf_map__pin(skel->maps.aegis_next_quarantine, qpath.c_str());
+    if (pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "failed to pin quarantine map at %s: %s\n",
+                     qpath.c_str(), std::strerror(errno));
+        std::fprintf(stderr,
+                     "hint: is bpffs mounted at /sys/fs/bpf?\n");
+        quarantine_bpf__destroy(skel);
+        return 1;
+    }
+    std::printf("aegis-next: quarantine map pinned at %s\n", qpath.c_str());
+
     struct bpf_link* link = bpf_map__attach_struct_ops(skel->maps.aegis_next_sched);
     if (!link) {
         std::fprintf(stderr, "failed to attach sched_ext scheduler: %s\n",
@@ -380,7 +397,6 @@ int cmd_sched_start()
     std::signal(SIGTERM, on_sigint);
 
     std::printf("aegis-next: sched_ext scheduler 'aegis_next' attached.\n");
-    std::printf("  quarantine map: bpf_map_update_elem on aegis_next_quarantine\n");
     std::printf("  throttled slice: 1ms, default slice: 5ms\n");
     std::printf("press Ctrl-C to detach.\n");
 
@@ -389,37 +405,30 @@ int cmd_sched_start()
     }
 
     std::printf("\naegis-next: detaching sched_ext scheduler.\n");
+    std::printf("  quarantine pin remains at %s\n", qpath.c_str());
     bpf_link__destroy(link);
     quarantine_bpf__destroy(skel);
     return 0;
 }
 
+int open_pinned_quarantine_fd()
+{
+    std::string path = quarantine_pin_path();
+    int fd = bpf_obj_get(path.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned quarantine map at %s: %s\n"
+                     "hint: run 'aegisbpf-next sched start' first.\n",
+                     path.c_str(), std::strerror(errno));
+    }
+    return fd;
+}
+
 int cmd_sched_quarantine(std::uint64_t cgid, std::uint32_t level)
 {
-    // We need the quarantine map fd. Load the skeleton just to get
-    // the map definition, then use bpf_obj_get if pinned, or error.
-    // For the prototype, we require `sched start` to be running and
-    // write directly via the map fd from a fresh skeleton open.
-    //
-    // A cleaner approach would pin the quarantine map like we pin
-    // the arena, but that's F2.2 scope. For now, open a second
-    // skeleton just to get the BTF-defined map and update it.
-    libbpf_set_print(libbpf_print);
-
-    quarantine_bpf* skel = quarantine_bpf__open_and_load();
-    if (!skel) {
-        std::fprintf(stderr,
-                     "failed to load quarantine skeleton for map access: %s\n",
-                     std::strerror(errno));
+    int map_fd = open_pinned_quarantine_fd();
+    if (map_fd < 0)
         return 1;
-    }
-
-    int map_fd = bpf_map__fd(skel->maps.aegis_next_quarantine);
-    if (map_fd < 0) {
-        std::fprintf(stderr, "quarantine map fd unavailable\n");
-        quarantine_bpf__destroy(skel);
-        return 1;
-    }
 
     int err;
     if (level == 0) {
@@ -427,7 +436,7 @@ int cmd_sched_quarantine(std::uint64_t cgid, std::uint32_t level)
         if (err && errno != ENOENT) {
             std::fprintf(stderr, "failed to clear quarantine for cgid %lu: %s\n",
                          (unsigned long)cgid, std::strerror(errno));
-            quarantine_bpf__destroy(skel);
+            close(map_fd);
             return 1;
         }
         std::printf("quarantine cleared for cgid %lu\n", (unsigned long)cgid);
@@ -436,14 +445,49 @@ int cmd_sched_quarantine(std::uint64_t cgid, std::uint32_t level)
         if (err) {
             std::fprintf(stderr, "failed to set quarantine for cgid %lu: %s\n",
                          (unsigned long)cgid, std::strerror(errno));
-            quarantine_bpf__destroy(skel);
+            close(map_fd);
             return 1;
         }
         std::printf("quarantine set for cgid %lu: level=%u\n",
                     (unsigned long)cgid, level);
     }
 
-    quarantine_bpf__destroy(skel);
+    close(map_fd);
+    return 0;
+}
+
+int cmd_sched_status()
+{
+    int map_fd = open_pinned_quarantine_fd();
+    if (map_fd < 0)
+        return 1;
+
+    std::printf("quarantined cgroups:\n");
+    std::printf("  %-20s %s\n", "CGROUP_ID", "LEVEL");
+
+    __u64 key = 0;
+    __u64 next_key = 0;
+    __u32 value = 0;
+    int count = 0;
+
+    while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
+        if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
+            const char* label = (value >= 2) ? "pin"
+                              : (value >= 1) ? "throttle"
+                              : "none";
+            std::printf("  %-20lu %u (%s)\n",
+                        (unsigned long)next_key, value, label);
+            ++count;
+        }
+        key = next_key;
+    }
+
+    if (count == 0) {
+        std::printf("  (none)\n");
+    }
+    std::printf("total: %d\n", count);
+
+    close(map_fd);
     return 0;
 }
 
@@ -493,12 +537,15 @@ int main(int argc, char** argv)
 
     if (cmd == "sched") {
         if (argc < 3) {
-            std::fprintf(stderr, "sched requires a subcommand: start, quarantine\n");
+            std::fprintf(stderr, "sched requires a subcommand: start, quarantine, status\n");
             return 1;
         }
         const std::string sub = argv[2];
         if (sub == "start") {
             return cmd_sched_start();
+        }
+        if (sub == "status") {
+            return cmd_sched_status();
         }
         if (sub == "quarantine") {
             if (argc < 5) {
