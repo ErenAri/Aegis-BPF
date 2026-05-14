@@ -3,13 +3,18 @@
 // aegis-next userspace driver (proof-of-concept).
 //
 // Subcommands:
-//   aegisbpf-next attach          — load, pin maps, attach LSM, loop
+//   aegisbpf-next attach [--deny <name>]...  — load, pin maps, attach LSM, loop
 //   aegisbpf-next graph dump      — print recent exec nodes
 //   aegisbpf-next graph lineage <pid> — walk lineage for a pid
 //   aegisbpf-next graph stats     — print arena header stats
+//   aegisbpf-next sched start     — load sched_ext quarantine scheduler
+//   aegisbpf-next sched quarantine <cgid> <level> — set quarantine level
+//   aegisbpf-next sched status    — list quarantined cgroups
 //
 // The "attach" subcommand pins the arena map in bpffs so the
 // "graph" subcommands can open it from a separate process.
+// With --deny flags, attach auto-quarantines cgroups that exec
+// deny-listed binaries (writes to the pinned quarantine map).
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -26,6 +31,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_set>
+#include <vector>
 #include <unistd.h>
 
 #include "aegis_next_prov.hpp"
@@ -147,7 +154,7 @@ void usage(const char* prog)
                  "usage: %s <command>\n"
                  "\n"
                  "commands:\n"
-                 "  attach                 load BPF, pin maps, attach LSM, loop\n"
+                 "  attach [--deny <name>]... load BPF, pin maps, attach LSM, loop\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
@@ -157,7 +164,7 @@ void usage(const char* prog)
                  prog);
 }
 
-int cmd_attach()
+int cmd_attach(const std::unordered_set<std::string>& deny_list)
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
@@ -237,19 +244,68 @@ int cmd_attach()
     std::signal(SIGINT, on_sigint);
     std::signal(SIGTERM, on_sigint);
 
+    // If a deny list is active, try to open the pinned quarantine map
+    // for auto-quarantine writes. Not fatal if missing — just log.
+    int quarantine_fd = -1;
+    if (!deny_list.empty()) {
+        std::string qpath = quarantine_pin_path();
+        quarantine_fd = bpf_obj_get(qpath.c_str());
+        if (quarantine_fd < 0) {
+            std::fprintf(stderr,
+                         "warning: deny list active but quarantine map not pinned at %s\n"
+                         "  run 'aegisbpf-next sched start' to enable auto-quarantine.\n",
+                         qpath.c_str());
+        } else {
+            std::printf("aegis-next: deny list active (%zu entries), "
+                        "auto-quarantine via pinned map.\n",
+                        deny_list.size());
+        }
+    }
+
     std::printf("aegis-next: attached. exec events recorded into arena.\n");
     std::printf("press Ctrl-C to stop.\n");
 
     auto* layout = static_cast<const ProvLayout*>(arena);
     std::uint64_t last_seen = 0;
+    std::uint64_t quarantine_hits = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
-        sleep(2);
+        sleep(1);
         const std::uint64_t cur = layout->hdr.next_index;
-        if (cur != last_seen) {
-            std::printf("  ... recorded %lu exec(s) total\n",
-                        (unsigned long)cur);
-            last_seen = cur;
+        if (cur == last_seen)
+            continue;
+
+        // Scan new nodes for deny-list matches.
+        if (quarantine_fd >= 0 && !deny_list.empty()) {
+            for (std::uint64_t i = last_seen; i < cur; ++i) {
+                const std::uint64_t slot = i % kMaxNodes;
+                const ProvNode& node = layout->nodes[slot];
+                if (node.kind != PROV_KIND_EXEC)
+                    continue;
+                // comm is not necessarily null-terminated at 12 bytes.
+                std::string comm(node.comm,
+                                 strnlen(node.comm, sizeof(node.comm)));
+                if (deny_list.count(comm) && node.cgid != 0) {
+                    __u32 level = 1; // QUARANTINE_THROTTLE
+                    if (bpf_map_update_elem(quarantine_fd, &node.cgid,
+                                            &level, BPF_ANY) == 0) {
+                        std::printf("  ** auto-quarantined cgid %lu "
+                                    "(exec '%s', pid %u)\n",
+                                    (unsigned long)node.cgid,
+                                    comm.c_str(), node.pid);
+                        ++quarantine_hits;
+                    }
+                }
+            }
         }
+
+        std::printf("  ... recorded %lu event(s) total\n",
+                    (unsigned long)cur);
+        last_seen = cur;
+    }
+
+    if (quarantine_hits > 0) {
+        std::printf("aegis-next: auto-quarantined %lu cgroup(s) this session.\n",
+                    (unsigned long)quarantine_hits);
     }
 
     std::printf("\naegis-next: detaching. arena pin remains at %s\n",
@@ -503,7 +559,13 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
-        return cmd_attach();
+        std::unordered_set<std::string> deny_list;
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--deny") == 0 && i + 1 < argc) {
+                deny_list.insert(argv[++i]);
+            }
+        }
+        return cmd_attach(deny_list);
     }
 
     if (cmd == "graph") {

@@ -147,6 +147,13 @@ Requires:
   `sched quarantine <cgid> <level>` and `sched status` work
   from a separate process via `bpf_obj_get()` on the pinned
   map — no skeleton reload needed.
+- ✅ **LSM verdict → quarantine bridge (F2.3).** The `attach`
+  command accepts `--deny <name>` flags. The event loop scans
+  new arena exec nodes; when a deny-listed binary executes, its
+  cgroup is auto-quarantined via the pinned quarantine map.
+  Combined with a running `sched start`, this completes the
+  end-to-end pipeline: policy violation → quarantine map →
+  scheduler throttle.
 
 ## What's deliberately NOT here (yet)
 
@@ -155,10 +162,6 @@ follow-up PRs:
 
 - **GC / eviction** beyond modular wrap on overflow and LRU on
   the pid hash.
-- **LSM verdict → quarantine bridge** (F2.3). LSM hooks write
-  quarantine entries based on policy violations.
-- **Full sched_ext + LSM pipeline** (F2.4). End-to-end:
-  policy violation → quarantine map → scheduler throttle.
 
 ## What's deliberately deferred indefinitely
 
