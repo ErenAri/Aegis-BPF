@@ -326,6 +326,7 @@ int cmd_graph_stats()
     std::printf("  magic       = 0x%016lx\n", (unsigned long)hdr.magic);
     std::printf("  next_index  = %lu\n", (unsigned long)hdr.next_index);
     std::printf("  dropped     = %lu\n", (unsigned long)hdr.dropped);
+    std::printf("  generation  = %lu\n", (unsigned long)hdr.generation);
 
     const std::uint64_t total = hdr.next_index;
     const std::uint64_t occupied =
@@ -393,15 +394,27 @@ int cmd_graph_lineage(std::uint32_t target_pid)
                 target_pid, (unsigned long)slot);
     print_table_header();
 
+    const std::uint64_t gen = layout->hdr.generation;
+    bool hit_stale = false;
     const std::size_t visited = aegis_next::walk_lineage(
         slot, kMaxNodes, reader,
-        [](const LineageEntry& e) {
-            char depth_str[16];
-            std::snprintf(depth_str, sizeof(depth_str), "depth=%d", e.depth);
+        [&](const LineageEntry& e) {
+            char depth_str[32];
+            if (e.stale) {
+                std::snprintf(depth_str, sizeof(depth_str),
+                              "depth=%d (stale)", e.depth);
+                hit_stale = true;
+            } else {
+                std::snprintf(depth_str, sizeof(depth_str),
+                              "depth=%d", e.depth);
+            }
             print_node_row(e.node, depth_str);
-        });
+        },
+        gen);
 
-    if (visited == static_cast<std::size_t>(kMaxLineageDepth)) {
+    if (hit_stale) {
+        std::printf("  (walk stopped: stale node detected — arena has wrapped)\n");
+    } else if (visited == static_cast<std::size_t>(kMaxLineageDepth)) {
         std::printf("  (truncated at depth %d)\n", kMaxLineageDepth);
     }
 

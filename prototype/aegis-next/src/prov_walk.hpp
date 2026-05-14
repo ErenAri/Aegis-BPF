@@ -21,6 +21,7 @@ struct LineageEntry {
     int           depth;
     std::uint64_t slot;
     ProvNode      node;
+    bool          stale = false;  // true if generation tag mismatches
 };
 
 using SlotReader = std::function<ProvNode(std::uint64_t)>;
@@ -39,10 +40,15 @@ using LineageVisitor = std::function<void(const LineageEntry&)>;
 // visited slots: the depth cap is the cycle defense. A malicious
 // or corrupted arena that loops back on itself just truncates at
 // depth 64, which is the same behavior as legitimate deep chains.
+// When generation != kRootSentinel, each visited node is tagged as
+// stale if its flags byte doesn't match the generation's low byte.
+// The walk still continues through stale nodes (callers decide how
+// to render them), but stops if it would follow a stale prev_index.
 std::size_t walk_lineage(std::uint64_t        start_slot,
                          std::uint64_t        slot_modulus,
                          const SlotReader&    read_slot,
-                         const LineageVisitor& visit);
+                         const LineageVisitor& visit,
+                         std::uint64_t        generation = kRootSentinel);
 
 // Scans backwards from `total_nodes - 1` to find the most recent
 // arena slot whose tgid matches `target_pid`. Returns the slot

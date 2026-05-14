@@ -302,5 +302,78 @@ TEST(FindSlotByPid, WrapsAroundModulus)
               1u);
 }
 
+// ----- generation / stale detection ----------------------------
+
+TEST(Generation, IsNodeStaleMatchesCurrentGeneration)
+{
+    ProvNode node{};
+    node.flags = 3;
+    EXPECT_FALSE(is_node_stale(node, 3));
+    EXPECT_FALSE(is_node_stale(node, 259)); // 259 & 0xFF == 3
+    EXPECT_TRUE(is_node_stale(node, 4));
+    EXPECT_TRUE(is_node_stale(node, 0));
+}
+
+TEST(Generation, WalkLineageStopsAtStaleNode)
+{
+    // Build a 3-node chain. Node 0 has generation 0 (stale),
+    // nodes 1 and 2 have generation 1 (current).
+    std::vector<ProvNode> chain(3);
+    for (std::size_t i = 0; i < 3; ++i) {
+        chain[i] = ProvNode{};
+        chain[i].pid = static_cast<std::uint32_t>(100 + i);
+        chain[i].tgid = chain[i].pid;
+        chain[i].prev_index = (i == 0)
+            ? kRootSentinel
+            : static_cast<std::uint64_t>(i - 1);
+        chain[i].flags = 1; // current generation
+    }
+    // Make node 0 stale (different generation tag).
+    chain[0].flags = 0;
+
+    std::vector<LineageEntry> visited;
+    const std::size_t depth = walk_lineage(
+        2, chain.size(),
+        [&](std::uint64_t slot) { return chain[slot]; },
+        [&](const LineageEntry& e) { visited.push_back(e); },
+        1 /* current generation */);
+
+    // Should visit node 2 (fresh), node 1 (fresh, prev=0 which is
+    // stale), then stop. Node 1 follows prev_index to node 0 but
+    // walk_lineage should visit node 1 and then node 0 is stale.
+    // Actually: walk visits 2 (fresh), follows to 1 (fresh),
+    // follows to 0 (stale, visited but walk stops after).
+    ASSERT_EQ(visited.size(), 3u);
+    EXPECT_FALSE(visited[0].stale); // node 2
+    EXPECT_FALSE(visited[1].stale); // node 1
+    EXPECT_TRUE(visited[2].stale);  // node 0 (stale)
+    EXPECT_EQ(depth, 3u);
+}
+
+TEST(Generation, WalkLineageNoGenerationCheckWhenSentinel)
+{
+    // When generation == kRootSentinel, no stale checking occurs.
+    std::vector<ProvNode> chain(2);
+    chain[0] = ProvNode{};
+    chain[0].pid = 1;
+    chain[0].flags = 99; // different from any generation
+    chain[0].prev_index = kRootSentinel;
+    chain[1] = ProvNode{};
+    chain[1].pid = 2;
+    chain[1].flags = 0;
+    chain[1].prev_index = 0;
+
+    std::vector<LineageEntry> visited;
+    walk_lineage(
+        1, chain.size(),
+        [&](std::uint64_t slot) { return chain[slot]; },
+        [&](const LineageEntry& e) { visited.push_back(e); },
+        kRootSentinel /* no generation check */);
+
+    ASSERT_EQ(visited.size(), 2u);
+    EXPECT_FALSE(visited[0].stale);
+    EXPECT_FALSE(visited[1].stale);
+}
+
 } // namespace
 } // namespace aegis_next

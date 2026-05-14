@@ -154,14 +154,26 @@ Requires:
   Combined with a running `sched start`, this completes the
   end-to-end pipeline: policy violation → quarantine map →
   scheduler throttle.
+- ✅ **Generational eviction (F1.5).** The arena header carries
+  a `generation` counter that increments each time `next_index`
+  wraps past `kMaxNodes`. Each node is stamped with the low
+  byte of the current generation in its `flags` field. Userspace
+  lineage walks detect stale nodes (generation mismatch) and
+  stop following their `prev_index` pointers, preventing walks
+  from chasing into overwritten garbage. 3 new GTest cases cover
+  the stale-detection logic.
+- ✅ **CI workflow (F0.3).** `.github/workflows/aegis-next.yml`
+  triggers on `prototype/aegis-next/**` changes. Builds with
+  `STATIC_LIBBPF=ON` (1.5.0) and `BUILD_AEGIS_NEXT=ON`.
+  Kernel ≥ 6.9 gets full BPF compile + skeleton; older runners
+  build and run the userspace selftest suite only.
 
 ## What's deliberately NOT here (yet)
 
 The following are explicitly out of scope and tracked for
 follow-up PRs:
 
-- **GC / eviction** beyond modular wrap on overflow and LRU on
-  the pid hash.
+- **In-kernel eviction** (BPF-side GC of cold arena slots).
 
 ## What's deliberately deferred indefinitely
 
