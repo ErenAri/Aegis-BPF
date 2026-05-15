@@ -14,6 +14,10 @@
 #define PROV_KIND_SOCKET_CONNECT  2
 #define PROV_KIND_SOCKET_BIND     3
 #define PROV_KIND_SOCKET_LISTEN   4
+#define PROV_KIND_FILE_PERM       5  // file_permission (FIM)
+#define PROV_KIND_MMAP_FILE       6  // mmap_file (W+X prevention)
+#define PROV_KIND_TASK_ALLOC      7  // task_alloc (fork bomb)
+#define PROV_KIND_KMOD_REQ        8  // kernel_module_request
 
 // prov_node.extra interpretation per kind:
 //   EXEC:           0 (unused)

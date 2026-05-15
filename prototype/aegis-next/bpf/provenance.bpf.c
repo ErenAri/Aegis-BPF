@@ -762,6 +762,122 @@ int BPF_PROG(aegis_next_on_socket_listen,
     return 0;
 }
 
+SEC("lsm/file_permission")
+int BPF_PROG(aegis_next_on_file_perm, struct file *file, int mask)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // mask: MAY_READ=4, MAY_WRITE=2, MAY_EXEC=1, MAY_APPEND=8
+    __u64 inode = 0;
+    struct inode *ino = BPF_CORE_READ(file, f_inode);
+    if (ino)
+        inode = BPF_CORE_READ(ino, i_ino);
+
+    record_event(PROV_KIND_FILE_PERM, inode, (__u16)(mask & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_PERM);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_FILE_PERM, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/mmap_file")
+int BPF_PROG(aegis_next_on_mmap_file, struct file *file,
+             unsigned long reqprot, unsigned long prot, unsigned long flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+    if (!file)
+        return 0;
+
+    // Detect W+X: writable AND executable mmap (fileless malware indicator).
+    // prot bits: PROT_EXEC=4, PROT_WRITE=2.
+    __u16 prot_flags = (__u16)(prot & 0xFFFF);
+
+    __u64 inode = 0;
+    struct inode *ino = BPF_CORE_READ(file, f_inode);
+    if (ino)
+        inode = BPF_CORE_READ(ino, i_ino);
+
+    record_event(PROV_KIND_MMAP_FILE, inode, prot_flags);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_MMAP_FILE);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_MMAP_FILE, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/task_alloc")
+int BPF_PROG(aegis_next_on_task_alloc, struct task_struct *task,
+             unsigned long clone_flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // Record fork/clone events for fork bomb detection.
+    struct task_struct *current = (struct task_struct *)bpf_get_current_task_btf();
+    __u64 object_id = clone_flags;
+    record_event(PROV_KIND_TASK_ALLOC, object_id, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_TASK_ALLOC);
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &current->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_TASK_ALLOC, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/kernel_module_request")
+int BPF_PROG(aegis_next_on_kmod_req, char *kmod_name)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+
+    // Use comm hash as object_id for module request events.
+    __u32 name_hash = fnv1a_hash(comm, 12);
+    record_event(PROV_KIND_KMOD_REQ, name_hash, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_KMOD_REQ);
+
+    {
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_KMOD_REQ, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
 // ---- one-shot catch-up scan -----------------------------------
 //
 // Iterates all thread-group leaders currently alive in the kernel

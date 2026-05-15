@@ -116,6 +116,10 @@ TEST(AegisNextLayout, KindNameReturnsExpected)
     EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_CONNECT), "conn");
     EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_BIND), "bind");
     EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_LISTEN), "listen");
+    EXPECT_STREQ(kind_name(PROV_KIND_FILE_PERM), "fperm");
+    EXPECT_STREQ(kind_name(PROV_KIND_MMAP_FILE), "mmap");
+    EXPECT_STREQ(kind_name(PROV_KIND_TASK_ALLOC), "fork");
+    EXPECT_STREQ(kind_name(PROV_KIND_KMOD_REQ), "kmod");
     EXPECT_STREQ(kind_name(255), "???");
 }
 

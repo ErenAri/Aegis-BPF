@@ -185,6 +185,10 @@ inline const char* kind_name(std::uint8_t kind)
     case PROV_KIND_SOCKET_CONNECT: return "conn";
     case PROV_KIND_SOCKET_BIND:    return "bind";
     case PROV_KIND_SOCKET_LISTEN:  return "listen";
+    case PROV_KIND_FILE_PERM:      return "fperm";
+    case PROV_KIND_MMAP_FILE:      return "mmap";
+    case PROV_KIND_TASK_ALLOC:     return "fork";
+    case PROV_KIND_KMOD_REQ:       return "kmod";
     default:                       return "???";
     }
 }
