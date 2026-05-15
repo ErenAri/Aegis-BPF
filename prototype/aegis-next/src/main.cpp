@@ -39,6 +39,7 @@
 #include <unistd.h>
 
 #include "aegis_next_prov.hpp"
+#include "feature_probe.hpp"
 #include "prov_walk.hpp"
 #include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
@@ -236,6 +237,23 @@ int cmd_attach()
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
+
+    // P3.2: Runtime feature probing — check what the running kernel
+    // supports before loading BPF programs.
+    auto features = aegis_next::probe_features();
+    aegis_next::print_features(features);
+
+    if (!features.bpf_lsm) {
+        std::fprintf(stderr,
+                     "error: BPF LSM not enabled. Add 'lsm=bpf' to kernel boot params.\n");
+        return 1;
+    }
+    if (!features.arena) {
+        std::fprintf(stderr,
+                     "error: BPF arena maps not available (need kernel 6.9+).\n"
+                     "  P3.1 ringbuf fallback not yet implemented.\n");
+        return 1;
+    }
 
     provenance_bpf* skel = provenance_bpf__open();
     if (!skel) {
@@ -679,6 +697,13 @@ int cmd_sched_start()
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
+
+    if (!aegis_next::probe_sched_ext()) {
+        std::fprintf(stderr,
+                     "error: sched_ext not available (need kernel 6.12+ "
+                     "with CONFIG_SCHED_CLASS_EXT=y)\n");
+        return 1;
+    }
 
     quarantine_bpf* skel = quarantine_bpf__open_and_load();
     if (!skel) {
