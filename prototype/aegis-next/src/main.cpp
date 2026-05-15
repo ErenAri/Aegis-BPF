@@ -225,7 +225,7 @@ void usage(const char* prog)
                  "  policy list            list all active policy rules\n"
                  "  policy clear           remove all policy rules\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
-                 "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n"
+                 "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
                  "  sched status           list quarantined cgroups\n",
                  prog);
 }
@@ -697,7 +697,8 @@ int cmd_sched_start()
     std::signal(SIGTERM, on_sigint);
 
     std::printf("aegis-next: sched_ext scheduler 'aegis_next' attached.\n");
-    std::printf("  throttled slice: 1ms, default slice: 5ms\n");
+    std::printf("  levels: 0=normal(5ms) 1=throttle(1ms) "
+                "2=pin(1ms,CPU0) 3=starve(100μs,CPU0)\n");
     std::printf("press Ctrl-C to detach.\n");
 
     while (!g_stop.load(std::memory_order_relaxed)) {
@@ -772,7 +773,8 @@ int cmd_sched_status()
 
     while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
         if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
-            const char* label = (value >= 2) ? "pin"
+            const char* label = (value >= 3) ? "starve"
+                              : (value >= 2) ? "pin"
                               : (value >= 1) ? "throttle"
                               : "none";
             std::printf("  %-20lu %u (%s)\n",
