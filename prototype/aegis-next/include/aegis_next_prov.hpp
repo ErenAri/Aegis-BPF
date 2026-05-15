@@ -22,14 +22,17 @@ namespace aegis_next {
 // ----- arena geometry (matches BPF side) -----
 
 // Arena: nodes(72*1M) + hdr(32) + ready(4+pad4) + ht(16*64K)
-//        + path_slab_next(8) + path_slab(256*4K) = ~74MB
-inline constexpr std::size_t kArenaPages     = 18945;
+//        + path_slab_next(8) + path_slab(256*4K)
+//        + net_slab_next(8) + net_slab(48*4K) = ~74.2MB
+inline constexpr std::size_t kArenaPages     = 18993;
 inline constexpr std::size_t kArenaBytes     = kArenaPages * 4096ULL;
 inline constexpr std::size_t kMaxNodes       = 1ULL << 20;
 inline constexpr std::size_t kHtBuckets      = 1ULL << 16;  // 64K
 inline constexpr int         kHtMaxProbe     = 8;
 inline constexpr std::size_t kPathSlabSlots  = 1ULL << 12;  // 4K
 inline constexpr std::size_t kPathSlabSlotSz = 256;
+inline constexpr std::size_t kNetSlabSlots   = 1ULL << 12;  // 4K
+inline constexpr std::size_t kNetSlabSlotSz  = 48;
 
 inline constexpr std::uint64_t kRootSentinel =
     static_cast<std::uint64_t>(-1);
@@ -59,7 +62,7 @@ struct ProvNode {
     std::uint16_t extra;
     std::uint32_t path_slab_idx;  // 1-based index into path slab, 0 = no path
     char          comm[12];
-    std::uint32_t _reserved;
+    std::uint32_t net_slab_idx;   // 1-based index into net slab, 0 = no flow
 };
 
 struct ProvLayout {
@@ -139,6 +142,32 @@ inline const char* path_from_slab(const PathSlabEntry* slab,
     return reinterpret_cast<const char*>(&slab[idx - 1]);
 }
 
+// ----- network flow slab helpers -----
+
+struct NetFlow {
+    std::uint8_t  family;       // AF_INET=2, AF_INET6=10
+    std::uint8_t  proto;        // IPPROTO_TCP=6, IPPROTO_UDP=17
+    std::uint16_t src_port;     // host byte order
+    std::uint16_t dst_port;     // host byte order
+    std::uint16_t _pad;
+    std::uint32_t src_v4;       // network byte order; 0 for IPv6
+    std::uint32_t dst_v4;       // network byte order; 0 for IPv6
+    std::uint8_t  src_v6[16];   // full IPv6 src; zeroed for IPv4
+    std::uint8_t  dst_v6[16];   // full IPv6 dst; zeroed for IPv4
+};
+
+static_assert(sizeof(NetFlow) == 48,
+              "NetFlow layout drift — must match BPF side");
+
+// Get a pointer to the net flow for a given 1-based slab index.
+// Returns nullptr if idx == 0 (no flow).
+inline const NetFlow* net_from_slab(const NetFlow* slab, std::uint32_t idx)
+{
+    if (idx == 0)
+        return nullptr;
+    return &slab[idx - 1];
+}
+
 // ----- node helpers -----
 
 inline bool is_node_stale(const ProvNode& node, std::uint64_t current_generation)
@@ -151,7 +180,9 @@ inline const char* kind_name(std::uint8_t kind)
     switch (kind) {
     case PROV_KIND_EXEC:           return "exec";
     case PROV_KIND_FILE_OPEN:      return "file";
-    case PROV_KIND_SOCKET_CONNECT: return "sock";
+    case PROV_KIND_SOCKET_CONNECT: return "conn";
+    case PROV_KIND_SOCKET_BIND:    return "bind";
+    case PROV_KIND_SOCKET_LISTEN:  return "listen";
     default:                       return "???";
     }
 }

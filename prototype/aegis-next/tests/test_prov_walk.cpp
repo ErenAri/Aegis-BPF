@@ -65,7 +65,7 @@ TEST(AegisNextLayout, NodeSizeMatchesBpfSide)
     // ts_ns(8) + pid(4) + ppid(4) + tgid(4) + uid(4)
     //   + cgid(8) + object_id(8) + prev_index(8)
     //   + kind(1) + flags(1) + extra(2) + path_slab_idx(4)
-    //   + comm[12] + _reserved(4) = 72 bytes.
+    //   + comm[12] + net_slab_idx(4) = 72 bytes.
     EXPECT_EQ(sizeof(ProvNode), 72u);
 }
 
@@ -84,6 +84,16 @@ TEST(AegisNextLayout, PathSlabIdxOffsetMatchesBpfSide)
     EXPECT_EQ(offsetof(ProvNode, path_slab_idx), 52u);
 }
 
+TEST(AegisNextLayout, NetSlabIdxOffsetMatchesBpfSide)
+{
+    EXPECT_EQ(offsetof(ProvNode, net_slab_idx), 68u);
+}
+
+TEST(AegisNextLayout, NetFlowSizeMatchesBpfSide)
+{
+    EXPECT_EQ(sizeof(aegis_next::NetFlow), 48u);
+}
+
 TEST(AegisNextLayout, CommOffsetMatchesBpfSide)
 {
     EXPECT_EQ(offsetof(ProvNode, comm), 56u);
@@ -93,7 +103,9 @@ TEST(AegisNextLayout, KindNameReturnsExpected)
 {
     EXPECT_STREQ(kind_name(PROV_KIND_EXEC), "exec");
     EXPECT_STREQ(kind_name(PROV_KIND_FILE_OPEN), "file");
-    EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_CONNECT), "sock");
+    EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_CONNECT), "conn");
+    EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_BIND), "bind");
+    EXPECT_STREQ(kind_name(PROV_KIND_SOCKET_LISTEN), "listen");
     EXPECT_STREQ(kind_name(255), "???");
 }
 

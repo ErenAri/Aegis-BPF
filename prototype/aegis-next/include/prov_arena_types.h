@@ -31,7 +31,7 @@ struct prov_node {
     uint16_t extra;
     uint32_t path_slab_idx; /* 1-based index into path_slab[], 0 = no path */
     char     comm[12];
-    uint32_t _reserved;
+    uint32_t net_slab_idx;  /* 1-based index into net_slab[], 0 = no flow */
 };
 
 /* Arena hash table entry — matches arena_htable.h on the BPF side. */
@@ -45,10 +45,25 @@ struct path_slab_entry {
     uint64_t data[32]; /* 256 bytes as 32 × u64 */
 };
 
+/* Network flow entry — 48-byte 5-tuple for socket events. */
+struct net_flow {
+    uint8_t  family;       /* AF_INET=2, AF_INET6=10 */
+    uint8_t  proto;        /* IPPROTO_TCP=6, IPPROTO_UDP=17, etc. */
+    uint16_t src_port;     /* host byte order */
+    uint16_t dst_port;     /* host byte order */
+    uint16_t _pad;
+    uint32_t src_v4;       /* network byte order; 0 for IPv6 */
+    uint32_t dst_v4;       /* network byte order; 0 for IPv6 */
+    uint8_t  src_v6[16];   /* full IPv6 src; zeroed for IPv4 */
+    uint8_t  dst_v6[16];   /* full IPv6 dst; zeroed for IPv4 */
+};
+
 #define ARENA_HT_BUCKETS      (1u << 16)  /* 64K — must match BPF side */
 #define ARENA_HT_MAX_PROBE    8
 #define ARENA_HT_EMPTY_KEY    0ULL
 #define PATH_SLAB_SLOTS       (1u << 12)  /* 4K — must match BPF side */
 #define PATH_SLAB_SLOT_SZ     256
+#define NET_SLAB_SLOTS        (1u << 12)  /* 4K — must match BPF side */
+#define NET_SLAB_SLOT_SZ      48
 
 #endif /* AEGIS_NEXT_PROV_ARENA_TYPES_H */

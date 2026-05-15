@@ -38,8 +38,9 @@
 // Arena geometry (72-byte nodes):
 // arena_hdr(32) + arena_nodes(72*1M) + arena_ready(4) + pad(4)
 // + arena_ht(16*64K) + path_slab_next(8) + path_slab(256*4K)
-// = 77,594,672 bytes → 18945 pages
-#define AEGIS_NEXT_ARENA_PAGES 18945
+// + net_slab_next(8) + net_slab(48*4K)
+// = 77,791,288 bytes → 18993 pages
+#define AEGIS_NEXT_ARENA_PAGES 18993
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -66,7 +67,7 @@ struct prov_node {
     __u16 extra;       // open_flags / addr_family per kind
     __u32 path_slab_idx; // index into path_slab[], 0 = no path
     char  comm[12];
-    __u32 _reserved;   // alignment padding to 72 bytes
+    __u32 net_slab_idx; // 1-based index into net_slab[], 0 = no flow
 };
 
 // Arena map. Userspace mmaps this fd; BPF accesses via __arena ptrs.
@@ -130,17 +131,29 @@ struct path_slab_entry {
     __u64 data[PATH_SLAB_SLOT_SZ / 8]; // 32 × u64 = 256 bytes
 };
 
+// Network flow entry — 48-byte 5-tuple for socket events.
+struct net_flow {
+    __u8  family;       // AF_INET=2, AF_INET6=10
+    __u8  proto;        // IPPROTO_TCP=6, IPPROTO_UDP=17, etc.
+    __u16 src_port;     // host byte order
+    __u16 dst_port;     // host byte order
+    __u16 _pad;
+    __u32 src_v4;       // network byte order; 0 for IPv6
+    __u32 dst_v4;       // network byte order; 0 for IPv6
+    __u8  src_v6[16];   // full IPv6 src; zeroed for IPv4
+    __u8  dst_v6[16];   // full IPv6 dst; zeroed for IPv4
+};
+
 // Arena-resident layout: header + node array + hash table + path slab
-// live directly in the arena address space. Using both __arena (for
-// clang type checking) and SEC(".addr_space.1") (for libbpf 1.5.0
-// section placement). libbpf >= 1.6.0 auto-relocates __arena globals.
-// The kernel allocates arena pages on demand (fault-in).
+// + net slab live directly in the arena address space.
 struct prov_header __arena arena_hdr SEC(".addr_space.1");
 struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
 int __arena arena_ready SEC(".addr_space.1");
 struct arena_ht_entry __arena arena_ht[ARENA_HT_BUCKETS] SEC(".addr_space.1");
 __u64 __arena path_slab_next SEC(".addr_space.1");
 struct path_slab_entry __arena path_slab[PATH_SLAB_SLOTS] SEC(".addr_space.1");
+__u64 __arena net_slab_next SEC(".addr_space.1");
+struct net_flow __arena net_slab[NET_SLAB_SLOTS] SEC(".addr_space.1");
 
 // Per-CPU scratch buffer for bpf_d_path(). Stack is too small (512B)
 // for a 256-byte path + other locals, so we use a per-CPU array.
@@ -207,6 +220,49 @@ resolve_path(struct path *p)
     return slab_idx;
 }
 
+// Allocate a net slab slot and write a 5-tuple flow record.
+// Returns the 1-based slab index (0 = allocation failed).
+static __always_inline __u32
+record_net_flow(__u8 family, __u8 proto,
+                __u32 src_v4, __u16 src_port,
+                __u32 dst_v4, __u16 dst_port,
+                const __u8 *src_v6, const __u8 *dst_v6)
+{
+    __u64 raw = __sync_fetch_and_add(ARENA_PTR(&net_slab_next), 1);
+    __u32 slab_idx = ((__u32)(raw % NET_SLAB_SLOTS)) + 1;
+    __u32 slot = slab_idx - 1;
+
+    ARENA_PTR(&net_slab[slot])->family   = family;
+    ARENA_PTR(&net_slab[slot])->proto    = proto;
+    ARENA_PTR(&net_slab[slot])->src_port = src_port;
+    ARENA_PTR(&net_slab[slot])->dst_port = dst_port;
+    ARENA_PTR(&net_slab[slot])->_pad     = 0;
+    ARENA_PTR(&net_slab[slot])->src_v4   = src_v4;
+    ARENA_PTR(&net_slab[slot])->dst_v4   = dst_v4;
+
+    if (src_v6) {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->src_v6[i] = src_v6[i];
+    } else {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->src_v6[i] = 0;
+    }
+
+    if (dst_v6) {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->dst_v6[i] = dst_v6[i];
+    } else {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->dst_v6[i] = 0;
+    }
+
+    return slab_idx;
+}
+
 // Reserve a slot and fill the common fields from a task_struct.
 // Returns the slot index (for callers that need to patch fields).
 //
@@ -239,7 +295,7 @@ record_base(struct task_struct *task, __u8 kind,
     ARENA_PTR(&arena_nodes[slot])->flags         = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF);
     ARENA_PTR(&arena_nodes[slot])->extra         = extra;
     ARENA_PTR(&arena_nodes[slot])->path_slab_idx = 0;
-    ARENA_PTR(&arena_nodes[slot])->_reserved     = 0;
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx  = 0;
 
     char tmp[16];
     bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
@@ -368,30 +424,147 @@ int BPF_PROG(aegis_next_on_socket_connect,
 
     __u16 family = BPF_CORE_READ(address, sa_family);
 
-    // Encode destination as object_id: port in high 32 bits,
-    // IPv4 addr (or lower 32 bits of IPv6) in low 32 bits.
+    // Extract destination from sockaddr, source from sock->sk.
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u16 src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    __u32 src_v4   = 0;
+    __u32 dst_v4   = 0;
+    __u16 dst_port = 0;
+    __u8  src_v6_buf[16] = {};
+    __u8  dst_v6_buf[16] = {};
     __u64 object_id = 0;
+
     if (family == 2 /* AF_INET */ && addrlen >= 8) {
-        // struct sockaddr_in: { sa_family, sin_port, sin_addr }
-        __u16 port = 0;
-        __u32 addr = 0;
-        bpf_probe_read_kernel(&port, 2,
+        src_v4 = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+        bpf_probe_read_kernel(&dst_port, 2,
                               (const char *)address + 2);
-        bpf_probe_read_kernel(&addr, 4,
+        dst_port = __builtin_bswap16(dst_port);
+        bpf_probe_read_kernel(&dst_v4, 4,
                               (const char *)address + 4);
-        object_id = ((__u64)port << 32) | addr;
+        object_id = ((__u64)dst_port << 32) | dst_v4;
     } else if (family == 10 /* AF_INET6 */ && addrlen >= 28) {
-        __u16 port = 0;
-        __u32 addr_low = 0;
-        bpf_probe_read_kernel(&port, 2,
+        bpf_probe_read_kernel(&dst_port, 2,
                               (const char *)address + 2);
-        // Take last 4 bytes of in6_addr for a coarse fingerprint.
+        dst_port = __builtin_bswap16(dst_port);
+        bpf_probe_read_kernel(dst_v6_buf, 16,
+                              (const char *)address + 8);
+        // Read source IPv6 from socket.
+        bpf_probe_read_kernel(src_v6_buf, 16,
+                              &sk->__sk_common.skc_v6_rcv_saddr);
+        // Coarse fingerprint for object_id: last 4 bytes of dst.
+        __u32 addr_low = 0;
         bpf_probe_read_kernel(&addr_low, 4,
                               (const char *)address + 24);
-        object_id = ((__u64)port << 32) | addr_low;
+        object_id = ((__u64)dst_port << 32) | addr_low;
     }
 
     record_event(PROV_KIND_SOCKET_CONNECT, object_id, family);
+
+    // Store full 5-tuple in net slab.
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, src_v4, src_port, dst_v4, dst_port,
+        (family == 10) ? src_v6_buf : (void *)0,
+        (family == 10) ? dst_v6_buf : (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    return 0;
+}
+
+SEC("lsm/socket_bind")
+int BPF_PROG(aegis_next_on_socket_bind,
+             struct socket *sock, struct sockaddr *address, int addrlen)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u16 family = BPF_CORE_READ(address, sa_family);
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u32 bind_v4  = 0;
+    __u16 bind_port = 0;
+    __u8  bind_v6_buf[16] = {};
+    __u64 object_id = 0;
+
+    if (family == 2 /* AF_INET */ && addrlen >= 8) {
+        bpf_probe_read_kernel(&bind_port, 2,
+                              (const char *)address + 2);
+        bind_port = __builtin_bswap16(bind_port);
+        bpf_probe_read_kernel(&bind_v4, 4,
+                              (const char *)address + 4);
+        object_id = ((__u64)bind_port << 32) | bind_v4;
+    } else if (family == 10 /* AF_INET6 */ && addrlen >= 28) {
+        bpf_probe_read_kernel(&bind_port, 2,
+                              (const char *)address + 2);
+        bind_port = __builtin_bswap16(bind_port);
+        bpf_probe_read_kernel(bind_v6_buf, 16,
+                              (const char *)address + 8);
+        __u32 addr_low = 0;
+        bpf_probe_read_kernel(&addr_low, 4,
+                              (const char *)address + 24);
+        object_id = ((__u64)bind_port << 32) | addr_low;
+    }
+
+    record_event(PROV_KIND_SOCKET_BIND, object_id, family);
+
+    // Store bind address in net slab (src = bind addr, dst = 0).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, bind_v4, bind_port, 0, 0,
+        (family == 10) ? bind_v6_buf : (void *)0,
+        (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    return 0;
+}
+
+SEC("lsm/socket_listen")
+int BPF_PROG(aegis_next_on_socket_listen,
+             struct socket *sock, int backlog)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u16 family   = BPF_CORE_READ(sk, __sk_common.skc_family);
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u16 src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    __u32 src_v4   = 0;
+    __u8  src_v6_buf[16] = {};
+    __u64 object_id = 0;
+
+    if (family == 2 /* AF_INET */) {
+        src_v4 = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+        object_id = ((__u64)src_port << 32) | src_v4;
+    } else if (family == 10 /* AF_INET6 */) {
+        bpf_probe_read_kernel(src_v6_buf, 16,
+                              &sk->__sk_common.skc_v6_rcv_saddr);
+        __u32 addr_low = 0;
+        __builtin_memcpy(&addr_low, &src_v6_buf[12], 4);
+        object_id = ((__u64)src_port << 32) | addr_low;
+    }
+
+    record_event(PROV_KIND_SOCKET_LISTEN, object_id, family);
+
+    // Store listen address in net slab (src = listen addr, dst = 0).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, src_v4, src_port, 0, 0,
+        (family == 10) ? src_v6_buf : (void *)0,
+        (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     return 0;
 }
 

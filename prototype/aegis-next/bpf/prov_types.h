@@ -12,18 +12,28 @@
 #define PROV_KIND_EXEC            0
 #define PROV_KIND_FILE_OPEN       1
 #define PROV_KIND_SOCKET_CONNECT  2
+#define PROV_KIND_SOCKET_BIND     3
+#define PROV_KIND_SOCKET_LISTEN   4
 
 // prov_node.extra interpretation per kind:
 //   EXEC:           0 (unused)
 //   FILE_OPEN:      open flags (O_RDONLY, O_WRONLY, ...)
-//   SOCKET_CONNECT: address family (AF_INET, AF_INET6, ...)
+//   SOCKET_*:       address family (AF_INET, AF_INET6, ...)
 
 // prov_node.path_slab_idx:
 //   0    = no path resolved
 //   1..N = 1-based index into path_slab[]
 
+// prov_node.net_slab_idx:
+//   0    = no network flow
+//   1..N = 1-based index into net_slab[]
+
 // Path slab geometry.
 #define PATH_SLAB_SLOTS   (1u << 12)  // 4096
 #define PATH_SLAB_SLOT_SZ 256
+
+// Network flow slab geometry.
+#define NET_SLAB_SLOTS    (1u << 12)  // 4096
+#define NET_SLAB_SLOT_SZ  48
 
 #endif // AEGIS_NEXT_PROV_TYPES_H

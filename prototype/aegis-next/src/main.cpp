@@ -23,6 +23,8 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 
+#include <arpa/inet.h>
+
 #include <atomic>
 #include <cerrno>
 #include <csignal>
@@ -58,6 +60,42 @@ using aegis_next::LineageEntry;
 using aegis_next::ProvHeader;
 using aegis_next::ProvLayout;
 using aegis_next::ProvNode;
+
+// Format a NetFlow 5-tuple into a human-readable string.
+std::string format_flow(const aegis_next::NetFlow* flow)
+{
+    if (!flow)
+        return "-";
+
+    const char* proto_str = "?";
+    switch (flow->proto) {
+    case 6:  proto_str = "tcp"; break;
+    case 17: proto_str = "udp"; break;
+    case 1:  proto_str = "icmp"; break;
+    }
+
+    char src_buf[INET6_ADDRSTRLEN] = {};
+    char dst_buf[INET6_ADDRSTRLEN] = {};
+
+    if (flow->family == 2 /* AF_INET */) {
+        inet_ntop(AF_INET, &flow->src_v4, src_buf, sizeof(src_buf));
+        inet_ntop(AF_INET, &flow->dst_v4, dst_buf, sizeof(dst_buf));
+    } else if (flow->family == 10 /* AF_INET6 */) {
+        inet_ntop(AF_INET6, flow->src_v6, src_buf, sizeof(src_buf));
+        inet_ntop(AF_INET6, flow->dst_v6, dst_buf, sizeof(dst_buf));
+    }
+
+    char buf[256];
+    if (flow->dst_port != 0) {
+        std::snprintf(buf, sizeof(buf), "%s %s:%u->%s:%u",
+                      proto_str, src_buf, flow->src_port,
+                      dst_buf, flow->dst_port);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%s %s:%u",
+                      proto_str, src_buf, flow->src_port);
+    }
+    return buf;
+}
 
 // Default bpffs pin directory. Overridable via AEGIS_NEXT_PIN_DIR.
 constexpr const char* kDefaultPinDir = "/sys/fs/bpf/aegis_next";
@@ -373,10 +411,12 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
                     (unsigned long)aegis_next::kHtBuckets);
     }
 
-    // Show last few events with resolved paths.
+    // Show last few events with resolved paths and network flows.
     {
-        const auto* slab = reinterpret_cast<const aegis_next::PathSlabEntry*>(
+        const auto* pslab = reinterpret_cast<const aegis_next::PathSlabEntry*>(
             arena_view->path_slab);
+        const auto* nslab = reinterpret_cast<const aegis_next::NetFlow*>(
+            arena_view->net_slab);
         const std::uint64_t cur = arena_view->arena_hdr.next_index;
         const std::uint64_t shown = cur < 16 ? cur : 16;
         std::printf("aegis-next: last %lu events:\n", (unsigned long)shown);
@@ -384,7 +424,14 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         for (std::uint64_t i = cur - shown; i < cur; ++i) {
             const auto& n = reinterpret_cast<const ProvNode&>(
                 arena_view->arena_nodes[i % kMaxNodes]);
-            const char* path = aegis_next::path_from_slab(slab, n.path_slab_idx);
+            const char* path = aegis_next::path_from_slab(pslab, n.path_slab_idx);
+            // For socket events, show 5-tuple in the path column.
+            std::string flow_str;
+            if (n.net_slab_idx != 0) {
+                const auto* flow = aegis_next::net_from_slab(nslab, n.net_slab_idx);
+                flow_str = format_flow(flow);
+                path = flow_str.c_str();
+            }
             char marker[32];
             if (n.prev_index == kRootSentinel) {
                 std::snprintf(marker, sizeof(marker), "(root)");
