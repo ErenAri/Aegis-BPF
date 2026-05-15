@@ -145,11 +145,41 @@ add_custom_command(
 set_source_files_properties(${AEGIS_NEXT_SCHED_SKEL} PROPERTIES GENERATED TRUE)
 add_custom_target(aegis_next_sched_skel DEPENDS ${AEGIS_NEXT_SCHED_SKEL})
 
+# ---- self-protection LSM hooks ---------------------------------
+set(AEGIS_NEXT_SELFPROT_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/selfprotect.bpf.c)
+set(AEGIS_NEXT_SELFPROT_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/selfprotect.bpf.o)
+set(AEGIS_NEXT_SELFPROT_SKEL   ${CMAKE_CURRENT_BINARY_DIR}/selfprotect.skel.h)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_SELFPROT_OBJECT}
+    COMMAND ${AEGIS_NEXT_BPF_CLANG} -g -O2 -target bpf -mcpu=v4
+            -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
+            ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
+            -c ${AEGIS_NEXT_SELFPROT_SOURCE}
+            -o ${AEGIS_NEXT_SELFPROT_OBJECT}
+    DEPENDS ${AEGIS_NEXT_SELFPROT_SOURCE}
+            ${AEGIS_NEXT_VMLINUX_HEADER}
+    VERBATIM
+    COMMENT "Compiling aegis-next self-protection LSM hooks"
+)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_SELFPROT_SKEL}
+    COMMAND ${BASH} -c "${BPFTOOL} gen skeleton ${AEGIS_NEXT_SELFPROT_OBJECT} > ${AEGIS_NEXT_SELFPROT_SKEL}"
+    DEPENDS ${AEGIS_NEXT_SELFPROT_OBJECT}
+    VERBATIM
+    COMMENT "Generating aegis-next self-protection skeleton"
+)
+
+set_source_files_properties(${AEGIS_NEXT_SELFPROT_SKEL} PROPERTIES GENERATED TRUE)
+add_custom_target(aegis_next_selfprot_skel DEPENDS ${AEGIS_NEXT_SELFPROT_SKEL})
+
 # We depend on the parent project's bpf_skel target indirectly via
 # vmlinux.h. Express this explicitly so a clean build can't race.
 if(TARGET bpf_skel)
     add_dependencies(aegis_next_skel bpf_skel)
     add_dependencies(aegis_next_sched_skel bpf_skel)
+    add_dependencies(aegis_next_selfprot_skel bpf_skel)
 endif()
 
 # Static lib for the testable userspace pieces. Keeps the test
@@ -166,9 +196,10 @@ add_executable(aegisbpf-next
     src/main.cpp
     ${AEGIS_NEXT_SKEL_HEADER}
     ${AEGIS_NEXT_SCHED_SKEL}
+    ${AEGIS_NEXT_SELFPROT_SKEL}
 )
 
-add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel)
+add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel aegis_next_selfprot_skel)
 
 target_include_directories(aegisbpf-next PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}

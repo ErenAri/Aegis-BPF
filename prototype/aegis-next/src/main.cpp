@@ -43,6 +43,7 @@
 #include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
 #include "quarantine.skel.h"
+#include "selfprotect.skel.h"
 
 // Verify that our computed hash table offset matches the skeleton layout.
 static_assert(offsetof(provenance_bpf::provenance_bpf__arena, arena_ht) ==
@@ -226,7 +227,8 @@ void usage(const char* prog)
                  "  policy clear           remove all policy rules\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
                  "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
-                 "  sched status           list quarantined cgroups\n",
+                 "  sched status           list quarantined cgroups\n"
+                 "  protect                load self-protection LSM hooks\n",
                  prog);
 }
 
@@ -793,6 +795,75 @@ int cmd_sched_status()
     return 0;
 }
 
+// ---- self-protection subcommand --------------------------------
+
+int cmd_protect()
+{
+    libbpf_set_print(libbpf_print);
+    bump_memlock_rlimit();
+
+    selfprotect_bpf* skel = selfprotect_bpf__open_and_load();
+    if (!skel) {
+        std::fprintf(stderr, "failed to open+load selfprotect: %s\n",
+                     std::strerror(errno));
+        std::fprintf(stderr,
+                     "hint: requires CONFIG_BPF_LSM=y and lsm= boot param includes bpf\n");
+        return 1;
+    }
+
+    // Get our own binary's inode number for trusted caller check.
+    struct stat st{};
+    if (stat("/proc/self/exe", &st) != 0) {
+        std::fprintf(stderr, "failed to stat /proc/self/exe: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    __u32 zero = 0;
+    __u64 trusted_ino = st.st_ino;
+    int ino_fd = bpf_map__fd(skel->maps.aegis_selfprotect_trusted);
+    if (bpf_map_update_elem(ino_fd, &zero, &trusted_ino, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to set trusted inode: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    // Enable protection.
+    __u32 enabled = 1;
+    int en_fd = bpf_map__fd(skel->maps.aegis_selfprotect_enabled);
+    bpf_map_update_elem(en_fd, &zero, &enabled, BPF_ANY);
+
+    if (selfprotect_bpf__attach(skel) != 0) {
+        std::fprintf(stderr, "failed to attach selfprotect LSM: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::signal(SIGINT, on_sigint);
+    std::signal(SIGTERM, on_sigint);
+
+    std::printf("aegis-next: self-protection active.\n");
+    std::printf("  trusted inode: %lu (aegisbpf-next binary)\n",
+                (unsigned long)trusted_ino);
+    std::printf("  hooks: lsm/bpf (PROG_DETACH, LINK_DETACH), lsm/bpf_map (write)\n");
+    std::printf("press Ctrl-C to disable.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        sleep(2);
+    }
+
+    // Disable protection before detaching to allow clean shutdown.
+    __u32 disabled = 0;
+    bpf_map_update_elem(en_fd, &zero, &disabled, BPF_ANY);
+
+    std::printf("\naegis-next: self-protection disabled, detaching.\n");
+    selfprotect_bpf__destroy(skel);
+    return 0;
+}
+
 // ---- policy subcommands ----------------------------------------
 
 int open_pinned_policy_fd()
@@ -1161,6 +1232,10 @@ int main(int argc, char** argv)
         }
         std::fprintf(stderr, "unknown policy subcommand: %s\n", sub.c_str());
         return 1;
+    }
+
+    if (cmd == "protect") {
+        return cmd_protect();
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {
