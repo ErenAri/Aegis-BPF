@@ -21,10 +21,10 @@ namespace aegis_next {
 
 // ----- arena geometry (matches BPF side) -----
 
-// Arena: nodes(72*1M) + hdr(32) + ready(4+pad4) + ht(16*64K)
+// Arena: nodes(80*1M) + hdr(32) + ready(4+pad4) + ht(16*64K)
 //        + path_slab_next(8) + path_slab(256*4K)
-//        + net_slab_next(8) + net_slab(48*4K) = ~74.2MB
-inline constexpr std::size_t kArenaPages     = 18993;
+//        + net_slab_next(8) + net_slab(48*4K) = ~82MB
+inline constexpr std::size_t kArenaPages     = 21041;
 inline constexpr std::size_t kArenaBytes     = kArenaPages * 4096ULL;
 inline constexpr std::size_t kMaxNodes       = 1ULL << 20;
 inline constexpr std::size_t kHtBuckets      = 1ULL << 16;  // 64K
@@ -63,6 +63,8 @@ struct ProvNode {
     std::uint32_t path_slab_idx;  // 1-based index into path slab, 0 = no path
     char          comm[12];
     std::uint32_t net_slab_idx;   // 1-based index into net slab, 0 = no flow
+    std::uint32_t mnt_ns;         // mount namespace inum
+    std::uint32_t pid_ns;         // PID namespace inum
 };
 
 struct ProvLayout {
@@ -72,7 +74,7 @@ struct ProvLayout {
 
 static_assert(sizeof(ProvHeader) == 32,
               "ProvHeader layout drift — must match BPF side");
-static_assert(sizeof(ProvNode) == 72,
+static_assert(sizeof(ProvNode) == 80,
               "ProvNode layout drift — must match BPF side");
 static_assert(offsetof(ProvNode, prev_index) == 40,
               "ProvNode.prev_index offset drift");

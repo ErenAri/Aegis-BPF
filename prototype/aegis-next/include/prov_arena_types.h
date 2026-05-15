@@ -32,6 +32,8 @@ struct prov_node {
     uint32_t path_slab_idx; /* 1-based index into path_slab[], 0 = no path */
     char     comm[12];
     uint32_t net_slab_idx;  /* 1-based index into net_slab[], 0 = no flow */
+    uint32_t mnt_ns;        /* mount namespace inum */
+    uint32_t pid_ns;        /* PID namespace inum */
 };
 
 /* Arena hash table entry — matches arena_htable.h on the BPF side. */

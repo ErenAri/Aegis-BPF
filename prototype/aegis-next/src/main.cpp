@@ -144,7 +144,11 @@ void print_node_row(const ProvNode& n, const char* tag,
 {
     char safe_comm[13] = {};
     std::memcpy(safe_comm, n.comm, sizeof(n.comm));
-    std::printf("  %-19lu %-5s %-7u %-7u %-7u %-12s %-12lu %-16s %s\n",
+    char ns_buf[32] = "-";
+    if (n.mnt_ns != 0 || n.pid_ns != 0) {
+        std::snprintf(ns_buf, sizeof(ns_buf), "%u/%u", n.mnt_ns, n.pid_ns);
+    }
+    std::printf("  %-19lu %-6s %-7u %-7u %-7u %-12s %-12lu %-12s %-16s %s\n",
                 (unsigned long)n.ts_ns,
                 aegis_next::kind_name(n.kind),
                 n.pid,
@@ -152,15 +156,16 @@ void print_node_row(const ProvNode& n, const char* tag,
                 n.uid,
                 safe_comm,
                 (unsigned long)n.object_id,
+                ns_buf,
                 (path && path[0]) ? path : "-",
                 tag);
 }
 
 void print_table_header()
 {
-    std::printf("  %-19s %-5s %-7s %-7s %-7s %-12s %-12s %-16s %s\n",
+    std::printf("  %-19s %-6s %-7s %-7s %-7s %-12s %-12s %-12s %-16s %s\n",
                 "ts_ns", "kind", "pid", "ppid", "uid", "comm",
-                "object_id", "path", "info");
+                "object_id", "ns(mnt/pid)", "path", "info");
 }
 
 // ---- arena open helpers ----

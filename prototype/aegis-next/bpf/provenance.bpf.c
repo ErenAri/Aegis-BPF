@@ -35,12 +35,12 @@
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
 
-// Arena geometry (72-byte nodes):
-// arena_hdr(32) + arena_nodes(72*1M) + arena_ready(4) + pad(4)
+// Arena geometry (80-byte nodes):
+// arena_hdr(32) + arena_nodes(80*1M) + arena_ready(4) + pad(4)
 // + arena_ht(16*64K) + path_slab_next(8) + path_slab(256*4K)
 // + net_slab_next(8) + net_slab(48*4K)
-// = 77,791,288 bytes → 18993 pages
-#define AEGIS_NEXT_ARENA_PAGES 18993
+// = 86,179,896 bytes → 21041 pages
+#define AEGIS_NEXT_ARENA_PAGES 21041
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -68,6 +68,8 @@ struct prov_node {
     __u32 path_slab_idx; // index into path_slab[], 0 = no path
     char  comm[12];
     __u32 net_slab_idx; // 1-based index into net_slab[], 0 = no flow
+    __u32 mnt_ns;       // mount namespace inum
+    __u32 pid_ns;       // PID namespace inum
 };
 
 // Arena map. Userspace mmaps this fd; BPF accesses via __arena ptrs.
@@ -330,6 +332,23 @@ record_base(struct task_struct *task, __u8 kind,
     ARENA_PTR(&arena_nodes[slot])->extra         = extra;
     ARENA_PTR(&arena_nodes[slot])->path_slab_idx = 0;
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx  = 0;
+
+    // Extract mount and PID namespace inums from task->nsproxy.
+    {
+        __u32 mnt_inum = 0;
+        __u32 pid_inum = 0;
+        struct nsproxy *ns = BPF_CORE_READ(task, nsproxy);
+        if (ns) {
+            struct mnt_namespace *mnt = BPF_CORE_READ(ns, mnt_ns);
+            if (mnt)
+                mnt_inum = BPF_CORE_READ(mnt, ns.inum);
+            struct pid_namespace *pidns = BPF_CORE_READ(ns, pid_ns_for_children);
+            if (pidns)
+                pid_inum = BPF_CORE_READ(pidns, ns.inum);
+        }
+        ARENA_PTR(&arena_nodes[slot])->mnt_ns = mnt_inum;
+        ARENA_PTR(&arena_nodes[slot])->pid_ns = pid_inum;
+    }
 
     char tmp[16];
     bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
