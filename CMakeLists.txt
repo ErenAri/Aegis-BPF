@@ -44,7 +44,7 @@ if(STATIC_LIBBPF)
     include(FetchContent)
     include(ExternalProject)
 
-    set(LIBBPF_VERSION "1.5.0" CACHE STRING "libbpf version to build from source")
+    set(LIBBPF_VERSION "1.6.1" CACHE STRING "libbpf version to build from source")
 
     FetchContent_Declare(
         libbpf_src

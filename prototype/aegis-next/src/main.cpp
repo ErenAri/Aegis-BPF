@@ -3,7 +3,7 @@
 // aegis-next userspace driver (proof-of-concept).
 //
 // Subcommands:
-//   aegisbpf-next attach [--deny <name>]...  — load, pin maps, attach LSM, loop
+//   aegisbpf-next attach             — load, pin maps, attach LSM, loop
 //   aegisbpf-next graph dump      — print recent exec nodes
 //   aegisbpf-next graph lineage <pid> — walk lineage for a pid
 //   aegisbpf-next graph stats     — print arena header stats
@@ -13,8 +13,8 @@
 //
 // The "attach" subcommand pins the arena map in bpffs so the
 // "graph" subcommands can open it from a separate process.
-// With --deny flags, attach auto-quarantines cgroups that exec
-// deny-listed binaries (writes to the pinned quarantine map).
+// Policy rules with action=quarantine bridge directly to the
+// sched_ext quarantine map in-kernel (no userspace round-trip).
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -23,6 +23,8 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 
+#include <arpa/inet.h>
+
 #include <atomic>
 #include <cerrno>
 #include <csignal>
@@ -30,18 +32,28 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include <unistd.h>
 
 #include "aegis_next_prov.hpp"
 #include "prov_walk.hpp"
+#include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
 #include "quarantine.skel.h"
+#include "selfprotect.skel.h"
+
+// Verify that our computed hash table offset matches the skeleton layout.
+static_assert(offsetof(provenance_bpf::provenance_bpf__arena, arena_ht) ==
+              aegis_next::kHtOffset,
+              "arena hash table offset mismatch — update kHtOffset");
 
 namespace {
 
+using aegis_next::arena_ht_from_mmap;
+using aegis_next::HtEntry;
 using aegis_next::kArenaBytes;
 using aegis_next::kMaxLineageDepth;
 using aegis_next::kMaxNodes;
@@ -50,6 +62,42 @@ using aegis_next::LineageEntry;
 using aegis_next::ProvHeader;
 using aegis_next::ProvLayout;
 using aegis_next::ProvNode;
+
+// Format a NetFlow 5-tuple into a human-readable string.
+std::string format_flow(const aegis_next::NetFlow* flow)
+{
+    if (!flow)
+        return "-";
+
+    const char* proto_str = "?";
+    switch (flow->proto) {
+    case 6:  proto_str = "tcp"; break;
+    case 17: proto_str = "udp"; break;
+    case 1:  proto_str = "icmp"; break;
+    }
+
+    char src_buf[INET6_ADDRSTRLEN] = {};
+    char dst_buf[INET6_ADDRSTRLEN] = {};
+
+    if (flow->family == 2 /* AF_INET */) {
+        inet_ntop(AF_INET, &flow->src_v4, src_buf, sizeof(src_buf));
+        inet_ntop(AF_INET, &flow->dst_v4, dst_buf, sizeof(dst_buf));
+    } else if (flow->family == 10 /* AF_INET6 */) {
+        inet_ntop(AF_INET6, flow->src_v6, src_buf, sizeof(src_buf));
+        inet_ntop(AF_INET6, flow->dst_v6, dst_buf, sizeof(dst_buf));
+    }
+
+    char buf[256];
+    if (flow->dst_port != 0) {
+        std::snprintf(buf, sizeof(buf), "%s %s:%u->%s:%u",
+                      proto_str, src_buf, flow->src_port,
+                      dst_buf, flow->dst_port);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%s %s:%u",
+                      proto_str, src_buf, flow->src_port);
+    }
+    return buf;
+}
 
 // Default bpffs pin directory. Overridable via AEGIS_NEXT_PIN_DIR.
 constexpr const char* kDefaultPinDir = "/sys/fs/bpf/aegis_next";
@@ -66,6 +114,7 @@ std::string pin_dir()
 std::string arena_pin_path() { return pin_dir() + "/arena"; }
 std::string quarantine_pin_path() { return pin_dir() + "/quarantine"; }
 std::string gc_state_pin_path() { return pin_dir() + "/gc_state"; }
+std::string policy_pin_path() { return pin_dir() + "/policy"; }
 
 std::atomic<bool> g_stop{false};
 
@@ -92,11 +141,16 @@ void bump_memlock_rlimit()
     }
 }
 
-void print_node_row(const ProvNode& n, const char* tag)
+void print_node_row(const ProvNode& n, const char* tag,
+                    const char* path = nullptr)
 {
     char safe_comm[13] = {};
     std::memcpy(safe_comm, n.comm, sizeof(n.comm));
-    std::printf("  %-19lu %-5s %-7u %-7u %-7u %-12s %-12lu %s\n",
+    char ns_buf[32] = "-";
+    if (n.mnt_ns != 0 || n.pid_ns != 0) {
+        std::snprintf(ns_buf, sizeof(ns_buf), "%u/%u", n.mnt_ns, n.pid_ns);
+    }
+    std::printf("  %-19lu %-6s %-7u %-7u %-7u %-12s %-12lu %-12s %-16s %s\n",
                 (unsigned long)n.ts_ns,
                 aegis_next::kind_name(n.kind),
                 n.pid,
@@ -104,14 +158,16 @@ void print_node_row(const ProvNode& n, const char* tag)
                 n.uid,
                 safe_comm,
                 (unsigned long)n.object_id,
+                ns_buf,
+                (path && path[0]) ? path : "-",
                 tag);
 }
 
 void print_table_header()
 {
-    std::printf("  %-19s %-5s %-7s %-7s %-7s %-12s %-12s %s\n",
+    std::printf("  %-19s %-6s %-7s %-7s %-7s %-12s %-12s %-12s %-16s %s\n",
                 "ts_ns", "kind", "pid", "ppid", "uid", "comm",
-                "object_id", "info");
+                "object_id", "ns(mnt/pid)", "path", "info");
 }
 
 // ---- arena open helpers ----
@@ -129,12 +185,16 @@ const ProvLayout* open_pinned_arena()
                      path.c_str(), std::strerror(errno));
         return nullptr;
     }
-    void* arena = mmap(nullptr, kArenaBytes, PROT_READ,
+    void* arena = mmap(nullptr, kArenaBytes, PROT_READ | PROT_WRITE,
                        MAP_SHARED, fd, 0);
     close(fd);
     if (arena == MAP_FAILED) {
         std::fprintf(stderr, "mmap(arena) failed: %s\n",
                      std::strerror(errno));
+        std::fprintf(stderr,
+                     "note: on kernel 6.17+, BPF arenas can only be mmapped\n"
+                     "      by one process. Use 'graph' subcommands from the\n"
+                     "      attach process (future: Unix socket query API).\n");
         return nullptr;
     }
     return static_cast<const ProvLayout*>(arena);
@@ -155,28 +215,65 @@ void usage(const char* prog)
                  "usage: %s <command>\n"
                  "\n"
                  "commands:\n"
-                 "  attach [--deny <name>]... load BPF, pin maps, attach LSM, loop\n"
+                 "  attach                 load BPF, pin maps, attach LSM, loop\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
                  "  graph gc               print GC timer statistics\n"
+                 "  policy add <hook> <match> <value> <action> [--kill]\n"
+                 "                         add a policy rule (deny/allow/log)\n"
+                 "  policy load <file>     load policy rules from a text file\n"
+                 "  policy list            list all active policy rules\n"
+                 "  policy clear           remove all policy rules\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
-                 "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n"
-                 "  sched status           list quarantined cgroups\n",
+                 "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
+                 "  sched status           list quarantined cgroups\n"
+                 "  protect                load self-protection LSM hooks\n",
                  prog);
 }
 
-int cmd_attach(const std::unordered_set<std::string>& deny_list)
+int cmd_attach()
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
 
-    provenance_bpf* skel = provenance_bpf__open_and_load();
+    provenance_bpf* skel = provenance_bpf__open();
     if (!skel) {
-        std::fprintf(stderr, "failed to open+load provenance skeleton: %s\n",
+        std::fprintf(stderr, "failed to open provenance skeleton: %s\n",
                      std::strerror(errno));
         std::fprintf(stderr,
                      "hint: requires kernel >= 6.9 and CAP_BPF + CAP_SYS_ADMIN\n");
+        return 1;
+    }
+
+    // P2.3: If the quarantine map is already pinned (sched_ext scheduler
+    // loaded), reuse that FD so the LSM program writes to the same map
+    // instance. This is the in-kernel enforcement bridge — policy
+    // QUARANTINE verdicts go straight to the sched_ext map.
+    {
+        std::string qpath = quarantine_pin_path();
+        int qfd = bpf_obj_get(qpath.c_str());
+        if (qfd >= 0) {
+            int rc = bpf_map__reuse_fd(skel->maps.aegis_next_quarantine, qfd);
+            if (rc == 0) {
+                std::printf("aegis-next: reusing pinned quarantine map "
+                            "(in-kernel enforcement bridge active)\n");
+            } else {
+                std::fprintf(stderr,
+                             "warning: quarantine map reuse failed: %s\n",
+                             std::strerror(errno));
+            }
+            close(qfd);
+        } else {
+            std::printf("aegis-next: quarantine map not pinned yet "
+                        "(run 'sched start' for full bridge)\n");
+        }
+    }
+
+    if (provenance_bpf__load(skel) != 0) {
+        std::fprintf(stderr, "failed to load provenance skeleton: %s\n",
+                     std::strerror(errno));
+        provenance_bpf__destroy(skel);
         return 1;
     }
 
@@ -195,6 +292,22 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     }
     std::printf("aegis-next: arena pinned at %s\n", path.c_str());
 
+    // Pin policy map for the `policy` subcommands.
+    std::string pol_path = policy_pin_path();
+    int pol_pin_err = bpf_map__pin(skel->maps.aegis_next_policy, pol_path.c_str());
+    if (pol_pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin policy at %s: %s\n",
+                     pol_path.c_str(), std::strerror(errno));
+    }
+
+    // Pin quarantine map so sched_ext and CLI can reach it.
+    std::string quar_path = quarantine_pin_path();
+    int quar_pin_err = bpf_map__pin(skel->maps.aegis_next_quarantine, quar_path.c_str());
+    if (quar_pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin quarantine at %s: %s\n",
+                     quar_path.c_str(), std::strerror(errno));
+    }
+
     // Pin GC state map for the `graph gc` subcommand.
     std::string gc_path = gc_state_pin_path();
     int gc_pin_err = bpf_map__pin(skel->maps.aegis_next_gc_state, gc_path.c_str());
@@ -210,14 +323,33 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         return 1;
     }
 
-    void* arena = mmap(nullptr, kArenaBytes, PROT_READ,
-                       MAP_SHARED, arena_fd, 0);
-    if (arena == MAP_FAILED) {
-        std::fprintf(stderr, "mmap(arena) failed: %s\n",
-                     std::strerror(errno));
+    // Arena init + catch-up scan MUST run before attach. The catchup
+    // SEC("syscall") program calls bpf_arena_alloc_pages (sleepable
+    // kfunc since 6.12+) and seeds the arena with existing processes.
+    // LSM hooks will find the arena ready once they fire after attach.
+    int catchup_fd = bpf_program__fd(skel->progs.aegis_next_catchup);
+    if (catchup_fd >= 0) {
+        LIBBPF_OPTS(bpf_test_run_opts, run_opts);
+        int rc = bpf_prog_test_run_opts(catchup_fd, &run_opts);
+        if (rc != 0 || run_opts.retval != 0) {
+            std::fprintf(stderr,
+                         "arena init / catch-up failed (rc=%d retval=%d): %s\n",
+                         rc, run_opts.retval, std::strerror(errno));
+            provenance_bpf__destroy(skel);
+            return 1;
+        }
+    }
+
+    // libbpf 1.6+ automatically mmaps the arena for skeleton globals.
+    // Access the arena data through skel->arena instead of manual mmap.
+    if (!skel->arena) {
+        std::fprintf(stderr, "arena not mapped by libbpf\n");
         provenance_bpf__destroy(skel);
         return 1;
     }
+
+    std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
+                (unsigned long)skel->arena->arena_hdr.next_index);
 
     if (provenance_bpf__attach(skel) != 0) {
         std::fprintf(stderr, "failed to attach LSM program: %s\n",
@@ -225,30 +357,8 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         std::fprintf(stderr,
                      "hint: kernel must be built with CONFIG_BPF_LSM=y and\n"
                      "      lsm= boot param must include bpf\n");
-        munmap(arena, kArenaBytes);
         provenance_bpf__destroy(skel);
         return 1;
-    }
-
-    // Run one-shot catch-up scan to seed the arena with all
-    // existing processes. This makes lineage chains reachable
-    // for processes that were already running before attach.
-    int catchup_fd = bpf_program__fd(skel->progs.aegis_next_catchup);
-    if (catchup_fd >= 0) {
-        LIBBPF_OPTS(bpf_test_run_opts, run_opts);
-        int rc = bpf_prog_test_run_opts(catchup_fd, &run_opts);
-        auto* layout_snap = static_cast<const ProvLayout*>(arena);
-        if (rc == 0 && run_opts.retval == 0) {
-            std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
-                        (unsigned long)layout_snap->hdr.next_index);
-        } else {
-            std::fprintf(stderr,
-                         "warning: catch-up scan failed (rc=%d retval=%d): %s\n",
-                         rc, run_opts.retval, std::strerror(errno));
-            std::fprintf(stderr,
-                         "  lineage chains for pre-existing processes will "
-                         "show as (root)\n");
-        }
     }
 
     // Arm the in-kernel GC timer for pid_slot sweep.
@@ -268,74 +378,127 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     std::signal(SIGINT, on_sigint);
     std::signal(SIGTERM, on_sigint);
 
-    // If a deny list is active, try to open the pinned quarantine map
-    // for auto-quarantine writes. Not fatal if missing — just log.
-    int quarantine_fd = -1;
-    if (!deny_list.empty()) {
-        std::string qpath = quarantine_pin_path();
-        quarantine_fd = bpf_obj_get(qpath.c_str());
-        if (quarantine_fd < 0) {
-            std::fprintf(stderr,
-                         "warning: deny list active but quarantine map not pinned at %s\n"
-                         "  run 'aegisbpf-next sched start' to enable auto-quarantine.\n",
-                         qpath.c_str());
-        } else {
-            std::printf("aegis-next: deny list active (%zu entries), "
-                        "auto-quarantine via pinned map.\n",
-                        deny_list.size());
+    std::printf("aegis-next: attached. events recorded into arena.\n");
+    std::printf("aegis-next: in-kernel quarantine bridge active "
+                "(QUARANTINE policy → sched_ext map).\n");
+
+    // Access arena through the skeleton's auto-mapped globals.
+    auto* arena_view = skel->arena;
+
+    // Quick check: hash table was populated by the catch-up scan.
+    {
+        const auto* ht = reinterpret_cast<const aegis_next::HtEntry*>(
+            arena_view->arena_ht);
+        std::uint64_t occupied = 0;
+        for (std::size_t i = 0; i < aegis_next::kHtBuckets; ++i) {
+            if (ht[i].key != 0)
+                ++occupied;
         }
+        std::printf("aegis-next: arena hash table: %lu / %lu buckets used (%.1f%%)\n",
+                    (unsigned long)occupied,
+                    (unsigned long)aegis_next::kHtBuckets,
+                    occupied * 100.0 / aegis_next::kHtBuckets);
     }
 
-    std::printf("aegis-next: attached. exec events recorded into arena.\n");
+    // Set up ringbuf for real-time alert processing.
+    // P2.3: quarantine is now handled in-kernel by evaluate_policy(),
+    // so the ringbuf callback only needs to count events and log.
+    struct ring_ctx {
+        std::uint64_t events;
+        std::uint64_t last_print;
+    };
+
+    ring_ctx rctx{};
+
+    int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
+    struct ring_buffer* rb = ring_buffer__new(
+        rb_fd,
+        [](void* ctx, void* data, size_t /*sz*/) -> int {
+            auto* c = static_cast<ring_ctx*>(ctx);
+            (void)data;
+            ++c->events;
+
+            // Periodic progress line (every 100 events).
+            if (c->events - c->last_print >= 100) {
+                std::printf("  ... %lu events processed via ringbuf\n",
+                            (unsigned long)c->events);
+                c->last_print = c->events;
+            }
+            return 0;
+        },
+        &rctx, nullptr);
+
+    if (!rb) {
+        std::fprintf(stderr, "failed to create ring_buffer: %s\n",
+                     std::strerror(errno));
+        provenance_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::printf("aegis-next: ringbuf polling active (sub-ms latency).\n");
     std::printf("press Ctrl-C to stop.\n");
 
-    auto* layout = static_cast<const ProvLayout*>(arena);
-    std::uint64_t last_seen = 0;
-    std::uint64_t quarantine_hits = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
-        sleep(1);
-        const std::uint64_t cur = layout->hdr.next_index;
-        if (cur == last_seen)
-            continue;
-
-        // Scan new nodes for deny-list matches.
-        if (quarantine_fd >= 0 && !deny_list.empty()) {
-            for (std::uint64_t i = last_seen; i < cur; ++i) {
-                const std::uint64_t slot = i % kMaxNodes;
-                const ProvNode& node = layout->nodes[slot];
-                if (node.kind != PROV_KIND_EXEC)
-                    continue;
-                // comm is not necessarily null-terminated at 12 bytes.
-                std::string comm(node.comm,
-                                 strnlen(node.comm, sizeof(node.comm)));
-                if (deny_list.count(comm) && node.cgid != 0) {
-                    __u32 level = 1; // QUARANTINE_THROTTLE
-                    if (bpf_map_update_elem(quarantine_fd, &node.cgid,
-                                            &level, BPF_ANY) == 0) {
-                        std::printf("  ** auto-quarantined cgid %lu "
-                                    "(exec '%s', pid %u)\n",
-                                    (unsigned long)node.cgid,
-                                    comm.c_str(), node.pid);
-                        ++quarantine_hits;
-                    }
-                }
-            }
-        }
-
-        std::printf("  ... recorded %lu event(s) total\n",
-                    (unsigned long)cur);
-        last_seen = cur;
+        int err = ring_buffer__poll(rb, 1000 /* ms timeout */);
+        if (err < 0 && err != -EINTR)
+            break;
     }
 
-    if (quarantine_hits > 0) {
-        std::printf("aegis-next: auto-quarantined %lu cgroup(s) this session.\n",
-                    (unsigned long)quarantine_hits);
+    ring_buffer__free(rb);
+
+    std::printf("aegis-next: processed %lu events via ringbuf.\n",
+                (unsigned long)rctx.events);
+
+    // Report hash table stats on exit.
+    {
+        const auto* ht = reinterpret_cast<const aegis_next::HtEntry*>(
+            arena_view->arena_ht);
+        std::uint64_t occupied = 0;
+        for (std::size_t i = 0; i < aegis_next::kHtBuckets; ++i) {
+            if (ht[i].key != 0)
+                ++occupied;
+        }
+        std::printf("aegis-next: arena hash table at exit: %lu / %lu buckets occupied\n",
+                    (unsigned long)occupied,
+                    (unsigned long)aegis_next::kHtBuckets);
+    }
+
+    // Show last few events with resolved paths and network flows.
+    {
+        const auto* pslab = reinterpret_cast<const aegis_next::PathSlabEntry*>(
+            arena_view->path_slab);
+        const auto* nslab = reinterpret_cast<const aegis_next::NetFlow*>(
+            arena_view->net_slab);
+        const std::uint64_t cur = arena_view->arena_hdr.next_index;
+        const std::uint64_t shown = cur < 16 ? cur : 16;
+        std::printf("aegis-next: last %lu events:\n", (unsigned long)shown);
+        print_table_header();
+        for (std::uint64_t i = cur - shown; i < cur; ++i) {
+            const auto& n = reinterpret_cast<const ProvNode&>(
+                arena_view->arena_nodes[i % kMaxNodes]);
+            const char* path = aegis_next::path_from_slab(pslab, n.path_slab_idx);
+            // For socket events, show 5-tuple in the path column.
+            std::string flow_str;
+            if (n.net_slab_idx != 0) {
+                const auto* flow = aegis_next::net_from_slab(nslab, n.net_slab_idx);
+                flow_str = format_flow(flow);
+                path = flow_str.c_str();
+            }
+            char marker[32];
+            if (n.prev_index == kRootSentinel) {
+                std::snprintf(marker, sizeof(marker), "(root)");
+            } else {
+                std::snprintf(marker, sizeof(marker), "parent@%lu",
+                              (unsigned long)n.prev_index);
+            }
+            print_node_row(n, marker, path);
+        }
     }
 
     std::printf("\naegis-next: detaching. arena pin remains at %s\n",
                 path.c_str());
 
-    munmap(arena, kArenaBytes);
+    // libbpf manages the arena mmap — no manual munmap needed.
     provenance_bpf__destroy(skel);
     return 0;
 }
@@ -440,8 +603,16 @@ int cmd_graph_lineage(std::uint32_t target_pid)
     const std::uint64_t total = layout->hdr.next_index;
     auto reader = make_reader(layout);
 
-    std::uint64_t slot = aegis_next::find_slot_by_pid(
-        target_pid, total, kMaxNodes, reader);
+    // Try O(1) hash lookup first, fall back to linear scan.
+    const HtEntry* ht = arena_ht_from_mmap(layout);
+    std::uint64_t slot = aegis_next::find_slot_by_pid_ht(
+        target_pid, ht, kMaxNodes, reader);
+
+    if (slot == kRootSentinel) {
+        // Hash miss (stale or never inserted) — fall back to linear scan.
+        slot = aegis_next::find_slot_by_pid(
+            target_pid, total, kMaxNodes, reader);
+    }
 
     if (slot == kRootSentinel) {
         std::fprintf(stderr,
@@ -528,7 +699,8 @@ int cmd_sched_start()
     std::signal(SIGTERM, on_sigint);
 
     std::printf("aegis-next: sched_ext scheduler 'aegis_next' attached.\n");
-    std::printf("  throttled slice: 1ms, default slice: 5ms\n");
+    std::printf("  levels: 0=normal(5ms) 1=throttle(1ms) "
+                "2=pin(1ms,CPU0) 3=starve(100μs,CPU0)\n");
     std::printf("press Ctrl-C to detach.\n");
 
     while (!g_stop.load(std::memory_order_relaxed)) {
@@ -603,7 +775,8 @@ int cmd_sched_status()
 
     while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
         if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
-            const char* label = (value >= 2) ? "pin"
+            const char* label = (value >= 3) ? "starve"
+                              : (value >= 2) ? "pin"
                               : (value >= 1) ? "throttle"
                               : "none";
             std::printf("  %-20lu %u (%s)\n",
@@ -622,6 +795,347 @@ int cmd_sched_status()
     return 0;
 }
 
+// ---- self-protection subcommand --------------------------------
+
+int cmd_protect()
+{
+    libbpf_set_print(libbpf_print);
+    bump_memlock_rlimit();
+
+    selfprotect_bpf* skel = selfprotect_bpf__open_and_load();
+    if (!skel) {
+        std::fprintf(stderr, "failed to open+load selfprotect: %s\n",
+                     std::strerror(errno));
+        std::fprintf(stderr,
+                     "hint: requires CONFIG_BPF_LSM=y and lsm= boot param includes bpf\n");
+        return 1;
+    }
+
+    // Get our own binary's inode number for trusted caller check.
+    struct stat st{};
+    if (stat("/proc/self/exe", &st) != 0) {
+        std::fprintf(stderr, "failed to stat /proc/self/exe: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    __u32 zero = 0;
+    __u64 trusted_ino = st.st_ino;
+    int ino_fd = bpf_map__fd(skel->maps.aegis_selfprotect_trusted);
+    if (bpf_map_update_elem(ino_fd, &zero, &trusted_ino, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to set trusted inode: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    // Enable protection.
+    __u32 enabled = 1;
+    int en_fd = bpf_map__fd(skel->maps.aegis_selfprotect_enabled);
+    bpf_map_update_elem(en_fd, &zero, &enabled, BPF_ANY);
+
+    if (selfprotect_bpf__attach(skel) != 0) {
+        std::fprintf(stderr, "failed to attach selfprotect LSM: %s\n",
+                     std::strerror(errno));
+        selfprotect_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::signal(SIGINT, on_sigint);
+    std::signal(SIGTERM, on_sigint);
+
+    std::printf("aegis-next: self-protection active.\n");
+    std::printf("  trusted inode: %lu (aegisbpf-next binary)\n",
+                (unsigned long)trusted_ino);
+    std::printf("  hooks: lsm/bpf (PROG_DETACH, LINK_DETACH), lsm/bpf_map (write)\n");
+    std::printf("press Ctrl-C to disable.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        sleep(2);
+    }
+
+    // Disable protection before detaching to allow clean shutdown.
+    __u32 disabled = 0;
+    bpf_map_update_elem(en_fd, &zero, &disabled, BPF_ANY);
+
+    std::printf("\naegis-next: self-protection disabled, detaching.\n");
+    selfprotect_bpf__destroy(skel);
+    return 0;
+}
+
+// ---- policy subcommands ----------------------------------------
+
+int open_pinned_policy_fd()
+{
+    std::string path = policy_pin_path();
+    int fd = bpf_obj_get(path.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned policy map at %s: %s\n"
+                     "hint: run 'aegisbpf-next attach' first.\n",
+                     path.c_str(), std::strerror(errno));
+    }
+    return fd;
+}
+
+const char* match_type_name(int mt)
+{
+    switch (mt) {
+    case POLICY_MATCH_COMM:   return "comm";
+    case POLICY_MATCH_PATH:   return "path";
+    case POLICY_MATCH_PORT:   return "port";
+    case POLICY_MATCH_CGROUP: return "cgroup";
+    default:                  return "?";
+    }
+}
+
+const char* action_name(int a)
+{
+    switch (a) {
+    case POLICY_ACTION_ALLOW:      return "allow";
+    case POLICY_ACTION_DENY:       return "deny";
+    case POLICY_ACTION_LOG:        return "log";
+    case POLICY_ACTION_QUARANTINE: return "quarantine";
+    default:                       return "?";
+    }
+}
+
+// policy add <hook> comm <name> deny [--kill]
+// policy add <hook> port <number> deny [--kill]
+int cmd_policy_add(int argc, char** argv)
+{
+    // argv: policy add <hook> <match_type> <match_val> <action> [--kill]
+    if (argc < 7) {
+        std::fprintf(stderr,
+                     "usage: policy add <hook> <match_type> <value> <action> [--kill]\n"
+                     "  hook:  exec|file|conn|bind|listen\n"
+                     "  match: comm|port|cgroup\n"
+                     "  action: deny|allow|log\n");
+        return 1;
+    }
+
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    // Parse hook kind.
+    const std::string hook_str = argv[3];
+    std::uint8_t hook = 255;
+    if (hook_str == "exec")   hook = PROV_KIND_EXEC;
+    else if (hook_str == "file")   hook = PROV_KIND_FILE_OPEN;
+    else if (hook_str == "conn")   hook = PROV_KIND_SOCKET_CONNECT;
+    else if (hook_str == "bind")   hook = PROV_KIND_SOCKET_BIND;
+    else if (hook_str == "listen") hook = PROV_KIND_SOCKET_LISTEN;
+    else {
+        std::fprintf(stderr, "unknown hook: %s\n", hook_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Parse match type + value.
+    const std::string mt_str = argv[4];
+    const std::string val_str = argv[5];
+    policy_key key{};
+    key.hook = hook;
+
+    if (mt_str == "comm") {
+        key.match_type = POLICY_MATCH_COMM;
+        key.match_val = aegis_next::fnv1a(val_str.c_str(), val_str.size());
+    } else if (mt_str == "port") {
+        key.match_type = POLICY_MATCH_PORT;
+        key.match_val = static_cast<std::uint32_t>(std::strtoul(val_str.c_str(), nullptr, 10));
+    } else if (mt_str == "cgroup") {
+        key.match_type = POLICY_MATCH_CGROUP;
+        key.match_val = static_cast<std::uint32_t>(std::strtoull(val_str.c_str(), nullptr, 0));
+    } else {
+        std::fprintf(stderr, "unknown match type: %s\n", mt_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Parse action.
+    const std::string act_str = argv[6];
+    policy_val val{};
+    if (act_str == "deny")               val.action = POLICY_ACTION_DENY;
+    else if (act_str == "allow")         val.action = POLICY_ACTION_ALLOW;
+    else if (act_str == "log")           val.action = POLICY_ACTION_LOG;
+    else if (act_str == "quarantine")    val.action = POLICY_ACTION_QUARANTINE;
+    else {
+        std::fprintf(stderr, "unknown action: %s\n", act_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Check --kill flag.
+    for (int i = 7; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--kill") == 0)
+            val.flags |= POLICY_FLAG_KILL;
+    }
+
+    if (bpf_map_update_elem(map_fd, &key, &val, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to add policy rule: %s\n",
+                     std::strerror(errno));
+        close(map_fd);
+        return 1;
+    }
+
+    std::printf("policy: added rule hook=%s match=%s val=%s action=%s%s\n",
+                hook_str.c_str(), mt_str.c_str(), val_str.c_str(),
+                act_str.c_str(),
+                (val.flags & POLICY_FLAG_KILL) ? " +kill" : "");
+    close(map_fd);
+    return 0;
+}
+
+int cmd_policy_list()
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    std::printf("policy rules:\n");
+    std::printf("  %-8s %-8s %-12s %-12s %s\n",
+                "hook", "match", "value", "action", "flags");
+
+    policy_key key{};
+    policy_key next_key{};
+    policy_val val{};
+    int count = 0;
+
+    while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
+        if (bpf_map_lookup_elem(map_fd, &next_key, &val) == 0) {
+            std::printf("  %-8s %-8s 0x%08x   %-12s %s\n",
+                        aegis_next::kind_name(next_key.hook),
+                        match_type_name(next_key.match_type),
+                        next_key.match_val,
+                        action_name(val.action),
+                        (val.flags & POLICY_FLAG_KILL) ? "kill" : "-");
+            ++count;
+        }
+        key = next_key;
+    }
+
+    if (count == 0)
+        std::printf("  (none)\n");
+    std::printf("total: %d rules\n", count);
+    close(map_fd);
+    return 0;
+}
+
+int cmd_policy_clear()
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    policy_key key{};
+    policy_key next_key{};
+    int count = 0;
+
+    while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
+        bpf_map_delete_elem(map_fd, &next_key);
+        ++count;
+        // Don't advance key — deletion shifts iteration.
+    }
+
+    std::printf("policy: cleared %d rule(s)\n", count);
+    close(map_fd);
+    return 0;
+}
+
+// Load policy rules from a text file. Format (one rule per line):
+//   <hook> <match_type> <value> <action> [kill]
+// Lines starting with # are comments. Blank lines are skipped.
+// hook:   exec|file|conn|bind|listen
+// match:  comm|port|cgroup
+// action: deny|allow|log
+int cmd_policy_load(const char* filepath)
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    std::ifstream f(filepath);
+    if (!f.is_open()) {
+        std::fprintf(stderr, "cannot open policy file: %s\n", filepath);
+        close(map_fd);
+        return 1;
+    }
+
+    int loaded = 0;
+    int lineno = 0;
+    std::string line;
+    while (std::getline(f, line)) {
+        ++lineno;
+        // Skip comments and blank lines.
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        std::istringstream ss(line);
+        std::string hook_str, mt_str, val_str, act_str, flag_str;
+        if (!(ss >> hook_str >> mt_str >> val_str >> act_str)) {
+            std::fprintf(stderr, "policy:%d: malformed line: %s\n",
+                         lineno, line.c_str());
+            continue;
+        }
+        ss >> flag_str; // optional
+
+        // Parse hook.
+        policy_key key{};
+        if (hook_str == "exec")        key.hook = PROV_KIND_EXEC;
+        else if (hook_str == "file")   key.hook = PROV_KIND_FILE_OPEN;
+        else if (hook_str == "conn")   key.hook = PROV_KIND_SOCKET_CONNECT;
+        else if (hook_str == "bind")   key.hook = PROV_KIND_SOCKET_BIND;
+        else if (hook_str == "listen") key.hook = PROV_KIND_SOCKET_LISTEN;
+        else {
+            std::fprintf(stderr, "policy:%d: unknown hook '%s'\n",
+                         lineno, hook_str.c_str());
+            continue;
+        }
+
+        // Parse match type + value.
+        if (mt_str == "comm") {
+            key.match_type = POLICY_MATCH_COMM;
+            key.match_val = aegis_next::fnv1a(val_str.c_str(), val_str.size());
+        } else if (mt_str == "port") {
+            key.match_type = POLICY_MATCH_PORT;
+            key.match_val = static_cast<std::uint32_t>(
+                std::strtoul(val_str.c_str(), nullptr, 10));
+        } else if (mt_str == "cgroup") {
+            key.match_type = POLICY_MATCH_CGROUP;
+            key.match_val = static_cast<std::uint32_t>(
+                std::strtoull(val_str.c_str(), nullptr, 0));
+        } else {
+            std::fprintf(stderr, "policy:%d: unknown match type '%s'\n",
+                         lineno, mt_str.c_str());
+            continue;
+        }
+
+        // Parse action.
+        policy_val val{};
+        if (act_str == "deny")            val.action = POLICY_ACTION_DENY;
+        else if (act_str == "allow")      val.action = POLICY_ACTION_ALLOW;
+        else if (act_str == "log")        val.action = POLICY_ACTION_LOG;
+        else if (act_str == "quarantine") val.action = POLICY_ACTION_QUARANTINE;
+        else {
+            std::fprintf(stderr, "policy:%d: unknown action '%s'\n",
+                         lineno, act_str.c_str());
+            continue;
+        }
+
+        if (flag_str == "kill")
+            val.flags |= POLICY_FLAG_KILL;
+
+        if (bpf_map_update_elem(map_fd, &key, &val, BPF_ANY) != 0) {
+            std::fprintf(stderr, "policy:%d: failed to load rule: %s\n",
+                         lineno, std::strerror(errno));
+            continue;
+        }
+        ++loaded;
+    }
+
+    std::printf("policy: loaded %d rule(s) from %s\n", loaded, filepath);
+    close(map_fd);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -634,13 +1148,7 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
-        std::unordered_set<std::string> deny_list;
-        for (int i = 2; i < argc; ++i) {
-            if (std::strcmp(argv[i], "--deny") == 0 && i + 1 < argc) {
-                deny_list.insert(argv[++i]);
-            }
-        }
-        return cmd_attach(deny_list);
+        return cmd_attach();
     }
 
     if (cmd == "graph") {
@@ -698,6 +1206,36 @@ int main(int argc, char** argv)
         }
         std::fprintf(stderr, "unknown sched subcommand: %s\n", sub.c_str());
         return 1;
+    }
+
+    if (cmd == "policy") {
+        if (argc < 3) {
+            std::fprintf(stderr, "policy requires a subcommand: add, list, clear, load\n");
+            return 1;
+        }
+        const std::string sub = argv[2];
+        if (sub == "add") {
+            return cmd_policy_add(argc, argv);
+        }
+        if (sub == "list") {
+            return cmd_policy_list();
+        }
+        if (sub == "clear") {
+            return cmd_policy_clear();
+        }
+        if (sub == "load") {
+            if (argc < 4) {
+                std::fprintf(stderr, "usage: %s policy load <file>\n", argv[0]);
+                return 1;
+            }
+            return cmd_policy_load(argv[3]);
+        }
+        std::fprintf(stderr, "unknown policy subcommand: %s\n", sub.c_str());
+        return 1;
+    }
+
+    if (cmd == "protect") {
+        return cmd_protect();
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {

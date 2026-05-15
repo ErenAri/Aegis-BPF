@@ -50,15 +50,18 @@ std::size_t walk_lineage(std::uint64_t        start_slot,
                          const LineageVisitor& visit,
                          std::uint64_t        generation = kRootSentinel);
 
-// Scans backwards from `total_nodes - 1` to find the most recent
-// arena slot whose tgid matches `target_pid`. Returns the slot
-// index, or kRootSentinel if no match is found within the last
-// `scan_limit` entries.
-//
-// This is a linear scan. Fine for interactive CLI queries on a
-// 1M-slot arena; not acceptable on the hot path. A follow-up PR
-// may add a BPF-side hash for O(1) pid->slot lookup from
-// userspace (would need map pinning + bpf_map_lookup_elem).
+// O(1) lookup via the arena hash table. Returns the slot index
+// for the most recent exec of `target_pid`, or kRootSentinel on miss.
+// The hash table pointer comes from arena_ht_from_mmap() or the
+// skeleton's skel->arena->arena_ht.
+std::uint64_t find_slot_by_pid_ht(std::uint32_t        target_pid,
+                                   const HtEntry*       ht,
+                                   std::uint64_t        slot_modulus,
+                                   const SlotReader&    read_slot);
+
+// Linear scan fallback. Scans backwards from `total_nodes - 1` to
+// find the most recent arena slot whose tgid matches `target_pid`.
+// Returns the slot index, or kRootSentinel if no match is found.
 std::uint64_t find_slot_by_pid(std::uint32_t        target_pid,
                                 std::uint64_t        total_nodes,
                                 std::uint64_t        slot_modulus,

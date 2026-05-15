@@ -40,6 +40,30 @@ std::size_t walk_lineage(std::uint64_t         start_slot,
     return static_cast<std::size_t>(kMaxLineageDepth);
 }
 
+std::uint64_t find_slot_by_pid_ht(std::uint32_t     target_pid,
+                                   const HtEntry*    ht,
+                                   std::uint64_t     slot_modulus,
+                                   const SlotReader& read_slot)
+{
+    if (!ht || slot_modulus == 0)
+        return kRootSentinel;
+
+    std::uint64_t key = ht_make_key(PROV_KIND_EXEC, target_pid);
+    std::uint64_t slot = ht_lookup(ht, key);
+
+    if (slot == kRootSentinel)
+        return kRootSentinel;
+
+    // Validate: the slot must contain an exec node for this pid.
+    // A stale hash entry might point to an overwritten slot.
+    slot = slot % slot_modulus;
+    ProvNode node = read_slot(slot);
+    if (node.tgid == target_pid && node.kind == PROV_KIND_EXEC)
+        return slot;
+
+    return kRootSentinel;  // stale entry
+}
+
 std::uint64_t find_slot_by_pid(std::uint32_t     target_pid,
                                 std::uint64_t     total_nodes,
                                 std::uint64_t     slot_modulus,

@@ -35,9 +35,12 @@
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
 
-// Arena geometry. 16384 pages * 4 KiB = 64 MiB.
-// Sized for ~1M process nodes at 64 bytes each, with headroom.
-#define AEGIS_NEXT_ARENA_PAGES 16384
+// Arena geometry (80-byte nodes):
+// arena_hdr(32) + arena_nodes(80*1M) + arena_ready(4) + pad(4)
+// + arena_ht(16*64K) + path_slab_next(8) + path_slab(256*4K)
+// + net_slab_next(8) + net_slab(48*4K)
+// = 86,179,896 bytes → 21041 pages
+#define AEGIS_NEXT_ARENA_PAGES 21041
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -60,9 +63,13 @@ struct prov_node {
     __u64 object_id;   // inode for exec/file_open, port<<32|addr for socket
     __u64 prev_index;  // owning exec node slot (for non-exec kinds), or parent
     __u8  kind;        // PROV_KIND_*
-    __u8  flags;       // reserved
+    __u8  flags;       // generation tag
     __u16 extra;       // open_flags / addr_family per kind
+    __u32 path_slab_idx; // index into path_slab[], 0 = no path
     char  comm[12];
+    __u32 net_slab_idx; // 1-based index into net_slab[], 0 = no flow
+    __u32 mnt_ns;       // mount namespace inum
+    __u32 pid_ns;       // PID namespace inum
 };
 
 // Arena map. Userspace mmaps this fd; BPF accesses via __arena ptrs.
@@ -75,50 +82,144 @@ struct {
 #endif
 } aegis_next_arena SEC(".maps");
 
-// bpf_arena_alloc_pages / bpf_arena_free_pages are kfuncs exported
-// by the kernel. We declare them here so the verifier resolves them
-// at load time on 6.9+.
 #ifndef __arena
 #define __arena __attribute__((address_space(1)))
 #endif
 
-extern void __arena *bpf_arena_alloc_pages(void *map, void __arena *addr,
-                                           __u32 page_cnt, int node_id,
-                                           __u64 flags) __ksym;
-
-// Open-coded task iterator kfuncs (Linux >= 6.4).
+// Open-coded task iterator kfuncs (Linux >= 6.7).
 // Used by the catch-up scan to seed the arena with all existing
 // processes at attach time.
-extern void bpf_iter_task_new(struct bpf_iter_task *it,
-                              struct task_struct *task__nullable,
-                              unsigned int flags) __ksym;
+// NOTE: bpf_iter_task_new always returned int (since introduction in 6.7).
+// Our original void declaration was incorrect.
+extern int bpf_iter_task_new(struct bpf_iter_task *it,
+                             struct task_struct *task__nullable,
+                             unsigned int flags) __ksym;
 extern struct task_struct *bpf_iter_task_next(struct bpf_iter_task *it) __ksym;
 extern void bpf_iter_task_destroy(struct bpf_iter_task *it) __ksym;
 
-// A single global pointer into the arena holding our header + slot
-// array. Initialized lazily from the first bprm event.
-struct prov_layout {
-    struct prov_header hdr;
-    struct prov_node   nodes[AEGIS_NEXT_MAX_NODES];
+// RCU kfuncs — required by kernel 6.17 verifier for task iteration
+// in SEC("syscall") programs.
+extern void bpf_rcu_read_lock(void) __ksym;
+extern void bpf_rcu_read_unlock(void) __ksym;
+
+// NOTE: prov_layout is still defined in aegis_next_prov.hpp for
+// userspace mmap access. BPF code uses arena globals directly.
+
+// Workaround for kernel 6.17 verifier + clang-19: when accessing an
+// arena global through a pointer, clang may hoist the pre-cast
+// (address-space-0) base address into a register and reuse it for
+// multiple field writes, skipping addr_space_cast on subsequent
+// accesses. The verifier then rejects the write as "R? invalid mem
+// access 'scalar'".
+//
+// This macro takes a pointer to an arena object, runs it through an
+// inline asm barrier so clang cannot merge it with any prior register
+// holding the uncasted base.
+#define ARENA_PTR(ptr)                                     \
+    ({                                                     \
+        typeof(ptr) __p = (ptr);                           \
+        asm volatile("" : "+r"(__p));                      \
+        __p;                                               \
+    })
+
+#include "arena_htable.h"
+
+// Path slab: fixed 256-byte slots for resolved file paths.
+// Allocated via atomic bump pointer with wrap-around.
+#define PATH_SLAB_SLOTS   (1u << 12)  // 4096
+#define PATH_SLAB_SLOT_SZ 256
+
+struct path_slab_entry {
+    __u64 data[PATH_SLAB_SLOT_SZ / 8]; // 32 × u64 = 256 bytes
 };
 
-// Live pointer to the arena allocation. Stored in a single-entry
-// array map so that BPF runs can share it across CPUs. We use a
-// PERCPU init flag map to avoid double-alloc races.
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __type(key, __u32);
-    __type(value, __u64); // arena address cast to u64
-    __uint(max_entries, 1);
-} aegis_next_layout_ptr SEC(".maps");
+// Network flow entry — 48-byte 5-tuple for socket events.
+struct net_flow {
+    __u8  family;       // AF_INET=2, AF_INET6=10
+    __u8  proto;        // IPPROTO_TCP=6, IPPROTO_UDP=17, etc.
+    __u16 src_port;     // host byte order
+    __u16 dst_port;     // host byte order
+    __u16 _pad;
+    __u32 src_v4;       // network byte order; 0 for IPv6
+    __u32 dst_v4;       // network byte order; 0 for IPv6
+    __u8  src_v6[16];   // full IPv6 src; zeroed for IPv4
+    __u8  dst_v6[16];   // full IPv6 dst; zeroed for IPv4
+};
 
-// tgid -> most-recent slot index in the arena. Lets a child exec
-// find its parent's exec record in O(1) so we can populate
-// prev_index and build an actual lineage chain.
-//
-// Sized at 64K entries: enough for typical workloads, falls back
-// to "parent unknown" on overflow (LRU eviction). The hash holds
-// integers only, so KASLR rules are not implicated.
+// Arena-resident layout: header + node array + hash table + path slab
+// + net slab live directly in the arena address space.
+struct prov_header __arena arena_hdr SEC(".addr_space.1");
+struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
+int __arena arena_ready SEC(".addr_space.1");
+struct arena_ht_entry __arena arena_ht[ARENA_HT_BUCKETS] SEC(".addr_space.1");
+__u64 __arena path_slab_next SEC(".addr_space.1");
+struct path_slab_entry __arena path_slab[PATH_SLAB_SLOTS] SEC(".addr_space.1");
+__u64 __arena net_slab_next SEC(".addr_space.1");
+struct net_flow __arena net_slab[NET_SLAB_SLOTS] SEC(".addr_space.1");
+
+// Per-CPU scratch buffer for bpf_d_path(). Stack is too small (512B)
+// for a 256-byte path + other locals, so we use a per-CPU array.
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, char[PATH_SLAB_SLOT_SZ]);
+    __uint(max_entries, 1);
+} aegis_next_path_scratch SEC(".maps");
+
+// Ringbuf alert struct — compact notification per LSM event.
+struct aegis_alert {
+    __u64 slot;    // arena node slot index
+    __u32 pid;     // process tgid
+    __u8  kind;    // PROV_KIND_*
+    __u8  _pad[3];
+};
+
+// Ringbuf for real-time event alerts. Userspace polls this instead
+// of sleeping; the arena remains the source of truth.
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, AEGIS_RINGBUF_PAGES * 4096);
+} aegis_next_ringbuf SEC(".maps");
+
+// Policy map — BPF_MAP_TYPE_HASH for fast O(1) rule lookup.
+// Userspace loads rules via bpf_map_update_elem.
+struct policy_key {
+    __u8  hook;        // PROV_KIND_*
+    __u8  match_type;  // POLICY_MATCH_*
+    __u16 _pad;
+    __u32 match_val;   // FNV hash of comm/path, port number, or cgid low bits
+};
+
+struct policy_val {
+    __u8  action;      // POLICY_ACTION_*
+    __u8  flags;       // POLICY_FLAG_*
+    __u16 _pad;
+    __u32 _reserved;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct policy_key);
+    __type(value, struct policy_val);
+    __uint(max_entries, 1024);
+} aegis_next_policy SEC(".maps");
+
+// Quarantine map — shared with quarantine.bpf.c (sched_ext scheduler).
+// When a policy rule has action=QUARANTINE, evaluate_policy() writes
+// the offending cgroup id here directly from BPF — no userspace
+// round-trip. The sched_ext enqueue path reads this same map.
+// At load time, userspace reuses the pinned map FD so both BPF
+// programs share the same underlying map instance.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u64);   // cgroup id
+    __type(value, __u32); // quarantine level
+    __uint(max_entries, 4096);
+} aegis_next_quarantine SEC(".maps");
+
+// Legacy pid->slot LRU hash, kept alongside the arena hash table
+// during transition. The GC timer sweeps this map; once the arena
+// hash is proven reliable, this map can be removed.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, __u32);   // tgid
@@ -126,121 +227,289 @@ struct {
     __uint(max_entries, 65536);
 } aegis_next_pid_slot SEC(".maps");
 
-// Best-effort one-time initializer. Returns the arena base or NULL.
-// We accept the very small race window of two CPUs both allocating;
-// only one wins the array store, the loser's pages stay reserved
-// for the lifetime of the program — acceptable for a scaffold.
-static __always_inline struct prov_layout __arena *
-aegis_next_layout(void)
+// Check if arena has been initialized.
+static __always_inline bool aegis_is_ready(void)
 {
-    __u32 key = 0;
-    __u64 *cached = bpf_map_lookup_elem(&aegis_next_layout_ptr, &key);
-    if (!cached)
-        return NULL;
+    return *(ARENA_PTR(&arena_ready)) != 0;
+}
 
-    if (*cached) {
-        return (struct prov_layout __arena *)(unsigned long)*cached;
+// Initialize arena header. Called from aegis_next_catchup()
+// (SEC("syscall"), sleepable context) before LSM hooks attach.
+static __always_inline void aegis_next_arena_init(void)
+{
+    ARENA_PTR(&arena_hdr)->magic = 0xA5E61500A5E61500ULL;
+    ARENA_PTR(&arena_hdr)->next_index = 0;
+    ARENA_PTR(&arena_hdr)->dropped = 0;
+    ARENA_PTR(&arena_hdr)->generation = 0;
+    *(ARENA_PTR(&arena_ready)) = 1;
+}
+
+// FNV-1a hash of a null-terminated string (bounded to 16 bytes).
+// Used to hash comm names for policy key lookups.
+static __always_inline __u32 fnv1a_hash(const char *s, int maxlen)
+{
+    __u32 h = 0x811c9dc5u;
+    #pragma unroll
+    for (int i = 0; i < maxlen; i++) {
+        char c = s[i];
+        if (c == 0)
+            break;
+        h ^= (__u32)(unsigned char)c;
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+// Apply a single policy match result. Updates deny flag, handles
+// QUARANTINE (in-kernel bridge to sched_ext) and KILL flag.
+static __always_inline void
+apply_verdict(struct policy_val *val, __u64 cgid, int *deny)
+{
+    if (!val)
+        return;
+    if (val->action == POLICY_ACTION_DENY) {
+        *deny = 1;
+        if (val->flags & POLICY_FLAG_KILL)
+            bpf_send_signal(9 /* SIGKILL */);
+    } else if (val->action == POLICY_ACTION_QUARANTINE && cgid) {
+        // P2.3: In-kernel enforcement bridge — write cgroup directly
+        // to the quarantine map. The sched_ext scheduler reads this
+        // map on enqueue, throttling the offending cgroup immediately.
+        __u32 level = 1; // QUARANTINE_THROTTLE
+        bpf_map_update_elem(&aegis_next_quarantine, &cgid, &level, BPF_ANY);
+    }
+}
+
+// Evaluate policy for a given hook. Returns 0 (allow) or -1 (deny).
+// Performs up to 3 map lookups: comm, port, cgroup.
+// On QUARANTINE action, writes cgroup to quarantine map from BPF.
+// On DENY + KILL flag, sends SIGKILL.
+static __always_inline int
+evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
+{
+    struct policy_key key = {};
+    struct policy_val *val;
+    int deny = 0;
+
+    key.hook = hook;
+
+    // 1. Match by comm hash.
+    key.match_type = POLICY_MATCH_COMM;
+    key.match_val = fnv1a_hash(comm, 12);
+    val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+    apply_verdict(val, cgid, &deny);
+
+    // 2. Match by port (socket hooks only).
+    if (port && !deny) {
+        key.match_type = POLICY_MATCH_PORT;
+        key.match_val = port;
+        val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+        apply_verdict(val, cgid, &deny);
     }
 
-    // 1 page of header + N pages for the nodes. The kernel rounds
-    // up; we ask for the full arena up front.
-    void __arena *base = bpf_arena_alloc_pages(&aegis_next_arena, NULL,
-                                               AEGIS_NEXT_ARENA_PAGES,
-                                               -1 /* NUMA: any */,
-                                               0);
-    if (!base)
-        return NULL;
+    // 3. Match by cgroup (container-scoped rules).
+    if (cgid && !deny) {
+        key.match_type = POLICY_MATCH_CGROUP;
+        key.match_val = (__u32)cgid;
+        val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+        apply_verdict(val, cgid, &deny);
+    }
 
-    struct prov_layout __arena *layout = base;
-    layout->hdr.magic = 0xA5E61500A5E61500ULL;
-    layout->hdr.next_index = 0;
-    layout->hdr.dropped = 0;
-    layout->hdr.generation = 0;
+    return deny ? -1 : 0;
+}
 
-    __u64 addr = (__u64)(unsigned long)base;
-    bpf_map_update_elem(&aegis_next_layout_ptr, &key, &addr, BPF_ANY);
-    return layout;
+// Resolve a file path via bpf_d_path, allocate a path slab slot, and
+// copy the resolved string into the arena. Returns the 1-based slab
+// index (0 = no path / resolution failed).
+static __always_inline __u32
+resolve_path(struct path *p)
+{
+    __u32 zero = 0;
+    char *scratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &zero);
+    if (!scratch)
+        return 0;
+
+    long len = bpf_d_path(p, scratch, PATH_SLAB_SLOT_SZ);
+    if (len <= 0)
+        return 0;
+
+    // Allocate a slab slot (1-based index so 0 means "no path").
+    __u64 raw = __sync_fetch_and_add(ARENA_PTR(&path_slab_next), 1);
+    __u32 slab_idx = ((__u32)(raw % PATH_SLAB_SLOTS)) + 1;
+    __u32 slab_slot = slab_idx - 1;
+
+    // Copy path from per-CPU scratch to arena slab (u64 at a time).
+    __u64 *src = (__u64 *)scratch;
+    #pragma unroll
+    for (int i = 0; i < (PATH_SLAB_SLOT_SZ / 8); i++)
+        ARENA_PTR(&path_slab[slab_slot])->data[i] = src[i];
+
+    return slab_idx;
+}
+
+// Allocate a net slab slot and write a 5-tuple flow record.
+// Returns the 1-based slab index (0 = allocation failed).
+static __always_inline __u32
+record_net_flow(__u8 family, __u8 proto,
+                __u32 src_v4, __u16 src_port,
+                __u32 dst_v4, __u16 dst_port,
+                const __u8 *src_v6, const __u8 *dst_v6)
+{
+    __u64 raw = __sync_fetch_and_add(ARENA_PTR(&net_slab_next), 1);
+    __u32 slab_idx = ((__u32)(raw % NET_SLAB_SLOTS)) + 1;
+    __u32 slot = slab_idx - 1;
+
+    ARENA_PTR(&net_slab[slot])->family   = family;
+    ARENA_PTR(&net_slab[slot])->proto    = proto;
+    ARENA_PTR(&net_slab[slot])->src_port = src_port;
+    ARENA_PTR(&net_slab[slot])->dst_port = dst_port;
+    ARENA_PTR(&net_slab[slot])->_pad     = 0;
+    ARENA_PTR(&net_slab[slot])->src_v4   = src_v4;
+    ARENA_PTR(&net_slab[slot])->dst_v4   = dst_v4;
+
+    if (src_v6) {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->src_v6[i] = src_v6[i];
+    } else {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->src_v6[i] = 0;
+    }
+
+    if (dst_v6) {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->dst_v6[i] = dst_v6[i];
+    } else {
+        #pragma unroll
+        for (int i = 0; i < 16; i++)
+            ARENA_PTR(&net_slab[slot])->dst_v6[i] = 0;
+    }
+
+    return slab_idx;
+}
+
+// Push a compact alert to the ringbuf. Best-effort: drops are
+// counted by the ringbuf's internal counter (not fatal).
+static __always_inline void
+emit_alert(__u64 slot, __u32 pid, __u8 kind)
+{
+    struct aegis_alert *alert;
+    alert = bpf_ringbuf_reserve(&aegis_next_ringbuf,
+                                sizeof(*alert), 0);
+    if (!alert)
+        return;
+    alert->slot = slot;
+    alert->pid  = pid;
+    alert->kind = kind;
+    alert->_pad[0] = 0;
+    alert->_pad[1] = 0;
+    alert->_pad[2] = 0;
+    bpf_ringbuf_submit(alert, 0);
 }
 
 // Reserve a slot and fill the common fields from a task_struct.
 // Returns the slot index (for callers that need to patch fields).
+//
+// Each store to the arena node goes through ARENA_PTR() to force
+// clang to emit a fresh addr_space_cast per access. Without this,
+// clang's register allocator may hold the uncasted arena_nodes base
+// in a spare register and reuse it for some stores, causing the
+// kernel 6.17 verifier to reject the program.
 static __always_inline __u64
-record_base(struct prov_layout __arena *layout,
-            struct task_struct *task, __u8 kind,
+record_base(struct task_struct *task, __u8 kind,
             __u64 object_id, __u16 extra)
 {
-    __u64 idx = __sync_fetch_and_add(&layout->hdr.next_index, 1);
+    __u64 idx = __sync_fetch_and_add(&arena_hdr.next_index, 1);
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
 
     // Bump generation counter when the arena wraps around.
     if (slot == 0 && idx > 0)
-        __sync_fetch_and_add(&layout->hdr.generation, 1);
-
-    struct prov_node __arena *node = &layout->nodes[slot];
+        __sync_fetch_and_add(&arena_hdr.generation, 1);
 
     struct task_struct *parent = BPF_CORE_READ(task, real_parent);
 
-    node->ts_ns     = bpf_ktime_get_ns();
-    node->pid       = BPF_CORE_READ(task, pid);
-    node->tgid      = BPF_CORE_READ(task, tgid);
-    node->ppid      = parent ? BPF_CORE_READ(parent, tgid) : 0;
-    node->uid       = BPF_CORE_READ(task, cred, uid.val);
-    node->cgid      = 0; // patched by LSM context helpers when available
-    node->object_id = object_id;
-    node->kind      = kind;
-    // Tag with low byte of generation so userspace can detect stale nodes.
-    node->flags     = (__u8)(layout->hdr.generation & 0xFF);
-    node->extra     = extra;
+    ARENA_PTR(&arena_nodes[slot])->ts_ns     = bpf_ktime_get_ns();
+    ARENA_PTR(&arena_nodes[slot])->pid       = BPF_CORE_READ(task, pid);
+    ARENA_PTR(&arena_nodes[slot])->tgid      = BPF_CORE_READ(task, tgid);
+    ARENA_PTR(&arena_nodes[slot])->ppid      = parent ? BPF_CORE_READ(parent, tgid) : 0;
+    ARENA_PTR(&arena_nodes[slot])->uid       = BPF_CORE_READ(task, cred, uid.val);
+    ARENA_PTR(&arena_nodes[slot])->cgid      = 0;
+    ARENA_PTR(&arena_nodes[slot])->object_id = object_id;
+    ARENA_PTR(&arena_nodes[slot])->kind          = kind;
+    ARENA_PTR(&arena_nodes[slot])->flags         = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF);
+    ARENA_PTR(&arena_nodes[slot])->extra         = extra;
+    ARENA_PTR(&arena_nodes[slot])->path_slab_idx = 0;
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx  = 0;
 
-    // Stage comm through a stack buffer.
+    // Extract mount and PID namespace inums from task->nsproxy.
+    {
+        __u32 mnt_inum = 0;
+        __u32 pid_inum = 0;
+        struct nsproxy *ns = BPF_CORE_READ(task, nsproxy);
+        if (ns) {
+            struct mnt_namespace *mnt = BPF_CORE_READ(ns, mnt_ns);
+            if (mnt)
+                mnt_inum = BPF_CORE_READ(mnt, ns.inum);
+            struct pid_namespace *pidns = BPF_CORE_READ(ns, pid_ns_for_children);
+            if (pidns)
+                pid_inum = BPF_CORE_READ(pidns, ns.inum);
+        }
+        ARENA_PTR(&arena_nodes[slot])->mnt_ns = mnt_inum;
+        ARENA_PTR(&arena_nodes[slot])->pid_ns = pid_inum;
+    }
+
     char tmp[16];
     bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
     #pragma unroll
     for (int i = 0; i < 12; i++)
-        node->comm[i] = tmp[i];
+        ARENA_PTR(&arena_nodes[slot])->comm[i] = tmp[i];
 
     return slot;
 }
 
-// Record a process exec event. Updates the pid->slot hash and
+// Record a process exec event. Updates the arena hash table and
 // links to the parent's exec node via prev_index.
 static __always_inline void
-record_task(struct prov_layout __arena *layout,
-            struct task_struct *task, __u64 exec_inode)
+record_task(struct task_struct *task, __u64 exec_inode)
 {
-    __u64 slot = record_base(layout, task, PROV_KIND_EXEC,
-                             exec_inode, 0);
-    struct prov_node __arena *node = &layout->nodes[slot];
+    __u64 slot = record_base(task, PROV_KIND_EXEC, exec_inode, 0);
 
-    // Link to parent's most recent exec node.
-    __u32 ppid_key = node->ppid;
-    __u64 *parent_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &ppid_key);
-    node->prev_index = parent_slot ? *parent_slot : (__u64)-1;
+    // Look up parent's exec slot via arena hash table.
+    __u32 ppid = ARENA_PTR(&arena_nodes[slot])->ppid;
+    __u64 parent_key = arena_ht_make_key(PROV_KIND_EXEC, ppid);
+    __u64 parent_slot = arena_ht_lookup(arena_ht, parent_key);
+    ARENA_PTR(&arena_nodes[slot])->prev_index = parent_slot;
 
-    // Publish our slot for future children.
-    __u32 my_key = node->tgid;
-    bpf_map_update_elem(&aegis_next_pid_slot, &my_key, &slot, BPF_ANY);
+    // Index this exec in the arena hash table.
+    __u32 tgid = ARENA_PTR(&arena_nodes[slot])->tgid;
+    __u64 my_key = arena_ht_make_key(PROV_KIND_EXEC, tgid);
+    arena_ht_insert(arena_ht, my_key, slot);
+
+    // Also maintain the legacy pid_slot LRU (GC still sweeps it).
+    bpf_map_update_elem(&aegis_next_pid_slot, &tgid, &slot, BPF_ANY);
 }
 
-// Record a non-exec event (file_open, socket_connect, ...).
-// prev_index points to the OWNING exec node (current process's
-// most recent exec), not to the parent process.
 static __always_inline void
-record_event(struct prov_layout __arena *layout,
-             __u8 kind, __u64 object_id, __u16 extra)
+record_event(__u8 kind, __u64 object_id, __u16 extra)
 {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
-    __u64 slot = record_base(layout, task, kind, object_id, extra);
-    struct prov_node __arena *node = &layout->nodes[slot];
+    __u64 slot = record_base(task, kind, object_id, extra);
 
-    // Link to owning exec node, not to parent process.
+    // Link this event to the process's exec node via arena hash.
     __u32 tgid = BPF_CORE_READ(task, tgid);
-    __u64 *exec_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &tgid);
-    node->prev_index = exec_slot ? *exec_slot : (__u64)-1;
+    __u64 exec_key = arena_ht_make_key(PROV_KIND_EXEC, tgid);
+    __u64 exec_slot = arena_ht_lookup(arena_ht, exec_key);
+    ARENA_PTR(&arena_nodes[slot])->prev_index = exec_slot;
 
-    // Patch context-available fields.
-    node->uid  = bpf_get_current_uid_gid() & 0xffffffff;
-    node->cgid = bpf_get_current_cgroup_id();
+    // Also index this event by (kind, object_id) for future lookups
+    // (e.g. find all opens of a specific inode).
+    __u64 evt_key = arena_ht_make_key(kind, object_id);
+    arena_ht_insert(arena_ht, evt_key, slot);
+
+    ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
+    ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
 }
 
 SEC("lsm/bprm_check_security")
@@ -248,9 +517,7 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
 {
     if (ret != 0)
         return ret;
-
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -263,25 +530,43 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
             exec_inode = BPF_CORE_READ(ino, i_ino);
     }
 
-    // For the LSM hook we can also fill cgroup_id and uid from the
-    // helper context (faster and more accurate than BPF_CORE_READ).
-    record_task(layout, task, exec_inode);
+    record_task(task, exec_inode);
 
-    // Patch the cgroup/uid fields with the helper-provided values
-    // which are more accurate in the LSM context.
-    __u64 idx = layout->hdr.next_index - 1; // just written above
+    // Patch cgroup/uid with helper-provided values (more accurate in LSM context).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
-    layout->nodes[slot].uid  = bpf_get_current_uid_gid() & 0xffffffff;
-    layout->nodes[slot].cgid = bpf_get_current_cgroup_id();
+    ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
+    ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
 
+    // Resolve the executable's file path into the path slab.
+    // We must access bprm->file directly (BTF-aware) rather than
+    // through the stack-copied `file` pointer, because bpf_d_path
+    // requires a trusted_ptr to struct path.
+    {
+        struct file *bfile = bprm->file;
+        if (bfile) {
+            __u32 path_idx = resolve_path(&bfile->f_path);
+            ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
+        }
+    }
+
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_EXEC);
+
+    // Evaluate policy — may deny the exec.
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_EXEC, comm, 0, cgid) < 0)
+            return -1; /* -EPERM */
+    }
     return 0;
 }
 
 SEC("lsm/file_open")
 int BPF_PROG(aegis_next_on_file_open, struct file *file)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     __u64 inode = 0;
@@ -290,7 +575,27 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
         inode = BPF_CORE_READ(ino, i_ino);
 
     __u16 open_flags = (__u16)(BPF_CORE_READ(file, f_flags) & 0xFFFF);
-    record_event(layout, PROV_KIND_FILE_OPEN, inode, open_flags);
+    record_event(PROV_KIND_FILE_OPEN, inode, open_flags);
+
+    // Resolve the opened file's path into the path slab.
+    // `file` is the direct BTF-typed LSM hook argument, so
+    // &file->f_path gives a trusted pointer for bpf_d_path.
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 path_idx = resolve_path(&file->f_path);
+    ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
+
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_OPEN);
+
+    // Evaluate policy — may deny the file open.
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_FILE_OPEN, comm, 0, cgid) < 0)
+            return -1; /* -EACCES */
+    }
     return 0;
 }
 
@@ -298,36 +603,299 @@ SEC("lsm/socket_connect")
 int BPF_PROG(aegis_next_on_socket_connect,
              struct socket *sock, struct sockaddr *address, int addrlen)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     __u16 family = BPF_CORE_READ(address, sa_family);
 
-    // Encode destination as object_id: port in high 32 bits,
-    // IPv4 addr (or lower 32 bits of IPv6) in low 32 bits.
+    // Extract destination from sockaddr, source from sock->sk.
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u16 src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    __u32 src_v4   = 0;
+    __u32 dst_v4   = 0;
+    __u16 dst_port = 0;
+    __u8  src_v6_buf[16] = {};
+    __u8  dst_v6_buf[16] = {};
     __u64 object_id = 0;
+
     if (family == 2 /* AF_INET */ && addrlen >= 8) {
-        // struct sockaddr_in: { sa_family, sin_port, sin_addr }
-        __u16 port = 0;
-        __u32 addr = 0;
-        bpf_probe_read_kernel(&port, 2,
+        src_v4 = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+        bpf_probe_read_kernel(&dst_port, 2,
                               (const char *)address + 2);
-        bpf_probe_read_kernel(&addr, 4,
+        dst_port = __builtin_bswap16(dst_port);
+        bpf_probe_read_kernel(&dst_v4, 4,
                               (const char *)address + 4);
-        object_id = ((__u64)port << 32) | addr;
+        object_id = ((__u64)dst_port << 32) | dst_v4;
     } else if (family == 10 /* AF_INET6 */ && addrlen >= 28) {
-        __u16 port = 0;
-        __u32 addr_low = 0;
-        bpf_probe_read_kernel(&port, 2,
+        bpf_probe_read_kernel(&dst_port, 2,
                               (const char *)address + 2);
-        // Take last 4 bytes of in6_addr for a coarse fingerprint.
+        dst_port = __builtin_bswap16(dst_port);
+        bpf_probe_read_kernel(dst_v6_buf, 16,
+                              (const char *)address + 8);
+        // Read source IPv6 from socket.
+        bpf_probe_read_kernel(src_v6_buf, 16,
+                              &sk->__sk_common.skc_v6_rcv_saddr);
+        // Coarse fingerprint for object_id: last 4 bytes of dst.
+        __u32 addr_low = 0;
         bpf_probe_read_kernel(&addr_low, 4,
                               (const char *)address + 24);
-        object_id = ((__u64)port << 32) | addr_low;
+        object_id = ((__u64)dst_port << 32) | addr_low;
     }
 
-    record_event(layout, PROV_KIND_SOCKET_CONNECT, object_id, family);
+    record_event(PROV_KIND_SOCKET_CONNECT, object_id, family);
+
+    // Store full 5-tuple in net slab.
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, src_v4, src_port, dst_v4, dst_port,
+        (family == 10) ? src_v6_buf : (void *)0,
+        (family == 10) ? dst_v6_buf : (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_CONNECT);
+
+    // Evaluate policy — may deny the connect.
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_CONNECT, comm, dst_port, cgid) < 0)
+            return -1; /* -EACCES */
+    }
+    return 0;
+}
+
+SEC("lsm/socket_bind")
+int BPF_PROG(aegis_next_on_socket_bind,
+             struct socket *sock, struct sockaddr *address, int addrlen)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u16 family = BPF_CORE_READ(address, sa_family);
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u32 bind_v4  = 0;
+    __u16 bind_port = 0;
+    __u8  bind_v6_buf[16] = {};
+    __u64 object_id = 0;
+
+    if (family == 2 /* AF_INET */ && addrlen >= 8) {
+        bpf_probe_read_kernel(&bind_port, 2,
+                              (const char *)address + 2);
+        bind_port = __builtin_bswap16(bind_port);
+        bpf_probe_read_kernel(&bind_v4, 4,
+                              (const char *)address + 4);
+        object_id = ((__u64)bind_port << 32) | bind_v4;
+    } else if (family == 10 /* AF_INET6 */ && addrlen >= 28) {
+        bpf_probe_read_kernel(&bind_port, 2,
+                              (const char *)address + 2);
+        bind_port = __builtin_bswap16(bind_port);
+        bpf_probe_read_kernel(bind_v6_buf, 16,
+                              (const char *)address + 8);
+        __u32 addr_low = 0;
+        bpf_probe_read_kernel(&addr_low, 4,
+                              (const char *)address + 24);
+        object_id = ((__u64)bind_port << 32) | addr_low;
+    }
+
+    record_event(PROV_KIND_SOCKET_BIND, object_id, family);
+
+    // Store bind address in net slab (src = bind addr, dst = 0).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, bind_v4, bind_port, 0, 0,
+        (family == 10) ? bind_v6_buf : (void *)0,
+        (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_BIND);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_BIND, comm, bind_port, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/socket_listen")
+int BPF_PROG(aegis_next_on_socket_listen,
+             struct socket *sock, int backlog)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    if (!sk)
+        return 0;
+
+    __u16 family   = BPF_CORE_READ(sk, __sk_common.skc_family);
+    __u8  proto    = BPF_CORE_READ(sk, sk_protocol);
+    __u16 src_port = BPF_CORE_READ(sk, __sk_common.skc_num);
+    __u32 src_v4   = 0;
+    __u8  src_v6_buf[16] = {};
+    __u64 object_id = 0;
+
+    if (family == 2 /* AF_INET */) {
+        src_v4 = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+        object_id = ((__u64)src_port << 32) | src_v4;
+    } else if (family == 10 /* AF_INET6 */) {
+        bpf_probe_read_kernel(src_v6_buf, 16,
+                              &sk->__sk_common.skc_v6_rcv_saddr);
+        __u32 addr_low = 0;
+        __builtin_memcpy(&addr_low, &src_v6_buf[12], 4);
+        object_id = ((__u64)src_port << 32) | addr_low;
+    }
+
+    record_event(PROV_KIND_SOCKET_LISTEN, object_id, family);
+
+    // Store listen address in net slab (src = listen addr, dst = 0).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 nidx = record_net_flow(
+        (__u8)family, proto, src_v4, src_port, 0, 0,
+        (family == 10) ? src_v6_buf : (void *)0,
+        (void *)0);
+    ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_LISTEN);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_LISTEN, comm, src_port, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/file_permission")
+int BPF_PROG(aegis_next_on_file_perm, struct file *file, int mask)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // mask: MAY_READ=4, MAY_WRITE=2, MAY_EXEC=1, MAY_APPEND=8
+    __u64 inode = 0;
+    struct inode *ino = BPF_CORE_READ(file, f_inode);
+    if (ino)
+        inode = BPF_CORE_READ(ino, i_ino);
+
+    record_event(PROV_KIND_FILE_PERM, inode, (__u16)(mask & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_PERM);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_FILE_PERM, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/mmap_file")
+int BPF_PROG(aegis_next_on_mmap_file, struct file *file,
+             unsigned long reqprot, unsigned long prot, unsigned long flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+    if (!file)
+        return 0;
+
+    // Detect W+X: writable AND executable mmap (fileless malware indicator).
+    // prot bits: PROT_EXEC=4, PROT_WRITE=2.
+    __u16 prot_flags = (__u16)(prot & 0xFFFF);
+
+    __u64 inode = 0;
+    struct inode *ino = BPF_CORE_READ(file, f_inode);
+    if (ino)
+        inode = BPF_CORE_READ(ino, i_ino);
+
+    record_event(PROV_KIND_MMAP_FILE, inode, prot_flags);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_MMAP_FILE);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_MMAP_FILE, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/task_alloc")
+int BPF_PROG(aegis_next_on_task_alloc, struct task_struct *task,
+             unsigned long clone_flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // Record fork/clone events for fork bomb detection.
+    struct task_struct *current = (struct task_struct *)bpf_get_current_task_btf();
+    __u64 object_id = clone_flags;
+    record_event(PROV_KIND_TASK_ALLOC, object_id, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_TASK_ALLOC);
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &current->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_TASK_ALLOC, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/kernel_module_request")
+int BPF_PROG(aegis_next_on_kmod_req, char *kmod_name)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+
+    // Use comm hash as object_id for module request events.
+    __u32 name_hash = fnv1a_hash(comm, 12);
+    record_event(PROV_KIND_KMOD_REQ, name_hash, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_KMOD_REQ);
+
+    {
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_KMOD_REQ, comm, 0, cgid) < 0)
+            return -1;
+    }
     return 0;
 }
 
@@ -345,25 +913,18 @@ int BPF_PROG(aegis_next_on_socket_connect,
 SEC("syscall")
 int aegis_next_catchup(void *ctx)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
-        return -1;
+    aegis_next_arena_init();
 
     struct task_struct *task;
+    bpf_rcu_read_lock();
     bpf_for_each(task, task, NULL, BPF_TASK_ITER_ALL) {
-        // Skip non-leaders (threads). We only record one node per
-        // process (thread group), keyed by tgid.
         __u32 pid = BPF_CORE_READ(task, pid);
         __u32 tgid = BPF_CORE_READ(task, tgid);
         if (pid != tgid)
             continue;
-
-        // exec_inode: we don't have bprm here; set to 0. The live
-        // LSM hook will overwrite this with the real inode when the
-        // process next exec's. For now, having the pid/ppid/tgid in
-        // the arena is what matters for lineage connectivity.
-        record_task(layout, task, 0);
+        record_task(task, 0);
     }
+    bpf_rcu_read_unlock();
 
     return 0;
 }
@@ -396,7 +957,6 @@ struct {
 
 // Context passed to the bpf_for_each_map_elem callback.
 struct gc_ctx {
-    struct prov_layout __arena *layout;
     __u8  current_gen_tag;
     __u64 evicted;
 };
@@ -405,31 +965,24 @@ struct gc_ctx {
 static long gc_check_entry(struct bpf_map *map, const __u32 *key,
                            __u64 *value, struct gc_ctx *ctx)
 {
-    if (!ctx->layout)
-        return 1; // stop
-
     __u64 slot = *value % AEGIS_NEXT_MAX_NODES;
-    struct prov_node __arena *node = &ctx->layout->nodes[slot];
+    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
-    // If the node's generation tag doesn't match, the slot has been
-    // overwritten since this pid_slot entry was created.
     if (node->flags != ctx->current_gen_tag) {
         bpf_map_delete_elem(map, key);
         ctx->evicted++;
     }
-    return 0; // continue
+    return 0;
 }
 
 // Timer callback: runs the GC sweep.
 static int gc_timer_cb(void *map, __u32 *key, struct gc_state *state)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         goto reschedule;
 
     struct gc_ctx ctx = {
-        .layout = layout,
-        .current_gen_tag = (__u8)(layout->hdr.generation & 0xFF),
+        .current_gen_tag = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF),
         .evicted = 0,
     };
 
