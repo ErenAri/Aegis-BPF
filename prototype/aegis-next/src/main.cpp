@@ -232,7 +232,8 @@ void usage(const char* prog)
                  "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
                  "  sched status           list quarantined cgroups\n"
                  "  protect                load self-protection LSM hooks\n"
-                 "  export tail [N]        print last N lines from JSONL export\n",
+                 "  export tail [N]        print last N lines from JSONL export\n"
+                 "  status                 show feature probes, arena, policy, quarantine\n",
                  prog);
 }
 
@@ -880,6 +881,90 @@ int cmd_sched_status()
     return 0;
 }
 
+// ---- status subcommand -----------------------------------------
+
+int cmd_status()
+{
+    // Feature probe.
+    auto features = aegis_next::probe_features();
+    std::printf("=== aegis-next status ===\n\n");
+    aegis_next::print_features(features);
+    std::printf("\n");
+
+    // Arena stats (if pinned).
+    std::string arena_path = arena_pin_path();
+    int arena_fd = bpf_obj_get(arena_path.c_str());
+    if (arena_fd >= 0) {
+        void* base = mmap(nullptr, aegis_next::kArenaBytes,
+                          PROT_READ, MAP_SHARED, arena_fd, 0);
+        close(arena_fd);
+        if (base != MAP_FAILED) {
+            const auto* layout =
+                static_cast<const aegis_next::ProvLayout*>(base);
+            const auto& hdr = layout->hdr;
+            std::uint64_t total = hdr.next_index;
+            std::uint64_t slots =
+                (total < aegis_next::kMaxNodes) ? total : aegis_next::kMaxNodes;
+            std::printf("arena:\n");
+            std::printf("  nodes recorded: %lu\n", (unsigned long)total);
+            std::printf("  slots used:     %lu / %lu (%.1f%%)\n",
+                        (unsigned long)slots,
+                        (unsigned long)aegis_next::kMaxNodes,
+                        slots * 100.0 / aegis_next::kMaxNodes);
+            std::printf("  dropped:        %lu\n", (unsigned long)hdr.dropped);
+            std::printf("  generation:     %lu\n", (unsigned long)hdr.generation);
+            munmap(base, aegis_next::kArenaBytes);
+        }
+    } else {
+        std::printf("arena: not attached (no pin at %s)\n", arena_path.c_str());
+    }
+    std::printf("\n");
+
+    // Policy rule count.
+    std::string pol_path = policy_pin_path();
+    int pol_fd = bpf_obj_get(pol_path.c_str());
+    if (pol_fd >= 0) {
+        int count = 0;
+        policy_key key{}, next{};
+        while (bpf_map_get_next_key(pol_fd, &key, &next) == 0) {
+            ++count;
+            key = next;
+        }
+        std::printf("policy: %d rule(s) loaded\n", count);
+        close(pol_fd);
+    } else {
+        std::printf("policy: not loaded\n");
+    }
+
+    // Quarantine entries.
+    std::string quar_path = quarantine_pin_path();
+    int quar_fd = bpf_obj_get(quar_path.c_str());
+    if (quar_fd >= 0) {
+        int count = 0;
+        __u64 key = 0, next = 0;
+        while (bpf_map_get_next_key(quar_fd, &key, &next) == 0) {
+            ++count;
+            key = next;
+        }
+        std::printf("quarantine: %d cgroup(s)\n", count);
+        close(quar_fd);
+    } else {
+        std::printf("quarantine: not loaded\n");
+    }
+
+    // Export file.
+    std::string exp_path = pin_dir() + "/events.jsonl";
+    struct stat st{};
+    if (::stat(exp_path.c_str(), &st) == 0) {
+        std::printf("export: %s (%.1f KB)\n", exp_path.c_str(),
+                    st.st_size / 1024.0);
+    } else {
+        std::printf("export: no file\n");
+    }
+
+    return 0;
+}
+
 // ---- self-protection subcommand --------------------------------
 
 int cmd_protect()
@@ -1321,6 +1406,10 @@ int main(int argc, char** argv)
 
     if (cmd == "protect") {
         return cmd_protect();
+    }
+
+    if (cmd == "status") {
+        return cmd_status();
     }
 
     if (cmd == "export") {
