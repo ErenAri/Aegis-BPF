@@ -189,4 +189,17 @@ inline const char* kind_name(std::uint8_t kind)
     }
 }
 
+// ----- policy helpers -----
+
+// FNV-1a hash matching the BPF side (must produce identical values).
+inline std::uint32_t fnv1a(const char* s, std::size_t maxlen = 12)
+{
+    std::uint32_t h = 0x811c9dc5u;
+    for (std::size_t i = 0; i < maxlen && s[i] != '\0'; ++i) {
+        h ^= static_cast<std::uint32_t>(static_cast<unsigned char>(s[i]));
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
 } // namespace aegis_next

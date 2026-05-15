@@ -39,4 +39,19 @@
 // Ringbuf geometry.
 #define AEGIS_RINGBUF_PAGES  512  // 2MB (512 × 4K)
 
+// Policy match types (policy_key.match_type).
+#define POLICY_MATCH_COMM     0  // match by comm name hash
+#define POLICY_MATCH_PATH     1  // match by path prefix hash
+#define POLICY_MATCH_PORT     2  // match by destination port
+#define POLICY_MATCH_CGROUP   3  // match by cgroup ID (low 32 bits)
+
+// Policy actions (policy_val.action).
+#define POLICY_ACTION_ALLOW      0
+#define POLICY_ACTION_DENY       1
+#define POLICY_ACTION_LOG        2
+#define POLICY_ACTION_QUARANTINE 3
+
+// Policy flags (policy_val.flags).
+#define POLICY_FLAG_KILL  (1u << 0)  // send SIGKILL after deny
+
 #endif // AEGIS_NEXT_PROV_TYPES_H

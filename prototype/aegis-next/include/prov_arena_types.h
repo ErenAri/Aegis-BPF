@@ -77,4 +77,22 @@ struct aegis_alert {
     uint8_t  _pad[3];
 };
 
+/* Policy map key — (hook, match_type, match_val) composite.
+ * Must match struct policy_key in provenance.bpf.c. */
+struct policy_key {
+    uint8_t  hook;        /* PROV_KIND_* */
+    uint8_t  match_type;  /* POLICY_MATCH_* */
+    uint16_t _pad;
+    uint32_t match_val;   /* FNV hash of comm/path, port number, or cgid low bits */
+};
+
+/* Policy map value — action + flags.
+ * Must match struct policy_val in provenance.bpf.c. */
+struct policy_val {
+    uint8_t  action;      /* POLICY_ACTION_* */
+    uint8_t  flags;       /* POLICY_FLAG_* */
+    uint16_t _pad;
+    uint32_t _reserved;
+};
+
 #endif /* AEGIS_NEXT_PROV_ARENA_TYPES_H */

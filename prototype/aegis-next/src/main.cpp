@@ -113,6 +113,7 @@ std::string pin_dir()
 std::string arena_pin_path() { return pin_dir() + "/arena"; }
 std::string quarantine_pin_path() { return pin_dir() + "/quarantine"; }
 std::string gc_state_pin_path() { return pin_dir() + "/gc_state"; }
+std::string policy_pin_path() { return pin_dir() + "/policy"; }
 
 std::atomic<bool> g_stop{false};
 
@@ -218,6 +219,10 @@ void usage(const char* prog)
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
                  "  graph gc               print GC timer statistics\n"
+                 "  policy add <hook> <match> <value> <action> [--kill]\n"
+                 "                         add a policy rule (deny/allow/log)\n"
+                 "  policy list            list all active policy rules\n"
+                 "  policy clear           remove all policy rules\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
                  "  sched quarantine <cgid> <level>  set quarantine level for cgroup\n"
                  "  sched status           list quarantined cgroups\n",
@@ -252,6 +257,14 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         return 1;
     }
     std::printf("aegis-next: arena pinned at %s\n", path.c_str());
+
+    // Pin policy map for the `policy` subcommands.
+    std::string pol_path = policy_pin_path();
+    int pol_pin_err = bpf_map__pin(skel->maps.aegis_next_policy, pol_path.c_str());
+    if (pol_pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin policy at %s: %s\n",
+                     pol_path.c_str(), std::strerror(errno));
+    }
 
     // Pin GC state map for the `graph gc` subcommand.
     std::string gc_path = gc_state_pin_path();
@@ -783,6 +796,182 @@ int cmd_sched_status()
     return 0;
 }
 
+// ---- policy subcommands ----------------------------------------
+
+int open_pinned_policy_fd()
+{
+    std::string path = policy_pin_path();
+    int fd = bpf_obj_get(path.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned policy map at %s: %s\n"
+                     "hint: run 'aegisbpf-next attach' first.\n",
+                     path.c_str(), std::strerror(errno));
+    }
+    return fd;
+}
+
+const char* match_type_name(int mt)
+{
+    switch (mt) {
+    case POLICY_MATCH_COMM:   return "comm";
+    case POLICY_MATCH_PATH:   return "path";
+    case POLICY_MATCH_PORT:   return "port";
+    case POLICY_MATCH_CGROUP: return "cgroup";
+    default:                  return "?";
+    }
+}
+
+const char* action_name(int a)
+{
+    switch (a) {
+    case POLICY_ACTION_ALLOW:      return "allow";
+    case POLICY_ACTION_DENY:       return "deny";
+    case POLICY_ACTION_LOG:        return "log";
+    case POLICY_ACTION_QUARANTINE: return "quarantine";
+    default:                       return "?";
+    }
+}
+
+// policy add <hook> comm <name> deny [--kill]
+// policy add <hook> port <number> deny [--kill]
+int cmd_policy_add(int argc, char** argv)
+{
+    // argv: policy add <hook> <match_type> <match_val> <action> [--kill]
+    if (argc < 7) {
+        std::fprintf(stderr,
+                     "usage: policy add <hook> <match_type> <value> <action> [--kill]\n"
+                     "  hook:  exec|file|conn|bind|listen\n"
+                     "  match: comm|port|cgroup\n"
+                     "  action: deny|allow|log\n");
+        return 1;
+    }
+
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    // Parse hook kind.
+    const std::string hook_str = argv[3];
+    std::uint8_t hook = 255;
+    if (hook_str == "exec")   hook = PROV_KIND_EXEC;
+    else if (hook_str == "file")   hook = PROV_KIND_FILE_OPEN;
+    else if (hook_str == "conn")   hook = PROV_KIND_SOCKET_CONNECT;
+    else if (hook_str == "bind")   hook = PROV_KIND_SOCKET_BIND;
+    else if (hook_str == "listen") hook = PROV_KIND_SOCKET_LISTEN;
+    else {
+        std::fprintf(stderr, "unknown hook: %s\n", hook_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Parse match type + value.
+    const std::string mt_str = argv[4];
+    const std::string val_str = argv[5];
+    policy_key key{};
+    key.hook = hook;
+
+    if (mt_str == "comm") {
+        key.match_type = POLICY_MATCH_COMM;
+        key.match_val = aegis_next::fnv1a(val_str.c_str(), val_str.size());
+    } else if (mt_str == "port") {
+        key.match_type = POLICY_MATCH_PORT;
+        key.match_val = static_cast<std::uint32_t>(std::strtoul(val_str.c_str(), nullptr, 10));
+    } else if (mt_str == "cgroup") {
+        key.match_type = POLICY_MATCH_CGROUP;
+        key.match_val = static_cast<std::uint32_t>(std::strtoull(val_str.c_str(), nullptr, 0));
+    } else {
+        std::fprintf(stderr, "unknown match type: %s\n", mt_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Parse action.
+    const std::string act_str = argv[6];
+    policy_val val{};
+    if (act_str == "deny")          val.action = POLICY_ACTION_DENY;
+    else if (act_str == "allow")    val.action = POLICY_ACTION_ALLOW;
+    else if (act_str == "log")      val.action = POLICY_ACTION_LOG;
+    else {
+        std::fprintf(stderr, "unknown action: %s\n", act_str.c_str());
+        close(map_fd);
+        return 1;
+    }
+
+    // Check --kill flag.
+    for (int i = 7; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--kill") == 0)
+            val.flags |= POLICY_FLAG_KILL;
+    }
+
+    if (bpf_map_update_elem(map_fd, &key, &val, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to add policy rule: %s\n",
+                     std::strerror(errno));
+        close(map_fd);
+        return 1;
+    }
+
+    std::printf("policy: added rule hook=%s match=%s val=%s action=%s%s\n",
+                hook_str.c_str(), mt_str.c_str(), val_str.c_str(),
+                act_str.c_str(),
+                (val.flags & POLICY_FLAG_KILL) ? " +kill" : "");
+    close(map_fd);
+    return 0;
+}
+
+int cmd_policy_list()
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    std::printf("policy rules:\n");
+    std::printf("  %-8s %-8s %-12s %-12s %s\n",
+                "hook", "match", "value", "action", "flags");
+
+    policy_key key{};
+    policy_key next_key{};
+    policy_val val{};
+    int count = 0;
+
+    while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
+        if (bpf_map_lookup_elem(map_fd, &next_key, &val) == 0) {
+            std::printf("  %-8s %-8s 0x%08x   %-12s %s\n",
+                        aegis_next::kind_name(next_key.hook),
+                        match_type_name(next_key.match_type),
+                        next_key.match_val,
+                        action_name(val.action),
+                        (val.flags & POLICY_FLAG_KILL) ? "kill" : "-");
+            ++count;
+        }
+        key = next_key;
+    }
+
+    if (count == 0)
+        std::printf("  (none)\n");
+    std::printf("total: %d rules\n", count);
+    close(map_fd);
+    return 0;
+}
+
+int cmd_policy_clear()
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    policy_key key{};
+    policy_key next_key{};
+    int count = 0;
+
+    while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
+        bpf_map_delete_elem(map_fd, &next_key);
+        ++count;
+        // Don't advance key — deletion shifts iteration.
+    }
+
+    std::printf("policy: cleared %d rule(s)\n", count);
+    close(map_fd);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -858,6 +1047,25 @@ int main(int argc, char** argv)
             return cmd_sched_quarantine(cgid, level);
         }
         std::fprintf(stderr, "unknown sched subcommand: %s\n", sub.c_str());
+        return 1;
+    }
+
+    if (cmd == "policy") {
+        if (argc < 3) {
+            std::fprintf(stderr, "policy requires a subcommand: add, list, clear\n");
+            return 1;
+        }
+        const std::string sub = argv[2];
+        if (sub == "add") {
+            return cmd_policy_add(argc, argv);
+        }
+        if (sub == "list") {
+            return cmd_policy_list();
+        }
+        if (sub == "clear") {
+            return cmd_policy_clear();
+        }
+        std::fprintf(stderr, "unknown policy subcommand: %s\n", sub.c_str());
         return 1;
     }
 

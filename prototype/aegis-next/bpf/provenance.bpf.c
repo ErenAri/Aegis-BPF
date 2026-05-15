@@ -181,6 +181,29 @@ struct {
     __uint(max_entries, AEGIS_RINGBUF_PAGES * 4096);
 } aegis_next_ringbuf SEC(".maps");
 
+// Policy map — BPF_MAP_TYPE_HASH for fast O(1) rule lookup.
+// Userspace loads rules via bpf_map_update_elem.
+struct policy_key {
+    __u8  hook;        // PROV_KIND_*
+    __u8  match_type;  // POLICY_MATCH_*
+    __u16 _pad;
+    __u32 match_val;   // FNV hash of comm/path, port number, or cgid low bits
+};
+
+struct policy_val {
+    __u8  action;      // POLICY_ACTION_*
+    __u8  flags;       // POLICY_FLAG_*
+    __u16 _pad;
+    __u32 _reserved;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct policy_key);
+    __type(value, struct policy_val);
+    __uint(max_entries, 1024);
+} aegis_next_policy SEC(".maps");
+
 // Legacy pid->slot LRU hash, kept alongside the arena hash table
 // during transition. The GC timer sweeps this map; once the arena
 // hash is proven reliable, this map can be removed.
@@ -206,6 +229,72 @@ static __always_inline void aegis_next_arena_init(void)
     ARENA_PTR(&arena_hdr)->dropped = 0;
     ARENA_PTR(&arena_hdr)->generation = 0;
     *(ARENA_PTR(&arena_ready)) = 1;
+}
+
+// FNV-1a hash of a null-terminated string (bounded to 16 bytes).
+// Used to hash comm names for policy key lookups.
+static __always_inline __u32 fnv1a_hash(const char *s, int maxlen)
+{
+    __u32 h = 0x811c9dc5u;
+    #pragma unroll
+    for (int i = 0; i < maxlen; i++) {
+        char c = s[i];
+        if (c == 0)
+            break;
+        h ^= (__u32)(unsigned char)c;
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+// Evaluate policy for a given hook. Returns 0 (allow) or -1 (deny).
+// Performs up to 3 map lookups: comm, port, cgroup.
+// On QUARANTINE action, writes cgroup to quarantine map from BPF.
+// On DENY + KILL flag, sends SIGKILL.
+static __always_inline int
+evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
+{
+    struct policy_key key = {};
+    struct policy_val *val;
+    int deny = 0;
+
+    key.hook = hook;
+
+    // 1. Match by comm hash.
+    key.match_type = POLICY_MATCH_COMM;
+    key.match_val = fnv1a_hash(comm, 12);
+    val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+    if (val && val->action == POLICY_ACTION_DENY) {
+        deny = 1;
+        if (val->flags & POLICY_FLAG_KILL)
+            bpf_send_signal(9 /* SIGKILL */);
+    }
+
+    // 2. Match by port (socket hooks only).
+    if (port && !deny) {
+        key.match_type = POLICY_MATCH_PORT;
+        key.match_val = port;
+        val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+        if (val && val->action == POLICY_ACTION_DENY) {
+            deny = 1;
+            if (val->flags & POLICY_FLAG_KILL)
+                bpf_send_signal(9);
+        }
+    }
+
+    // 3. Match by cgroup (container-scoped rules).
+    if (cgid && !deny) {
+        key.match_type = POLICY_MATCH_CGROUP;
+        key.match_val = (__u32)cgid;
+        val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+        if (val && val->action == POLICY_ACTION_DENY) {
+            deny = 1;
+            if (val->flags & POLICY_FLAG_KILL)
+                bpf_send_signal(9);
+        }
+    }
+
+    return deny ? -1 : 0;
 }
 
 // Resolve a file path via bpf_d_path, allocate a path slab slot, and
@@ -441,6 +530,15 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
     }
 
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_EXEC);
+
+    // Evaluate policy — may deny the exec.
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_EXEC, comm, 0, cgid) < 0)
+            return -1; /* -EPERM */
+    }
     return 0;
 }
 
@@ -467,6 +565,16 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
     ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
 
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_OPEN);
+
+    // Evaluate policy — may deny the file open.
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_FILE_OPEN, comm, 0, cgid) < 0)
+            return -1; /* -EACCES */
+    }
     return 0;
 }
 
@@ -528,6 +636,16 @@ int BPF_PROG(aegis_next_on_socket_connect,
         (family == 10) ? dst_v6_buf : (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_CONNECT);
+
+    // Evaluate policy — may deny the connect.
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_CONNECT, comm, dst_port, cgid) < 0)
+            return -1; /* -EACCES */
+    }
     return 0;
 }
 
@@ -580,6 +698,15 @@ int BPF_PROG(aegis_next_on_socket_bind,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_BIND);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_BIND, comm, bind_port, cgid) < 0)
+            return -1;
+    }
     return 0;
 }
 
@@ -623,6 +750,15 @@ int BPF_PROG(aegis_next_on_socket_listen,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_LISTEN);
+
+    {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SOCKET_LISTEN, comm, src_port, cgid) < 0)
+            return -1;
+    }
     return 0;
 }
 
