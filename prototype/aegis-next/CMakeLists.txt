@@ -99,6 +99,7 @@ add_custom_command(
             -o ${AEGIS_NEXT_BPF_OBJECT}
     DEPENDS ${AEGIS_NEXT_BPF_SOURCE}
             ${CMAKE_CURRENT_SOURCE_DIR}/bpf/prov_types.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/bpf/arena_htable.h
             ${AEGIS_NEXT_VMLINUX_HEADER}
     VERBATIM
     COMMENT "Compiling aegis-next BPF (arena + bprm_check_security)"

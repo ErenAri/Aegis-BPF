@@ -41,8 +41,15 @@
 #include "provenance.skel.h"
 #include "quarantine.skel.h"
 
+// Verify that our computed hash table offset matches the skeleton layout.
+static_assert(offsetof(provenance_bpf::provenance_bpf__arena, arena_ht) ==
+              aegis_next::kHtOffset,
+              "arena hash table offset mismatch — update kHtOffset");
+
 namespace {
 
+using aegis_next::arena_ht_from_mmap;
+using aegis_next::HtEntry;
 using aegis_next::kArenaBytes;
 using aegis_next::kMaxLineageDepth;
 using aegis_next::kMaxNodes;
@@ -130,12 +137,16 @@ const ProvLayout* open_pinned_arena()
                      path.c_str(), std::strerror(errno));
         return nullptr;
     }
-    void* arena = mmap(nullptr, kArenaBytes, PROT_READ,
+    void* arena = mmap(nullptr, kArenaBytes, PROT_READ | PROT_WRITE,
                        MAP_SHARED, fd, 0);
     close(fd);
     if (arena == MAP_FAILED) {
         std::fprintf(stderr, "mmap(arena) failed: %s\n",
                      std::strerror(errno));
+        std::fprintf(stderr,
+                     "note: on kernel 6.17+, BPF arenas can only be mmapped\n"
+                     "      by one process. Use 'graph' subcommands from the\n"
+                     "      attach process (future: Unix socket query API).\n");
         return nullptr;
     }
     return static_cast<const ProvLayout*>(arena);
@@ -289,6 +300,21 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
 
     // Access arena through the skeleton's auto-mapped globals.
     auto* arena_view = skel->arena;
+
+    // Quick check: hash table was populated by the catch-up scan.
+    {
+        const auto* ht = reinterpret_cast<const aegis_next::HtEntry*>(
+            arena_view->arena_ht);
+        std::uint64_t occupied = 0;
+        for (std::size_t i = 0; i < aegis_next::kHtBuckets; ++i) {
+            if (ht[i].key != 0)
+                ++occupied;
+        }
+        std::printf("aegis-next: arena hash table: %lu / %lu buckets used (%.1f%%)\n",
+                    (unsigned long)occupied,
+                    (unsigned long)aegis_next::kHtBuckets,
+                    occupied * 100.0 / aegis_next::kHtBuckets);
+    }
     std::uint64_t last_seen = 0;
     std::uint64_t quarantine_hits = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
@@ -329,6 +355,20 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     if (quarantine_hits > 0) {
         std::printf("aegis-next: auto-quarantined %lu cgroup(s) this session.\n",
                     (unsigned long)quarantine_hits);
+    }
+
+    // Report hash table stats on exit.
+    {
+        const auto* ht = reinterpret_cast<const aegis_next::HtEntry*>(
+            arena_view->arena_ht);
+        std::uint64_t occupied = 0;
+        for (std::size_t i = 0; i < aegis_next::kHtBuckets; ++i) {
+            if (ht[i].key != 0)
+                ++occupied;
+        }
+        std::printf("aegis-next: arena hash table at exit: %lu / %lu buckets occupied\n",
+                    (unsigned long)occupied,
+                    (unsigned long)aegis_next::kHtBuckets);
     }
 
     std::printf("\naegis-next: detaching. arena pin remains at %s\n",
@@ -439,8 +479,16 @@ int cmd_graph_lineage(std::uint32_t target_pid)
     const std::uint64_t total = layout->hdr.next_index;
     auto reader = make_reader(layout);
 
-    std::uint64_t slot = aegis_next::find_slot_by_pid(
-        target_pid, total, kMaxNodes, reader);
+    // Try O(1) hash lookup first, fall back to linear scan.
+    const HtEntry* ht = arena_ht_from_mmap(layout);
+    std::uint64_t slot = aegis_next::find_slot_by_pid_ht(
+        target_pid, ht, kMaxNodes, reader);
+
+    if (slot == kRootSentinel) {
+        // Hash miss (stale or never inserted) — fall back to linear scan.
+        slot = aegis_next::find_slot_by_pid(
+            target_pid, total, kMaxNodes, reader);
+    }
 
     if (slot == kRootSentinel) {
         std::fprintf(stderr,

@@ -20,9 +20,12 @@ namespace aegis_next {
 
 // ----- arena geometry (matches BPF side) -----
 
-inline constexpr std::size_t kArenaPages = 16385;  // extra page for header + ready flag
-inline constexpr std::size_t kArenaBytes = kArenaPages * 4096ULL;
-inline constexpr std::size_t kMaxNodes   = 1ULL << 20;
+// Arena geometry: nodes (16384p) + header/flag (1p) + hash table (256p)
+inline constexpr std::size_t kArenaPages   = 16641;
+inline constexpr std::size_t kArenaBytes   = kArenaPages * 4096ULL;
+inline constexpr std::size_t kMaxNodes     = 1ULL << 20;
+inline constexpr std::size_t kHtBuckets    = 1ULL << 16;  // 64K
+inline constexpr int         kHtMaxProbe   = 8;
 
 inline constexpr std::uint64_t kRootSentinel =
     static_cast<std::uint64_t>(-1);
@@ -68,6 +71,54 @@ static_assert(offsetof(ProvNode, kind) == 48,
               "ProvNode.kind offset drift");
 static_assert(offsetof(ProvNode, comm) == 52,
               "ProvNode.comm offset drift");
+
+// ----- arena hash table helpers (userspace, reads mmap'd arena) -----
+
+struct HtEntry {
+    std::uint64_t key;
+    std::uint64_t value;
+};
+
+inline std::uint64_t ht_make_key(std::uint8_t kind, std::uint64_t id)
+{
+    return (static_cast<std::uint64_t>(kind) << 56) |
+           (id & 0x00FFFFFFFFFFFFFFULL);
+}
+
+inline std::uint32_t ht_hash(std::uint64_t key)
+{
+    return static_cast<std::uint32_t>(
+        (key * 0x9E3779B97F4A7C15ULL) >> 48) & (kHtBuckets - 1);
+}
+
+// O(1) lookup in the mmap'd arena hash table.
+// Returns the slot index, or kRootSentinel on miss.
+inline std::uint64_t ht_lookup(const HtEntry* table, std::uint64_t key)
+{
+    std::uint32_t idx = ht_hash(key);
+    for (int i = 0; i < kHtMaxProbe; ++i) {
+        std::uint32_t probe = (idx + i) & (kHtBuckets - 1);
+        if (table[probe].key == key)
+            return table[probe].value;
+        if (table[probe].key == 0)
+            return kRootSentinel;
+    }
+    return kRootSentinel;
+}
+
+// Byte offset of the arena hash table from the arena mmap base.
+// Layout: arena_hdr(32) + arena_nodes(64M) + arena_ready(int,4) + pad(4)
+// The pad aligns arena_ht to 8 bytes (arena_ht_entry contains u64).
+// Verified at compile time in main.cpp via skeleton offsetof.
+inline constexpr std::size_t kHtOffset =
+    sizeof(ProvHeader) + sizeof(ProvNode) * kMaxNodes + 8;
+
+// Get the arena hash table from a raw mmap'd arena pointer.
+inline const HtEntry* arena_ht_from_mmap(const void* arena_base)
+{
+    return reinterpret_cast<const HtEntry*>(
+        static_cast<const char*>(arena_base) + kHtOffset);
+}
 
 // A node is "stale" if its generation tag (flags byte) doesn't match
 // the current generation's low byte. This catches overwrites after

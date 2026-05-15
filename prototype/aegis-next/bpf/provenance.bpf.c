@@ -35,10 +35,12 @@
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
 
-// Arena geometry. 16385 pages * 4 KiB = 64 MiB + 4 KiB.
-// One extra page for header + ready flag that sit alongside the
-// node array in the arena globals section.
-#define AEGIS_NEXT_ARENA_PAGES 16385
+// Arena geometry.
+// Node array:  1M × 64B = 64 MiB  = 16384 pages
+// Header+flag: 36B                 ~     1 page
+// Hash table:  64K × 16B = 1 MiB  =   256 pages
+// Total:                           = 16641 pages
+#define AEGIS_NEXT_ARENA_PAGES 16641
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -99,29 +101,6 @@ extern void bpf_rcu_read_unlock(void) __ksym;
 // NOTE: prov_layout is still defined in aegis_next_prov.hpp for
 // userspace mmap access. BPF code uses arena globals directly.
 
-// Arena-resident layout: header + node array live directly in
-// the arena address space. Using both __arena (for clang type
-// checking) and SEC(".addr_space.1") (for libbpf 1.5.0 section
-// placement). libbpf >= 1.6.0 would auto-relocate __arena globals.
-// The kernel allocates arena pages on demand (fault-in).
-struct prov_header __arena arena_hdr SEC(".addr_space.1");
-struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
-int __arena arena_ready SEC(".addr_space.1");
-
-// tgid -> most-recent slot index in the arena. Lets a child exec
-// find its parent's exec record in O(1) so we can populate
-// prev_index and build an actual lineage chain.
-//
-// Sized at 64K entries: enough for typical workloads, falls back
-// to "parent unknown" on overflow (LRU eviction). The hash holds
-// integers only, so KASLR rules are not implicated.
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, __u32);   // tgid
-    __type(value, __u64); // slot index into prov_layout.nodes[]
-    __uint(max_entries, 65536);
-} aegis_next_pid_slot SEC(".maps");
-
 // Workaround for kernel 6.17 verifier + clang-19: when accessing an
 // arena global through a pointer, clang may hoist the pre-cast
 // (address-space-0) base address into a register and reuse it for
@@ -138,6 +117,28 @@ struct {
         asm volatile("" : "+r"(__p));                      \
         __p;                                               \
     })
+
+#include "arena_htable.h"
+
+// Arena-resident layout: header + node array + hash table live
+// directly in the arena address space. Using both __arena (for clang
+// type checking) and SEC(".addr_space.1") (for libbpf 1.5.0 section
+// placement). libbpf >= 1.6.0 would auto-relocate __arena globals.
+// The kernel allocates arena pages on demand (fault-in).
+struct prov_header __arena arena_hdr SEC(".addr_space.1");
+struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
+int __arena arena_ready SEC(".addr_space.1");
+struct arena_ht_entry __arena arena_ht[ARENA_HT_BUCKETS] SEC(".addr_space.1");
+
+// Legacy pid->slot LRU hash, kept alongside the arena hash table
+// during transition. The GC timer sweeps this map; once the arena
+// hash is proven reliable, this map can be removed.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, __u32);   // tgid
+    __type(value, __u64); // slot index into prov_layout.nodes[]
+    __uint(max_entries, 65536);
+} aegis_next_pid_slot SEC(".maps");
 
 // Check if arena has been initialized.
 static __always_inline bool aegis_is_ready(void)
@@ -197,20 +198,26 @@ record_base(struct task_struct *task, __u8 kind,
     return slot;
 }
 
-// Record a process exec event. Updates the pid->slot hash and
+// Record a process exec event. Updates the arena hash table and
 // links to the parent's exec node via prev_index.
 static __always_inline void
 record_task(struct task_struct *task, __u64 exec_inode)
 {
     __u64 slot = record_base(task, PROV_KIND_EXEC, exec_inode, 0);
-    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
-    __u32 ppid_key = node->ppid;
-    __u64 *parent_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &ppid_key);
-    ARENA_PTR(&arena_nodes[slot])->prev_index = parent_slot ? *parent_slot : (__u64)-1;
+    // Look up parent's exec slot via arena hash table.
+    __u32 ppid = ARENA_PTR(&arena_nodes[slot])->ppid;
+    __u64 parent_key = arena_ht_make_key(PROV_KIND_EXEC, ppid);
+    __u64 parent_slot = arena_ht_lookup(arena_ht, parent_key);
+    ARENA_PTR(&arena_nodes[slot])->prev_index = parent_slot;
 
-    __u32 my_key = node->tgid;
-    bpf_map_update_elem(&aegis_next_pid_slot, &my_key, &slot, BPF_ANY);
+    // Index this exec in the arena hash table.
+    __u32 tgid = ARENA_PTR(&arena_nodes[slot])->tgid;
+    __u64 my_key = arena_ht_make_key(PROV_KIND_EXEC, tgid);
+    arena_ht_insert(arena_ht, my_key, slot);
+
+    // Also maintain the legacy pid_slot LRU (GC still sweeps it).
+    bpf_map_update_elem(&aegis_next_pid_slot, &tgid, &slot, BPF_ANY);
 }
 
 static __always_inline void
@@ -218,11 +225,17 @@ record_event(__u8 kind, __u64 object_id, __u16 extra)
 {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     __u64 slot = record_base(task, kind, object_id, extra);
-    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
+    // Link this event to the process's exec node via arena hash.
     __u32 tgid = BPF_CORE_READ(task, tgid);
-    __u64 *exec_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &tgid);
-    ARENA_PTR(&arena_nodes[slot])->prev_index = exec_slot ? *exec_slot : (__u64)-1;
+    __u64 exec_key = arena_ht_make_key(PROV_KIND_EXEC, tgid);
+    __u64 exec_slot = arena_ht_lookup(arena_ht, exec_key);
+    ARENA_PTR(&arena_nodes[slot])->prev_index = exec_slot;
+
+    // Also index this event by (kind, object_id) for future lookups
+    // (e.g. find all opens of a specific inode).
+    __u64 evt_key = arena_ht_make_key(kind, object_id);
+    arena_ht_insert(arena_ht, evt_key, slot);
 
     ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
     ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
