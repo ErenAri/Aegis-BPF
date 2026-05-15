@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cerrno>
 #include <csignal>
+#include <type_traits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +40,7 @@
 #include <unistd.h>
 
 #include "aegis_next_prov.hpp"
+#include "event_export.hpp"
 #include "feature_probe.hpp"
 #include "prov_walk.hpp"
 #include "prov_arena_types.h"  // C struct defs for skeleton arena globals
@@ -229,7 +231,8 @@ void usage(const char* prog)
                  "  sched start            load sched_ext quarantine scheduler\n"
                  "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
                  "  sched status           list quarantined cgroups\n"
-                 "  protect                load self-protection LSM hooks\n",
+                 "  protect                load self-protection LSM hooks\n"
+                 "  export tail [N]        print last N lines from JSONL export\n",
                  prog);
 }
 
@@ -435,23 +438,59 @@ int cmd_attach()
                     occupied * 100.0 / aegis_next::kHtBuckets);
     }
 
-    // Set up ringbuf for real-time alert processing.
-    // P2.3: quarantine is now handled in-kernel by evaluate_policy(),
-    // so the ringbuf callback only needs to count events and log.
+    // P3.4: Event export — JSONL file for persistence.
+    std::string export_path = pin_dir() + "/events.jsonl";
+    aegis_next::EventExporter exporter(export_path);
+    if (exporter.is_open()) {
+        std::printf("aegis-next: JSONL export active at %s\n",
+                    export_path.c_str());
+    } else {
+        std::fprintf(stderr, "warning: could not open %s for export\n",
+                     export_path.c_str());
+    }
+
+    // Set up ringbuf for real-time alert processing + JSONL export.
+    using arena_t = std::remove_pointer_t<decltype(arena_view)>;
     struct ring_ctx {
+        const arena_t* arena;
+        aegis_next::EventExporter* exporter;
         std::uint64_t events;
         std::uint64_t last_print;
     };
 
     ring_ctx rctx{};
+    rctx.arena = arena_view;
+    rctx.exporter = &exporter;
 
     int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
     struct ring_buffer* rb = ring_buffer__new(
         rb_fd,
         [](void* ctx, void* data, size_t /*sz*/) -> int {
             auto* c = static_cast<ring_ctx*>(ctx);
-            (void)data;
+            auto* alert = static_cast<const aegis_alert*>(data);
             ++c->events;
+
+            // Read node from arena and export to JSONL.
+            if (c->exporter && c->exporter->is_open()) {
+                std::uint64_t idx = alert->slot % kMaxNodes;
+                const auto& node = c->arena->arena_nodes[idx];
+
+                const char* path_str = "";
+                if (node.path_slab_idx > 0 &&
+                    node.path_slab_idx <= aegis_next::kPathSlabSlots) {
+                    path_str = reinterpret_cast<const char*>(
+                        &c->arena->path_slab[node.path_slab_idx - 1]);
+                }
+
+                const struct net_flow* flow = nullptr;
+                if (node.net_slab_idx > 0 &&
+                    node.net_slab_idx <= aegis_next::kNetSlabSlots) {
+                    flow = &c->arena->net_slab[node.net_slab_idx - 1];
+                }
+
+                c->exporter->export_node(node, alert->slot,
+                                          path_str, flow);
+            }
 
             // Periodic progress line (every 100 events).
             if (c->events - c->last_print >= 100) {
@@ -483,6 +522,10 @@ int cmd_attach()
 
     std::printf("aegis-next: processed %lu events via ringbuf.\n",
                 (unsigned long)rctx.events);
+    if (exporter.count() > 0) {
+        std::printf("aegis-next: exported %lu events to %s\n",
+                    (unsigned long)exporter.count(), export_path.c_str());
+    }
 
     // Report hash table stats on exit.
     {
@@ -1278,6 +1321,33 @@ int main(int argc, char** argv)
 
     if (cmd == "protect") {
         return cmd_protect();
+    }
+
+    if (cmd == "export") {
+        if (argc < 3 || std::string(argv[2]) != "tail") {
+            std::fprintf(stderr, "usage: %s export tail [N]\n", argv[0]);
+            return 1;
+        }
+        int n = (argc >= 4) ? std::atoi(argv[3]) : 20;
+        if (n <= 0) n = 20;
+        std::string path = pin_dir() + "/events.jsonl";
+        FILE* f = std::fopen(path.c_str(), "r");
+        if (!f) {
+            std::fprintf(stderr, "no export file at %s\n", path.c_str());
+            return 1;
+        }
+        // Read all lines, keep last N.
+        std::vector<std::string> lines;
+        char buf[4096];
+        while (std::fgets(buf, sizeof(buf), f)) {
+            lines.emplace_back(buf);
+            if (static_cast<int>(lines.size()) > n)
+                lines.erase(lines.begin());
+        }
+        std::fclose(f);
+        for (const auto& line : lines)
+            std::fputs(line.c_str(), stdout);
+        return 0;
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {
