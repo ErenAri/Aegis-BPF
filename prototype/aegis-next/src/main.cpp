@@ -33,6 +33,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -221,6 +223,7 @@ void usage(const char* prog)
                  "  graph gc               print GC timer statistics\n"
                  "  policy add <hook> <match> <value> <action> [--kill]\n"
                  "                         add a policy rule (deny/allow/log)\n"
+                 "  policy load <file>     load policy rules from a text file\n"
                  "  policy list            list all active policy rules\n"
                  "  policy clear           remove all policy rules\n"
                  "  sched start            load sched_ext quarantine scheduler\n"
@@ -972,6 +975,100 @@ int cmd_policy_clear()
     return 0;
 }
 
+// Load policy rules from a text file. Format (one rule per line):
+//   <hook> <match_type> <value> <action> [kill]
+// Lines starting with # are comments. Blank lines are skipped.
+// hook:   exec|file|conn|bind|listen
+// match:  comm|port|cgroup
+// action: deny|allow|log
+int cmd_policy_load(const char* filepath)
+{
+    int map_fd = open_pinned_policy_fd();
+    if (map_fd < 0) return 1;
+
+    std::ifstream f(filepath);
+    if (!f.is_open()) {
+        std::fprintf(stderr, "cannot open policy file: %s\n", filepath);
+        close(map_fd);
+        return 1;
+    }
+
+    int loaded = 0;
+    int lineno = 0;
+    std::string line;
+    while (std::getline(f, line)) {
+        ++lineno;
+        // Skip comments and blank lines.
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        std::istringstream ss(line);
+        std::string hook_str, mt_str, val_str, act_str, flag_str;
+        if (!(ss >> hook_str >> mt_str >> val_str >> act_str)) {
+            std::fprintf(stderr, "policy:%d: malformed line: %s\n",
+                         lineno, line.c_str());
+            continue;
+        }
+        ss >> flag_str; // optional
+
+        // Parse hook.
+        policy_key key{};
+        if (hook_str == "exec")        key.hook = PROV_KIND_EXEC;
+        else if (hook_str == "file")   key.hook = PROV_KIND_FILE_OPEN;
+        else if (hook_str == "conn")   key.hook = PROV_KIND_SOCKET_CONNECT;
+        else if (hook_str == "bind")   key.hook = PROV_KIND_SOCKET_BIND;
+        else if (hook_str == "listen") key.hook = PROV_KIND_SOCKET_LISTEN;
+        else {
+            std::fprintf(stderr, "policy:%d: unknown hook '%s'\n",
+                         lineno, hook_str.c_str());
+            continue;
+        }
+
+        // Parse match type + value.
+        if (mt_str == "comm") {
+            key.match_type = POLICY_MATCH_COMM;
+            key.match_val = aegis_next::fnv1a(val_str.c_str(), val_str.size());
+        } else if (mt_str == "port") {
+            key.match_type = POLICY_MATCH_PORT;
+            key.match_val = static_cast<std::uint32_t>(
+                std::strtoul(val_str.c_str(), nullptr, 10));
+        } else if (mt_str == "cgroup") {
+            key.match_type = POLICY_MATCH_CGROUP;
+            key.match_val = static_cast<std::uint32_t>(
+                std::strtoull(val_str.c_str(), nullptr, 0));
+        } else {
+            std::fprintf(stderr, "policy:%d: unknown match type '%s'\n",
+                         lineno, mt_str.c_str());
+            continue;
+        }
+
+        // Parse action.
+        policy_val val{};
+        if (act_str == "deny")       val.action = POLICY_ACTION_DENY;
+        else if (act_str == "allow") val.action = POLICY_ACTION_ALLOW;
+        else if (act_str == "log")   val.action = POLICY_ACTION_LOG;
+        else {
+            std::fprintf(stderr, "policy:%d: unknown action '%s'\n",
+                         lineno, act_str.c_str());
+            continue;
+        }
+
+        if (flag_str == "kill")
+            val.flags |= POLICY_FLAG_KILL;
+
+        if (bpf_map_update_elem(map_fd, &key, &val, BPF_ANY) != 0) {
+            std::fprintf(stderr, "policy:%d: failed to load rule: %s\n",
+                         lineno, std::strerror(errno));
+            continue;
+        }
+        ++loaded;
+    }
+
+    std::printf("policy: loaded %d rule(s) from %s\n", loaded, filepath);
+    close(map_fd);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1052,7 +1149,7 @@ int main(int argc, char** argv)
 
     if (cmd == "policy") {
         if (argc < 3) {
-            std::fprintf(stderr, "policy requires a subcommand: add, list, clear\n");
+            std::fprintf(stderr, "policy requires a subcommand: add, list, clear, load\n");
             return 1;
         }
         const std::string sub = argv[2];
@@ -1064,6 +1161,13 @@ int main(int argc, char** argv)
         }
         if (sub == "clear") {
             return cmd_policy_clear();
+        }
+        if (sub == "load") {
+            if (argc < 4) {
+                std::fprintf(stderr, "usage: %s policy load <file>\n", argv[0]);
+                return 1;
+            }
+            return cmd_policy_load(argv[3]);
         }
         std::fprintf(stderr, "unknown policy subcommand: %s\n", sub.c_str());
         return 1;
