@@ -3,7 +3,7 @@
 // aegis-next userspace driver (proof-of-concept).
 //
 // Subcommands:
-//   aegisbpf-next attach [--deny <name>]...  — load, pin maps, attach LSM, loop
+//   aegisbpf-next attach             — load, pin maps, attach LSM, loop
 //   aegisbpf-next graph dump      — print recent exec nodes
 //   aegisbpf-next graph lineage <pid> — walk lineage for a pid
 //   aegisbpf-next graph stats     — print arena header stats
@@ -13,8 +13,8 @@
 //
 // The "attach" subcommand pins the arena map in bpffs so the
 // "graph" subcommands can open it from a separate process.
-// With --deny flags, attach auto-quarantines cgroups that exec
-// deny-listed binaries (writes to the pinned quarantine map).
+// Policy rules with action=quarantine bridge directly to the
+// sched_ext quarantine map in-kernel (no userspace round-trip).
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -27,7 +27,6 @@
 
 #include <atomic>
 #include <cerrno>
-#include <type_traits>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -36,7 +35,6 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include <unistd.h>
 
@@ -216,7 +214,7 @@ void usage(const char* prog)
                  "usage: %s <command>\n"
                  "\n"
                  "commands:\n"
-                 "  attach [--deny <name>]... load BPF, pin maps, attach LSM, loop\n"
+                 "  attach                 load BPF, pin maps, attach LSM, loop\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
@@ -232,17 +230,48 @@ void usage(const char* prog)
                  prog);
 }
 
-int cmd_attach(const std::unordered_set<std::string>& deny_list)
+int cmd_attach()
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
 
-    provenance_bpf* skel = provenance_bpf__open_and_load();
+    provenance_bpf* skel = provenance_bpf__open();
     if (!skel) {
-        std::fprintf(stderr, "failed to open+load provenance skeleton: %s\n",
+        std::fprintf(stderr, "failed to open provenance skeleton: %s\n",
                      std::strerror(errno));
         std::fprintf(stderr,
                      "hint: requires kernel >= 6.9 and CAP_BPF + CAP_SYS_ADMIN\n");
+        return 1;
+    }
+
+    // P2.3: If the quarantine map is already pinned (sched_ext scheduler
+    // loaded), reuse that FD so the LSM program writes to the same map
+    // instance. This is the in-kernel enforcement bridge — policy
+    // QUARANTINE verdicts go straight to the sched_ext map.
+    {
+        std::string qpath = quarantine_pin_path();
+        int qfd = bpf_obj_get(qpath.c_str());
+        if (qfd >= 0) {
+            int rc = bpf_map__reuse_fd(skel->maps.aegis_next_quarantine, qfd);
+            if (rc == 0) {
+                std::printf("aegis-next: reusing pinned quarantine map "
+                            "(in-kernel enforcement bridge active)\n");
+            } else {
+                std::fprintf(stderr,
+                             "warning: quarantine map reuse failed: %s\n",
+                             std::strerror(errno));
+            }
+            close(qfd);
+        } else {
+            std::printf("aegis-next: quarantine map not pinned yet "
+                        "(run 'sched start' for full bridge)\n");
+        }
+    }
+
+    if (provenance_bpf__load(skel) != 0) {
+        std::fprintf(stderr, "failed to load provenance skeleton: %s\n",
+                     std::strerror(errno));
+        provenance_bpf__destroy(skel);
         return 1;
     }
 
@@ -267,6 +296,14 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     if (pol_pin_err && errno != EEXIST) {
         std::fprintf(stderr, "warning: failed to pin policy at %s: %s\n",
                      pol_path.c_str(), std::strerror(errno));
+    }
+
+    // Pin quarantine map so sched_ext and CLI can reach it.
+    std::string quar_path = quarantine_pin_path();
+    int quar_pin_err = bpf_map__pin(skel->maps.aegis_next_quarantine, quar_path.c_str());
+    if (quar_pin_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin quarantine at %s: %s\n",
+                     quar_path.c_str(), std::strerror(errno));
     }
 
     // Pin GC state map for the `graph gc` subcommand.
@@ -339,25 +376,9 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     std::signal(SIGINT, on_sigint);
     std::signal(SIGTERM, on_sigint);
 
-    // If a deny list is active, try to open the pinned quarantine map
-    // for auto-quarantine writes. Not fatal if missing — just log.
-    int quarantine_fd = -1;
-    if (!deny_list.empty()) {
-        std::string qpath = quarantine_pin_path();
-        quarantine_fd = bpf_obj_get(qpath.c_str());
-        if (quarantine_fd < 0) {
-            std::fprintf(stderr,
-                         "warning: deny list active but quarantine map not pinned at %s\n"
-                         "  run 'aegisbpf-next sched start' to enable auto-quarantine.\n",
-                         qpath.c_str());
-        } else {
-            std::printf("aegis-next: deny list active (%zu entries), "
-                        "auto-quarantine via pinned map.\n",
-                        deny_list.size());
-        }
-    }
-
     std::printf("aegis-next: attached. events recorded into arena.\n");
+    std::printf("aegis-next: in-kernel quarantine bridge active "
+                "(QUARANTINE policy → sched_ext map).\n");
 
     // Access arena through the skeleton's auto-mapped globals.
     auto* arena_view = skel->arena;
@@ -378,47 +399,22 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     }
 
     // Set up ringbuf for real-time alert processing.
+    // P2.3: quarantine is now handled in-kernel by evaluate_policy(),
+    // so the ringbuf callback only needs to count events and log.
     struct ring_ctx {
-        const std::remove_pointer_t<decltype(arena_view)>* arena;
-        const std::unordered_set<std::string>* deny;
-        int quar_fd;
         std::uint64_t events;
-        std::uint64_t quarantine_hits;
         std::uint64_t last_print;
     };
 
     ring_ctx rctx{};
-    rctx.arena = arena_view;
-    rctx.deny = &deny_list;
-    rctx.quar_fd = quarantine_fd;
 
     int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
     struct ring_buffer* rb = ring_buffer__new(
         rb_fd,
         [](void* ctx, void* data, size_t /*sz*/) -> int {
             auto* c = static_cast<ring_ctx*>(ctx);
-            auto* alert = static_cast<const aegis_alert*>(data);
+            (void)data;
             ++c->events;
-
-            // Deny-list check for exec events.
-            if (alert->kind == PROV_KIND_EXEC &&
-                c->quar_fd >= 0 && !c->deny->empty()) {
-                const auto& node =
-                    c->arena->arena_nodes[alert->slot % kMaxNodes];
-                std::string comm(node.comm,
-                                 strnlen(node.comm, sizeof(node.comm)));
-                if (c->deny->count(comm) && node.cgid != 0) {
-                    __u32 level = 1;
-                    if (bpf_map_update_elem(c->quar_fd, &node.cgid,
-                                            &level, BPF_ANY) == 0) {
-                        std::printf("  ** auto-quarantined cgid %lu "
-                                    "(exec '%s', pid %u)\n",
-                                    (unsigned long)node.cgid,
-                                    comm.c_str(), node.pid);
-                        ++c->quarantine_hits;
-                    }
-                }
-            }
 
             // Periodic progress line (every 100 events).
             if (c->events - c->last_print >= 100) {
@@ -448,10 +444,6 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
 
     ring_buffer__free(rb);
 
-    if (rctx.quarantine_hits > 0) {
-        std::printf("aegis-next: auto-quarantined %lu cgroup(s) this session.\n",
-                    (unsigned long)rctx.quarantine_hits);
-    }
     std::printf("aegis-next: processed %lu events via ringbuf.\n",
                 (unsigned long)rctx.events);
 
@@ -891,9 +883,10 @@ int cmd_policy_add(int argc, char** argv)
     // Parse action.
     const std::string act_str = argv[6];
     policy_val val{};
-    if (act_str == "deny")          val.action = POLICY_ACTION_DENY;
-    else if (act_str == "allow")    val.action = POLICY_ACTION_ALLOW;
-    else if (act_str == "log")      val.action = POLICY_ACTION_LOG;
+    if (act_str == "deny")               val.action = POLICY_ACTION_DENY;
+    else if (act_str == "allow")         val.action = POLICY_ACTION_ALLOW;
+    else if (act_str == "log")           val.action = POLICY_ACTION_LOG;
+    else if (act_str == "quarantine")    val.action = POLICY_ACTION_QUARANTINE;
     else {
         std::fprintf(stderr, "unknown action: %s\n", act_str.c_str());
         close(map_fd);
@@ -1044,9 +1037,10 @@ int cmd_policy_load(const char* filepath)
 
         // Parse action.
         policy_val val{};
-        if (act_str == "deny")       val.action = POLICY_ACTION_DENY;
-        else if (act_str == "allow") val.action = POLICY_ACTION_ALLOW;
-        else if (act_str == "log")   val.action = POLICY_ACTION_LOG;
+        if (act_str == "deny")            val.action = POLICY_ACTION_DENY;
+        else if (act_str == "allow")      val.action = POLICY_ACTION_ALLOW;
+        else if (act_str == "log")        val.action = POLICY_ACTION_LOG;
+        else if (act_str == "quarantine") val.action = POLICY_ACTION_QUARANTINE;
         else {
             std::fprintf(stderr, "policy:%d: unknown action '%s'\n",
                          lineno, act_str.c_str());
@@ -1081,13 +1075,7 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
-        std::unordered_set<std::string> deny_list;
-        for (int i = 2; i < argc; ++i) {
-            if (std::strcmp(argv[i], "--deny") == 0 && i + 1 < argc) {
-                deny_list.insert(argv[++i]);
-            }
-        }
-        return cmd_attach(deny_list);
+        return cmd_attach();
     }
 
     if (cmd == "graph") {

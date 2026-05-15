@@ -204,6 +204,19 @@ struct {
     __uint(max_entries, 1024);
 } aegis_next_policy SEC(".maps");
 
+// Quarantine map — shared with quarantine.bpf.c (sched_ext scheduler).
+// When a policy rule has action=QUARANTINE, evaluate_policy() writes
+// the offending cgroup id here directly from BPF — no userspace
+// round-trip. The sched_ext enqueue path reads this same map.
+// At load time, userspace reuses the pinned map FD so both BPF
+// programs share the same underlying map instance.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u64);   // cgroup id
+    __type(value, __u32); // quarantine level
+    __uint(max_entries, 4096);
+} aegis_next_quarantine SEC(".maps");
+
 // Legacy pid->slot LRU hash, kept alongside the arena hash table
 // during transition. The GC timer sweeps this map; once the arena
 // hash is proven reliable, this map can be removed.
@@ -247,6 +260,26 @@ static __always_inline __u32 fnv1a_hash(const char *s, int maxlen)
     return h;
 }
 
+// Apply a single policy match result. Updates deny flag, handles
+// QUARANTINE (in-kernel bridge to sched_ext) and KILL flag.
+static __always_inline void
+apply_verdict(struct policy_val *val, __u64 cgid, int *deny)
+{
+    if (!val)
+        return;
+    if (val->action == POLICY_ACTION_DENY) {
+        *deny = 1;
+        if (val->flags & POLICY_FLAG_KILL)
+            bpf_send_signal(9 /* SIGKILL */);
+    } else if (val->action == POLICY_ACTION_QUARANTINE && cgid) {
+        // P2.3: In-kernel enforcement bridge — write cgroup directly
+        // to the quarantine map. The sched_ext scheduler reads this
+        // map on enqueue, throttling the offending cgroup immediately.
+        __u32 level = 1; // QUARANTINE_THROTTLE
+        bpf_map_update_elem(&aegis_next_quarantine, &cgid, &level, BPF_ANY);
+    }
+}
+
 // Evaluate policy for a given hook. Returns 0 (allow) or -1 (deny).
 // Performs up to 3 map lookups: comm, port, cgroup.
 // On QUARANTINE action, writes cgroup to quarantine map from BPF.
@@ -264,22 +297,14 @@ evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
     key.match_type = POLICY_MATCH_COMM;
     key.match_val = fnv1a_hash(comm, 12);
     val = bpf_map_lookup_elem(&aegis_next_policy, &key);
-    if (val && val->action == POLICY_ACTION_DENY) {
-        deny = 1;
-        if (val->flags & POLICY_FLAG_KILL)
-            bpf_send_signal(9 /* SIGKILL */);
-    }
+    apply_verdict(val, cgid, &deny);
 
     // 2. Match by port (socket hooks only).
     if (port && !deny) {
         key.match_type = POLICY_MATCH_PORT;
         key.match_val = port;
         val = bpf_map_lookup_elem(&aegis_next_policy, &key);
-        if (val && val->action == POLICY_ACTION_DENY) {
-            deny = 1;
-            if (val->flags & POLICY_FLAG_KILL)
-                bpf_send_signal(9);
-        }
+        apply_verdict(val, cgid, &deny);
     }
 
     // 3. Match by cgroup (container-scoped rules).
@@ -287,11 +312,7 @@ evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
         key.match_type = POLICY_MATCH_CGROUP;
         key.match_val = (__u32)cgid;
         val = bpf_map_lookup_elem(&aegis_next_policy, &key);
-        if (val && val->action == POLICY_ACTION_DENY) {
-            deny = 1;
-            if (val->flags & POLICY_FLAG_KILL)
-                bpf_send_signal(9);
-        }
+        apply_verdict(val, cgid, &deny);
     }
 
     return deny ? -1 : 0;
