@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 // Event-kind constants shared with BPF side.
 #include "../bpf/prov_types.h"
@@ -20,12 +21,15 @@ namespace aegis_next {
 
 // ----- arena geometry (matches BPF side) -----
 
-// Arena geometry: nodes (16384p) + header/flag (1p) + hash table (256p)
-inline constexpr std::size_t kArenaPages   = 16641;
-inline constexpr std::size_t kArenaBytes   = kArenaPages * 4096ULL;
-inline constexpr std::size_t kMaxNodes     = 1ULL << 20;
-inline constexpr std::size_t kHtBuckets    = 1ULL << 16;  // 64K
-inline constexpr int         kHtMaxProbe   = 8;
+// Arena: nodes(72*1M) + hdr(32) + ready(4+pad4) + ht(16*64K)
+//        + path_slab_next(8) + path_slab(256*4K) = ~74MB
+inline constexpr std::size_t kArenaPages     = 18945;
+inline constexpr std::size_t kArenaBytes     = kArenaPages * 4096ULL;
+inline constexpr std::size_t kMaxNodes       = 1ULL << 20;
+inline constexpr std::size_t kHtBuckets      = 1ULL << 16;  // 64K
+inline constexpr int         kHtMaxProbe     = 8;
+inline constexpr std::size_t kPathSlabSlots  = 1ULL << 12;  // 4K
+inline constexpr std::size_t kPathSlabSlotSz = 256;
 
 inline constexpr std::uint64_t kRootSentinel =
     static_cast<std::uint64_t>(-1);
@@ -38,7 +42,7 @@ struct ProvHeader {
     std::uint64_t magic;
     std::uint64_t next_index;
     std::uint64_t dropped;
-    std::uint64_t generation;  // incremented each time next_index wraps past kMaxNodes
+    std::uint64_t generation;
 };
 
 struct ProvNode {
@@ -53,7 +57,9 @@ struct ProvNode {
     std::uint8_t  kind;
     std::uint8_t  flags;
     std::uint16_t extra;
+    std::uint32_t path_slab_idx;  // 1-based index into path slab, 0 = no path
     char          comm[12];
+    std::uint32_t _reserved;
 };
 
 struct ProvLayout {
@@ -63,13 +69,15 @@ struct ProvLayout {
 
 static_assert(sizeof(ProvHeader) == 32,
               "ProvHeader layout drift — must match BPF side");
-static_assert(sizeof(ProvNode) == 64,
+static_assert(sizeof(ProvNode) == 72,
               "ProvNode layout drift — must match BPF side");
 static_assert(offsetof(ProvNode, prev_index) == 40,
               "ProvNode.prev_index offset drift");
 static_assert(offsetof(ProvNode, kind) == 48,
               "ProvNode.kind offset drift");
-static_assert(offsetof(ProvNode, comm) == 52,
+static_assert(offsetof(ProvNode, path_slab_idx) == 52,
+              "ProvNode.path_slab_idx offset drift");
+static_assert(offsetof(ProvNode, comm) == 56,
               "ProvNode.comm offset drift");
 
 // ----- arena hash table helpers (userspace, reads mmap'd arena) -----
@@ -91,8 +99,6 @@ inline std::uint32_t ht_hash(std::uint64_t key)
         (key * 0x9E3779B97F4A7C15ULL) >> 48) & (kHtBuckets - 1);
 }
 
-// O(1) lookup in the mmap'd arena hash table.
-// Returns the slot index, or kRootSentinel on miss.
 inline std::uint64_t ht_lookup(const HtEntry* table, std::uint64_t key)
 {
     std::uint32_t idx = ht_hash(key);
@@ -107,22 +113,34 @@ inline std::uint64_t ht_lookup(const HtEntry* table, std::uint64_t key)
 }
 
 // Byte offset of the arena hash table from the arena mmap base.
-// Layout: arena_hdr(32) + arena_nodes(64M) + arena_ready(int,4) + pad(4)
-// The pad aligns arena_ht to 8 bytes (arena_ht_entry contains u64).
 // Verified at compile time in main.cpp via skeleton offsetof.
 inline constexpr std::size_t kHtOffset =
     sizeof(ProvHeader) + sizeof(ProvNode) * kMaxNodes + 8;
 
-// Get the arena hash table from a raw mmap'd arena pointer.
 inline const HtEntry* arena_ht_from_mmap(const void* arena_base)
 {
     return reinterpret_cast<const HtEntry*>(
         static_cast<const char*>(arena_base) + kHtOffset);
 }
 
-// A node is "stale" if its generation tag (flags byte) doesn't match
-// the current generation's low byte. This catches overwrites after
-// the arena wraps. False negatives occur every 256 wraps (~256M nodes).
+// ----- path slab helpers -----
+
+struct PathSlabEntry {
+    std::uint64_t data[kPathSlabSlotSz / 8]; // 256 bytes
+};
+
+// Get the null-terminated path string from a path slab entry.
+// Returns empty string if idx == 0 (no path).
+inline const char* path_from_slab(const PathSlabEntry* slab,
+                                   std::uint32_t idx)
+{
+    if (idx == 0)
+        return "";
+    return reinterpret_cast<const char*>(&slab[idx - 1]);
+}
+
+// ----- node helpers -----
+
 inline bool is_node_stale(const ProvNode& node, std::uint64_t current_generation)
 {
     return node.flags != static_cast<std::uint8_t>(current_generation & 0xFF);

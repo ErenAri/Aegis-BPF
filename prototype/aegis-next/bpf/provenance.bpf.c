@@ -35,12 +35,11 @@
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
 
-// Arena geometry.
-// Node array:  1M × 64B = 64 MiB  = 16384 pages
-// Header+flag: 36B                 ~     1 page
-// Hash table:  64K × 16B = 1 MiB  =   256 pages
-// Total:                           = 16641 pages
-#define AEGIS_NEXT_ARENA_PAGES 16641
+// Arena geometry (72-byte nodes):
+// arena_hdr(32) + arena_nodes(72*1M) + arena_ready(4) + pad(4)
+// + arena_ht(16*64K) + path_slab_next(8) + path_slab(256*4K)
+// = 77,594,672 bytes → 18945 pages
+#define AEGIS_NEXT_ARENA_PAGES 18945
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -63,9 +62,11 @@ struct prov_node {
     __u64 object_id;   // inode for exec/file_open, port<<32|addr for socket
     __u64 prev_index;  // owning exec node slot (for non-exec kinds), or parent
     __u8  kind;        // PROV_KIND_*
-    __u8  flags;       // reserved
+    __u8  flags;       // generation tag
     __u16 extra;       // open_flags / addr_family per kind
+    __u32 path_slab_idx; // index into path_slab[], 0 = no path
     char  comm[12];
+    __u32 _reserved;   // alignment padding to 72 bytes
 };
 
 // Arena map. Userspace mmaps this fd; BPF accesses via __arena ptrs.
@@ -120,15 +121,35 @@ extern void bpf_rcu_read_unlock(void) __ksym;
 
 #include "arena_htable.h"
 
-// Arena-resident layout: header + node array + hash table live
-// directly in the arena address space. Using both __arena (for clang
-// type checking) and SEC(".addr_space.1") (for libbpf 1.5.0 section
-// placement). libbpf >= 1.6.0 would auto-relocate __arena globals.
+// Path slab: fixed 256-byte slots for resolved file paths.
+// Allocated via atomic bump pointer with wrap-around.
+#define PATH_SLAB_SLOTS   (1u << 12)  // 4096
+#define PATH_SLAB_SLOT_SZ 256
+
+struct path_slab_entry {
+    __u64 data[PATH_SLAB_SLOT_SZ / 8]; // 32 × u64 = 256 bytes
+};
+
+// Arena-resident layout: header + node array + hash table + path slab
+// live directly in the arena address space. Using both __arena (for
+// clang type checking) and SEC(".addr_space.1") (for libbpf 1.5.0
+// section placement). libbpf >= 1.6.0 auto-relocates __arena globals.
 // The kernel allocates arena pages on demand (fault-in).
 struct prov_header __arena arena_hdr SEC(".addr_space.1");
 struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
 int __arena arena_ready SEC(".addr_space.1");
 struct arena_ht_entry __arena arena_ht[ARENA_HT_BUCKETS] SEC(".addr_space.1");
+__u64 __arena path_slab_next SEC(".addr_space.1");
+struct path_slab_entry __arena path_slab[PATH_SLAB_SLOTS] SEC(".addr_space.1");
+
+// Per-CPU scratch buffer for bpf_d_path(). Stack is too small (512B)
+// for a 256-byte path + other locals, so we use a per-CPU array.
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, char[PATH_SLAB_SLOT_SZ]);
+    __uint(max_entries, 1);
+} aegis_next_path_scratch SEC(".maps");
 
 // Legacy pid->slot LRU hash, kept alongside the arena hash table
 // during transition. The GC timer sweeps this map; once the arena
@@ -155,6 +176,35 @@ static __always_inline void aegis_next_arena_init(void)
     ARENA_PTR(&arena_hdr)->dropped = 0;
     ARENA_PTR(&arena_hdr)->generation = 0;
     *(ARENA_PTR(&arena_ready)) = 1;
+}
+
+// Resolve a file path via bpf_d_path, allocate a path slab slot, and
+// copy the resolved string into the arena. Returns the 1-based slab
+// index (0 = no path / resolution failed).
+static __always_inline __u32
+resolve_path(struct path *p)
+{
+    __u32 zero = 0;
+    char *scratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &zero);
+    if (!scratch)
+        return 0;
+
+    long len = bpf_d_path(p, scratch, PATH_SLAB_SLOT_SZ);
+    if (len <= 0)
+        return 0;
+
+    // Allocate a slab slot (1-based index so 0 means "no path").
+    __u64 raw = __sync_fetch_and_add(ARENA_PTR(&path_slab_next), 1);
+    __u32 slab_idx = ((__u32)(raw % PATH_SLAB_SLOTS)) + 1;
+    __u32 slab_slot = slab_idx - 1;
+
+    // Copy path from per-CPU scratch to arena slab (u64 at a time).
+    __u64 *src = (__u64 *)scratch;
+    #pragma unroll
+    for (int i = 0; i < (PATH_SLAB_SLOT_SZ / 8); i++)
+        ARENA_PTR(&path_slab[slab_slot])->data[i] = src[i];
+
+    return slab_idx;
 }
 
 // Reserve a slot and fill the common fields from a task_struct.
@@ -185,9 +235,11 @@ record_base(struct task_struct *task, __u8 kind,
     ARENA_PTR(&arena_nodes[slot])->uid       = BPF_CORE_READ(task, cred, uid.val);
     ARENA_PTR(&arena_nodes[slot])->cgid      = 0;
     ARENA_PTR(&arena_nodes[slot])->object_id = object_id;
-    ARENA_PTR(&arena_nodes[slot])->kind      = kind;
-    ARENA_PTR(&arena_nodes[slot])->flags     = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF);
-    ARENA_PTR(&arena_nodes[slot])->extra     = extra;
+    ARENA_PTR(&arena_nodes[slot])->kind          = kind;
+    ARENA_PTR(&arena_nodes[slot])->flags         = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF);
+    ARENA_PTR(&arena_nodes[slot])->extra         = extra;
+    ARENA_PTR(&arena_nodes[slot])->path_slab_idx = 0;
+    ARENA_PTR(&arena_nodes[slot])->_reserved     = 0;
 
     char tmp[16];
     bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
@@ -267,6 +319,18 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
     ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
     ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
 
+    // Resolve the executable's file path into the path slab.
+    // We must access bprm->file directly (BTF-aware) rather than
+    // through the stack-copied `file` pointer, because bpf_d_path
+    // requires a trusted_ptr to struct path.
+    {
+        struct file *bfile = bprm->file;
+        if (bfile) {
+            __u32 path_idx = resolve_path(&bfile->f_path);
+            ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
+        }
+    }
+
     return 0;
 }
 
@@ -283,6 +347,15 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
 
     __u16 open_flags = (__u16)(BPF_CORE_READ(file, f_flags) & 0xFFFF);
     record_event(PROV_KIND_FILE_OPEN, inode, open_flags);
+
+    // Resolve the opened file's path into the path slab.
+    // `file` is the direct BTF-typed LSM hook argument, so
+    // &file->f_path gives a trusted pointer for bpf_d_path.
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    __u32 path_idx = resolve_path(&file->f_path);
+    ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
+
     return 0;
 }
 

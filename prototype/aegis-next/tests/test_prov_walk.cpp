@@ -63,9 +63,10 @@ TEST(AegisNextLayout, HeaderSizeMatchesBpfSide)
 TEST(AegisNextLayout, NodeSizeMatchesBpfSide)
 {
     // ts_ns(8) + pid(4) + ppid(4) + tgid(4) + uid(4)
-    //   + cgid(8) + exec_inode(8) + prev_index(8) + comm[16]
-    //   = 64 bytes, no padding.
-    EXPECT_EQ(sizeof(ProvNode), 64u);
+    //   + cgid(8) + object_id(8) + prev_index(8)
+    //   + kind(1) + flags(1) + extra(2) + path_slab_idx(4)
+    //   + comm[12] + _reserved(4) = 72 bytes.
+    EXPECT_EQ(sizeof(ProvNode), 72u);
 }
 
 TEST(AegisNextLayout, PrevIndexOffsetMatchesBpfSide)
@@ -78,9 +79,14 @@ TEST(AegisNextLayout, KindOffsetMatchesBpfSide)
     EXPECT_EQ(offsetof(ProvNode, kind), 48u);
 }
 
+TEST(AegisNextLayout, PathSlabIdxOffsetMatchesBpfSide)
+{
+    EXPECT_EQ(offsetof(ProvNode, path_slab_idx), 52u);
+}
+
 TEST(AegisNextLayout, CommOffsetMatchesBpfSide)
 {
-    EXPECT_EQ(offsetof(ProvNode, comm), 52u);
+    EXPECT_EQ(offsetof(ProvNode, comm), 56u);
 }
 
 TEST(AegisNextLayout, KindNameReturnsExpected)

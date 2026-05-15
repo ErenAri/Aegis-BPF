@@ -100,11 +100,12 @@ void bump_memlock_rlimit()
     }
 }
 
-void print_node_row(const ProvNode& n, const char* tag)
+void print_node_row(const ProvNode& n, const char* tag,
+                    const char* path = nullptr)
 {
     char safe_comm[13] = {};
     std::memcpy(safe_comm, n.comm, sizeof(n.comm));
-    std::printf("  %-19lu %-5s %-7u %-7u %-7u %-12s %-12lu %s\n",
+    std::printf("  %-19lu %-5s %-7u %-7u %-7u %-12s %-12lu %-16s %s\n",
                 (unsigned long)n.ts_ns,
                 aegis_next::kind_name(n.kind),
                 n.pid,
@@ -112,14 +113,15 @@ void print_node_row(const ProvNode& n, const char* tag)
                 n.uid,
                 safe_comm,
                 (unsigned long)n.object_id,
+                (path && path[0]) ? path : "-",
                 tag);
 }
 
 void print_table_header()
 {
-    std::printf("  %-19s %-5s %-7s %-7s %-7s %-12s %-12s %s\n",
+    std::printf("  %-19s %-5s %-7s %-7s %-7s %-12s %-12s %-16s %s\n",
                 "ts_ns", "kind", "pid", "ppid", "uid", "comm",
-                "object_id", "info");
+                "object_id", "path", "info");
 }
 
 // ---- arena open helpers ----
@@ -369,6 +371,29 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         std::printf("aegis-next: arena hash table at exit: %lu / %lu buckets occupied\n",
                     (unsigned long)occupied,
                     (unsigned long)aegis_next::kHtBuckets);
+    }
+
+    // Show last few events with resolved paths.
+    {
+        const auto* slab = reinterpret_cast<const aegis_next::PathSlabEntry*>(
+            arena_view->path_slab);
+        const std::uint64_t cur = arena_view->arena_hdr.next_index;
+        const std::uint64_t shown = cur < 16 ? cur : 16;
+        std::printf("aegis-next: last %lu events:\n", (unsigned long)shown);
+        print_table_header();
+        for (std::uint64_t i = cur - shown; i < cur; ++i) {
+            const auto& n = reinterpret_cast<const ProvNode&>(
+                arena_view->arena_nodes[i % kMaxNodes]);
+            const char* path = aegis_next::path_from_slab(slab, n.path_slab_idx);
+            char marker[32];
+            if (n.prev_index == kRootSentinel) {
+                std::snprintf(marker, sizeof(marker), "(root)");
+            } else {
+                std::snprintf(marker, sizeof(marker), "parent@%lu",
+                              (unsigned long)n.prev_index);
+            }
+            print_node_row(n, marker, path);
+        }
     }
 
     std::printf("\naegis-next: detaching. arena pin remains at %s\n",

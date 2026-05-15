@@ -18,4 +18,12 @@
 //   FILE_OPEN:      open flags (O_RDONLY, O_WRONLY, ...)
 //   SOCKET_CONNECT: address family (AF_INET, AF_INET6, ...)
 
+// prov_node.path_slab_idx:
+//   0    = no path resolved
+//   1..N = 1-based index into path_slab[]
+
+// Path slab geometry.
+#define PATH_SLAB_SLOTS   (1u << 12)  // 4096
+#define PATH_SLAB_SLOT_SZ 256
+
 #endif // AEGIS_NEXT_PROV_TYPES_H
