@@ -30,10 +30,10 @@ not garnish?**
 
 ## What this prototype demonstrates
 
-A 64 MiB BPF arena map (`aegis_next_arena`) is allocated at load
-time. On every successful exec (`lsm/bprm_check_security`) the BPF
-program writes one `prov_node` record directly into the arena —
-no perfbuf, no ringbuf, no per-event syscall round-trip.
+An 82 MiB BPF arena map (`aegis_next_arena`) is allocated at load
+time. Nine LSM hooks write 80-byte `prov_node` records directly into
+the arena — no perfbuf, no per-event syscall round-trip. A 2MB
+ringbuf carries compact alerts for sub-ms notification.
 
 Userspace `mmap(2)`s the arena read-only and walks the slot array
 on demand. The header at offset 0 carries a monotonic
@@ -42,7 +42,7 @@ ever issuing a `bpf_map_lookup_elem`.
 
 ```text
   ┌───────────────────────────────────────────────────────────┐
-  │ aegis_next_arena (BPF_MAP_TYPE_ARENA, 64 MiB, mmapable)   │
+  │ aegis_next_arena (BPF_MAP_TYPE_ARENA, 82 MiB, mmapable)   │
   │                                                           │
   │  ┌────────────┐  ┌────────────────────────────────────┐   │
   │  │ prov_header│  │ prov_node[0..1<<20]                │   │
@@ -97,9 +97,19 @@ The binary lands at `build/prototype/aegisbpf-next`.
 ## Running
 
 ```bash
-sudo ./build/prototype/aegisbpf-next
-# exec stuff in another terminal...
-# Ctrl-C to dump the recorded provenance nodes.
+# Attach LSM hooks + start event recording
+sudo ./build/prototype/aegisbpf-next attach
+
+# In another terminal:
+sudo ./build/prototype/aegisbpf-next status          # system overview
+sudo ./build/prototype/aegisbpf-next graph dump       # recent events
+sudo ./build/prototype/aegisbpf-next graph lineage 1  # walk pid 1
+sudo ./build/prototype/aegisbpf-next policy load examples/policy.rules
+sudo ./build/prototype/aegisbpf-next export tail 20   # last 20 JSONL events
+
+# Optional: sched_ext quarantine + self-protection
+sudo ./build/prototype/aegisbpf-next sched start      # in another terminal
+sudo ./build/prototype/aegisbpf-next protect           # in another terminal
 ```
 
 Requires:
@@ -111,68 +121,70 @@ Requires:
 
 ## What's wired up so far
 
-- ✅ **Arena map + LSM hook + userspace mmap** (scaffold PR).
-- ✅ **Hash-indexed parent lookup.** `aegis_next_pid_slot`
-  (`BPF_MAP_TYPE_LRU_HASH`, 64K entries) maps `tgid -> last slot
-  index`. Each exec records its parent's slot in `prev_index`,
-  and userspace can walk the chain backwards to reconstruct
-  lineage.
-- ✅ **Graph CLI subcommands.** `aegisbpf-next attach`,
-  `graph dump`, `graph lineage <pid>`, `graph stats`. Arena map
-  is pinned in bpffs so graph commands work from a separate
-  process while the daemon is live.
-- ✅ **Exec catch-up via open-coded task iterator.** A
-  `SEC("syscall")` BPF program runs once after attach, iterating
-  all thread-group leaders via `bpf_for_each(task, ...)` (kfuncs
-  from Linux 6.4). Seeds the arena with existing processes so
-  lineage chains are reachable from attach-time onward — not just
-  from the first exec we observe. This is the first load-bearing
-  use of open-coded iterators in the prototype.
-- ✅ **Multi-hook nodes.** Three LSM hooks now write to the arena:
-  `bprm_check_security` (exec, kind=0), `file_open` (kind=1),
-  `socket_connect` (kind=2). Non-exec events link to the owning
-  exec node (current process's most recent exec) via
-  `prev_index`, turning the slot array into a proper provenance
-  graph with typed edges. Struct stays at 64 bytes (comm shrunk
-  to 12, added kind/flags/extra fields).
-- ✅ **sched_ext quarantine scheduler (F2.1).** A minimal
-  `struct_ops`-based sched_ext scheduler (`quarantine.bpf.c`)
-  proves the load/attach/dispatch wiring. The `.enqueue()`
-  callback reads a `BPF_MAP_TYPE_HASH` quarantine map (cgroup
-  id → level) and throttles quarantined tasks to a 1 ms time
-  slice (vs 5 ms default). Requires Linux ≥ 6.12 with
-  `CONFIG_SCHED_CLASS_EXT=y`.
-- ✅ **Quarantine map pinning + CLI (F2.2).** `sched start`
-  pins the quarantine map at `/sys/fs/bpf/aegis_next/quarantine`.
-  `sched quarantine <cgid> <level>` and `sched status` work
-  from a separate process via `bpf_obj_get()` on the pinned
-  map — no skeleton reload needed.
-- ✅ **LSM verdict → quarantine bridge (F2.3).** The `attach`
-  command accepts `--deny <name>` flags. The event loop scans
-  new arena exec nodes; when a deny-listed binary executes, its
-  cgroup is auto-quarantined via the pinned quarantine map.
-  Combined with a running `sched start`, this completes the
-  end-to-end pipeline: policy violation → quarantine map →
-  scheduler throttle.
-- ✅ **Generational eviction (F1.5).** The arena header carries
-  a `generation` counter that increments each time `next_index`
-  wraps past `kMaxNodes`. Each node is stamped with the low
-  byte of the current generation in its `flags` field. Userspace
-  lineage walks detect stale nodes (generation mismatch) and
-  stop following their `prev_index` pointers, preventing walks
-  from chasing into overwritten garbage. 3 new GTest cases cover
-  the stale-detection logic.
-- ✅ **CI workflow (F0.3).** `.github/workflows/aegis-next.yml`
-  triggers on `prototype/aegis-next/**` changes. Builds with
-  `STATIC_LIBBPF=ON` (1.5.0) and `BUILD_AEGIS_NEXT=ON`.
-  Kernel ≥ 6.9 gets full BPF compile + skeleton; older runners
-  build and run the userspace selftest suite only.
-- ✅ **In-kernel GC (BPF timer).** A `bpf_timer` fires every 30s
-  and iterates the `pid_slot` LRU hash via
-  `bpf_for_each_map_elem`. Entries whose referenced arena slot
-  has been overwritten (generation tag mismatch) are deleted,
-  keeping pid_slot accurate after arena wrap. GC stats (pass
-  count, eviction count) are exposed via `graph gc`.
+### Phase 1 — Arena Infrastructure
+
+- ✅ **P1.1 Arena hash table.** O(1) lookup by composite key
+  `(kind<<56|id)`, 64K buckets, 8-step linear probe. Replaces
+  the old linear scan for lineage walks.
+- ✅ **P1.2 Path slab.** 4K × 256B arena-resident slots for
+  resolved file paths via `bpf_d_path`. Atomic bump allocator
+  with wrap-around.
+- ✅ **P1.3 Network 5-tuple slab.** 4K × 48B slots for full
+  flow records (family, proto, src/dst IP+port). `socket_bind`
+  and `socket_listen` hooks added.
+- ✅ **P1.4 Namespace awareness.** `mnt_ns` and `pid_ns` fields
+  in each 80-byte provenance node for container identification.
+- ✅ **P1.5 Ringbuf hybrid.** 2MB `BPF_MAP_TYPE_RINGBUF` for
+  sub-millisecond event notification. Arena remains source of truth;
+  ringbuf carries compact alerts (slot + pid + kind).
+
+### Phase 2 — Enforcement & Self-Protection
+
+- ✅ **P2.1 LSM deny path.** `BPF_MAP_TYPE_HASH` policy map with
+  FNV-1a comm hash matching. `evaluate_policy()` checks comm, port,
+  and cgroup rules, returning `-EPERM` on deny.
+- ✅ **P2.2 Expanded LSM hooks.** 9 hooks total: `bprm_check_security`,
+  `file_open`, `socket_connect/bind/listen`, `file_permission` (FIM),
+  `mmap_file` (W+X prevention), `task_alloc` (fork bomb),
+  `kernel_module_request` (rootkit prevention).
+- ✅ **P2.3 In-kernel enforcement bridge.** QUARANTINE policy action
+  writes cgroup→level directly to the sched_ext quarantine map from
+  BPF. Latency: <1μs (vs ~1s userspace round-trip).
+- ✅ **P2.4 Policy file loader.** Line-based policy format with
+  hot-reload. Supports deny/allow/log/quarantine actions + kill flag.
+- ✅ **P2.5 Tiered sched_ext enforcement.** Three quarantine levels:
+  throttle (1ms slice), pin (CPU 0 isolation), starve (100μs).
+  Per-CPU stats counters for observability.
+- ✅ **P2.6 Self-protection.** `lsm/bpf` + `lsm/bpf_map` hooks deny
+  program detach and map tampering from non-trusted callers. Caller
+  identity verified via binary inode comparison.
+
+### Phase 3 — Production Readiness
+
+- ✅ **P3.2 Runtime feature probing.** Probes BPF LSM, arena maps,
+  ringbuf, sched_ext at startup. Fails early with clear messages.
+- ✅ **P3.3 Test suite.** 39 GTest cases across 10 test suites:
+  layout assertions, lineage walk, pid lookup, generation, FNV-1a
+  hash, hash table, path/net slab helpers.
+- ✅ **P3.4 JSONL event export.** Arena events written as JSONL
+  with ISO 8601 timestamps, full node context, path + flow data.
+  File rotation at 50MB. `export tail [N]` subcommand.
+- ✅ **P3.5 Status command.** `status` shows feature probes, arena
+  utilization, policy rule count, quarantine entries, export file.
+- ✅ **P3.6 Arena pre-fault.** Touches every 4K page at startup to
+  eliminate major page fault latency spikes.
+
+### Infrastructure
+
+- ✅ **CI workflow.** `.github/workflows/aegis-next.yml` triggers on
+  prototype changes. Kernel ≥ 6.9 gets full BPF compile; older
+  runners build and run the userspace test suite only.
+- ✅ **Generational eviction.** Arena header carries a `generation`
+  counter. Stale nodes are detected during lineage walks.
+- ✅ **In-kernel GC.** `bpf_timer` fires every 30s, sweeps
+  `pid_slot` LRU hash for overwritten entries.
+- ✅ **Exec catch-up.** Open-coded task iterator seeds the arena
+  with existing processes at attach time.
 
 ## What's deliberately deferred indefinitely
 
