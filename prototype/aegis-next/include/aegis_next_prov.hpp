@@ -20,7 +20,7 @@ namespace aegis_next {
 
 // ----- arena geometry (matches BPF side) -----
 
-inline constexpr std::size_t kArenaPages = 16384;
+inline constexpr std::size_t kArenaPages = 16385;  // extra page for header + ready flag
 inline constexpr std::size_t kArenaBytes = kArenaPages * 4096ULL;
 inline constexpr std::size_t kMaxNodes   = 1ULL << 20;
 

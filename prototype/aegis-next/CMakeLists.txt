@@ -79,9 +79,20 @@ endforeach()
 
 set(AEGIS_NEXT_BPF_TARGET_ARCH ${BPF_TARGET_ARCH})
 
+# Prefer clang-19+ for __BPF_FEATURE_ADDR_SPACE_CAST (arena globals).
+# Fall back to system clang if 19 is unavailable.
+find_program(CLANG_19 clang-19)
+if(CLANG_19)
+    set(AEGIS_NEXT_BPF_CLANG ${CLANG_19})
+    message(STATUS "aegis-next: using ${CLANG_19} for BPF (addr_space_cast support)")
+else()
+    set(AEGIS_NEXT_BPF_CLANG ${CLANG})
+    message(STATUS "aegis-next: clang-19 not found, using ${CLANG} (arena globals may not work on 6.12+)")
+endif()
+
 add_custom_command(
     OUTPUT ${AEGIS_NEXT_BPF_OBJECT}
-    COMMAND ${CLANG} -g -O2 -target bpf
+    COMMAND ${AEGIS_NEXT_BPF_CLANG} -g -O2 -target bpf -mcpu=v4
             -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
             ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
             -c ${AEGIS_NEXT_BPF_SOURCE}
@@ -111,7 +122,7 @@ set(AEGIS_NEXT_SCHED_SKEL   ${CMAKE_CURRENT_BINARY_DIR}/quarantine.skel.h)
 
 add_custom_command(
     OUTPUT ${AEGIS_NEXT_SCHED_OBJECT}
-    COMMAND ${CLANG} -g -O2 -target bpf
+    COMMAND ${AEGIS_NEXT_BPF_CLANG} -g -O2 -target bpf -mcpu=v4
             -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
             ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
             -c ${AEGIS_NEXT_SCHED_SOURCE}
@@ -164,6 +175,9 @@ target_include_directories(aegisbpf-next PRIVATE
     ${LIBBPF_INCLUDE_DIRS}
 )
 
+# libbpf's LIBBPF_OPTS macro triggers -Wmissing-field-initializers in C++;
+# this is a false positive (the macro zero-inits via .sz = sizeof).
+target_compile_options(aegisbpf-next PRIVATE -Wno-missing-field-initializers)
 target_link_directories(aegisbpf-next PRIVATE ${LIBBPF_LIBRARY_DIRS})
 target_link_libraries(aegisbpf-next PRIVATE
     aegis_next_core

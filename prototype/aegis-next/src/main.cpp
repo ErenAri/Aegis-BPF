@@ -37,6 +37,7 @@
 
 #include "aegis_next_prov.hpp"
 #include "prov_walk.hpp"
+#include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
 #include "quarantine.skel.h"
 
@@ -210,14 +211,33 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         return 1;
     }
 
-    void* arena = mmap(nullptr, kArenaBytes, PROT_READ,
-                       MAP_SHARED, arena_fd, 0);
-    if (arena == MAP_FAILED) {
-        std::fprintf(stderr, "mmap(arena) failed: %s\n",
-                     std::strerror(errno));
+    // Arena init + catch-up scan MUST run before attach. The catchup
+    // SEC("syscall") program calls bpf_arena_alloc_pages (sleepable
+    // kfunc since 6.12+) and seeds the arena with existing processes.
+    // LSM hooks will find the arena ready once they fire after attach.
+    int catchup_fd = bpf_program__fd(skel->progs.aegis_next_catchup);
+    if (catchup_fd >= 0) {
+        LIBBPF_OPTS(bpf_test_run_opts, run_opts);
+        int rc = bpf_prog_test_run_opts(catchup_fd, &run_opts);
+        if (rc != 0 || run_opts.retval != 0) {
+            std::fprintf(stderr,
+                         "arena init / catch-up failed (rc=%d retval=%d): %s\n",
+                         rc, run_opts.retval, std::strerror(errno));
+            provenance_bpf__destroy(skel);
+            return 1;
+        }
+    }
+
+    // libbpf 1.6+ automatically mmaps the arena for skeleton globals.
+    // Access the arena data through skel->arena instead of manual mmap.
+    if (!skel->arena) {
+        std::fprintf(stderr, "arena not mapped by libbpf\n");
         provenance_bpf__destroy(skel);
         return 1;
     }
+
+    std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
+                (unsigned long)skel->arena->arena_hdr.next_index);
 
     if (provenance_bpf__attach(skel) != 0) {
         std::fprintf(stderr, "failed to attach LSM program: %s\n",
@@ -225,30 +245,8 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         std::fprintf(stderr,
                      "hint: kernel must be built with CONFIG_BPF_LSM=y and\n"
                      "      lsm= boot param must include bpf\n");
-        munmap(arena, kArenaBytes);
         provenance_bpf__destroy(skel);
         return 1;
-    }
-
-    // Run one-shot catch-up scan to seed the arena with all
-    // existing processes. This makes lineage chains reachable
-    // for processes that were already running before attach.
-    int catchup_fd = bpf_program__fd(skel->progs.aegis_next_catchup);
-    if (catchup_fd >= 0) {
-        LIBBPF_OPTS(bpf_test_run_opts, run_opts);
-        int rc = bpf_prog_test_run_opts(catchup_fd, &run_opts);
-        auto* layout_snap = static_cast<const ProvLayout*>(arena);
-        if (rc == 0 && run_opts.retval == 0) {
-            std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
-                        (unsigned long)layout_snap->hdr.next_index);
-        } else {
-            std::fprintf(stderr,
-                         "warning: catch-up scan failed (rc=%d retval=%d): %s\n",
-                         rc, run_opts.retval, std::strerror(errno));
-            std::fprintf(stderr,
-                         "  lineage chains for pre-existing processes will "
-                         "show as (root)\n");
-        }
     }
 
     // Arm the in-kernel GC timer for pid_slot sweep.
@@ -289,12 +287,13 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     std::printf("aegis-next: attached. exec events recorded into arena.\n");
     std::printf("press Ctrl-C to stop.\n");
 
-    auto* layout = static_cast<const ProvLayout*>(arena);
+    // Access arena through the skeleton's auto-mapped globals.
+    auto* arena_view = skel->arena;
     std::uint64_t last_seen = 0;
     std::uint64_t quarantine_hits = 0;
     while (!g_stop.load(std::memory_order_relaxed)) {
         sleep(1);
-        const std::uint64_t cur = layout->hdr.next_index;
+        const std::uint64_t cur = arena_view->arena_hdr.next_index;
         if (cur == last_seen)
             continue;
 
@@ -302,7 +301,7 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         if (quarantine_fd >= 0 && !deny_list.empty()) {
             for (std::uint64_t i = last_seen; i < cur; ++i) {
                 const std::uint64_t slot = i % kMaxNodes;
-                const ProvNode& node = layout->nodes[slot];
+                const auto& node = arena_view->arena_nodes[slot];
                 if (node.kind != PROV_KIND_EXEC)
                     continue;
                 // comm is not necessarily null-terminated at 12 bytes.
@@ -335,7 +334,7 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
     std::printf("\naegis-next: detaching. arena pin remains at %s\n",
                 path.c_str());
 
-    munmap(arena, kArenaBytes);
+    // libbpf manages the arena mmap — no manual munmap needed.
     provenance_bpf__destroy(skel);
     return 0;
 }

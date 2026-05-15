@@ -35,9 +35,10 @@
 #define BPF_F_MMAPABLE (1U << 10)
 #endif
 
-// Arena geometry. 16384 pages * 4 KiB = 64 MiB.
-// Sized for ~1M process nodes at 64 bytes each, with headroom.
-#define AEGIS_NEXT_ARENA_PAGES 16384
+// Arena geometry. 16385 pages * 4 KiB = 64 MiB + 4 KiB.
+// One extra page for header + ready flag that sit alongside the
+// node array in the arena globals section.
+#define AEGIS_NEXT_ARENA_PAGES 16385
 
 // One slot per process exec event. Stored contiguously starting at
 // the base of the arena allocation.
@@ -75,42 +76,37 @@ struct {
 #endif
 } aegis_next_arena SEC(".maps");
 
-// bpf_arena_alloc_pages / bpf_arena_free_pages are kfuncs exported
-// by the kernel. We declare them here so the verifier resolves them
-// at load time on 6.9+.
 #ifndef __arena
 #define __arena __attribute__((address_space(1)))
 #endif
 
-extern void __arena *bpf_arena_alloc_pages(void *map, void __arena *addr,
-                                           __u32 page_cnt, int node_id,
-                                           __u64 flags) __ksym;
-
-// Open-coded task iterator kfuncs (Linux >= 6.4).
+// Open-coded task iterator kfuncs (Linux >= 6.7).
 // Used by the catch-up scan to seed the arena with all existing
 // processes at attach time.
-extern void bpf_iter_task_new(struct bpf_iter_task *it,
-                              struct task_struct *task__nullable,
-                              unsigned int flags) __ksym;
+// NOTE: bpf_iter_task_new always returned int (since introduction in 6.7).
+// Our original void declaration was incorrect.
+extern int bpf_iter_task_new(struct bpf_iter_task *it,
+                             struct task_struct *task__nullable,
+                             unsigned int flags) __ksym;
 extern struct task_struct *bpf_iter_task_next(struct bpf_iter_task *it) __ksym;
 extern void bpf_iter_task_destroy(struct bpf_iter_task *it) __ksym;
 
-// A single global pointer into the arena holding our header + slot
-// array. Initialized lazily from the first bprm event.
-struct prov_layout {
-    struct prov_header hdr;
-    struct prov_node   nodes[AEGIS_NEXT_MAX_NODES];
-};
+// RCU kfuncs — required by kernel 6.17 verifier for task iteration
+// in SEC("syscall") programs.
+extern void bpf_rcu_read_lock(void) __ksym;
+extern void bpf_rcu_read_unlock(void) __ksym;
 
-// Live pointer to the arena allocation. Stored in a single-entry
-// array map so that BPF runs can share it across CPUs. We use a
-// PERCPU init flag map to avoid double-alloc races.
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __type(key, __u32);
-    __type(value, __u64); // arena address cast to u64
-    __uint(max_entries, 1);
-} aegis_next_layout_ptr SEC(".maps");
+// NOTE: prov_layout is still defined in aegis_next_prov.hpp for
+// userspace mmap access. BPF code uses arena globals directly.
+
+// Arena-resident layout: header + node array live directly in
+// the arena address space. Using both __arena (for clang type
+// checking) and SEC(".addr_space.1") (for libbpf 1.5.0 section
+// placement). libbpf >= 1.6.0 would auto-relocate __arena globals.
+// The kernel allocates arena pages on demand (fault-in).
+struct prov_header __arena arena_hdr SEC(".addr_space.1");
+struct prov_node __arena arena_nodes[AEGIS_NEXT_MAX_NODES] SEC(".addr_space.1");
+int __arena arena_ready SEC(".addr_space.1");
 
 // tgid -> most-recent slot index in the arena. Lets a child exec
 // find its parent's exec record in O(1) so we can populate
@@ -126,78 +122,77 @@ struct {
     __uint(max_entries, 65536);
 } aegis_next_pid_slot SEC(".maps");
 
-// Best-effort one-time initializer. Returns the arena base or NULL.
-// We accept the very small race window of two CPUs both allocating;
-// only one wins the array store, the loser's pages stay reserved
-// for the lifetime of the program — acceptable for a scaffold.
-static __always_inline struct prov_layout __arena *
-aegis_next_layout(void)
+// Workaround for kernel 6.17 verifier + clang-19: when accessing an
+// arena global through a pointer, clang may hoist the pre-cast
+// (address-space-0) base address into a register and reuse it for
+// multiple field writes, skipping addr_space_cast on subsequent
+// accesses. The verifier then rejects the write as "R? invalid mem
+// access 'scalar'".
+//
+// This macro takes a pointer to an arena object, runs it through an
+// inline asm barrier so clang cannot merge it with any prior register
+// holding the uncasted base.
+#define ARENA_PTR(ptr)                                     \
+    ({                                                     \
+        typeof(ptr) __p = (ptr);                           \
+        asm volatile("" : "+r"(__p));                      \
+        __p;                                               \
+    })
+
+// Check if arena has been initialized.
+static __always_inline bool aegis_is_ready(void)
 {
-    __u32 key = 0;
-    __u64 *cached = bpf_map_lookup_elem(&aegis_next_layout_ptr, &key);
-    if (!cached)
-        return NULL;
+    return *(ARENA_PTR(&arena_ready)) != 0;
+}
 
-    if (*cached) {
-        return (struct prov_layout __arena *)(unsigned long)*cached;
-    }
-
-    // 1 page of header + N pages for the nodes. The kernel rounds
-    // up; we ask for the full arena up front.
-    void __arena *base = bpf_arena_alloc_pages(&aegis_next_arena, NULL,
-                                               AEGIS_NEXT_ARENA_PAGES,
-                                               -1 /* NUMA: any */,
-                                               0);
-    if (!base)
-        return NULL;
-
-    struct prov_layout __arena *layout = base;
-    layout->hdr.magic = 0xA5E61500A5E61500ULL;
-    layout->hdr.next_index = 0;
-    layout->hdr.dropped = 0;
-    layout->hdr.generation = 0;
-
-    __u64 addr = (__u64)(unsigned long)base;
-    bpf_map_update_elem(&aegis_next_layout_ptr, &key, &addr, BPF_ANY);
-    return layout;
+// Initialize arena header. Called from aegis_next_catchup()
+// (SEC("syscall"), sleepable context) before LSM hooks attach.
+static __always_inline void aegis_next_arena_init(void)
+{
+    ARENA_PTR(&arena_hdr)->magic = 0xA5E61500A5E61500ULL;
+    ARENA_PTR(&arena_hdr)->next_index = 0;
+    ARENA_PTR(&arena_hdr)->dropped = 0;
+    ARENA_PTR(&arena_hdr)->generation = 0;
+    *(ARENA_PTR(&arena_ready)) = 1;
 }
 
 // Reserve a slot and fill the common fields from a task_struct.
 // Returns the slot index (for callers that need to patch fields).
+//
+// Each store to the arena node goes through ARENA_PTR() to force
+// clang to emit a fresh addr_space_cast per access. Without this,
+// clang's register allocator may hold the uncasted arena_nodes base
+// in a spare register and reuse it for some stores, causing the
+// kernel 6.17 verifier to reject the program.
 static __always_inline __u64
-record_base(struct prov_layout __arena *layout,
-            struct task_struct *task, __u8 kind,
+record_base(struct task_struct *task, __u8 kind,
             __u64 object_id, __u16 extra)
 {
-    __u64 idx = __sync_fetch_and_add(&layout->hdr.next_index, 1);
+    __u64 idx = __sync_fetch_and_add(&arena_hdr.next_index, 1);
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
 
     // Bump generation counter when the arena wraps around.
     if (slot == 0 && idx > 0)
-        __sync_fetch_and_add(&layout->hdr.generation, 1);
-
-    struct prov_node __arena *node = &layout->nodes[slot];
+        __sync_fetch_and_add(&arena_hdr.generation, 1);
 
     struct task_struct *parent = BPF_CORE_READ(task, real_parent);
 
-    node->ts_ns     = bpf_ktime_get_ns();
-    node->pid       = BPF_CORE_READ(task, pid);
-    node->tgid      = BPF_CORE_READ(task, tgid);
-    node->ppid      = parent ? BPF_CORE_READ(parent, tgid) : 0;
-    node->uid       = BPF_CORE_READ(task, cred, uid.val);
-    node->cgid      = 0; // patched by LSM context helpers when available
-    node->object_id = object_id;
-    node->kind      = kind;
-    // Tag with low byte of generation so userspace can detect stale nodes.
-    node->flags     = (__u8)(layout->hdr.generation & 0xFF);
-    node->extra     = extra;
+    ARENA_PTR(&arena_nodes[slot])->ts_ns     = bpf_ktime_get_ns();
+    ARENA_PTR(&arena_nodes[slot])->pid       = BPF_CORE_READ(task, pid);
+    ARENA_PTR(&arena_nodes[slot])->tgid      = BPF_CORE_READ(task, tgid);
+    ARENA_PTR(&arena_nodes[slot])->ppid      = parent ? BPF_CORE_READ(parent, tgid) : 0;
+    ARENA_PTR(&arena_nodes[slot])->uid       = BPF_CORE_READ(task, cred, uid.val);
+    ARENA_PTR(&arena_nodes[slot])->cgid      = 0;
+    ARENA_PTR(&arena_nodes[slot])->object_id = object_id;
+    ARENA_PTR(&arena_nodes[slot])->kind      = kind;
+    ARENA_PTR(&arena_nodes[slot])->flags     = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF);
+    ARENA_PTR(&arena_nodes[slot])->extra     = extra;
 
-    // Stage comm through a stack buffer.
     char tmp[16];
     bpf_probe_read_kernel(tmp, sizeof(tmp), &task->comm);
     #pragma unroll
     for (int i = 0; i < 12; i++)
-        node->comm[i] = tmp[i];
+        ARENA_PTR(&arena_nodes[slot])->comm[i] = tmp[i];
 
     return slot;
 }
@@ -205,42 +200,32 @@ record_base(struct prov_layout __arena *layout,
 // Record a process exec event. Updates the pid->slot hash and
 // links to the parent's exec node via prev_index.
 static __always_inline void
-record_task(struct prov_layout __arena *layout,
-            struct task_struct *task, __u64 exec_inode)
+record_task(struct task_struct *task, __u64 exec_inode)
 {
-    __u64 slot = record_base(layout, task, PROV_KIND_EXEC,
-                             exec_inode, 0);
-    struct prov_node __arena *node = &layout->nodes[slot];
+    __u64 slot = record_base(task, PROV_KIND_EXEC, exec_inode, 0);
+    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
-    // Link to parent's most recent exec node.
     __u32 ppid_key = node->ppid;
     __u64 *parent_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &ppid_key);
-    node->prev_index = parent_slot ? *parent_slot : (__u64)-1;
+    ARENA_PTR(&arena_nodes[slot])->prev_index = parent_slot ? *parent_slot : (__u64)-1;
 
-    // Publish our slot for future children.
     __u32 my_key = node->tgid;
     bpf_map_update_elem(&aegis_next_pid_slot, &my_key, &slot, BPF_ANY);
 }
 
-// Record a non-exec event (file_open, socket_connect, ...).
-// prev_index points to the OWNING exec node (current process's
-// most recent exec), not to the parent process.
 static __always_inline void
-record_event(struct prov_layout __arena *layout,
-             __u8 kind, __u64 object_id, __u16 extra)
+record_event(__u8 kind, __u64 object_id, __u16 extra)
 {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
-    __u64 slot = record_base(layout, task, kind, object_id, extra);
-    struct prov_node __arena *node = &layout->nodes[slot];
+    __u64 slot = record_base(task, kind, object_id, extra);
+    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
-    // Link to owning exec node, not to parent process.
     __u32 tgid = BPF_CORE_READ(task, tgid);
     __u64 *exec_slot = bpf_map_lookup_elem(&aegis_next_pid_slot, &tgid);
-    node->prev_index = exec_slot ? *exec_slot : (__u64)-1;
+    ARENA_PTR(&arena_nodes[slot])->prev_index = exec_slot ? *exec_slot : (__u64)-1;
 
-    // Patch context-available fields.
-    node->uid  = bpf_get_current_uid_gid() & 0xffffffff;
-    node->cgid = bpf_get_current_cgroup_id();
+    ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
+    ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
 }
 
 SEC("lsm/bprm_check_security")
@@ -248,9 +233,7 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
 {
     if (ret != 0)
         return ret;
-
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -263,16 +246,13 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
             exec_inode = BPF_CORE_READ(ino, i_ino);
     }
 
-    // For the LSM hook we can also fill cgroup_id and uid from the
-    // helper context (faster and more accurate than BPF_CORE_READ).
-    record_task(layout, task, exec_inode);
+    record_task(task, exec_inode);
 
-    // Patch the cgroup/uid fields with the helper-provided values
-    // which are more accurate in the LSM context.
-    __u64 idx = layout->hdr.next_index - 1; // just written above
+    // Patch cgroup/uid with helper-provided values (more accurate in LSM context).
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
-    layout->nodes[slot].uid  = bpf_get_current_uid_gid() & 0xffffffff;
-    layout->nodes[slot].cgid = bpf_get_current_cgroup_id();
+    ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
+    ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
 
     return 0;
 }
@@ -280,8 +260,7 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
 SEC("lsm/file_open")
 int BPF_PROG(aegis_next_on_file_open, struct file *file)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     __u64 inode = 0;
@@ -290,7 +269,7 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
         inode = BPF_CORE_READ(ino, i_ino);
 
     __u16 open_flags = (__u16)(BPF_CORE_READ(file, f_flags) & 0xFFFF);
-    record_event(layout, PROV_KIND_FILE_OPEN, inode, open_flags);
+    record_event(PROV_KIND_FILE_OPEN, inode, open_flags);
     return 0;
 }
 
@@ -298,8 +277,7 @@ SEC("lsm/socket_connect")
 int BPF_PROG(aegis_next_on_socket_connect,
              struct socket *sock, struct sockaddr *address, int addrlen)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         return 0;
 
     __u16 family = BPF_CORE_READ(address, sa_family);
@@ -327,7 +305,7 @@ int BPF_PROG(aegis_next_on_socket_connect,
         object_id = ((__u64)port << 32) | addr_low;
     }
 
-    record_event(layout, PROV_KIND_SOCKET_CONNECT, object_id, family);
+    record_event(PROV_KIND_SOCKET_CONNECT, object_id, family);
     return 0;
 }
 
@@ -345,25 +323,18 @@ int BPF_PROG(aegis_next_on_socket_connect,
 SEC("syscall")
 int aegis_next_catchup(void *ctx)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
-        return -1;
+    aegis_next_arena_init();
 
     struct task_struct *task;
+    bpf_rcu_read_lock();
     bpf_for_each(task, task, NULL, BPF_TASK_ITER_ALL) {
-        // Skip non-leaders (threads). We only record one node per
-        // process (thread group), keyed by tgid.
         __u32 pid = BPF_CORE_READ(task, pid);
         __u32 tgid = BPF_CORE_READ(task, tgid);
         if (pid != tgid)
             continue;
-
-        // exec_inode: we don't have bprm here; set to 0. The live
-        // LSM hook will overwrite this with the real inode when the
-        // process next exec's. For now, having the pid/ppid/tgid in
-        // the arena is what matters for lineage connectivity.
-        record_task(layout, task, 0);
+        record_task(task, 0);
     }
+    bpf_rcu_read_unlock();
 
     return 0;
 }
@@ -396,7 +367,6 @@ struct {
 
 // Context passed to the bpf_for_each_map_elem callback.
 struct gc_ctx {
-    struct prov_layout __arena *layout;
     __u8  current_gen_tag;
     __u64 evicted;
 };
@@ -405,31 +375,24 @@ struct gc_ctx {
 static long gc_check_entry(struct bpf_map *map, const __u32 *key,
                            __u64 *value, struct gc_ctx *ctx)
 {
-    if (!ctx->layout)
-        return 1; // stop
-
     __u64 slot = *value % AEGIS_NEXT_MAX_NODES;
-    struct prov_node __arena *node = &ctx->layout->nodes[slot];
+    struct prov_node __arena *node = ARENA_PTR(&arena_nodes[slot]);
 
-    // If the node's generation tag doesn't match, the slot has been
-    // overwritten since this pid_slot entry was created.
     if (node->flags != ctx->current_gen_tag) {
         bpf_map_delete_elem(map, key);
         ctx->evicted++;
     }
-    return 0; // continue
+    return 0;
 }
 
 // Timer callback: runs the GC sweep.
 static int gc_timer_cb(void *map, __u32 *key, struct gc_state *state)
 {
-    struct prov_layout __arena *layout = aegis_next_layout();
-    if (!layout)
+    if (!aegis_is_ready())
         goto reschedule;
 
     struct gc_ctx ctx = {
-        .layout = layout,
-        .current_gen_tag = (__u8)(layout->hdr.generation & 0xFF),
+        .current_gen_tag = (__u8)(ARENA_PTR(&arena_hdr)->generation & 0xFF),
         .evicted = 0,
     };
 
