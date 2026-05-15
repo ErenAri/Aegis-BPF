@@ -351,6 +351,23 @@ int cmd_attach()
     std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
                 (unsigned long)skel->arena->arena_hdr.next_index);
 
+    // P3.6: Pre-fault arena pages to eliminate first-access latency
+    // spikes. Touch every 4K page in the working set so the kernel
+    // maps them before LSM hooks start firing.
+    {
+        volatile const char* base =
+            reinterpret_cast<volatile const char*>(skel->arena);
+        constexpr std::size_t prefault_bytes =
+            aegis_next::kArenaPages * 4096ULL;
+        std::size_t pages = 0;
+        for (std::size_t off = 0; off < prefault_bytes; off += 4096) {
+            (void)base[off];
+            ++pages;
+        }
+        std::printf("aegis-next: pre-faulted %lu arena pages (%.1f MB)\n",
+                    (unsigned long)pages, pages * 4096.0 / (1024 * 1024));
+    }
+
     if (provenance_bpf__attach(skel) != 0) {
         std::fprintf(stderr, "failed to attach LSM program: %s\n",
                      std::strerror(errno));
