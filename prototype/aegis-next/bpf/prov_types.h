@@ -36,4 +36,7 @@
 #define NET_SLAB_SLOTS    (1u << 12)  // 4096
 #define NET_SLAB_SLOT_SZ  48
 
+// Ringbuf geometry.
+#define AEGIS_RINGBUF_PAGES  512  // 2MB (512 × 4K)
+
 #endif // AEGIS_NEXT_PROV_TYPES_H

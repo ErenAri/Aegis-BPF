@@ -164,6 +164,21 @@ struct {
     __uint(max_entries, 1);
 } aegis_next_path_scratch SEC(".maps");
 
+// Ringbuf alert struct — compact notification per LSM event.
+struct aegis_alert {
+    __u64 slot;    // arena node slot index
+    __u32 pid;     // process tgid
+    __u8  kind;    // PROV_KIND_*
+    __u8  _pad[3];
+};
+
+// Ringbuf for real-time event alerts. Userspace polls this instead
+// of sleeping; the arena remains the source of truth.
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, AEGIS_RINGBUF_PAGES * 4096);
+} aegis_next_ringbuf SEC(".maps");
+
 // Legacy pid->slot LRU hash, kept alongside the arena hash table
 // during transition. The GC timer sweeps this map; once the arena
 // hash is proven reliable, this map can be removed.
@@ -261,6 +276,25 @@ record_net_flow(__u8 family, __u8 proto,
     }
 
     return slab_idx;
+}
+
+// Push a compact alert to the ringbuf. Best-effort: drops are
+// counted by the ringbuf's internal counter (not fatal).
+static __always_inline void
+emit_alert(__u64 slot, __u32 pid, __u8 kind)
+{
+    struct aegis_alert *alert;
+    alert = bpf_ringbuf_reserve(&aegis_next_ringbuf,
+                                sizeof(*alert), 0);
+    if (!alert)
+        return;
+    alert->slot = slot;
+    alert->pid  = pid;
+    alert->kind = kind;
+    alert->_pad[0] = 0;
+    alert->_pad[1] = 0;
+    alert->_pad[2] = 0;
+    bpf_ringbuf_submit(alert, 0);
 }
 
 // Reserve a slot and fill the common fields from a task_struct.
@@ -387,6 +421,7 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
         }
     }
 
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_EXEC);
     return 0;
 }
 
@@ -412,6 +447,7 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
     __u32 path_idx = resolve_path(&file->f_path);
     ARENA_PTR(&arena_nodes[slot])->path_slab_idx = path_idx;
 
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_OPEN);
     return 0;
 }
 
@@ -472,6 +508,7 @@ int BPF_PROG(aegis_next_on_socket_connect,
         (family == 10) ? src_v6_buf : (void *)0,
         (family == 10) ? dst_v6_buf : (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_CONNECT);
     return 0;
 }
 
@@ -523,6 +560,7 @@ int BPF_PROG(aegis_next_on_socket_bind,
         (family == 10) ? bind_v6_buf : (void *)0,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_BIND);
     return 0;
 }
 
@@ -565,6 +603,7 @@ int BPF_PROG(aegis_next_on_socket_listen,
         (family == 10) ? src_v6_buf : (void *)0,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_LISTEN);
     return 0;
 }
 

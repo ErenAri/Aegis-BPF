@@ -27,6 +27,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <type_traits>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -335,8 +336,7 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
         }
     }
 
-    std::printf("aegis-next: attached. exec events recorded into arena.\n");
-    std::printf("press Ctrl-C to stop.\n");
+    std::printf("aegis-next: attached. events recorded into arena.\n");
 
     // Access arena through the skeleton's auto-mapped globals.
     auto* arena_view = skel->arena;
@@ -355,47 +355,84 @@ int cmd_attach(const std::unordered_set<std::string>& deny_list)
                     (unsigned long)aegis_next::kHtBuckets,
                     occupied * 100.0 / aegis_next::kHtBuckets);
     }
-    std::uint64_t last_seen = 0;
-    std::uint64_t quarantine_hits = 0;
-    while (!g_stop.load(std::memory_order_relaxed)) {
-        sleep(1);
-        const std::uint64_t cur = arena_view->arena_hdr.next_index;
-        if (cur == last_seen)
-            continue;
 
-        // Scan new nodes for deny-list matches.
-        if (quarantine_fd >= 0 && !deny_list.empty()) {
-            for (std::uint64_t i = last_seen; i < cur; ++i) {
-                const std::uint64_t slot = i % kMaxNodes;
-                const auto& node = arena_view->arena_nodes[slot];
-                if (node.kind != PROV_KIND_EXEC)
-                    continue;
-                // comm is not necessarily null-terminated at 12 bytes.
+    // Set up ringbuf for real-time alert processing.
+    struct ring_ctx {
+        const std::remove_pointer_t<decltype(arena_view)>* arena;
+        const std::unordered_set<std::string>* deny;
+        int quar_fd;
+        std::uint64_t events;
+        std::uint64_t quarantine_hits;
+        std::uint64_t last_print;
+    };
+
+    ring_ctx rctx{};
+    rctx.arena = arena_view;
+    rctx.deny = &deny_list;
+    rctx.quar_fd = quarantine_fd;
+
+    int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
+    struct ring_buffer* rb = ring_buffer__new(
+        rb_fd,
+        [](void* ctx, void* data, size_t /*sz*/) -> int {
+            auto* c = static_cast<ring_ctx*>(ctx);
+            auto* alert = static_cast<const aegis_alert*>(data);
+            ++c->events;
+
+            // Deny-list check for exec events.
+            if (alert->kind == PROV_KIND_EXEC &&
+                c->quar_fd >= 0 && !c->deny->empty()) {
+                const auto& node =
+                    c->arena->arena_nodes[alert->slot % kMaxNodes];
                 std::string comm(node.comm,
                                  strnlen(node.comm, sizeof(node.comm)));
-                if (deny_list.count(comm) && node.cgid != 0) {
-                    __u32 level = 1; // QUARANTINE_THROTTLE
-                    if (bpf_map_update_elem(quarantine_fd, &node.cgid,
+                if (c->deny->count(comm) && node.cgid != 0) {
+                    __u32 level = 1;
+                    if (bpf_map_update_elem(c->quar_fd, &node.cgid,
                                             &level, BPF_ANY) == 0) {
                         std::printf("  ** auto-quarantined cgid %lu "
                                     "(exec '%s', pid %u)\n",
                                     (unsigned long)node.cgid,
                                     comm.c_str(), node.pid);
-                        ++quarantine_hits;
+                        ++c->quarantine_hits;
                     }
                 }
             }
-        }
 
-        std::printf("  ... recorded %lu event(s) total\n",
-                    (unsigned long)cur);
-        last_seen = cur;
+            // Periodic progress line (every 100 events).
+            if (c->events - c->last_print >= 100) {
+                std::printf("  ... %lu events processed via ringbuf\n",
+                            (unsigned long)c->events);
+                c->last_print = c->events;
+            }
+            return 0;
+        },
+        &rctx, nullptr);
+
+    if (!rb) {
+        std::fprintf(stderr, "failed to create ring_buffer: %s\n",
+                     std::strerror(errno));
+        provenance_bpf__destroy(skel);
+        return 1;
     }
 
-    if (quarantine_hits > 0) {
+    std::printf("aegis-next: ringbuf polling active (sub-ms latency).\n");
+    std::printf("press Ctrl-C to stop.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        int err = ring_buffer__poll(rb, 1000 /* ms timeout */);
+        if (err < 0 && err != -EINTR)
+            break;
+    }
+
+    ring_buffer__free(rb);
+
+    if (rctx.quarantine_hits > 0) {
         std::printf("aegis-next: auto-quarantined %lu cgroup(s) this session.\n",
-                    (unsigned long)quarantine_hits);
+                    (unsigned long)rctx.quarantine_hits);
     }
+    std::printf("aegis-next: processed %lu events via ringbuf.\n",
+                (unsigned long)rctx.events);
 
     // Report hash table stats on exit.
     {

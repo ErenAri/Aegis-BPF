@@ -66,4 +66,13 @@ struct net_flow {
 #define NET_SLAB_SLOTS        (1u << 12)  /* 4K — must match BPF side */
 #define NET_SLAB_SLOT_SZ      48
 
+/* Ringbuf alert — compact notification per LSM event.
+ * Must match struct aegis_alert in provenance.bpf.c. */
+struct aegis_alert {
+    uint64_t slot;    /* arena node slot index */
+    uint32_t pid;     /* process tgid */
+    uint8_t  kind;    /* PROV_KIND_* */
+    uint8_t  _pad[3];
+};
+
 #endif /* AEGIS_NEXT_PROV_ARENA_TYPES_H */
