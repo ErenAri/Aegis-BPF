@@ -2,7 +2,7 @@ name: aegis-next prototype
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feat/aegis-next-*']
     paths:
       - 'prototype/aegis-next/**'
       - 'CMakeLists.txt'
