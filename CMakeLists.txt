@@ -369,11 +369,16 @@ find_package(ZLIB REQUIRED)
 target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
 
 # Static libstdc++/libgcc for portable binary packages.
-# Eliminates GLIBCXX version dependency so the binary runs on
+# Eliminates GLIBCXX/GLIBC version dependencies so the binary runs on
 # older distros (Debian 12, Rocky 9) even when built on Ubuntu 24.04.
-option(STATIC_STDCXX "Statically link libstdc++ and libgcc" OFF)
+# Also static-links libelf and zlib which pull in GLIBC_2.38 symbols
+# on noble via __isoc23_* functions.
+option(STATIC_STDCXX "Statically link libstdc++, libgcc, libelf, zlib" OFF)
 if(STATIC_STDCXX)
     target_link_options(aegisbpf PRIVATE -static-libstdc++ -static-libgcc)
+    # Force static libelf + zlib to avoid their GLIBC_2.38 deps.
+    target_link_libraries(aegisbpf PRIVATE
+        -Wl,-Bstatic -lelf -lz -Wl,-Bdynamic)
 endif()
 
 # Systemd integration (optional)
@@ -868,7 +873,11 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # binary directly under their own supervisor in that case).
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "systemd")
 if(STATIC_LIBBPF)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, libc6")
+    if(STATIC_STDCXX)
+        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
+    else()
+        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, libc6")
+    endif()
 else()
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0, libelf1t64 | libelf1, libc6")
 endif()
@@ -892,7 +901,11 @@ set(CPACK_RPM_PACKAGE_VENDOR "${CPACK_PACKAGE_VENDOR}")
 set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
 set(CPACK_RPM_PACKAGE_SUMMARY "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
 if(STATIC_LIBBPF)
-    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, glibc")
+    if(STATIC_STDCXX)
+        set(CPACK_RPM_PACKAGE_REQUIRES "glibc")
+    else()
+        set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, glibc")
+    endif()
 else()
     set(CPACK_RPM_PACKAGE_REQUIRES "libbpf, elfutils-libelf, glibc")
 endif()
