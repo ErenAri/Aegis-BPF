@@ -24,15 +24,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
             pkg-config cmake ninja-build zlib1g-dev
-          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
+          sudo apt-get install -y linux-tools-common
+          # bpftool: try kernel-tools first, fall back to generic tools.
+          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
+          # dispatches to a per-kernel binary which is often absent for the
+          # exact running kernel.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
             sudo apt-get install -y linux-tools-generic 2>/dev/null || \
             sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
+            # Search common paths: /usr/lib/linux-tools/, /usr/lib/bpf/,
+            # and Azure-specific paths under /usr/lib/linux-*-tools/.
+            REAL=$(find /usr/lib/linux-tools/ /usr/lib/linux-*-tools/ /usr/lib/bpf/ \
+                        -name bpftool -type f 2>/dev/null | sort -V | tail -1)
             if [[ -n "$REAL" ]]; then
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
+          # Last resort: if bpftool is still broken, try to find it
+          # anywhere on the system.
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find / -name bpftool -type f -executable 2>/dev/null | head -1)
+            if [[ -n "$REAL" ]]; then
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
 
       - name: Check kernel version
         id: kernel
