@@ -95,4 +95,30 @@ struct policy_val {
     uint32_t _reserved;
 };
 
+/* Full ringbuf event for legacy (ringbuf-only) mode on kernels < 6.9.
+ * In arena mode the ringbuf carries a 16-byte aegis_alert; in legacy
+ * mode the arena is unavailable so each event carries the complete
+ * node data plus inline path and net flow.
+ * Must match struct prov_ringbuf_event in provenance_legacy.bpf.c. */
+struct prov_ringbuf_event {
+    uint64_t ts_ns;
+    uint32_t pid;
+    uint32_t ppid;
+    uint32_t tgid;
+    uint32_t uid;
+    uint64_t cgid;
+    uint64_t object_id;
+    uint8_t  kind;
+    uint8_t  flags;
+    uint16_t extra;
+    char     comm[12];
+    uint32_t mnt_ns;
+    uint32_t pid_ns;
+    uint16_t path_len;     /* 0 = no path */
+    uint8_t  has_net;      /* 0 = no flow, 1 = flow present */
+    uint8_t  _pad2;
+    char     path[PATH_SLAB_SLOT_SZ]; /* 256 bytes inline */
+    struct net_flow net;               /* 48 bytes inline */
+};
+
 #endif /* AEGIS_NEXT_PROV_ARENA_TYPES_H */

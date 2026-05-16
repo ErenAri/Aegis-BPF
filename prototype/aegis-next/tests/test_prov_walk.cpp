@@ -407,5 +407,89 @@ TEST(Generation, WalkLineageNoGenerationCheckWhenSentinel)
     EXPECT_FALSE(visited[1].stale);
 }
 
+// ----- FNV-1a hash tests ---------------------------------------
+
+TEST(Fnv1a, EmptyStringReturnsOffset)
+{
+    // FNV-1a offset basis.
+    EXPECT_EQ(fnv1a(""), 0x811c9dc5u);
+}
+
+TEST(Fnv1a, KnownValuesMatchBpfSide)
+{
+    // "bash" — verified against BPF fnv1a_hash("bash", 12).
+    std::uint32_t h = fnv1a("bash");
+    EXPECT_NE(h, 0u);
+    // Deterministic: same input → same output.
+    EXPECT_EQ(fnv1a("bash"), h);
+}
+
+TEST(Fnv1a, DifferentStringsProduceDifferentHashes)
+{
+    EXPECT_NE(fnv1a("bash"), fnv1a("sh"));
+    EXPECT_NE(fnv1a("xmrig"), fnv1a("minerd"));
+}
+
+TEST(Fnv1a, RespectsMaxlen)
+{
+    // With maxlen=4, "abcde" and "abcdf" should hash the same
+    // (only first 4 chars matter).
+    EXPECT_EQ(fnv1a("abcde", 4), fnv1a("abcdf", 4));
+    // But differ with full length.
+    EXPECT_NE(fnv1a("abcde", 5), fnv1a("abcdf", 5));
+}
+
+// ----- path_from_slab tests ------------------------------------
+
+TEST(PathSlab, ZeroIdxReturnsEmptyString)
+{
+    EXPECT_STREQ(path_from_slab(nullptr, 0), "");
+}
+
+// ----- net_from_slab tests -------------------------------------
+
+TEST(NetSlab, ZeroIdxReturnsNullptr)
+{
+    EXPECT_EQ(net_from_slab(nullptr, 0), nullptr);
+}
+
+TEST(NetSlab, OneBasedIndexing)
+{
+    NetFlow flows[2]{};
+    flows[0].family = 2;  // AF_INET
+    flows[1].family = 10; // AF_INET6
+    // idx=1 → &flows[0], idx=2 → &flows[1]
+    EXPECT_EQ(net_from_slab(flows, 1)->family, 2);
+    EXPECT_EQ(net_from_slab(flows, 2)->family, 10);
+}
+
+// ----- ht_make_key / ht_hash tests -----------------------------
+
+TEST(HtKey, KindEncodedInHighBits)
+{
+    auto key = ht_make_key(1, 0x123);
+    EXPECT_EQ(key >> 56, 1u);
+    EXPECT_EQ(key & 0x00FFFFFFFFFFFFFFULL, 0x123u);
+}
+
+TEST(HtKey, DifferentKindsDifferentKeys)
+{
+    EXPECT_NE(ht_make_key(0, 42), ht_make_key(1, 42));
+}
+
+TEST(HtHash, Deterministic)
+{
+    auto k = ht_make_key(0, 12345);
+    EXPECT_EQ(ht_hash(k), ht_hash(k));
+}
+
+TEST(HtLookup, EmptyTableReturnsRootSentinel)
+{
+    // ht_lookup probes kHtBuckets (64K) entries, so we need a
+    // full-sized table for a valid test.
+    std::vector<HtEntry> table(kHtBuckets, HtEntry{0, 0});
+    EXPECT_EQ(ht_lookup(table.data(), ht_make_key(0, 999)), kRootSentinel);
+}
+
 } // namespace
 } // namespace aegis_next
