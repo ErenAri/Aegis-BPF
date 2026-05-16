@@ -52,15 +52,16 @@ jobs:
             clang llvm libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
             pkg-config cmake ninja-build python3-jsonschema rpm \
             linux-tools-common
-          # bpftool: try kernel-tools first, fall back to generic tools.
-          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
-          # dispatches to a per-kernel binary which is often absent for the
-          # exact running kernel. Same fallback chain as kernel-bpf-test.yml:
-          # if `bpftool version` does not actually work, grab any working
-          # bpftool from /usr/lib/linux-tools/<ver>/ and overwrite the wrapper.
-          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
-            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
-            sudo apt-get install -y bpftool 2>/dev/null || true
+          # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
+          # dispatches to /usr/lib/linux-tools/<exact-kernel>/bpftool.
+          # On Azure kernels (6.17) the kernel-specific linux-tools package
+          # installs successfully but contains NO bpftool binary, so the
+          # || chain never reaches linux-tools-generic. Install each
+          # package unconditionally; linux-tools-generic ships a real
+          # bpftool for the distro HWE kernel.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
+          sudo apt-get install -y linux-tools-generic 2>/dev/null || true
+          sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
             REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
             if [[ -n "$REAL" ]]; then

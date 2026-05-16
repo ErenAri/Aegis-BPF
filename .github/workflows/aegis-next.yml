@@ -24,9 +24,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
             pkg-config cmake ninja-build zlib1g-dev
-          sudo apt-get install -y linux-tools-$(uname -r) 2>/dev/null || \
-            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
-            sudo apt-get install -y bpftool 2>/dev/null || true
+          # bpftool: Azure kernel-specific linux-tools may install OK but
+          # contain no bpftool binary. Install each package separately so
+          # linux-tools-generic always gets a chance.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
+          sudo apt-get install -y linux-tools-generic 2>/dev/null || true
+          sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
             REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null | sort -V | tail -1)
             if [[ -n "$REAL" ]]; then
