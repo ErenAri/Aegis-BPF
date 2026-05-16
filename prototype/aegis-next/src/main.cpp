@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cerrno>
 #include <csignal>
+#include <type_traits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -39,9 +40,12 @@
 #include <unistd.h>
 
 #include "aegis_next_prov.hpp"
+#include "event_export.hpp"
+#include "feature_probe.hpp"
 #include "prov_walk.hpp"
 #include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
+#include "provenance_legacy.skel.h"
 #include "quarantine.skel.h"
 #include "selfprotect.skel.h"
 
@@ -228,14 +232,192 @@ void usage(const char* prog)
                  "  sched start            load sched_ext quarantine scheduler\n"
                  "  sched quarantine <cgid> <level>  set level: 0=clear 1=throttle 2=pin 3=starve\n"
                  "  sched status           list quarantined cgroups\n"
-                 "  protect                load self-protection LSM hooks\n",
+                 "  protect                load self-protection LSM hooks\n"
+                 "  export tail [N]        print last N lines from JSONL export\n"
+                 "  status                 show feature probes, arena, policy, quarantine\n",
                  prog);
+}
+
+// P3.1: Ringbuf-only fallback for kernels < 6.9.
+// When BPF_MAP_TYPE_ARENA is not available, we load a legacy BPF
+// program that sends full events (~372B) through the ringbuf instead
+// of writing to a shared arena. Userspace receives complete events
+// directly — no arena mmap, no path/net slabs, no catch-up scan.
+int cmd_attach_legacy()
+{
+    std::printf("aegis-next: arena unavailable, using ringbuf-only fallback.\n");
+
+    provenance_legacy_bpf* skel = provenance_legacy_bpf__open();
+    if (!skel) {
+        std::fprintf(stderr, "failed to open legacy skeleton: %s\n",
+                     std::strerror(errno));
+        return 1;
+    }
+
+    // Reuse pinned quarantine map if sched_ext is already loaded.
+    {
+        std::string qpath = quarantine_pin_path();
+        int qfd = bpf_obj_get(qpath.c_str());
+        if (qfd >= 0) {
+            int rc = bpf_map__reuse_fd(skel->maps.aegis_next_quarantine, qfd);
+            if (rc == 0) {
+                std::printf("aegis-next: reusing pinned quarantine map\n");
+            }
+            close(qfd);
+        }
+    }
+
+    if (provenance_legacy_bpf__load(skel) != 0) {
+        std::fprintf(stderr, "failed to load legacy skeleton: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    // Pin policy and quarantine maps.
+    std::string dir = pin_dir();
+    (void)::mkdir(dir.c_str(), 0700);
+
+    std::string pol_path = policy_pin_path();
+    int pol_err = bpf_map__pin(skel->maps.aegis_next_policy, pol_path.c_str());
+    if (pol_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin policy: %s\n",
+                     std::strerror(errno));
+    }
+
+    std::string quar_path = quarantine_pin_path();
+    int quar_err = bpf_map__pin(skel->maps.aegis_next_quarantine, quar_path.c_str());
+    if (quar_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin quarantine: %s\n",
+                     std::strerror(errno));
+    }
+
+    if (provenance_legacy_bpf__attach(skel) != 0) {
+        std::fprintf(stderr, "failed to attach legacy LSM: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::signal(SIGINT, on_sigint);
+    std::signal(SIGTERM, on_sigint);
+
+    std::printf("aegis-next: attached (ringbuf-only mode, ~372B/event).\n");
+    std::printf("aegis-next: quarantine bridge active.\n");
+    std::printf("  note: graph/lineage commands unavailable in legacy mode.\n"
+                "        use 'export tail' to inspect recent events.\n");
+
+    // JSONL export.
+    std::string export_path = pin_dir() + "/events.jsonl";
+    aegis_next::EventExporter exporter(export_path);
+    if (exporter.is_open()) {
+        std::printf("aegis-next: JSONL export at %s\n", export_path.c_str());
+    }
+
+    // Ringbuf callback for full events.
+    struct legacy_ring_ctx {
+        aegis_next::EventExporter* exporter;
+        std::uint64_t events;
+        std::uint64_t last_print;
+    };
+
+    legacy_ring_ctx rctx{};
+    rctx.exporter = &exporter;
+
+    int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
+    struct ring_buffer* rb = ring_buffer__new(
+        rb_fd,
+        [](void* ctx, void* data, size_t /*sz*/) -> int {
+            auto* c = static_cast<legacy_ring_ctx*>(ctx);
+            auto* evt = static_cast<const prov_ringbuf_event*>(data);
+            ++c->events;
+
+            if (c->exporter && c->exporter->is_open()) {
+                // Build a prov_node from the ringbuf event for export.
+                struct prov_node node{};
+                node.ts_ns     = evt->ts_ns;
+                node.pid       = evt->pid;
+                node.ppid      = evt->ppid;
+                node.tgid      = evt->tgid;
+                node.uid       = evt->uid;
+                node.cgid      = evt->cgid;
+                node.object_id = evt->object_id;
+                node.kind      = evt->kind;
+                node.flags     = evt->flags;
+                node.extra     = evt->extra;
+                std::memcpy(node.comm, evt->comm, 12);
+                node.mnt_ns    = evt->mnt_ns;
+                node.pid_ns    = evt->pid_ns;
+
+                const char* path = (evt->path_len > 0) ? evt->path : "";
+                const struct net_flow* flow =
+                    evt->has_net ? &evt->net : nullptr;
+
+                c->exporter->export_node(node, 0, path, flow);
+            }
+
+            if (c->events - c->last_print >= 100) {
+                std::printf("  ... %lu events (ringbuf-only)\n",
+                            (unsigned long)c->events);
+                c->last_print = c->events;
+            }
+            return 0;
+        },
+        &rctx, nullptr);
+
+    if (!rb) {
+        std::fprintf(stderr, "failed to create ring_buffer: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::printf("aegis-next: ringbuf polling active.\npress Ctrl-C to stop.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        int err = ring_buffer__poll(rb, 1000);
+        if (err < 0 && err != -EINTR)
+            break;
+    }
+
+    ring_buffer__free(rb);
+
+    std::printf("\naegis-next: processed %lu events (ringbuf-only mode).\n",
+                (unsigned long)rctx.events);
+    if (exporter.count() > 0) {
+        std::printf("aegis-next: exported %lu events to %s\n",
+                    (unsigned long)exporter.count(), export_path.c_str());
+    }
+
+    provenance_legacy_bpf__destroy(skel);
+    return 0;
 }
 
 int cmd_attach()
 {
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
+
+    // P3.2: Runtime feature probing — check what the running kernel
+    // supports before loading BPF programs.
+    auto features = aegis_next::probe_features();
+    aegis_next::print_features(features);
+
+    if (!features.bpf_lsm) {
+        std::fprintf(stderr,
+                     "error: BPF LSM not enabled. Add 'lsm=bpf' to kernel boot params.\n");
+        return 1;
+    }
+
+    // P3.1: If arena is unavailable, fall through to ringbuf-only mode.
+    if (!features.arena) {
+        if (!features.ringbuf) {
+            std::fprintf(stderr,
+                         "error: neither arena nor ringbuf available.\n");
+            return 1;
+        }
+        return cmd_attach_legacy();
+    }
 
     provenance_bpf* skel = provenance_bpf__open();
     if (!skel) {
@@ -351,6 +533,23 @@ int cmd_attach()
     std::printf("aegis-next: catch-up scan seeded %lu process(es)\n",
                 (unsigned long)skel->arena->arena_hdr.next_index);
 
+    // P3.6: Pre-fault arena pages to eliminate first-access latency
+    // spikes. Touch every 4K page in the working set so the kernel
+    // maps them before LSM hooks start firing.
+    {
+        volatile const char* base =
+            reinterpret_cast<volatile const char*>(skel->arena);
+        constexpr std::size_t prefault_bytes =
+            aegis_next::kArenaPages * 4096ULL;
+        std::size_t pages = 0;
+        for (std::size_t off = 0; off < prefault_bytes; off += 4096) {
+            (void)base[off];
+            ++pages;
+        }
+        std::printf("aegis-next: pre-faulted %lu arena pages (%.1f MB)\n",
+                    (unsigned long)pages, pages * 4096.0 / (1024 * 1024));
+    }
+
     if (provenance_bpf__attach(skel) != 0) {
         std::fprintf(stderr, "failed to attach LSM program: %s\n",
                      std::strerror(errno));
@@ -400,23 +599,59 @@ int cmd_attach()
                     occupied * 100.0 / aegis_next::kHtBuckets);
     }
 
-    // Set up ringbuf for real-time alert processing.
-    // P2.3: quarantine is now handled in-kernel by evaluate_policy(),
-    // so the ringbuf callback only needs to count events and log.
+    // P3.4: Event export — JSONL file for persistence.
+    std::string export_path = pin_dir() + "/events.jsonl";
+    aegis_next::EventExporter exporter(export_path);
+    if (exporter.is_open()) {
+        std::printf("aegis-next: JSONL export active at %s\n",
+                    export_path.c_str());
+    } else {
+        std::fprintf(stderr, "warning: could not open %s for export\n",
+                     export_path.c_str());
+    }
+
+    // Set up ringbuf for real-time alert processing + JSONL export.
+    using arena_t = std::remove_pointer_t<decltype(arena_view)>;
     struct ring_ctx {
+        const arena_t* arena;
+        aegis_next::EventExporter* exporter;
         std::uint64_t events;
         std::uint64_t last_print;
     };
 
     ring_ctx rctx{};
+    rctx.arena = arena_view;
+    rctx.exporter = &exporter;
 
     int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
     struct ring_buffer* rb = ring_buffer__new(
         rb_fd,
         [](void* ctx, void* data, size_t /*sz*/) -> int {
             auto* c = static_cast<ring_ctx*>(ctx);
-            (void)data;
+            auto* alert = static_cast<const aegis_alert*>(data);
             ++c->events;
+
+            // Read node from arena and export to JSONL.
+            if (c->exporter && c->exporter->is_open()) {
+                std::uint64_t idx = alert->slot % kMaxNodes;
+                const auto& node = c->arena->arena_nodes[idx];
+
+                const char* path_str = "";
+                if (node.path_slab_idx > 0 &&
+                    node.path_slab_idx <= aegis_next::kPathSlabSlots) {
+                    path_str = reinterpret_cast<const char*>(
+                        &c->arena->path_slab[node.path_slab_idx - 1]);
+                }
+
+                const struct net_flow* flow = nullptr;
+                if (node.net_slab_idx > 0 &&
+                    node.net_slab_idx <= aegis_next::kNetSlabSlots) {
+                    flow = &c->arena->net_slab[node.net_slab_idx - 1];
+                }
+
+                c->exporter->export_node(node, alert->slot,
+                                          path_str, flow);
+            }
 
             // Periodic progress line (every 100 events).
             if (c->events - c->last_print >= 100) {
@@ -448,6 +683,10 @@ int cmd_attach()
 
     std::printf("aegis-next: processed %lu events via ringbuf.\n",
                 (unsigned long)rctx.events);
+    if (exporter.count() > 0) {
+        std::printf("aegis-next: exported %lu events to %s\n",
+                    (unsigned long)exporter.count(), export_path.c_str());
+    }
 
     // Report hash table stats on exit.
     {
@@ -663,6 +902,13 @@ int cmd_sched_start()
     libbpf_set_print(libbpf_print);
     bump_memlock_rlimit();
 
+    if (!aegis_next::probe_sched_ext()) {
+        std::fprintf(stderr,
+                     "error: sched_ext not available (need kernel 6.12+ "
+                     "with CONFIG_SCHED_CLASS_EXT=y)\n");
+        return 1;
+    }
+
     quarantine_bpf* skel = quarantine_bpf__open_and_load();
     if (!skel) {
         std::fprintf(stderr, "failed to open+load quarantine scheduler: %s\n",
@@ -792,6 +1038,93 @@ int cmd_sched_status()
     std::printf("total: %d\n", count);
 
     close(map_fd);
+    return 0;
+}
+
+// ---- status subcommand -----------------------------------------
+
+int cmd_status()
+{
+    // Feature probe.
+    auto features = aegis_next::probe_features();
+    std::printf("=== aegis-next status ===\n\n");
+    aegis_next::print_features(features);
+    std::printf("\n");
+
+    // Arena stats (if pinned).
+    std::string arena_path = arena_pin_path();
+    int arena_fd = bpf_obj_get(arena_path.c_str());
+    if (arena_fd >= 0) {
+        void* base = mmap(nullptr, aegis_next::kArenaBytes,
+                          PROT_READ, MAP_SHARED, arena_fd, 0);
+        close(arena_fd);
+        if (base != MAP_FAILED) {
+            const auto* layout =
+                static_cast<const aegis_next::ProvLayout*>(base);
+            const auto& hdr = layout->hdr;
+            std::uint64_t total = hdr.next_index;
+            std::uint64_t slots =
+                (total < aegis_next::kMaxNodes) ? total : aegis_next::kMaxNodes;
+            std::printf("arena:\n");
+            std::printf("  nodes recorded: %lu\n", (unsigned long)total);
+            std::printf("  slots used:     %lu / %lu (%.1f%%)\n",
+                        (unsigned long)slots,
+                        (unsigned long)aegis_next::kMaxNodes,
+                        slots * 100.0 / aegis_next::kMaxNodes);
+            std::printf("  dropped:        %lu\n", (unsigned long)hdr.dropped);
+            std::printf("  generation:     %lu\n", (unsigned long)hdr.generation);
+            munmap(base, aegis_next::kArenaBytes);
+        }
+    } else {
+        if (!features.arena)
+            std::printf("arena: n/a (ringbuf-only mode, kernel < 6.9)\n");
+        else
+            std::printf("arena: not attached (no pin at %s)\n", arena_path.c_str());
+    }
+    std::printf("\n");
+
+    // Policy rule count.
+    std::string pol_path = policy_pin_path();
+    int pol_fd = bpf_obj_get(pol_path.c_str());
+    if (pol_fd >= 0) {
+        int count = 0;
+        policy_key key{}, next{};
+        while (bpf_map_get_next_key(pol_fd, &key, &next) == 0) {
+            ++count;
+            key = next;
+        }
+        std::printf("policy: %d rule(s) loaded\n", count);
+        close(pol_fd);
+    } else {
+        std::printf("policy: not loaded\n");
+    }
+
+    // Quarantine entries.
+    std::string quar_path = quarantine_pin_path();
+    int quar_fd = bpf_obj_get(quar_path.c_str());
+    if (quar_fd >= 0) {
+        int count = 0;
+        __u64 key = 0, next = 0;
+        while (bpf_map_get_next_key(quar_fd, &key, &next) == 0) {
+            ++count;
+            key = next;
+        }
+        std::printf("quarantine: %d cgroup(s)\n", count);
+        close(quar_fd);
+    } else {
+        std::printf("quarantine: not loaded\n");
+    }
+
+    // Export file.
+    std::string exp_path = pin_dir() + "/events.jsonl";
+    struct stat st{};
+    if (::stat(exp_path.c_str(), &st) == 0) {
+        std::printf("export: %s (%.1f KB)\n", exp_path.c_str(),
+                    st.st_size / 1024.0);
+    } else {
+        std::printf("export: no file\n");
+    }
+
     return 0;
 }
 
@@ -1236,6 +1569,37 @@ int main(int argc, char** argv)
 
     if (cmd == "protect") {
         return cmd_protect();
+    }
+
+    if (cmd == "status") {
+        return cmd_status();
+    }
+
+    if (cmd == "export") {
+        if (argc < 3 || std::string(argv[2]) != "tail") {
+            std::fprintf(stderr, "usage: %s export tail [N]\n", argv[0]);
+            return 1;
+        }
+        int n = (argc >= 4) ? std::atoi(argv[3]) : 20;
+        if (n <= 0) n = 20;
+        std::string path = pin_dir() + "/events.jsonl";
+        FILE* f = std::fopen(path.c_str(), "r");
+        if (!f) {
+            std::fprintf(stderr, "no export file at %s\n", path.c_str());
+            return 1;
+        }
+        // Read all lines, keep last N.
+        std::vector<std::string> lines;
+        char buf[4096];
+        while (std::fgets(buf, sizeof(buf), f)) {
+            lines.emplace_back(buf);
+            if (static_cast<int>(lines.size()) > n)
+                lines.erase(lines.begin());
+        }
+        std::fclose(f);
+        for (const auto& line : lines)
+            std::fputs(line.c_str(), stdout);
+        return 0;
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {

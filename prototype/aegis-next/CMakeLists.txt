@@ -145,6 +145,36 @@ add_custom_command(
 set_source_files_properties(${AEGIS_NEXT_SCHED_SKEL} PROPERTIES GENERATED TRUE)
 add_custom_target(aegis_next_sched_skel DEPENDS ${AEGIS_NEXT_SCHED_SKEL})
 
+# ---- legacy provenance (ringbuf-only fallback, kernels < 6.9) ----
+set(AEGIS_NEXT_LEGACY_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/provenance_legacy.bpf.c)
+set(AEGIS_NEXT_LEGACY_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/provenance_legacy.bpf.o)
+set(AEGIS_NEXT_LEGACY_SKEL   ${CMAKE_CURRENT_BINARY_DIR}/provenance_legacy.skel.h)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_LEGACY_OBJECT}
+    COMMAND ${AEGIS_NEXT_BPF_CLANG} -g -O2 -target bpf -mcpu=v4
+            -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
+            ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
+            -c ${AEGIS_NEXT_LEGACY_SOURCE}
+            -o ${AEGIS_NEXT_LEGACY_OBJECT}
+    DEPENDS ${AEGIS_NEXT_LEGACY_SOURCE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/bpf/prov_types.h
+            ${AEGIS_NEXT_VMLINUX_HEADER}
+    VERBATIM
+    COMMENT "Compiling aegis-next legacy BPF (ringbuf-only fallback)"
+)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_LEGACY_SKEL}
+    COMMAND ${BASH} -c "${BPFTOOL} gen skeleton ${AEGIS_NEXT_LEGACY_OBJECT} > ${AEGIS_NEXT_LEGACY_SKEL}"
+    DEPENDS ${AEGIS_NEXT_LEGACY_OBJECT}
+    VERBATIM
+    COMMENT "Generating aegis-next legacy skeleton"
+)
+
+set_source_files_properties(${AEGIS_NEXT_LEGACY_SKEL} PROPERTIES GENERATED TRUE)
+add_custom_target(aegis_next_legacy_skel DEPENDS ${AEGIS_NEXT_LEGACY_SKEL})
+
 # ---- self-protection LSM hooks ---------------------------------
 set(AEGIS_NEXT_SELFPROT_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/selfprotect.bpf.c)
 set(AEGIS_NEXT_SELFPROT_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/selfprotect.bpf.o)
@@ -180,6 +210,7 @@ if(TARGET bpf_skel)
     add_dependencies(aegis_next_skel bpf_skel)
     add_dependencies(aegis_next_sched_skel bpf_skel)
     add_dependencies(aegis_next_selfprot_skel bpf_skel)
+    add_dependencies(aegis_next_legacy_skel bpf_skel)
 endif()
 
 # Static lib for the testable userspace pieces. Keeps the test
@@ -197,9 +228,10 @@ add_executable(aegisbpf-next
     ${AEGIS_NEXT_SKEL_HEADER}
     ${AEGIS_NEXT_SCHED_SKEL}
     ${AEGIS_NEXT_SELFPROT_SKEL}
+    ${AEGIS_NEXT_LEGACY_SKEL}
 )
 
-add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel aegis_next_selfprot_skel)
+add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel aegis_next_selfprot_skel aegis_next_legacy_skel)
 
 target_include_directories(aegisbpf-next PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
