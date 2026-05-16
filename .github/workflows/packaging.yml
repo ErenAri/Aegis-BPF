@@ -186,6 +186,9 @@ jobs:
           - ubuntu:24.04
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -262,6 +265,9 @@ jobs:
           - rockylinux:9
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
