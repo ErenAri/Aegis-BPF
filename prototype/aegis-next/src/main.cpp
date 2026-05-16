@@ -45,6 +45,7 @@
 #include "prov_walk.hpp"
 #include "prov_arena_types.h"  // C struct defs for skeleton arena globals
 #include "provenance.skel.h"
+#include "provenance_legacy.skel.h"
 #include "quarantine.skel.h"
 #include "selfprotect.skel.h"
 
@@ -237,6 +238,161 @@ void usage(const char* prog)
                  prog);
 }
 
+// P3.1: Ringbuf-only fallback for kernels < 6.9.
+// When BPF_MAP_TYPE_ARENA is not available, we load a legacy BPF
+// program that sends full events (~372B) through the ringbuf instead
+// of writing to a shared arena. Userspace receives complete events
+// directly — no arena mmap, no path/net slabs, no catch-up scan.
+int cmd_attach_legacy()
+{
+    std::printf("aegis-next: arena unavailable, using ringbuf-only fallback.\n");
+
+    provenance_legacy_bpf* skel = provenance_legacy_bpf__open();
+    if (!skel) {
+        std::fprintf(stderr, "failed to open legacy skeleton: %s\n",
+                     std::strerror(errno));
+        return 1;
+    }
+
+    // Reuse pinned quarantine map if sched_ext is already loaded.
+    {
+        std::string qpath = quarantine_pin_path();
+        int qfd = bpf_obj_get(qpath.c_str());
+        if (qfd >= 0) {
+            int rc = bpf_map__reuse_fd(skel->maps.aegis_next_quarantine, qfd);
+            if (rc == 0) {
+                std::printf("aegis-next: reusing pinned quarantine map\n");
+            }
+            close(qfd);
+        }
+    }
+
+    if (provenance_legacy_bpf__load(skel) != 0) {
+        std::fprintf(stderr, "failed to load legacy skeleton: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    // Pin policy and quarantine maps.
+    std::string dir = pin_dir();
+    (void)::mkdir(dir.c_str(), 0700);
+
+    std::string pol_path = policy_pin_path();
+    int pol_err = bpf_map__pin(skel->maps.aegis_next_policy, pol_path.c_str());
+    if (pol_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin policy: %s\n",
+                     std::strerror(errno));
+    }
+
+    std::string quar_path = quarantine_pin_path();
+    int quar_err = bpf_map__pin(skel->maps.aegis_next_quarantine, quar_path.c_str());
+    if (quar_err && errno != EEXIST) {
+        std::fprintf(stderr, "warning: failed to pin quarantine: %s\n",
+                     std::strerror(errno));
+    }
+
+    if (provenance_legacy_bpf__attach(skel) != 0) {
+        std::fprintf(stderr, "failed to attach legacy LSM: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::signal(SIGINT, on_sigint);
+    std::signal(SIGTERM, on_sigint);
+
+    std::printf("aegis-next: attached (ringbuf-only mode, ~372B/event).\n");
+    std::printf("aegis-next: quarantine bridge active.\n");
+    std::printf("  note: graph/lineage commands unavailable in legacy mode.\n"
+                "        use 'export tail' to inspect recent events.\n");
+
+    // JSONL export.
+    std::string export_path = pin_dir() + "/events.jsonl";
+    aegis_next::EventExporter exporter(export_path);
+    if (exporter.is_open()) {
+        std::printf("aegis-next: JSONL export at %s\n", export_path.c_str());
+    }
+
+    // Ringbuf callback for full events.
+    struct legacy_ring_ctx {
+        aegis_next::EventExporter* exporter;
+        std::uint64_t events;
+        std::uint64_t last_print;
+    };
+
+    legacy_ring_ctx rctx{};
+    rctx.exporter = &exporter;
+
+    int rb_fd = bpf_map__fd(skel->maps.aegis_next_ringbuf);
+    struct ring_buffer* rb = ring_buffer__new(
+        rb_fd,
+        [](void* ctx, void* data, size_t /*sz*/) -> int {
+            auto* c = static_cast<legacy_ring_ctx*>(ctx);
+            auto* evt = static_cast<const prov_ringbuf_event*>(data);
+            ++c->events;
+
+            if (c->exporter && c->exporter->is_open()) {
+                // Build a prov_node from the ringbuf event for export.
+                struct prov_node node{};
+                node.ts_ns     = evt->ts_ns;
+                node.pid       = evt->pid;
+                node.ppid      = evt->ppid;
+                node.tgid      = evt->tgid;
+                node.uid       = evt->uid;
+                node.cgid      = evt->cgid;
+                node.object_id = evt->object_id;
+                node.kind      = evt->kind;
+                node.flags     = evt->flags;
+                node.extra     = evt->extra;
+                std::memcpy(node.comm, evt->comm, 12);
+                node.mnt_ns    = evt->mnt_ns;
+                node.pid_ns    = evt->pid_ns;
+
+                const char* path = (evt->path_len > 0) ? evt->path : "";
+                const struct net_flow* flow =
+                    evt->has_net ? &evt->net : nullptr;
+
+                c->exporter->export_node(node, 0, path, flow);
+            }
+
+            if (c->events - c->last_print >= 100) {
+                std::printf("  ... %lu events (ringbuf-only)\n",
+                            (unsigned long)c->events);
+                c->last_print = c->events;
+            }
+            return 0;
+        },
+        &rctx, nullptr);
+
+    if (!rb) {
+        std::fprintf(stderr, "failed to create ring_buffer: %s\n",
+                     std::strerror(errno));
+        provenance_legacy_bpf__destroy(skel);
+        return 1;
+    }
+
+    std::printf("aegis-next: ringbuf polling active.\npress Ctrl-C to stop.\n");
+
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        int err = ring_buffer__poll(rb, 1000);
+        if (err < 0 && err != -EINTR)
+            break;
+    }
+
+    ring_buffer__free(rb);
+
+    std::printf("\naegis-next: processed %lu events (ringbuf-only mode).\n",
+                (unsigned long)rctx.events);
+    if (exporter.count() > 0) {
+        std::printf("aegis-next: exported %lu events to %s\n",
+                    (unsigned long)exporter.count(), export_path.c_str());
+    }
+
+    provenance_legacy_bpf__destroy(skel);
+    return 0;
+}
+
 int cmd_attach()
 {
     libbpf_set_print(libbpf_print);
@@ -252,11 +408,15 @@ int cmd_attach()
                      "error: BPF LSM not enabled. Add 'lsm=bpf' to kernel boot params.\n");
         return 1;
     }
+
+    // P3.1: If arena is unavailable, fall through to ringbuf-only mode.
     if (!features.arena) {
-        std::fprintf(stderr,
-                     "error: BPF arena maps not available (need kernel 6.9+).\n"
-                     "  P3.1 ringbuf fallback not yet implemented.\n");
-        return 1;
+        if (!features.ringbuf) {
+            std::fprintf(stderr,
+                         "error: neither arena nor ringbuf available.\n");
+            return 1;
+        }
+        return cmd_attach_legacy();
     }
 
     provenance_bpf* skel = provenance_bpf__open();
@@ -916,7 +1076,10 @@ int cmd_status()
             munmap(base, aegis_next::kArenaBytes);
         }
     } else {
-        std::printf("arena: not attached (no pin at %s)\n", arena_path.c_str());
+        if (!features.arena)
+            std::printf("arena: n/a (ringbuf-only mode, kernel < 6.9)\n");
+        else
+            std::printf("arena: not attached (no pin at %s)\n", arena_path.c_str());
     }
     std::printf("\n");
 
