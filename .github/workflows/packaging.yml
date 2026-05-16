@@ -52,22 +52,18 @@ jobs:
             clang llvm libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
             pkg-config cmake ninja-build python3-jsonschema rpm \
             linux-tools-common
-          # bpftool: try kernel-tools first, fall back to generic tools.
-          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
-          # dispatches to a per-kernel binary which is often absent for the
-          # exact running kernel. Same fallback chain as kernel-bpf-test.yml:
-          # if `bpftool version` does not actually work, grab any working
-          # bpftool from /usr/lib/linux-tools/<ver>/ and overwrite the wrapper.
+          # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
+          # dispatches to /usr/lib/linux-tools/<exact-kernel>/bpftool.
+          # On Azure kernels (6.17) no matching linux-tools exists, so the
+          # wrapper fails. Strategy: install packages, then overwrite the
+          # wrapper with any real binary we can find.
           sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
             sudo apt-get install -y linux-tools-generic 2>/dev/null || \
             sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            # Search common paths for a working bpftool binary.
-            # The || true guards against set -e killing the script when
-            # find returns non-zero for non-existent search roots.
+            # Find any real bpftool binary (exclude the wrapper itself).
             REAL=$(find /usr/lib/linux-tools/ /usr/lib/bpf/ \
                         -name bpftool -type f 2>/dev/null | sort -V | tail -1 || true)
-            # Also try Azure-specific paths (glob may expand to nothing).
             if [[ -z "$REAL" ]]; then
               for d in /usr/lib/linux-*-tools/; do
                 [[ -d "$d" ]] || continue
@@ -79,14 +75,15 @@ jobs:
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
-          # Last resort: search the entire filesystem.
+          # Verify bpftool works. If not, list what we have for debugging.
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find / -name bpftool -type f -executable 2>/dev/null | head -1 || true)
-            if [[ -n "$REAL" ]]; then
-              sudo cp "$REAL" /usr/sbin/bpftool
-            fi
+            echo "::warning::bpftool wrapper broken; searching for alternatives..."
+            dpkg -l | grep linux-tools || true
+            find /usr/lib/ -name bpftool 2>/dev/null || true
+            # Cannot proceed without bpftool — fail with clear message.
+            echo "::error::bpftool not functional after all fallbacks" >&2
+            exit 1
           fi
-          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
           command -v rpmbuild || (echo "rpmbuild missing" >&2; exit 1)
 
       - name: Configure (Release, full BPF)

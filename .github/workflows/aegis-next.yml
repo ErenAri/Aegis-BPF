@@ -33,12 +33,9 @@ jobs:
             sudo apt-get install -y linux-tools-generic 2>/dev/null || \
             sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            # Search common paths for a working bpftool binary.
-            # The || true guards against set -e killing the script when
-            # find returns non-zero for non-existent search roots.
+            # Find any real bpftool binary (exclude the wrapper itself).
             REAL=$(find /usr/lib/linux-tools/ /usr/lib/bpf/ \
                         -name bpftool -type f 2>/dev/null | sort -V | tail -1 || true)
-            # Also try Azure-specific paths (glob may expand to nothing).
             if [[ -z "$REAL" ]]; then
               for d in /usr/lib/linux-*-tools/; do
                 [[ -d "$d" ]] || continue
@@ -50,14 +47,14 @@ jobs:
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
-          # Last resort: search the entire filesystem.
+          # Verify bpftool works. If not, list what we have for debugging.
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find / -name bpftool -type f -executable 2>/dev/null | head -1 || true)
-            if [[ -n "$REAL" ]]; then
-              sudo cp "$REAL" /usr/sbin/bpftool
-            fi
+            echo "::warning::bpftool wrapper broken; searching for alternatives..."
+            dpkg -l | grep linux-tools || true
+            find /usr/lib/ -name bpftool 2>/dev/null || true
+            echo "::error::bpftool not functional after all fallbacks" >&2
+            exit 1
           fi
-          bpftool version >/dev/null 2>&1 || (echo "bpftool not functional" >&2; exit 1)
 
       - name: Check kernel version
         id: kernel
