@@ -867,7 +867,14 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# Auto-detect shared library deps. Disabled for portable static builds
+# because shlibdeps sees the build host's shared libs even when we
+# static-link them, reporting inflated glibc requirements.
+if(STATIC_STDCXX)
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+else()
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+endif()
 # systemd is a Recommends, not a hard Depends, so the package can also be
 # installed on minimal containers / non-systemd hosts (operators run the
 # binary directly under their own supervisor in that case).
@@ -927,6 +934,10 @@ set(CPACK_RPM_USER_FILELIST
     "%config(noreplace) /etc/aegisbpf/policy.example")
 # /etc/aegisbpf is created by the install rule for policy.example; ensure
 # /etc/default/aegisbpf is not flagged %ghost.
-set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+if(STATIC_STDCXX)
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV OFF)
+else()
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+endif()
 
 include(CPack)
