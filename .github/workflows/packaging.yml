@@ -35,8 +35,8 @@ permissions:
 
 jobs:
   build:
-    name: build packages (ubuntu-24.04)
-    runs-on: ubuntu-24.04
+    name: build packages (ubuntu-22.04)
+    runs-on: ubuntu-22.04
     outputs:
       deb-name: ${{ steps.collect.outputs.deb }}
       rpm-name: ${{ steps.collect.outputs.rpm }}
@@ -88,7 +88,9 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DSTATIC_STDCXX=ON
+            -DSTATIC_STDCXX=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0
 
       - name: Build aegisbpf + BPF object
         run: cmake --build build --target aegisbpf
