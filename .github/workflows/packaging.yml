@@ -87,7 +87,8 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=OFF \
+            -DSTATIC_STDCXX=ON
 
       - name: Build aegisbpf + BPF object
         run: cmake --build build --target aegisbpf

@@ -368,6 +368,14 @@ target_link_directories(aegisbpf PRIVATE ${LIBBPF_LIBRARY_DIRS})
 find_package(ZLIB REQUIRED)
 target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
 
+# Static libstdc++/libgcc for portable binary packages.
+# Eliminates GLIBCXX version dependency so the binary runs on
+# older distros (Debian 12, Rocky 9) even when built on Ubuntu 24.04.
+option(STATIC_STDCXX "Statically link libstdc++ and libgcc" OFF)
+if(STATIC_STDCXX)
+    target_link_options(aegisbpf PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # Systemd integration (optional)
 if (SYSTEMD_FOUND)
     target_compile_definitions(aegisbpf PRIVATE HAVE_SYSTEMD)
@@ -867,7 +875,8 @@ endif()
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postinst;\
 ${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/prerm;\
-${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm")
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/conffiles")
 
 # --- RPM package metadata ----------------------------------------------------
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
