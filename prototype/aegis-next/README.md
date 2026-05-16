@@ -113,8 +113,12 @@ sudo ./build/prototype/aegisbpf-next protect           # in another terminal
 ```
 
 Requires:
-- Linux >= 6.9 with `CONFIG_BPF_LSM=y` and `lsm=` boot param
-  including `bpf`.
+- **Arena mode** (full): Linux >= 6.9 with `CONFIG_BPF_LSM=y` and
+  `lsm=` boot param including `bpf`.
+- **Ringbuf-only mode** (fallback): Linux >= 5.11 with
+  `CONFIG_BPF_LSM=y`. Automatically selected when arena maps are
+  unavailable. Graph/lineage commands are not available; events are
+  exported to JSONL only.
 - Linux >= 6.12 with `CONFIG_SCHED_CLASS_EXT=y` for `sched`
   subcommands.
 - `CAP_BPF` + `CAP_SYS_ADMIN` (typical: run as root).
@@ -173,6 +177,12 @@ Requires:
   utilization, policy rule count, quarantine entries, export file.
 - ✅ **P3.6 Arena pre-fault.** Touches every 4K page at startup to
   eliminate major page fault latency spikes.
+- ✅ **P3.1 Ringbuf-only fallback.** Separate BPF program
+  (`provenance_legacy.bpf.c`) for kernels < 6.9 that lack arena
+  maps. Same 9 LSM hooks, same policy/quarantine enforcement, but
+  full events (~372B) flow through the ringbuf. Feature probe at
+  startup auto-selects arena or legacy mode. JSONL export works in
+  both modes; graph/lineage commands require arena mode.
 
 ### Infrastructure
 
