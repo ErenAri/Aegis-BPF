@@ -35,8 +35,8 @@ permissions:
 
 jobs:
   build:
-    name: build packages (ubuntu-22.04)
-    runs-on: ubuntu-22.04
+    name: build packages (ubuntu-24.04)
+    runs-on: ubuntu-24.04
     outputs:
       deb-name: ${{ steps.collect.outputs.deb }}
       rpm-name: ${{ steps.collect.outputs.rpm }}
@@ -48,8 +48,14 @@ jobs:
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
+          # Omit libsystemd-dev: systemd integration is optional
+          # (HAVE_SYSTEMD) and libsystemd on 24.04 pulls in GLIBC_2.38
+          # symbols (__isoc23_*) that make the binary uninstallable on
+          # Debian 12 (glibc 2.36) and Rocky 9 (glibc 2.34). The
+          # packaged binary still works with systemd via the unit file;
+          # it just won't call sd_notify() at startup.
           sudo apt-get install -y --no-install-recommends \
-            clang llvm libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
+            clang llvm libbpf-dev libelf-dev zlib1g-dev \
             pkg-config cmake ninja-build python3-jsonschema rpm \
             linux-tools-common
           # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
@@ -88,9 +94,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DSTATIC_STDCXX=ON \
-            -DSTATIC_LIBBPF=ON \
-            -DLIBBPF_VERSION=1.5.0
+            -DSTATIC_STDCXX=ON
 
       - name: Build aegisbpf + BPF object
         run: cmake --build build --target aegisbpf
