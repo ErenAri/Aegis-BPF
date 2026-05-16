@@ -25,49 +25,26 @@ jobs:
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
             pkg-config cmake ninja-build zlib1g-dev
           sudo apt-get install -y linux-tools-common
-          # bpftool: try kernel-tools first, fall back to generic tools.
-          # GitHub-hosted Azure runners ship a wrapper /usr/sbin/bpftool that
-          # dispatches to a per-kernel binary which is often absent for the
-          # exact running kernel.
-          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || \
-            sudo apt-get install -y linux-tools-generic 2>/dev/null || \
-            sudo apt-get install -y bpftool 2>/dev/null || true
+          # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
+          # dispatches to /usr/lib/linux-tools/<exact-kernel>/bpftool.
+          # On Azure kernels (6.17) the kernel-specific linux-tools package
+          # installs successfully but contains NO bpftool binary. Fix:
+          # always install linux-tools-generic (ships bpftool for the
+          # distro HWE kernel) and then point the wrapper at it.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
+          sudo apt-get install -y linux-tools-generic 2>/dev/null || true
+          sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            # Find any real bpftool binary (exclude the wrapper itself).
-            REAL=$(find /usr/lib/linux-tools/ /usr/lib/bpf/ \
-                        -name bpftool -type f 2>/dev/null | sort -V | tail -1 || true)
-            if [[ -z "$REAL" ]]; then
-              for d in /usr/lib/linux-*-tools/; do
-                [[ -d "$d" ]] || continue
-                REAL=$(find "$d" -name bpftool -type f 2>/dev/null | sort -V | tail -1 || true)
-                [[ -n "$REAL" ]] && break
-              done
-            fi
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null \
+                   | sort -V | tail -1 || true)
             if [[ -n "$REAL" ]]; then
-              sudo cp "$REAL" /usr/sbin/bpftool
-            fi
-          fi
-          # Verify bpftool works. If not, search harder.
-          if ! bpftool version >/dev/null 2>&1; then
-            echo "::warning::bpftool wrapper broken; deep search..."
-            REAL=$(dpkg -L $(dpkg -l | awk '/linux-tools-[0-9]/{print $2}') 2>/dev/null \
-                   | grep '/bpftool$' | head -1 || true)
-            if [[ -n "$REAL" && -f "$REAL" ]]; then
-              echo "Found bpftool via dpkg -L: $REAL"
-              sudo cp "$REAL" /usr/sbin/bpftool
-            fi
-          fi
-          if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr -name bpftool -type f -not -path /usr/sbin/bpftool 2>/dev/null | head -1 || true)
-            if [[ -n "$REAL" ]]; then
-              echo "Found bpftool via find: $REAL"
+              echo "Overwriting bpftool wrapper with $REAL"
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
           bpftool version >/dev/null 2>&1 || {
             echo "Diagnostic info:"
             dpkg -l | grep -E "linux-tools|bpftool" || true
-            dpkg -L linux-tools-$(uname -r) 2>/dev/null | head -20 || true
             find /usr -name bpftool 2>/dev/null || true
             echo "::error::bpftool not functional after all fallbacks" >&2
             exit 1
