@@ -47,14 +47,31 @@ jobs:
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
-          # Verify bpftool works. If not, list what we have for debugging.
+          # Verify bpftool works. If not, search harder.
           if ! bpftool version >/dev/null 2>&1; then
-            echo "::warning::bpftool wrapper broken; searching for alternatives..."
-            dpkg -l | grep linux-tools || true
-            find /usr/lib/ -name bpftool 2>/dev/null || true
+            echo "::warning::bpftool wrapper broken; deep search..."
+            REAL=$(dpkg -L $(dpkg -l | awk '/linux-tools-[0-9]/{print $2}') 2>/dev/null \
+                   | grep '/bpftool$' | head -1 || true)
+            if [[ -n "$REAL" && -f "$REAL" ]]; then
+              echo "Found bpftool via dpkg -L: $REAL"
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr -name bpftool -type f -not -path /usr/sbin/bpftool 2>/dev/null | head -1 || true)
+            if [[ -n "$REAL" ]]; then
+              echo "Found bpftool via find: $REAL"
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || {
+            echo "Diagnostic info:"
+            dpkg -l | grep -E "linux-tools|bpftool" || true
+            dpkg -L linux-tools-$(uname -r) 2>/dev/null | head -20 || true
+            find /usr -name bpftool 2>/dev/null || true
             echo "::error::bpftool not functional after all fallbacks" >&2
             exit 1
-          fi
+          }
 
       - name: Check kernel version
         id: kernel

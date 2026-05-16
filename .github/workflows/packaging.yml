@@ -75,15 +75,34 @@ jobs:
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
-          # Verify bpftool works. If not, list what we have for debugging.
+          # Verify bpftool works. If not, search harder.
           if ! bpftool version >/dev/null 2>&1; then
-            echo "::warning::bpftool wrapper broken; searching for alternatives..."
-            dpkg -l | grep linux-tools || true
-            find /usr/lib/ -name bpftool 2>/dev/null || true
-            # Cannot proceed without bpftool — fail with clear message.
+            echo "::warning::bpftool wrapper broken; deep search..."
+            # Azure linux-tools packages may install outside /usr/lib/linux-tools/.
+            # Search dpkg file lists for the actual binary location.
+            REAL=$(dpkg -L $(dpkg -l | awk '/linux-tools-[0-9]/{print $2}') 2>/dev/null \
+                   | grep '/bpftool$' | head -1 || true)
+            if [[ -n "$REAL" && -f "$REAL" ]]; then
+              echo "Found bpftool via dpkg -L: $REAL"
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          if ! bpftool version >/dev/null 2>&1; then
+            echo "::warning::Still no bpftool; trying find across all of /usr..."
+            REAL=$(find /usr -name bpftool -type f -not -path /usr/sbin/bpftool 2>/dev/null | head -1 || true)
+            if [[ -n "$REAL" ]]; then
+              echo "Found bpftool via find: $REAL"
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || {
+            echo "Diagnostic info:"
+            dpkg -l | grep -E "linux-tools|bpftool" || true
+            dpkg -L linux-tools-$(uname -r) 2>/dev/null | head -20 || true
+            find /usr -name bpftool 2>/dev/null || true
             echo "::error::bpftool not functional after all fallbacks" >&2
             exit 1
-          fi
+          }
           command -v rpmbuild || (echo "rpmbuild missing" >&2; exit 1)
 
       - name: Configure (Release, full BPF)
