@@ -38,7 +38,7 @@ jobs:
 
       - name: Open issue on failure
         if: steps.audit.outcome == 'failure'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const title = 'Vendored dependency review required';
