@@ -35,7 +35,7 @@ jobs:
         id: dependency_review
         if: steps.dep-graph.outputs.enabled == 'true'
         continue-on-error: true
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
 
