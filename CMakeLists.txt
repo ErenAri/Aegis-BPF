@@ -39,6 +39,16 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 option(STATIC_LIBBPF "Build and statically link libbpf from source" OFF)
+option(PORTABLE_GLIBC "Suppress glibc 2.38+ C23 redirections for older distro compat" OFF)
+
+if(PORTABLE_GLIBC)
+    set(GLIBC_COMPAT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/cmake/glibc_compat.h")
+    # Force-include the compat header before any system headers so that
+    # <features.h>'s ISOC2X macros are overridden before <stdlib.h> etc.
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -include ${GLIBC_COMPAT_HEADER}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include ${GLIBC_COMPAT_HEADER}")
+    message(STATUS "Portable glibc: suppressing C23 symbol redirections via ${GLIBC_COMPAT_HEADER}")
+endif()
 
 if(STATIC_LIBBPF)
     include(FetchContent)
@@ -62,6 +72,13 @@ if(STATIC_LIBBPF)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBELF REQUIRED libelf)
 
+    # Pass the glibc compat header to libbpf's Makefile so its object
+    # files also avoid __isoc23_* symbols (e.g. __isoc23_strtoull).
+    set(LIBBPF_EXTRA_CFLAGS "")
+    if(PORTABLE_GLIBC)
+        set(LIBBPF_EXTRA_CFLAGS "-include ${GLIBC_COMPAT_HEADER}")
+    endif()
+
     add_custom_command(
         OUTPUT ${LIBBPF_STATIC_LIB}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${LIBBPF_BUILD_DIR}
@@ -70,6 +87,7 @@ if(STATIC_LIBBPF)
             "OBJDIR=${LIBBPF_BUILD_DIR}"
             "DESTDIR=${LIBBPF_INSTALL_DIR}"
             "PREFIX="
+            "EXTRA_CFLAGS=${LIBBPF_EXTRA_CFLAGS}"
             make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install
         DEPENDS ${LIBBPF_SRC_DIR}/Makefile
         COMMENT "Building libbpf ${LIBBPF_VERSION} (static)"
@@ -351,12 +369,19 @@ set(AEGIS_HEADERS
     src/k8s_identity.hpp
 )
 
+# Portable glibc compat shims (weak stubs for __isoc23_*, arc4random,
+# _dl_find_object) so the binary runs on glibc < 2.38.
+set(GLIBC_COMPAT_SOURCES "")
+if(PORTABLE_GLIBC)
+    set(GLIBC_COMPAT_SOURCES src/glibc_compat.c)
+endif()
+
 # Build main executable
 if(NOT SKIP_BPF_BUILD)
-    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${SKELETON_HEADER})
+    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${SKELETON_HEADER} ${GLIBC_COMPAT_SOURCES})
     add_dependencies(aegisbpf bpf_skel)
 else()
-    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS})
+    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${GLIBC_COMPAT_SOURCES})
 endif()
 
 target_include_directories(aegisbpf PRIVATE
@@ -369,16 +394,14 @@ find_package(ZLIB REQUIRED)
 target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
 
 # Static libstdc++/libgcc for portable binary packages.
-# Eliminates GLIBCXX/GLIBC version dependencies so the binary runs on
-# older distros (Debian 12, Rocky 9) even when built on Ubuntu 24.04.
-# Also static-links libelf and zlib which pull in GLIBC_2.38 symbols
-# on noble via __isoc23_* functions.
-option(STATIC_STDCXX "Statically link libstdc++, libgcc, libelf, zlib" OFF)
+# Eliminates GLIBCXX version dependencies so the binary runs on
+# older distros (Debian 12) even when built on Ubuntu 24.04.
+# libelf and zlib stay dynamic — the target system's versions are
+# compatible with its own glibc, avoiding the __isoc23_* problem
+# that arises when static-linking Ubuntu 24.04's pre-compiled .a files.
+option(STATIC_STDCXX "Statically link libstdc++ and libgcc" OFF)
 if(STATIC_STDCXX)
     target_link_options(aegisbpf PRIVATE -static-libstdc++ -static-libgcc)
-    # Force static libelf + zlib to avoid their GLIBC_2.38 deps.
-    target_link_libraries(aegisbpf PRIVATE
-        -Wl,-Bstatic -lelf -lz -Wl,-Bdynamic)
 endif()
 
 # Systemd integration (optional)
@@ -867,9 +890,10 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
-# Auto-detect shared library deps. Disabled for portable static builds
-# because shlibdeps sees the build host's shared libs even when we
-# static-link them, reporting inflated glibc requirements.
+# Disable shlibdeps when libstdc++/libgcc are static — dpkg-shlibdeps
+# misreports glibc version needs from the static archives.  With
+# PORTABLE_GLIBC the remaining dynamic deps (libelf, zlib, libc) are
+# declared manually above.
 if(STATIC_STDCXX)
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 else()
@@ -880,11 +904,9 @@ endif()
 # binary directly under their own supervisor in that case).
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "systemd")
 if(STATIC_LIBBPF)
-    if(STATIC_STDCXX)
-        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
-    else()
-        set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, libc6")
-    endif()
+    # libelf and zlib are dynamic even with STATIC_STDCXX — they must be
+    # present on the target system.
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, zlib1g, libc6")
 else()
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0, libelf1t64 | libelf1, libc6")
 endif()
@@ -908,11 +930,7 @@ set(CPACK_RPM_PACKAGE_VENDOR "${CPACK_PACKAGE_VENDOR}")
 set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
 set(CPACK_RPM_PACKAGE_SUMMARY "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
 if(STATIC_LIBBPF)
-    if(STATIC_STDCXX)
-        set(CPACK_RPM_PACKAGE_REQUIRES "glibc")
-    else()
-        set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, glibc")
-    endif()
+    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, zlib, glibc")
 else()
     set(CPACK_RPM_PACKAGE_REQUIRES "libbpf, elfutils-libelf, glibc")
 endif()

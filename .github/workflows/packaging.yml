@@ -96,7 +96,8 @@ jobs:
             -DBUILD_TESTING=OFF \
             -DSTATIC_STDCXX=ON \
             -DSTATIC_LIBBPF=ON \
-            -DLIBBPF_VERSION=1.5.0
+            -DLIBBPF_VERSION=1.5.0 \
+            -DPORTABLE_GLIBC=ON
 
       - name: Build aegisbpf + BPF object
         run: cmake --build build --target aegisbpf
@@ -209,11 +210,10 @@ jobs:
         run: |
           set -euxo pipefail
           apt-get update
-          # libbpf1 is in the default repo on bookworm/noble; pull it in
-          # alongside the .deb so we exercise the real shared-library
-          # dependency path, not a static build.
+          # libbpf is statically linked; libelf and zlib stay dynamic.
+          # Install runtime deps that the .deb declares.
           apt-get install -y --no-install-recommends \
-            libbpf1 libelf1 ca-certificates
+            libelf1 zlib1g ca-certificates
           # /run/systemd/system is intentionally absent in the container,
           # so the maintainer scripts will skip the systemctl call. This
           # is the contract documented in postinst — the install must
@@ -285,11 +285,11 @@ jobs:
       - name: Install runtime deps
         run: |
           set -euxo pipefail
+          # libbpf is statically linked; elfutils-libelf and zlib are dynamic.
           if command -v dnf >/dev/null 2>&1; then
-            dnf install -y libbpf elfutils-libelf glibc || \
-              dnf install -y libbpf elfutils-libelf
+            dnf install -y elfutils-libelf zlib glibc
           else
-            yum install -y libbpf elfutils-libelf glibc
+            yum install -y elfutils-libelf zlib glibc
           fi
 
       - name: Install the .rpm
