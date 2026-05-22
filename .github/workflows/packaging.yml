@@ -48,8 +48,14 @@ jobs:
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
+          # Omit libsystemd-dev: systemd integration is optional
+          # (HAVE_SYSTEMD) and libsystemd on 24.04 pulls in GLIBC_2.38
+          # symbols (__isoc23_*) that make the binary uninstallable on
+          # Debian 12 (glibc 2.36) and Rocky 9 (glibc 2.34). The
+          # packaged binary still works with systemd via the unit file;
+          # it just won't call sd_notify() at startup.
           sudo apt-get install -y --no-install-recommends \
-            clang llvm libbpf-dev libsystemd-dev libelf-dev zlib1g-dev \
+            clang llvm libbpf-dev libelf-dev zlib1g-dev \
             pkg-config cmake ninja-build python3-jsonschema rpm \
             linux-tools-common
           # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
@@ -64,8 +70,11 @@ jobs:
           # The wrapper dispatches by exact kernel version. If the running
           # kernel differs from the generic tools version, the wrapper
           # fails. Overwrite it with any real bpftool binary we can find.
+          # Search /usr/lib/ broadly: linux-tools-generic installs to
+          # /usr/lib/linux-tools-<ver>/ (hyphenated) while the wrapper
+          # expects /usr/lib/linux-tools/<ver-generic>/ (slashed).
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null \
+            REAL=$(find /usr/lib/ -maxdepth 3 -name bpftool -type f 2>/dev/null \
                    | sort -V | tail -1 || true)
             if [[ -n "$REAL" ]]; then
               echo "Overwriting bpftool wrapper with $REAL"
@@ -85,7 +94,11 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=OFF \
+            -DSTATIC_STDCXX=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0 \
+            -DPORTABLE_GLIBC=ON
 
       - name: Build aegisbpf + BPF object
         run: cmake --build build --target aegisbpf
@@ -184,6 +197,9 @@ jobs:
           - ubuntu:24.04
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -195,11 +211,10 @@ jobs:
         run: |
           set -euxo pipefail
           apt-get update
-          # libbpf1 is in the default repo on bookworm/noble; pull it in
-          # alongside the .deb so we exercise the real shared-library
-          # dependency path, not a static build.
+          # libbpf is statically linked; libelf and zlib stay dynamic.
+          # Install runtime deps that the .deb declares.
           apt-get install -y --no-install-recommends \
-            libbpf1 libelf1 ca-certificates
+            libelf1 zlib1g ca-certificates
           # /run/systemd/system is intentionally absent in the container,
           # so the maintainer scripts will skip the systemctl call. This
           # is the contract documented in postinst — the install must
@@ -260,6 +275,9 @@ jobs:
           - rockylinux:9
     container:
       image: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -268,11 +286,11 @@ jobs:
       - name: Install runtime deps
         run: |
           set -euxo pipefail
+          # libbpf is statically linked; elfutils-libelf and zlib are dynamic.
           if command -v dnf >/dev/null 2>&1; then
-            dnf install -y libbpf elfutils-libelf glibc || \
-              dnf install -y libbpf elfutils-libelf
+            dnf install -y elfutils-libelf zlib glibc
           else
-            yum install -y libbpf elfutils-libelf glibc
+            yum install -y elfutils-libelf zlib glibc
           fi
 
       - name: Install the .rpm

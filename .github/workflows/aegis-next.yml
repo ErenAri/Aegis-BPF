@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y linux-tools-generic 2>/dev/null || true
           sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null \
+            REAL=$(find /usr/lib/ -maxdepth 3 -name bpftool -type f 2>/dev/null \
                    | sort -V | tail -1 || true)
             if [[ -n "$REAL" ]]; then
               echo "Overwriting bpftool wrapper with $REAL"
@@ -63,10 +63,20 @@ jobs:
             KERN_OK=true
           fi
 
-          # Arena build also requires a working bpftool for vmlinux.h
+          # Arena skeleton generation requires bpftool from the same
+          # kernel series (addr_space.1 support). If linux-tools for
+          # the running kernel are installed, the wrapper-dispatched
+          # bpftool matches and can handle arena. If we had to
+          # substitute from linux-tools-generic (older kernel), arena
+          # skeleton gen will fail on .addr_space.1 sections.
           BPFTOOL_OK=false
-          if bpftool btf dump file /sys/kernel/btf/vmlinux format c > /dev/null 2>&1; then
-            BPFTOOL_OK=true
+          KVER_TOOLS="/usr/lib/linux-tools/$(uname -r)"
+          if [ -d "$KVER_TOOLS" ] && [ -x "$KVER_TOOLS/bpftool" ]; then
+            if bpftool btf dump file /sys/kernel/btf/vmlinux format c > /dev/null 2>&1; then
+              BPFTOOL_OK=true
+            fi
+          else
+            echo "::warning::No kernel-matching bpftool at $KVER_TOOLS — arena skeleton gen unavailable"
           fi
 
           if [ "$KERN_OK" = true ] && [ "$BPFTOOL_OK" = true ]; then
@@ -74,7 +84,7 @@ jobs:
           else
             echo "arena_ready=false" >> "$GITHUB_OUTPUT"
             [ "$KERN_OK" = false ] && echo "::warning::Kernel ${MAJOR}.${MINOR} < 6.9 — BPF arena not available, building userspace only"
-            [ "$BPFTOOL_OK" = false ] && echo "::warning::bpftool cannot generate vmlinux.h — building userspace only"
+            [ "$BPFTOOL_OK" = false ] && echo "::warning::bpftool cannot handle arena skeletons — building userspace only"
           fi
 
       - name: Configure (full, kernel >= 6.9)
