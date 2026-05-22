@@ -73,8 +73,8 @@ __attribute__((weak))
 uint32_t
 arc4random(void)
 {
-    uint32_t val;
 #ifdef __linux__
+    uint32_t val;
     /* GRND_NONBLOCK is not set — block until entropy is available. */
     if (getrandom(&val, sizeof(val), 0) == (ssize_t)sizeof(val))
         return val;
