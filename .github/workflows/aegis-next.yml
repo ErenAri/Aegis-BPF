@@ -24,20 +24,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
             pkg-config cmake ninja-build zlib1g-dev
-          # bpftool: Azure kernel-specific linux-tools may install OK but
-          # contain no bpftool binary. Install each package separately so
-          # linux-tools-generic always gets a chance.
+          sudo apt-get install -y linux-tools-common
+          # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
+          # dispatches to /usr/lib/linux-tools/<exact-kernel>/bpftool.
+          # On Azure kernels (6.17) the kernel-specific linux-tools package
+          # installs successfully but contains NO bpftool binary. Fix:
+          # always install linux-tools-generic (ships bpftool for the
+          # distro HWE kernel) and then point the wrapper at it.
           sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
           sudo apt-get install -y linux-tools-generic 2>/dev/null || true
           sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/ -name bpftool -type f 2>/dev/null \
+            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null \
                    | sort -V | tail -1 || true)
             if [[ -n "$REAL" ]]; then
               echo "Overwriting bpftool wrapper with $REAL"
               sudo cp "$REAL" /usr/sbin/bpftool
             fi
           fi
+          bpftool version >/dev/null 2>&1 || {
+            echo "Diagnostic info:"
+            dpkg -l | grep -E "linux-tools|bpftool" || true
+            find /usr -name bpftool 2>/dev/null || true
+            echo "::error::bpftool not functional after all fallbacks" >&2
+            exit 1
+          }
 
       - name: Check kernel version and bpftool
         id: kernel
