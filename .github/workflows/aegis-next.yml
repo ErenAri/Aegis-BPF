@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y linux-tools-generic 2>/dev/null || true
           sudo apt-get install -y bpftool 2>/dev/null || true
           if ! bpftool version >/dev/null 2>&1; then
-            REAL=$(find /usr/lib/linux-tools/ -name bpftool -type f 2>/dev/null \
+            REAL=$(find /usr/lib/ -maxdepth 3 -name bpftool -type f 2>/dev/null \
                    | sort -V | tail -1 || true)
             if [[ -n "$REAL" ]]; then
               echo "Overwriting bpftool wrapper with $REAL"
