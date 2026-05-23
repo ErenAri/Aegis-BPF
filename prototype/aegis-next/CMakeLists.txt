@@ -60,6 +60,13 @@ message(STATUS
     "aegis-next: enabled (kernel ${AEGIS_NEXT_KERNEL_MAJOR}.${AEGIS_NEXT_KERNEL_MINOR})"
 )
 
+# If the parent project skipped BPF build (SKIP_BPF_BUILD=ON), bpftool
+# won't have been found yet. aegis-next always needs it for skeleton
+# generation, so find it ourselves.
+if(NOT BPFTOOL)
+    find_program(BPFTOOL bpftool REQUIRED)
+endif()
+
 # Where to find vmlinux.h. We reuse the top-level project's vmlinux.h
 # rather than re-dumping it; that target is built before us via the
 # add_dependencies() call below.

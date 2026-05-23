@@ -55,6 +55,7 @@ jobs:
             --set operator.image.repository=aegisbpf-operator \
             --set operator.image.tag=test \
             --set operator.image.pullPolicy=Never \
+            --set deployment.enabled=false \
             --wait --timeout 120s
 
       - name: Verify operator is running
@@ -226,6 +227,7 @@ jobs:
             --set operator.image.repository=aegisbpf-operator \
             --set operator.image.tag=test \
             --set operator.image.pullPolicy=Never \
+            --set deployment.enabled=false \
             --set operator.webhook.enabled=true \
             --set operator.webhook.certManager=true \
             --wait --timeout 180s
