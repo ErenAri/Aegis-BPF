@@ -117,7 +117,7 @@ jobs:
             -o jsonpath='{.data.policy\.sha256}')
 
           kubectl patch aegispolicy -n default e2e-test --type=merge \
-            -p '{"spec":{"execRules":{"denyComm":["xmrig","minerd","ethminer"]}}}'
+            -p '{"spec":{"networkRules":{"deny":[{"port":4444,"direction":"outbound","action":"Block"},{"port":5555,"direction":"outbound","action":"Block"}]}}}'
           sleep 5
 
           HASH_AFTER=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test \

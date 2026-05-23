@@ -193,7 +193,7 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		}
 	} else if err != nil {
 		return ctrl.Result{}, err
-	} else if existing.Data[PolicyHashKey] != merged.SHA256 {
+	} else if existing.Data[PolicyHashKey] != merged.SHA256 || existing.Data[NextPolicyHashKey] != mergedNext.SHA256 {
 		existing.Data = cm.Data
 		existing.Labels = cm.Labels
 		existing.Annotations = cm.Annotations
