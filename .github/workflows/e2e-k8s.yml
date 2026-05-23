@@ -46,7 +46,7 @@ jobs:
       - name: Install CRDs
         run: kubectl apply -f operator/config/crd/ --server-side
 
-      - name: Deploy via Helm (operator only)
+      - name: Deploy via Helm (operator only, no webhook)
         run: |
           kubectl create namespace aegisbpf-test
           helm install aegis-e2e helm/aegisbpf \
@@ -96,20 +96,16 @@ jobs:
           set -e
           CM=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test -o json)
 
-          # Check INI format.
           echo "$CM" | jq -r '.data["policy.conf"]' | grep -q "xmrig"
           echo "PASS: policy.conf contains xmrig"
 
-          # Check aegis-next format.
           echo "$CM" | jq -r '.data["policy.next"]' | grep -q "xmrig"
           echo "PASS: policy.next contains xmrig"
 
-          # Check hash.
           HASH=$(echo "$CM" | jq -r '.data["policy.sha256"]')
           [ -n "$HASH" ] && [ "$HASH" != "null" ]
           echo "PASS: policy hash present: ${HASH:0:12}"
 
-          # Check mode.
           MODE=$(echo "$CM" | jq -r '.data["policy.mode"]')
           [ "$MODE" = "enforce" ]
           echo "PASS: mode=enforce"
@@ -167,3 +163,273 @@ jobs:
         run: |
           helm uninstall aegis-e2e -n aegisbpf-test 2>/dev/null || true
           kind delete cluster --name aegis-e2e 2>/dev/null || true
+
+  e2e-webhook-certmanager:
+    name: Webhook + cert-manager E2E (kind)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Build operator image
+        working-directory: operator
+        run: docker build -t aegisbpf-operator:test .
+
+      - name: Create kind cluster
+        run: kind create cluster --config test/e2e/kind-config.yaml --name aegis-webhook --wait 120s
+
+      - name: Load operator image
+        run: kind load docker-image aegisbpf-operator:test --name aegis-webhook
+
+      # ---- cert-manager installation ----
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+          echo "Waiting for cert-manager pods..."
+          kubectl -n cert-manager rollout status deploy/cert-manager --timeout=120s
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=120s
+          kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=120s
+          echo "cert-manager is ready"
+
+      - name: Verify cert-manager API
+        run: |
+          # Wait for webhook to be fully ready (cert-manager needs a moment after rollout).
+          for i in $(seq 1 30); do
+            if kubectl get clusterissuers 2>/dev/null; then
+              echo "cert-manager API ready after ${i}s"
+              break
+            fi
+            sleep 2
+          done
+
+      # ---- Deploy with webhook + cert-manager ----
+      - name: Install CRDs
+        run: kubectl apply -f operator/config/crd/ --server-side
+
+      - name: Deploy with webhook + cert-manager
+        run: |
+          kubectl create namespace aegisbpf-webhook
+          helm install aegis-wh helm/aegisbpf \
+            --namespace aegisbpf-webhook \
+            --set operator.enabled=true \
+            --set operator.image.repository=aegisbpf-operator \
+            --set operator.image.tag=test \
+            --set operator.image.pullPolicy=Never \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true \
+            --wait --timeout 180s
+
+      - name: Verify operator + webhook running
+        run: |
+          kubectl -n aegisbpf-webhook rollout status deploy/aegis-wh-aegisbpf-operator --timeout=60s
+          kubectl -n aegisbpf-webhook get pods
+          echo "---"
+          echo "ValidatingWebhookConfigurations:"
+          kubectl get validatingwebhookconfigurations
+          echo "---"
+          echo "ClusterIssuers:"
+          kubectl get clusterissuers
+          echo "---"
+          echo "Certificates:"
+          kubectl -n aegisbpf-webhook get certificates
+          echo "---"
+          echo "Secrets:"
+          kubectl -n aegisbpf-webhook get secrets | grep webhook
+
+      - name: Verify TLS certificate issued
+        run: |
+          # Certificate should be Ready.
+          STATUS=$(kubectl -n aegisbpf-webhook get certificate aegis-wh-aegisbpf-webhook-cert \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+          if [ "$STATUS" = "True" ]; then
+            echo "PASS: TLS certificate is Ready"
+          else
+            echo "FAIL: TLS certificate not ready (status=$STATUS)"
+            kubectl -n aegisbpf-webhook describe certificate aegis-wh-aegisbpf-webhook-cert
+            exit 1
+          fi
+
+          # Secret should exist with tls.crt and tls.key.
+          if kubectl -n aegisbpf-webhook get secret aegis-wh-aegisbpf-webhook-tls \
+            -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -subject 2>/dev/null; then
+            echo "PASS: TLS secret contains valid certificate"
+          else
+            echo "FAIL: TLS secret missing or invalid"
+            exit 1
+          fi
+
+      - name: Verify CA bundle injected into webhook
+        run: |
+          CA=$(kubectl get validatingwebhookconfigurations aegis-wh-aegisbpf-policy-validator \
+            -o jsonpath='{.webhooks[0].clientConfig.caBundle}')
+          if [ -n "$CA" ] && [ "$CA" != "null" ]; then
+            echo "PASS: CA bundle injected into webhook (${#CA} bytes)"
+          else
+            echo "FAIL: CA bundle not injected"
+            kubectl get validatingwebhookconfigurations aegis-wh-aegisbpf-policy-validator -o yaml
+            exit 1
+          fi
+
+      # ---- Webhook validation tests ----
+      - name: "Webhook test: accept valid policy"
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisPolicy
+          metadata:
+            name: webhook-valid
+            namespace: default
+          spec:
+            mode: enforce
+            execRules:
+              denyComm: [xmrig]
+          EOF
+          echo "PASS: valid policy accepted by webhook"
+
+      - name: "Webhook test: reject invalid mode"
+        run: |
+          set +e
+          OUTPUT=$(kubectl apply -f - 2>&1 <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisPolicy
+          metadata:
+            name: webhook-invalid-mode
+            namespace: default
+          spec:
+            mode: invalid-mode
+            execRules:
+              denyComm: [xmrig]
+          EOF
+          )
+          RC=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $RC -ne 0 ]; then
+            echo "PASS: invalid mode rejected by webhook"
+          else
+            echo "FAIL: invalid mode was accepted (should have been rejected)"
+            kubectl delete aegispolicy webhook-invalid-mode -n default 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: "Webhook test: reject invalid network rule"
+        run: |
+          set +e
+          OUTPUT=$(kubectl apply -f - 2>&1 <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisPolicy
+          metadata:
+            name: webhook-invalid-net
+            namespace: default
+          spec:
+            mode: audit
+            networkRules:
+              deny:
+                - ip: "not-an-ip"
+                  action: Block
+          EOF
+          )
+          RC=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $RC -ne 0 ]; then
+            echo "PASS: invalid IP rejected by webhook"
+          else
+            echo "FAIL: invalid IP was accepted"
+            kubectl delete aegispolicy webhook-invalid-net -n default 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: "Webhook test: reject invalid SHA-256 hash"
+        run: |
+          set +e
+          OUTPUT=$(kubectl apply -f - 2>&1 <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisPolicy
+          metadata:
+            name: webhook-invalid-hash
+            namespace: default
+          spec:
+            mode: enforce
+            execRules:
+              denyBinaryHashes:
+                - "not-a-valid-sha256"
+          EOF
+          )
+          RC=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $RC -ne 0 ]; then
+            echo "PASS: invalid hash rejected by webhook"
+          else
+            echo "FAIL: invalid hash was accepted"
+            kubectl delete aegispolicy webhook-invalid-hash -n default 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: "Webhook test: accept valid cluster policy"
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisClusterPolicy
+          metadata:
+            name: webhook-cluster-valid
+          spec:
+            mode: audit
+            kernelRules:
+              blockModuleLoad: true
+          EOF
+          echo "PASS: valid cluster policy accepted"
+
+      # ---- Certificate renewal test ----
+      - name: Verify cert renewal config
+        run: |
+          DURATION=$(kubectl -n aegisbpf-webhook get certificate aegis-wh-aegisbpf-webhook-cert \
+            -o jsonpath='{.spec.duration}')
+          RENEW=$(kubectl -n aegisbpf-webhook get certificate aegis-wh-aegisbpf-webhook-cert \
+            -o jsonpath='{.spec.renewBefore}')
+          echo "Certificate duration: $DURATION, renewBefore: $RENEW"
+          if [ "$DURATION" = "8760h0m0s" ] && [ "$RENEW" = "720h0m0s" ]; then
+            echo "PASS: renewal config correct (1yr duration, 30d renew window)"
+          else
+            echo "WARN: unexpected renewal config"
+          fi
+
+      # ---- Cleanup ----
+      - name: Cleanup test policies
+        if: always()
+        run: |
+          kubectl delete aegispolicy webhook-valid -n default 2>/dev/null || true
+          kubectl delete aegisclusterpolicy webhook-cluster-valid 2>/dev/null || true
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          kubectl -n aegisbpf-webhook logs -l app.kubernetes.io/component=operator --tail=100 || true
+          echo "=== cert-manager logs ==="
+          kubectl -n cert-manager logs -l app=cert-manager --tail=50 || true
+          kubectl -n cert-manager logs -l app=webhook --tail=50 || true
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -40 || true
+          echo "=== Certificate status ==="
+          kubectl -n aegisbpf-webhook describe certificates || true
+          echo "=== Webhook config ==="
+          kubectl get validatingwebhookconfigurations -o yaml || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          helm uninstall aegis-wh -n aegisbpf-webhook 2>/dev/null || true
+          kind delete cluster --name aegis-webhook 2>/dev/null || true
