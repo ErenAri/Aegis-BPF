@@ -412,7 +412,37 @@ evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
         apply_verdict(val, cgid, &deny);
     }
 
+    // 4. Match by path prefix hash (file/exec hooks only).
+    // Caller passes path_hash = 0 when no path is available.
+    // Path hash is computed from the resolved bpf_d_path string.
+
     return deny ? -1 : 0;
+}
+
+// Evaluate a path-prefix policy match. Separated from evaluate_policy
+// because only hooks that resolve a path can provide a hash.
+static __always_inline int
+evaluate_policy_path(__u8 hook, __u32 path_hash, __u64 cgid)
+{
+    if (path_hash == 0)
+        return 0;
+
+    struct policy_key key = {};
+    key.hook = hook;
+    key.match_type = POLICY_MATCH_PATH;
+    key.match_val = path_hash;
+
+    struct policy_val *val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+    int deny = 0;
+    apply_verdict(val, cgid, &deny);
+    return deny ? -1 : 0;
+}
+
+// Compute FNV-1a hash on a path buffer (for POLICY_MATCH_PATH lookups).
+static __always_inline __u32
+path_prefix_hash(const char *path, int maxlen)
+{
+    return fnv1a_hash(path, maxlen);
 }
 
 // Resolve a file path via bpf_d_path, allocate a path slab slot, and
@@ -783,6 +813,15 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
         __u64 cgid = bpf_get_current_cgroup_id();
         if (evaluate_policy(PROV_KIND_EXEC, comm, 0, cgid) < 0)
             return -1; /* -EPERM */
+
+        // Path-prefix policy check (scratch buffer still has resolved path).
+        __u32 pzero = 0;
+        char *pscratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &pzero);
+        if (pscratch) {
+            __u32 phash = path_prefix_hash(pscratch, 64);
+            if (evaluate_policy_path(PROV_KIND_EXEC, phash, cgid) < 0)
+                return -1;
+        }
     }
     return 0;
 }
@@ -822,6 +861,14 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
         __u64 cgid = bpf_get_current_cgroup_id();
         if (evaluate_policy(PROV_KIND_FILE_OPEN, comm, 0, cgid) < 0)
             return -1; /* -EACCES */
+
+        __u32 pzero = 0;
+        char *pscratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &pzero);
+        if (pscratch) {
+            __u32 phash = path_prefix_hash(pscratch, 64);
+            if (evaluate_policy_path(PROV_KIND_FILE_OPEN, phash, cgid) < 0)
+                return -1;
+        }
     }
     return 0;
 }

@@ -1,0 +1,35 @@
+[Unit]
+Description=AegisBPF Next-Gen Runtime Security (BPF LSM + Arena)
+Documentation=https://github.com/ErenAri/aegisbpf
+After=network.target local-fs.target
+Wants=network.target
+ConditionPathExists=/usr/bin/aegisbpf-next
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aegisbpf-next attach
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security hardening (ironic for a security tool, but defense in depth).
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=no
+ReadWritePaths=/sys/fs/bpf /var/log/aegisbpf
+
+# BPF requires these capabilities.
+AmbientCapabilities=CAP_BPF CAP_SYS_ADMIN CAP_NET_ADMIN CAP_PERFMON
+CapabilityBoundingSet=CAP_BPF CAP_SYS_ADMIN CAP_NET_ADMIN CAP_PERFMON CAP_SYS_RESOURCE
+
+# Resource limits for BPF maps.
+LimitMEMLOCK=infinity
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegisbpf-next
+
+[Install]
+WantedBy=multi-user.target

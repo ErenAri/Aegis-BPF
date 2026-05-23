@@ -70,6 +70,9 @@ using aegis_next::ProvHeader;
 using aegis_next::ProvLayout;
 using aegis_next::ProvNode;
 
+// Global export format flag: false = JSONL (default), true = OCSF.
+bool g_ocsf_mode = false;
+
 // Format a NetFlow 5-tuple into a human-readable string.
 std::string format_flow(const aegis_next::NetFlow* flow)
 {
@@ -364,7 +367,10 @@ int cmd_attach_legacy()
                 const struct net_flow* flow =
                     evt->has_net ? &evt->net : nullptr;
 
-                c->exporter->export_node(node, 0, path, flow);
+                if (g_ocsf_mode)
+                    c->exporter->export_node_ocsf(node, 0, path, flow);
+                else
+                    c->exporter->export_node(node, 0, path, flow);
             }
 
             if (c->events - c->last_print >= 100) {
@@ -660,8 +666,12 @@ int cmd_attach()
                     flow = &c->arena->net_slab[node.net_slab_idx - 1];
                 }
 
-                c->exporter->export_node(node, alert->slot,
-                                          path_str, flow);
+                if (g_ocsf_mode)
+                    c->exporter->export_node_ocsf(node, alert->slot,
+                                                   path_str, flow);
+                else
+                    c->exporter->export_node(node, alert->slot,
+                                              path_str, flow);
             }
 
             // Periodic progress line (every 100 events).
@@ -1255,7 +1265,7 @@ int cmd_policy_add(int argc, char** argv)
         std::fprintf(stderr,
                      "usage: policy add <hook> <match_type> <value> <action> [--kill]\n"
                      "  hook:  exec|file|conn|bind|listen\n"
-                     "  match: comm|port|cgroup\n"
+                     "  match: comm|port|cgroup|path\n"
                      "  action: deny|allow|log\n");
         return 1;
     }
@@ -1301,6 +1311,10 @@ int cmd_policy_add(int argc, char** argv)
     } else if (mt_str == "cgroup") {
         key.match_type = POLICY_MATCH_CGROUP;
         key.match_val = static_cast<std::uint32_t>(std::strtoull(val_str.c_str(), nullptr, 0));
+    } else if (mt_str == "path") {
+        key.match_type = POLICY_MATCH_PATH;
+        key.match_val = aegis_next::fnv1a(val_str.c_str(),
+            std::min(val_str.size(), std::size_t(64)));
     } else {
         std::fprintf(stderr, "unknown match type: %s\n", mt_str.c_str());
         close(map_fd);
@@ -1465,6 +1479,11 @@ int cmd_policy_load(const char* filepath)
             key.match_type = POLICY_MATCH_CGROUP;
             key.match_val = static_cast<std::uint32_t>(
                 std::strtoull(val_str.c_str(), nullptr, 0));
+        } else if (mt_str == "path") {
+            key.match_type = POLICY_MATCH_PATH;
+            // Hash first 64 bytes of path prefix (matches BPF side).
+            key.match_val = aegis_next::fnv1a(val_str.c_str(),
+                std::min(val_str.size(), std::size_t(64)));
         } else {
             std::fprintf(stderr, "policy:%d: unknown match type '%s'\n",
                          lineno, mt_str.c_str());
@@ -1883,6 +1902,11 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
+        // Check for --ocsf flag.
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--ocsf") == 0)
+                g_ocsf_mode = true;
+        }
         return cmd_attach();
     }
 
