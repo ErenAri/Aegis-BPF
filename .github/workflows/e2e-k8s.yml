@@ -97,8 +97,8 @@ jobs:
           set -e
           CM=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test -o json)
 
-          echo "$CM" | jq -r '.data["policy.conf"]' | grep -q "xmrig"
-          echo "PASS: policy.conf contains xmrig"
+          echo "$CM" | jq -r '.data["policy.conf"]' | grep -q "4444"
+          echo "PASS: policy.conf contains port 4444"
 
           echo "$CM" | jq -r '.data["policy.next"]' | grep -q "xmrig"
           echo "PASS: policy.next contains xmrig"

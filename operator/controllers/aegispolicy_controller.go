@@ -261,7 +261,10 @@ func (r *AegisPolicyReconciler) ensureNamespace(ctx context.Context) error {
 				},
 			},
 		}
-		return r.Create(ctx, &ns)
+		if createErr := r.Create(ctx, &ns); createErr != nil && !errors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }

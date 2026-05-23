@@ -238,7 +238,10 @@ func (r *MergedPolicyReconciler) ensureNamespace(ctx context.Context) error {
 				Labels: map[string]string{"app.kubernetes.io/managed-by": "aegis-operator"},
 			},
 		}
-		return r.Create(ctx, &ns)
+		if createErr := r.Create(ctx, &ns); createErr != nil && !errors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }
