@@ -28,14 +28,16 @@ import (
 )
 
 const (
-	DefaultAgentNamespace = "aegisbpf"
-	AgentContainerName    = "aegisbpf"
-	AgentBinaryPath       = "/usr/bin/aegisbpf"
-	AgentSyncInterval     = 30 * time.Second
-	AgentSyncFinalizer    = "aegisbpf.io/agent-sync-finalizer"
-	AgentStatePrefix      = "aegis-agent-state-"
-	ReasonAgentSyncFailed = "AgentSyncFailed"
-	ReasonAgentSynced     = "AgentSynced"
+	DefaultAgentNamespace     = "aegisbpf"
+	AgentContainerName        = "aegisbpf"
+	AgentBinaryPath           = "/usr/bin/aegisbpf"
+	AgentNextContainerName    = "aegisbpf-next"
+	AgentNextBinaryPath       = "/usr/bin/aegisbpf-next"
+	AgentSyncInterval         = 30 * time.Second
+	AgentSyncFinalizer        = "aegisbpf.io/agent-sync-finalizer"
+	AgentStatePrefix          = "aegis-agent-state-"
+	ReasonAgentSyncFailed     = "AgentSyncFailed"
+	ReasonAgentSynced         = "AgentSynced"
 )
 
 type agentRule struct {
@@ -129,7 +131,13 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	desiredRules := policyRules(ap.Spec)
-	if len(desiredRules) == 0 || nodes.Len() == 0 {
+	desiredRulesNext := policyRulesNext(ap.Spec)
+	// Use whichever rule set is non-empty — actual selection happens per-pod in execAgentCommand.
+	effectiveRules := desiredRules
+	if len(effectiveRules) == 0 {
+		effectiveRules = desiredRulesNext
+	}
+	if len(effectiveRules) == 0 || nodes.Len() == 0 {
 		result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, map[string][]agentRule{})
 		if err != nil {
 			_ = r.updateAgentSyncStatus(ctx, &ap, "Error", fmt.Sprintf("Agent cleanup reconcile failed: %v", err), result.AppliedNodes, true)
@@ -185,7 +193,12 @@ func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, cl
 				failed.Insert(node)
 				continue
 			}
-			if err := r.execAgentCommand(ctx, clientset, agent, stale.Del); err != nil {
+			cmd := stale.Del
+			if agent.IsNext {
+				// Re-derive the del command for aegis-next binary.
+				cmd = replaceAgentBinary(cmd, AgentNextBinaryPath)
+			}
+			if err := r.execAgentCommand(ctx, clientset, agent, cmd); err != nil {
 				failed.Insert(node)
 				continue
 			}
@@ -200,7 +213,11 @@ func (r *AegisPolicyAgentReconciler) reconcileAgentRules(ctx context.Context, cl
 				failed.Insert(node)
 				continue
 			}
-			if err := r.execAgentCommand(ctx, clientset, agent, missing.Add); err != nil {
+			cmd := missing.Add
+			if agent.IsNext {
+				cmd = replaceAgentBinary(cmd, AgentNextBinaryPath)
+			}
+			if err := r.execAgentCommand(ctx, clientset, agent, cmd); err != nil {
 				failed.Insert(node)
 				continue
 			}
@@ -228,10 +245,28 @@ func (r *AegisPolicyAgentReconciler) cleanupAppliedAgentState(ctx context.Contex
 			continue
 		}
 		for _, rule := range rules {
-			_ = r.execAgentCommand(ctx, clientset, agent, rule.Del)
+			cmd := rule.Del
+			if agent.IsNext {
+				cmd = replaceAgentBinary(cmd, AgentNextBinaryPath)
+			}
+			_ = r.execAgentCommand(ctx, clientset, agent, cmd)
 		}
 	}
 	return r.deleteAgentState(ctx, namespace, name)
+}
+
+// replaceAgentBinary swaps the binary path in a command if it starts with the
+// mainline binary path. For aegis-next pods, commands are rewritten at dispatch time.
+func replaceAgentBinary(cmd []string, newBinary string) []string {
+	if len(cmd) == 0 {
+		return cmd
+	}
+	out := make([]string, len(cmd))
+	copy(out, cmd)
+	if out[0] == AgentBinaryPath {
+		out[0] = newBinary
+	}
+	return out
 }
 
 func (r *AegisPolicyAgentReconciler) updateAgentSyncStatus(ctx context.Context, ap *v1alpha1.AegisPolicy, phase, message string, appliedNodes int, degraded bool) error {
@@ -262,16 +297,49 @@ func podSelectorForPolicy(ap *v1alpha1.AegisPolicy) (labels.Selector, error) {
 }
 
 func policyRules(spec v1alpha1.AegisPolicySpec) []agentRule {
+	return policyRulesForBinary(spec, AgentBinaryPath)
+}
+
+// policyRulesNext generates rules using the aegis-next CLI syntax.
+// aegis-next uses "policy load <file>" for bulk loading, but for live sync
+// we write a temp rules file and reload it.
+func policyRulesNext(spec v1alpha1.AegisPolicySpec) []agentRule {
+	return policyRulesForBinary(spec, AgentNextBinaryPath)
+}
+
+func policyRulesForBinary(spec v1alpha1.AegisPolicySpec, binary string) []agentRule {
 	var rules []agentRule
 	if spec.FileRules != nil {
 		for _, rule := range spec.FileRules.Deny {
 			if rule.Action == v1alpha1.RuleActionAllow || rule.Path == "" {
 				continue
 			}
+			if binary == AgentNextBinaryPath {
+				// aegis-next: policy add file path <path> deny
+				rules = append(rules, agentRule{
+					Key: "file:path:" + rule.Path,
+					Add: []string{binary, "policy", "add", "file", "path", rule.Path, "deny"},
+					Del: []string{binary, "policy", "del", "file", "path", rule.Path},
+				})
+			} else {
+				rules = append(rules, agentRule{
+					Key: "file:path:" + rule.Path,
+					Add: []string{binary, "block", "add", rule.Path},
+					Del: []string{binary, "block", "del", rule.Path},
+				})
+			}
+		}
+	}
+	if spec.ExecRules != nil && binary == AgentNextBinaryPath {
+		for _, comm := range spec.ExecRules.DenyComm {
+			action := "deny"
+			if spec.Mode == "enforce" {
+				action = "deny\tkill"
+			}
 			rules = append(rules, agentRule{
-				Key: "file:path:" + rule.Path,
-				Add: []string{AgentBinaryPath, "block", "add", rule.Path},
-				Del: []string{AgentBinaryPath, "block", "del", rule.Path},
+				Key: "exec:comm:" + comm,
+				Add: []string{binary, "policy", "add", "exec", "comm", comm, action},
+				Del: []string{binary, "policy", "del", "exec", "comm", comm},
 			})
 		}
 	}
@@ -281,36 +349,62 @@ func policyRules(spec v1alpha1.AegisPolicySpec) []agentRule {
 				continue
 			}
 			if rule.IP != "" {
-				rules = append(rules, agentRule{
-					Key: "net:ip:" + rule.IP,
-					Add: []string{AgentBinaryPath, "network", "deny", "add", "--ip", rule.IP},
-					Del: []string{AgentBinaryPath, "network", "deny", "del", "--ip", rule.IP},
-				})
+				if binary == AgentNextBinaryPath {
+					rules = append(rules, agentRule{
+						Key: "net:ip:" + rule.IP,
+						Add: []string{binary, "policy", "add", "conn", "ip", rule.IP, "deny"},
+						Del: []string{binary, "policy", "del", "conn", "ip", rule.IP},
+					})
+				} else {
+					rules = append(rules, agentRule{
+						Key: "net:ip:" + rule.IP,
+						Add: []string{binary, "network", "deny", "add", "--ip", rule.IP},
+						Del: []string{binary, "network", "deny", "del", "--ip", rule.IP},
+					})
+				}
 			}
 			if rule.CIDR != "" {
-				rules = append(rules, agentRule{
-					Key: "net:cidr:" + rule.CIDR,
-					Add: []string{AgentBinaryPath, "network", "deny", "add", "--cidr", rule.CIDR},
-					Del: []string{AgentBinaryPath, "network", "deny", "del", "--cidr", rule.CIDR},
-				})
+				if binary == AgentNextBinaryPath {
+					rules = append(rules, agentRule{
+						Key: "net:cidr:" + rule.CIDR,
+						Add: []string{binary, "policy", "add", "conn", "cidr", rule.CIDR, "deny"},
+						Del: []string{binary, "policy", "del", "conn", "cidr", rule.CIDR},
+					})
+				} else {
+					rules = append(rules, agentRule{
+						Key: "net:cidr:" + rule.CIDR,
+						Add: []string{binary, "network", "deny", "add", "--cidr", rule.CIDR},
+						Del: []string{binary, "network", "deny", "del", "--cidr", rule.CIDR},
+					})
+				}
 			}
 			if rule.Port > 0 {
 				key := fmt.Sprintf("net:port:%d:%s:%s", rule.Port, rule.Protocol, rule.Direction)
-				add := []string{AgentBinaryPath, "network", "deny", "add", "--port", fmt.Sprintf("%d", rule.Port)}
-				del := []string{AgentBinaryPath, "network", "deny", "del", "--port", fmt.Sprintf("%d", rule.Port)}
-				if rule.Protocol != "" {
-					add = append(add, "--protocol", rule.Protocol)
-					del = append(del, "--protocol", rule.Protocol)
-				}
-				if rule.Direction != "" {
-					direction := "egress"
+				if binary == AgentNextBinaryPath {
+					hook := "conn"
 					if rule.Direction == "inbound" {
-						direction = "bind"
+						hook = "bind"
 					}
-					add = append(add, "--direction", direction)
-					del = append(del, "--direction", direction)
+					add := []string{binary, "policy", "add", hook, "port", fmt.Sprintf("%d", rule.Port), "deny"}
+					del := []string{binary, "policy", "del", hook, "port", fmt.Sprintf("%d", rule.Port)}
+					rules = append(rules, agentRule{Key: key, Add: add, Del: del})
+				} else {
+					add := []string{binary, "network", "deny", "add", "--port", fmt.Sprintf("%d", rule.Port)}
+					del := []string{binary, "network", "deny", "del", "--port", fmt.Sprintf("%d", rule.Port)}
+					if rule.Protocol != "" {
+						add = append(add, "--protocol", rule.Protocol)
+						del = append(del, "--protocol", rule.Protocol)
+					}
+					if rule.Direction != "" {
+						direction := "egress"
+						if rule.Direction == "inbound" {
+							direction = "bind"
+						}
+						add = append(add, "--direction", direction)
+						del = append(del, "--direction", direction)
+					}
+					rules = append(rules, agentRule{Key: key, Add: add, Del: del})
 				}
-				rules = append(rules, agentRule{Key: key, Add: add, Del: del})
 			}
 		}
 	}
@@ -419,28 +513,52 @@ func agentStateName(namespace, name string) string {
 	return AgentStatePrefix + namespace + "-" + name
 }
 
-func (r *AegisPolicyAgentReconciler) findAgentForNode(ctx context.Context, node string) (*corev1.Pod, error) {
+// agentPod wraps a Pod reference with metadata about which agent variant it is.
+type agentPod struct {
+	Pod   *corev1.Pod
+	IsNext bool // true if this is an aegis-next pod
+}
+
+func (r *AegisPolicyAgentReconciler) findAgentForNode(ctx context.Context, node string) (*agentPod, error) {
 	var agents corev1.PodList
 	if err := r.List(ctx, &agents, client.InNamespace(DefaultAgentNamespace)); err != nil {
 		return nil, err
 	}
 	for i := range agents.Items {
 		agent := &agents.Items[i]
-		if agent.Spec.NodeName == node && agent.Status.Phase == corev1.PodRunning && strings.Contains(agent.Name, "aegisbpf") {
-			return agent, nil
+		if agent.Spec.NodeName != node || agent.Status.Phase != corev1.PodRunning {
+			continue
 		}
+		if !strings.Contains(agent.Name, "aegisbpf") {
+			continue
+		}
+		isNext := strings.Contains(agent.Name, "aegisbpf-next") || hasContainer(agent, AgentNextContainerName)
+		return &agentPod{Pod: agent, IsNext: isNext}, nil
 	}
 	return nil, fmt.Errorf("no running AegisBPF agent pod on node %s", node)
 }
 
-func (r *AegisPolicyAgentReconciler) execAgentCommand(ctx context.Context, clientset *kubernetes.Clientset, pod *corev1.Pod, command []string) error {
+func hasContainer(pod *corev1.Pod, name string) bool {
+	for _, c := range pod.Spec.Containers {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *AegisPolicyAgentReconciler) execAgentCommand(ctx context.Context, clientset *kubernetes.Clientset, ap *agentPod, command []string) error {
+	containerName := AgentContainerName
+	if ap.IsNext {
+		containerName = AgentNextContainerName
+	}
 	req := clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
-		Name(pod.Name).
-		Namespace(pod.Namespace).
+		Name(ap.Pod.Name).
+		Namespace(ap.Pod.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: AgentContainerName,
+			Container: containerName,
 			Command:   command,
 			Stdout:    true,
 			Stderr:    true,

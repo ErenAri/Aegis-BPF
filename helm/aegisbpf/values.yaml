@@ -262,6 +262,18 @@ operator:
   leaderElect: true
   enableIdentityResolution: true
 
+  # Webhook configuration for validating AegisPolicy CRDs.
+  webhook:
+    enabled: false
+    port: 9443
+    failurePolicy: Fail
+    # Use cert-manager for automatic TLS certificate provisioning.
+    certManager: false
+    # Issuer reference for cert-manager (required when certManager: true).
+    issuerRef:
+      name: selfsigned-issuer
+      kind: ClusterIssuer
+
   resources:
     limits:
       cpu: 500m
