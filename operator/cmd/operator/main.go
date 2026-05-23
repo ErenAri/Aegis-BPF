@@ -124,6 +124,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controllers.NodeFeatureReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		logger.Error(err, "Unable to create NodeFeature controller")
+		os.Exit(1)
+	}
+
 	if enableWebhook {
 		decoder := admission.NewDecoder(scheme)
 		validator := aegiswebhook.NewPolicyValidator(decoder)

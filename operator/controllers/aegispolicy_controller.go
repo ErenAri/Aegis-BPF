@@ -95,8 +95,10 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Translate CRD spec → INI policy (mainline daemon).
+	translateStart := time.Now()
 	result, err := policy.TranslateToINI(ap.Spec)
 	if err != nil {
+		policyReconcileTotal.WithLabelValues("error").Inc()
 		logger.Error(err, "Failed to translate policy")
 		markPolicyInvalid(&ap.Status, ap.Generation,
 			v1alpha1.ReasonTranslationFailed,
@@ -106,7 +108,9 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Translate CRD spec → aegis-next line-based policy.
 	nextResult, err := policy.TranslateToAegisNext(ap.Spec)
+	policyTranslateDuration.Observe(time.Since(translateStart).Seconds())
 	if err != nil {
+		policyReconcileTotal.WithLabelValues("error").Inc()
 		logger.Error(err, "Failed to translate aegis-next policy")
 		markPolicyInvalid(&ap.Status, ap.Generation,
 			v1alpha1.ReasonTranslationFailed,
@@ -166,6 +170,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		logger.Info("Creating policy ConfigMap", "configmap", cmName)
 		if err := r.Create(ctx, cm); err != nil {
+			configMapWriteErrors.Inc()
 			markDegraded(&ap.Status, ap.Generation,
 				v1alpha1.ReasonConfigMapWriteFailed,
 				fmt.Sprintf("ConfigMap create failed: %v", err))
@@ -183,6 +188,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			existing.Annotations = cm.Annotations
 			logger.Info("Updating policy ConfigMap", "configmap", cmName, "newHash", result.SHA256[:12])
 			if err := r.Update(ctx, &existing); err != nil {
+				configMapWriteErrors.Inc()
 				markDegraded(&ap.Status, ap.Generation,
 					v1alpha1.ReasonConfigMapWriteFailed,
 					fmt.Sprintf("ConfigMap update failed: %v", err))
@@ -191,6 +197,8 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	policyReconcileTotal.WithLabelValues("success").Inc()
+	activePolicies.Inc()
 	markReady(&ap.Status, ap.Generation, "Policy translated and ConfigMap written")
 	return r.updateStatus(ctx, &ap, "Applied", "Policy applied successfully", result.SHA256)
 }

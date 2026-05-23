@@ -148,11 +148,14 @@ func (r *AegisPolicyAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	result, err := r.reconcileAgentRules(ctx, clientset, ap.Namespace, ap.Name, desired)
 	if err != nil {
+		agentSyncTotal.WithLabelValues("error").Inc()
 		message := fmt.Sprintf("Agent sync failed after %d/%d nodes: %v", result.AppliedNodes, len(desired), err)
 		_ = r.updateAgentSyncStatus(ctx, &ap, "Error", message, result.AppliedNodes, true)
 		return ctrl.Result{RequeueAfter: AgentSyncInterval}, err
 	}
 
+	agentSyncTotal.WithLabelValues("success").Inc()
+	agentSyncNodesApplied.Set(float64(result.AppliedNodes))
 	message := fmt.Sprintf("Agent sync applied to %d node(s), %d rule(s) each", result.AppliedNodes, len(desiredRules))
 	logger.Info("policy agent state reconciled", "policy", ap.Name, "nodes", len(desired), "rules", len(desiredRules))
 	_ = r.updateAgentSyncStatus(ctx, &ap, "Applied", message, result.AppliedNodes, false)
