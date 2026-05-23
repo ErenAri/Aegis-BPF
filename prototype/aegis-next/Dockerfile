@@ -57,14 +57,29 @@ COPY src/ ./src/
 COPY config/ ./config/
 COPY prototype/aegis-next/ ./prototype/aegis-next/
 
-# Build aegis-next binary + BPF objects.
+# Configure: fetch libbpf (STATIC_LIBBPF) and set up build targets.
+# SKIP_BPF_BUILD skips the mainline daemon's BPF objects; aegis-next
+# compiles its own BPF programs independently.
 RUN cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF \
     -DBUILD_AEGIS_NEXT=ON \
     -DSTATIC_LIBBPF=ON \
-    -DSKIP_BPF_BUILD=ON \
-    && cmake --build build --target aegisbpf-next
+    -DSKIP_BPF_BUILD=ON
+
+# Provide vmlinux.h for BPF compilation.  Prefer host kernel BTF
+# (available when building with --privileged on a 6.9+ host); fall
+# back to the vmlinux.h bundled in the libbpf source tree that was
+# just fetched by STATIC_LIBBPF above.
+RUN if [ -f /sys/kernel/btf/vmlinux ]; then \
+        bpftool btf dump file /sys/kernel/btf/vmlinux format c > build/vmlinux.h; \
+    else \
+        cp build/_deps/libbpf_src-src/.github/actions/build-selftests/vmlinux.h \
+           build/vmlinux.h; \
+    fi
+
+# Build aegis-next binary + BPF objects.
+RUN cmake --build build --target aegisbpf-next
 
 # =============================================================================
 # Runtime Stage

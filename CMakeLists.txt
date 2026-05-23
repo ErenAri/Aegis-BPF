@@ -851,7 +851,9 @@ endif()
 
 # Optional post-2024 BPF stack prototype (BPF arena, sched_ext, ...).
 # Gated off by default; see prototype/aegis-next/README.md.
-add_subdirectory(prototype/aegis-next)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/prototype/aegis-next/CMakeLists.txt")
+    add_subdirectory(prototype/aegis-next)
+endif()
 
 # Installation
 install(TARGETS aegisbpf RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

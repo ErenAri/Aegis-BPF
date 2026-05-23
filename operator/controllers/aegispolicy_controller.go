@@ -179,8 +179,8 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	} else if err != nil {
 		return ctrl.Result{}, err
 	} else {
-		// Update existing ConfigMap if hash changed.
-		if existing.Data[PolicyHashKey] == result.SHA256 {
+		// Update existing ConfigMap if either hash changed (INI or aegis-next).
+		if existing.Data[PolicyHashKey] == result.SHA256 && existing.Data[NextPolicyHashKey] == nextResult.SHA256 {
 			logger.V(1).Info("Policy unchanged, skipping update", "hash", result.SHA256[:12])
 		} else {
 			existing.Data = cm.Data
@@ -261,7 +261,10 @@ func (r *AegisPolicyReconciler) ensureNamespace(ctx context.Context) error {
 				},
 			},
 		}
-		return r.Create(ctx, &ns)
+		if createErr := r.Create(ctx, &ns); createErr != nil && !errors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }

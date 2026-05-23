@@ -504,7 +504,10 @@ func (r *AegisPolicyAgentReconciler) ensureStateNamespace(ctx context.Context) e
 	var ns corev1.Namespace
 	err := r.Get(ctx, types.NamespacedName{Name: SystemNamespace}, &ns)
 	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: SystemNamespace}})
+		if createErr := r.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: SystemNamespace}}); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }

@@ -178,8 +178,26 @@ jobs:
       - name: Lint with all features
         run: helm lint helm/aegisbpf/ --set aegisNext.enabled=true --set operator.enabled=true
 
+      - name: Lint with webhook + cert-manager
+        run: |
+          helm lint helm/aegisbpf/ \
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true
+
+      - name: Lint with webhook + custom issuer
+        run: |
+          helm lint helm/aegisbpf/ \
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true \
+            --set operator.webhook.createSelfSignedIssuer=false \
+            --set operator.webhook.issuerRef.name=custom-issuer
+
       - name: Template renders cleanly
         run: |
           helm template test helm/aegisbpf/ \
             --set aegisNext.enabled=true \
-            --set operator.enabled=true > /dev/null
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true > /dev/null

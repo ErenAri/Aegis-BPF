@@ -69,6 +69,9 @@ nodeSelector: {}
 # - enforce: one DaemonSet in enforce mode
 # - both: deploy audit DaemonSet everywhere + enforce DaemonSet on labeled nodes
 deployment:
+  # Set to false to skip the mainline agent DaemonSet entirely
+  # (useful when deploying operator-only or aegis-next exclusively).
+  enabled: true
   # Use "auto" to preserve legacy behavior via agent.auditMode.
   mode: auto
 
@@ -269,9 +272,13 @@ operator:
     failurePolicy: Fail
     # Use cert-manager for automatic TLS certificate provisioning.
     certManager: false
-    # Issuer reference for cert-manager (required when certManager: true).
+    # Create a self-signed ClusterIssuer automatically (zero-config).
+    # Set to false if you provide your own Issuer/ClusterIssuer.
+    createSelfSignedIssuer: true
+    # Issuer reference for cert-manager Certificate.
+    # When createSelfSignedIssuer is true, this is auto-populated.
     issuerRef:
-      name: selfsigned-issuer
+      name: ""  # auto-populated when createSelfSignedIssuer is true
       kind: ClusterIssuer
 
   resources:

@@ -142,6 +142,7 @@ spec:
       {{- end }}
 {{- end -}}
 
+{{- if ne (printf "%v" .Values.deployment.enabled) "false" -}}
 {{- $mode := .Values.deployment.mode | default "auto" -}}
 {{- if eq $mode "auto" -}}
 {{- if .Values.agent.auditMode -}}
@@ -158,4 +159,5 @@ spec:
 {{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "enforce" "nameSuffix" "" "nodeSelector" .Values.enforceNodeSelector) }}
 {{- else -}}
 {{ include "aegisbpf.daemonset" (dict "ctx" . "mode" "audit" "nameSuffix" "" "nodeSelector" .Values.nodeSelector) }}
+{{- end -}}
 {{- end -}}

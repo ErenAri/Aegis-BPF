@@ -193,7 +193,7 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		}
 	} else if err != nil {
 		return ctrl.Result{}, err
-	} else if existing.Data[PolicyHashKey] != merged.SHA256 {
+	} else if existing.Data[PolicyHashKey] != merged.SHA256 || existing.Data[NextPolicyHashKey] != mergedNext.SHA256 {
 		existing.Data = cm.Data
 		existing.Labels = cm.Labels
 		existing.Annotations = cm.Annotations
@@ -238,7 +238,10 @@ func (r *MergedPolicyReconciler) ensureNamespace(ctx context.Context) error {
 				Labels: map[string]string{"app.kubernetes.io/managed-by": "aegis-operator"},
 			},
 		}
-		return r.Create(ctx, &ns)
+		if createErr := r.Create(ctx, &ns); createErr != nil && !errors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }
