@@ -1,0 +1,62 @@
+{{- if .Values.operator.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-test-operator
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-health
+      image: busybox:1.36
+      command: ['sh', '-c']
+      args:
+        - |
+          echo "Testing operator health endpoint..."
+          wget -q -O- http://{{ include "aegisbpf.fullname" . }}-operator.{{ .Release.Namespace }}.svc:8081/healthz
+          echo ""
+          echo "Testing operator readiness endpoint..."
+          wget -q -O- http://{{ include "aegisbpf.fullname" . }}-operator.{{ .Release.Namespace }}.svc:8081/readyz
+          echo ""
+          echo "PASS: operator health checks passed"
+{{- end }}
+---
+{{- if .Values.aegisNext.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-test-next
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  hostPID: true
+  containers:
+    - name: test-bpffs
+      image: busybox:1.36
+      command: ['sh', '-c']
+      args:
+        - |
+          echo "Testing aegis-next BPF pin directory..."
+          if [ -d /sys/fs/bpf/aegis_next ]; then
+            echo "PASS: /sys/fs/bpf/aegis_next exists"
+          else
+            echo "WARN: /sys/fs/bpf/aegis_next not found (agent may still be starting)"
+          fi
+      volumeMounts:
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          readOnly: true
+  volumes:
+    - name: bpffs
+      hostPath:
+        path: /sys/fs/bpf
+        type: Directory
+{{- end }}

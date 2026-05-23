@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+# Create log directory.
+mkdir -p /var/log/aegisbpf
+mkdir -p /etc/aegisbpf
+
+# Install default config if not present.
+if [ ! -f /etc/aegisbpf/aegisbpf-next.conf ]; then
+    cp /usr/share/aegisbpf-next/aegisbpf-next.conf /etc/aegisbpf/aegisbpf-next.conf
+fi
+
+# Enable and start the service.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+    systemctl enable aegisbpf-next.service || true
+    echo "aegisbpf-next: service installed. Start with: systemctl start aegisbpf-next"
+fi

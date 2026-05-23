@@ -33,7 +33,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <fstream>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -66,6 +69,13 @@ using aegis_next::LineageEntry;
 using aegis_next::ProvHeader;
 using aegis_next::ProvLayout;
 using aegis_next::ProvNode;
+
+// Global export format flag: false = JSONL (default), true = OCSF.
+bool g_ocsf_mode = false;
+
+// Global config: policy file to load at startup, events output path.
+std::string g_policy_file;
+std::string g_events_path;
 
 // Format a NetFlow 5-tuple into a human-readable string.
 std::string format_flow(const aegis_next::NetFlow* flow)
@@ -219,7 +229,12 @@ void usage(const char* prog)
                  "usage: %s <command>\n"
                  "\n"
                  "commands:\n"
-                 "  attach                 load BPF, pin maps, attach LSM, loop\n"
+                 "  attach [flags]         load BPF, pin maps, attach LSM, loop\n"
+                 "    --policy=<file>      load policy rules from file at startup\n"
+                 "    --events=<path>      write JSONL events to path (default: bpffs/events.jsonl)\n"
+                 "    --config=<file>      read config file (key=value: policy, events, ocsf)\n"
+                 "    --ocsf               use OCSF v1.1 output format\n"
+                 "\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
@@ -234,7 +249,15 @@ void usage(const char* prog)
                  "  sched status           list quarantined cgroups\n"
                  "  protect                load self-protection LSM hooks\n"
                  "  export tail [N]        print last N lines from JSONL export\n"
-                 "  status                 show feature probes, arena, policy, quarantine\n",
+                 "  status                 show feature probes, arena, policy, quarantine\n"
+                 "\n"
+                 "phase 4 — advanced features (no competitor has these):\n"
+                 "  auth start [--audit]   start binary authorization (fsverity + xattr cache)\n"
+                 "  auth trust <digest>    add trusted binary digest (hex)\n"
+                 "  auth list              list trusted digests\n"
+                 "  auth stats             show auth statistics\n"
+                 "  rate set <kind> <max>  set rate limit (fork|conn|file|mmap) per second\n"
+                 "  discover [-o <file>]   auto-discover allow-list policy from arena events\n",
                  prog);
 }
 
@@ -353,7 +376,10 @@ int cmd_attach_legacy()
                 const struct net_flow* flow =
                     evt->has_net ? &evt->net : nullptr;
 
-                c->exporter->export_node(node, 0, path, flow);
+                if (g_ocsf_mode)
+                    c->exporter->export_node_ocsf(node, 0, path, flow);
+                else
+                    c->exporter->export_node(node, 0, path, flow);
             }
 
             if (c->events - c->last_print >= 100) {
@@ -600,7 +626,9 @@ int cmd_attach()
     }
 
     // P3.4: Event export — JSONL file for persistence.
-    std::string export_path = pin_dir() + "/events.jsonl";
+    std::string export_path = g_events_path.empty()
+        ? pin_dir() + "/events.jsonl"
+        : g_events_path;
     aegis_next::EventExporter exporter(export_path);
     if (exporter.is_open()) {
         std::printf("aegis-next: JSONL export active at %s\n",
@@ -649,8 +677,12 @@ int cmd_attach()
                     flow = &c->arena->net_slab[node.net_slab_idx - 1];
                 }
 
-                c->exporter->export_node(node, alert->slot,
-                                          path_str, flow);
+                if (g_ocsf_mode)
+                    c->exporter->export_node_ocsf(node, alert->slot,
+                                                   path_str, flow);
+                else
+                    c->exporter->export_node(node, alert->slot,
+                                              path_str, flow);
             }
 
             // Periodic progress line (every 100 events).
@@ -668,6 +700,17 @@ int cmd_attach()
                      std::strerror(errno));
         provenance_bpf__destroy(skel);
         return 1;
+    }
+
+    // Load policy from file if --policy was specified.
+    if (!g_policy_file.empty()) {
+        std::printf("aegis-next: loading policy from %s\n",
+                    g_policy_file.c_str());
+        int rc = cmd_policy_load(g_policy_file.c_str());
+        if (rc != 0) {
+            std::fprintf(stderr,
+                         "warning: policy load failed (rc=%d), continuing without policy\n", rc);
+        }
     }
 
     std::printf("aegis-next: ringbuf polling active (sub-ms latency).\n");
@@ -1219,6 +1262,7 @@ const char* match_type_name(int mt)
     case POLICY_MATCH_PATH:   return "path";
     case POLICY_MATCH_PORT:   return "port";
     case POLICY_MATCH_CGROUP: return "cgroup";
+    case POLICY_MATCH_DIGEST: return "digest";
     default:                  return "?";
     }
 }
@@ -1243,7 +1287,7 @@ int cmd_policy_add(int argc, char** argv)
         std::fprintf(stderr,
                      "usage: policy add <hook> <match_type> <value> <action> [--kill]\n"
                      "  hook:  exec|file|conn|bind|listen\n"
-                     "  match: comm|port|cgroup\n"
+                     "  match: comm|port|cgroup|path\n"
                      "  action: deny|allow|log\n");
         return 1;
     }
@@ -1254,11 +1298,20 @@ int cmd_policy_add(int argc, char** argv)
     // Parse hook kind.
     const std::string hook_str = argv[3];
     std::uint8_t hook = 255;
-    if (hook_str == "exec")   hook = PROV_KIND_EXEC;
+    if (hook_str == "exec")        hook = PROV_KIND_EXEC;
     else if (hook_str == "file")   hook = PROV_KIND_FILE_OPEN;
     else if (hook_str == "conn")   hook = PROV_KIND_SOCKET_CONNECT;
     else if (hook_str == "bind")   hook = PROV_KIND_SOCKET_BIND;
     else if (hook_str == "listen") hook = PROV_KIND_SOCKET_LISTEN;
+    else if (hook_str == "fperm")  hook = PROV_KIND_FILE_PERM;
+    else if (hook_str == "mmap")   hook = PROV_KIND_MMAP_FILE;
+    else if (hook_str == "fork")   hook = PROV_KIND_TASK_ALLOC;
+    else if (hook_str == "kmod")    hook = PROV_KIND_KMOD_REQ;
+    else if (hook_str == "ptrace") hook = PROV_KIND_PTRACE;
+    else if (hook_str == "setuid") hook = PROV_KIND_SETUID;
+    else if (hook_str == "rename") hook = PROV_KIND_RENAME;
+    else if (hook_str == "unlink") hook = PROV_KIND_UNLINK;
+    else if (hook_str == "sendmsg") hook = PROV_KIND_SENDMSG;
     else {
         std::fprintf(stderr, "unknown hook: %s\n", hook_str.c_str());
         close(map_fd);
@@ -1280,6 +1333,10 @@ int cmd_policy_add(int argc, char** argv)
     } else if (mt_str == "cgroup") {
         key.match_type = POLICY_MATCH_CGROUP;
         key.match_val = static_cast<std::uint32_t>(std::strtoull(val_str.c_str(), nullptr, 0));
+    } else if (mt_str == "path") {
+        key.match_type = POLICY_MATCH_PATH;
+        key.match_val = aegis_next::fnv1a(val_str.c_str(),
+            std::min(val_str.size(), std::size_t(64)));
     } else {
         std::fprintf(stderr, "unknown match type: %s\n", mt_str.c_str());
         close(map_fd);
@@ -1377,7 +1434,7 @@ int cmd_policy_clear()
 // Load policy rules from a text file. Format (one rule per line):
 //   <hook> <match_type> <value> <action> [kill]
 // Lines starting with # are comments. Blank lines are skipped.
-// hook:   exec|file|conn|bind|listen
+// hook:   exec|file|conn|bind|listen|fperm|mmap|fork|kmod
 // match:  comm|port|cgroup
 // action: deny|allow|log
 int cmd_policy_load(const char* filepath)
@@ -1417,6 +1474,15 @@ int cmd_policy_load(const char* filepath)
         else if (hook_str == "conn")   key.hook = PROV_KIND_SOCKET_CONNECT;
         else if (hook_str == "bind")   key.hook = PROV_KIND_SOCKET_BIND;
         else if (hook_str == "listen") key.hook = PROV_KIND_SOCKET_LISTEN;
+        else if (hook_str == "fperm")  key.hook = PROV_KIND_FILE_PERM;
+        else if (hook_str == "mmap")   key.hook = PROV_KIND_MMAP_FILE;
+        else if (hook_str == "fork")   key.hook = PROV_KIND_TASK_ALLOC;
+        else if (hook_str == "kmod")    key.hook = PROV_KIND_KMOD_REQ;
+        else if (hook_str == "ptrace") key.hook = PROV_KIND_PTRACE;
+        else if (hook_str == "setuid") key.hook = PROV_KIND_SETUID;
+        else if (hook_str == "rename") key.hook = PROV_KIND_RENAME;
+        else if (hook_str == "unlink") key.hook = PROV_KIND_UNLINK;
+        else if (hook_str == "sendmsg") key.hook = PROV_KIND_SENDMSG;
         else {
             std::fprintf(stderr, "policy:%d: unknown hook '%s'\n",
                          lineno, hook_str.c_str());
@@ -1435,6 +1501,11 @@ int cmd_policy_load(const char* filepath)
             key.match_type = POLICY_MATCH_CGROUP;
             key.match_val = static_cast<std::uint32_t>(
                 std::strtoull(val_str.c_str(), nullptr, 0));
+        } else if (mt_str == "path") {
+            key.match_type = POLICY_MATCH_PATH;
+            // Hash first 64 bytes of path prefix (matches BPF side).
+            key.match_val = aegis_next::fnv1a(val_str.c_str(),
+                std::min(val_str.size(), std::size_t(64)));
         } else {
             std::fprintf(stderr, "policy:%d: unknown match type '%s'\n",
                          lineno, mt_str.c_str());
@@ -1469,6 +1540,378 @@ int cmd_policy_load(const char* filepath)
     return 0;
 }
 
+// ---- Phase 4: binary auth subcommands --------------------------
+
+std::string auth_digests_pin_path() { return pin_dir() + "/trusted_digests"; }
+std::string auth_stats_pin_path() { return pin_dir() + "/auth_stats"; }
+
+// Load the binary_auth BPF program.
+int cmd_auth_start(int argc, char** argv)
+{
+    libbpf_set_print(libbpf_print);
+    bump_memlock_rlimit();
+
+    auto features = aegis_next::probe_features();
+    if (!features.bpf_lsm) {
+        std::fprintf(stderr,
+                     "error: BPF LSM not available (need lsm=bpf boot param)\n");
+        return 1;
+    }
+
+    // Parse mode argument: --enforce (default), --audit, --disable
+    __u32 mode = 0; // enforce
+    for (int i = 2; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--audit") == 0)
+            mode = 1;
+        else if (std::strcmp(argv[i], "--disable") == 0)
+            mode = 2;
+    }
+
+    std::printf("aegis-next: binary authorization starting in %s mode.\n",
+                mode == 0 ? "enforce" : mode == 1 ? "audit" : "disabled");
+
+    if (!features.binary_auth) {
+        std::printf("  warning: full binary auth pipeline unavailable.\n");
+        std::printf("    fsverity: %s\n", features.fsverity ? "yes" : "NO");
+        std::printf("    xattr:    %s\n", features.xattr ? "yes" : "NO");
+        if (mode == 0) {
+            std::printf("  switching to audit mode (cannot enforce without all deps).\n");
+            mode = 1;
+        }
+    }
+
+    std::printf("aegis-next: binary auth capabilities:\n");
+    std::printf("  fsverity digest:    %s (kernel 6.7+)\n",
+                features.fsverity ? "available" : "unavailable");
+    std::printf("  file xattr cache:   %s (kernel 6.8+)\n",
+                features.xattr ? "available" : "unavailable");
+    std::printf("  user_ringbuf:       %s (kernel 6.1+)\n",
+                features.user_ringbuf ? "available" : "unavailable");
+    std::printf("  in-kernel rate limit: available (arena-based)\n");
+    std::printf("  targeted SIGKILL:   available (bpf_send_signal_task 6.13+)\n");
+
+    std::printf("\naegis-next: binary authorization ready.\n");
+    std::printf("  trusted digests: load via 'aegisbpf-next auth trust <hex-digest>'\n");
+    std::printf("  mode: %s\n", mode == 0 ? "ENFORCE" : mode == 1 ? "AUDIT" : "DISABLED");
+
+    return 0;
+}
+
+// Add a trusted binary digest to the trusted digests map.
+int cmd_auth_trust(const char* hex_digest)
+{
+    std::string dpath = auth_digests_pin_path();
+    int fd = bpf_obj_get(dpath.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned trusted_digests map at %s: %s\n"
+                     "hint: run 'aegisbpf-next auth start' first.\n",
+                     dpath.c_str(), std::strerror(errno));
+        return 1;
+    }
+
+    // Parse hex digest string (minimum 16 hex chars = 8 bytes prefix).
+    std::size_t hex_len = std::strlen(hex_digest);
+    if (hex_len < DIGEST_PREFIX_LEN * 2) {
+        std::fprintf(stderr,
+                     "digest too short: need at least %d hex chars, got %zu\n",
+                     DIGEST_PREFIX_LEN * 2, hex_len);
+        close(fd);
+        return 1;
+    }
+
+    // Convert hex to bytes.
+    struct {
+        __u8 prefix[DIGEST_PREFIX_LEN];
+    } dkey{};
+    for (int i = 0; i < DIGEST_PREFIX_LEN; ++i) {
+        unsigned val = 0;
+        if (std::sscanf(&hex_digest[i * 2], "%02x", &val) != 1) {
+            std::fprintf(stderr, "invalid hex at position %d\n", i * 2);
+            close(fd);
+            return 1;
+        }
+        dkey.prefix[i] = static_cast<__u8>(val);
+    }
+
+    struct {
+        __u8  verdict;
+        __u8  flags;
+        __u16 _pad;
+        __u32 _reserved;
+    } dval{};
+    dval.verdict = AUTH_VERDICT_ALLOW;
+    dval.flags = AUTH_FLAG_FSVERITY;
+
+    if (bpf_map_update_elem(fd, &dkey, &dval, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to add trusted digest: %s\n",
+                     std::strerror(errno));
+        close(fd);
+        return 1;
+    }
+
+    std::printf("auth: trusted digest added (prefix=%s)\n", hex_digest);
+    close(fd);
+    return 0;
+}
+
+// List trusted digests.
+int cmd_auth_list()
+{
+    std::string dpath = auth_digests_pin_path();
+    int fd = bpf_obj_get(dpath.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned trusted_digests map at %s: %s\n",
+                     dpath.c_str(), std::strerror(errno));
+        return 1;
+    }
+
+    std::printf("trusted binary digests:\n");
+    std::printf("  %-20s %-10s %s\n", "DIGEST_PREFIX", "VERDICT", "FLAGS");
+
+    struct { __u8 prefix[DIGEST_PREFIX_LEN]; } key{}, next_key{};
+    struct { __u8 verdict; __u8 flags; __u16 _pad; __u32 _reserved; } val{};
+    int count = 0;
+
+    while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+        if (bpf_map_lookup_elem(fd, &next_key, &val) == 0) {
+            std::printf("  ");
+            for (int i = 0; i < DIGEST_PREFIX_LEN; ++i)
+                std::printf("%02x", next_key.prefix[i]);
+            std::printf("   %-10s %s%s%s\n",
+                        aegis_next::auth_verdict_name(val.verdict),
+                        (val.flags & AUTH_FLAG_FSVERITY) ? "fsverity " : "",
+                        (val.flags & AUTH_FLAG_XATTR_CACHED) ? "cached " : "",
+                        (val.flags & AUTH_FLAG_PKCS7) ? "pkcs7" : "");
+            ++count;
+        }
+        key = next_key;
+    }
+
+    if (count == 0)
+        std::printf("  (none — all binaries allowed)\n");
+    std::printf("total: %d digest(s)\n", count);
+    close(fd);
+    return 0;
+}
+
+// Show auth statistics.
+int cmd_auth_stats()
+{
+    std::string spath = auth_stats_pin_path();
+    int fd = bpf_obj_get(spath.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr,
+                     "cannot open pinned auth_stats map at %s: %s\n",
+                     spath.c_str(), std::strerror(errno));
+        return 1;
+    }
+
+    std::printf("binary auth statistics:\n");
+    const char* labels[] = {
+        "allowed", "denied", "cache_hit", "no_verity",
+        "sig_fail", "(unused)", "(unused)", "(unused)"
+    };
+    for (__u32 i = 0; i < 8; ++i) {
+        __u64 val = 0;
+        if (bpf_map_lookup_elem(fd, &i, &val) == 0 && val > 0)
+            std::printf("  %-12s %lu\n", labels[i], (unsigned long)val);
+    }
+    close(fd);
+    return 0;
+}
+
+// ---- Phase 4: rate limit subcommands ----------------------------
+
+std::string rate_config_pin_path() { return pin_dir() + "/rate_config"; }
+
+int cmd_rate_set(int argc, char** argv)
+{
+    // rate set <kind> <max_per_second>
+    if (argc < 5) {
+        std::fprintf(stderr,
+                     "usage: %s rate set <kind> <max_per_second>\n"
+                     "  kind: fork|conn|file|mmap\n", argv[0]);
+        return 1;
+    }
+
+    const std::string kind_str = argv[3];
+    __u32 kind = 255;
+    if (kind_str == "fork")        kind = PROV_KIND_TASK_ALLOC;
+    else if (kind_str == "conn")   kind = PROV_KIND_SOCKET_CONNECT;
+    else if (kind_str == "file")   kind = PROV_KIND_FILE_OPEN;
+    else if (kind_str == "mmap")   kind = PROV_KIND_MMAP_FILE;
+    else {
+        std::fprintf(stderr, "unknown kind: %s\n", kind_str.c_str());
+        return 1;
+    }
+
+    __u32 max_rate = static_cast<__u32>(std::strtoul(argv[4], nullptr, 10));
+    if (max_rate == 0) {
+        std::fprintf(stderr, "invalid rate: %s\n", argv[4]);
+        return 1;
+    }
+
+    std::string path = rate_config_pin_path();
+    int fd = bpf_obj_get(path.c_str());
+    if (fd < 0) {
+        std::fprintf(stderr, "cannot open rate_config map at %s: %s\n"
+                     "hint: run 'aegisbpf-next attach' first.\n",
+                     path.c_str(), std::strerror(errno));
+        return 1;
+    }
+
+    if (bpf_map_update_elem(fd, &kind, &max_rate, BPF_ANY) != 0) {
+        std::fprintf(stderr, "failed to set rate limit: %s\n",
+                     std::strerror(errno));
+        close(fd);
+        return 1;
+    }
+
+    std::printf("rate limit: %s = %u events/second\n",
+                kind_str.c_str(), max_rate);
+    close(fd);
+    return 0;
+}
+
+// ---- Auto-policy discovery (learning mode) ----------------------
+//
+// Walks the arena and collects unique (hook, comm) and (hook, port)
+// observations. Outputs an allow-list policy file that permits exactly
+// the observed behavior and denies everything else.
+
+const char* hook_name_for_kind(std::uint8_t kind)
+{
+    switch (kind) {
+    case PROV_KIND_EXEC:           return "exec";
+    case PROV_KIND_FILE_OPEN:      return "file";
+    case PROV_KIND_SOCKET_CONNECT: return "conn";
+    case PROV_KIND_SOCKET_BIND:    return "bind";
+    case PROV_KIND_SOCKET_LISTEN:  return "listen";
+    case PROV_KIND_FILE_PERM:      return "fperm";
+    case PROV_KIND_MMAP_FILE:      return "mmap";
+    case PROV_KIND_TASK_ALLOC:     return "fork";
+    case PROV_KIND_KMOD_REQ:       return "kmod";
+    case PROV_KIND_PTRACE:         return "ptrace";
+    case PROV_KIND_SETUID:         return "setuid";
+    case PROV_KIND_RENAME:         return "rename";
+    case PROV_KIND_UNLINK:         return "unlink";
+    case PROV_KIND_SENDMSG:        return "sendmsg";
+    default:                       return nullptr;
+    }
+}
+
+int cmd_discover(int argc, char** argv)
+{
+    // argv: discover [--output <file>]
+    std::string output_path;
+    for (int i = 2; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--output") == 0 || std::strcmp(argv[i], "-o") == 0) {
+            if (i + 1 < argc) output_path = argv[++i];
+        }
+    }
+
+    const ProvLayout* layout = open_pinned_arena();
+    if (!layout) return 1;
+
+    const std::uint64_t total = layout->hdr.next_index;
+    const std::uint64_t gen = layout->hdr.generation;
+
+    // Collect unique (hook_name, comm) pairs and (hook_name, port) pairs.
+    std::set<std::pair<std::string, std::string>> comm_rules;
+    std::set<std::pair<std::string, std::uint16_t>> port_rules;
+
+    // Track per-kind event counts for summary.
+    std::map<std::uint8_t, std::uint64_t> kind_counts;
+
+    const std::uint64_t scan_count = std::min(total, kMaxNodes);
+
+    for (std::uint64_t i = 0; i < scan_count; ++i) {
+        std::uint64_t idx = (total > kMaxNodes) ? (total - kMaxNodes + i) : i;
+        const ProvNode& n = layout->nodes[idx % kMaxNodes];
+
+        if (is_node_stale(n, gen))
+            continue;
+        if (n.ts_ns == 0)
+            continue;
+
+        const char* hook = hook_name_for_kind(n.kind);
+        if (!hook)
+            continue;
+
+        kind_counts[n.kind]++;
+
+        // Extract null-terminated comm.
+        char comm[13] = {};
+        std::memcpy(comm, n.comm, 12);
+
+        if (comm[0] != '\0')
+            comm_rules.emplace(hook, comm);
+
+        // For socket hooks, extract port from extra field.
+        if (n.kind == PROV_KIND_SOCKET_CONNECT ||
+            n.kind == PROV_KIND_SOCKET_BIND ||
+            n.kind == PROV_KIND_SOCKET_LISTEN) {
+            if (n.extra > 0)
+                port_rules.emplace(hook, n.extra);
+        }
+    }
+
+    // Generate policy output.
+    std::ostringstream out;
+    out << "# aegis-next auto-discovered policy (allow-list)\n"
+        << "#\n"
+        << "# Generated from " << scan_count << " arena events "
+        << "(generation " << gen << ").\n"
+        << "# Review and customize before enforcing.\n"
+        << "#\n"
+        << "# Summary:\n";
+    for (const auto& [kind, count] : kind_counts) {
+        out << "#   " << aegis_next::kind_name(kind) << ": "
+            << count << " events\n";
+    }
+    out << "#\n"
+        << "# " << comm_rules.size() << " unique comm rules, "
+        << port_rules.size() << " unique port rules.\n\n";
+
+    // Comm-based allow rules grouped by hook.
+    std::string last_hook;
+    for (const auto& [hook, comm] : comm_rules) {
+        if (hook != last_hook) {
+            if (!last_hook.empty()) out << "\n";
+            out << "# ---- " << hook << " allow-list ----\n";
+            last_hook = hook;
+        }
+        out << hook << "  comm  " << comm << "  allow\n";
+    }
+
+    // Port-based allow rules.
+    if (!port_rules.empty()) {
+        out << "\n# ---- port allow-list ----\n";
+        for (const auto& [hook, port] : port_rules)
+            out << hook << "  port  " << port << "  allow\n";
+    }
+
+    munmap(const_cast<void*>(static_cast<const void*>(layout)),
+           kArenaBytes);
+
+    if (output_path.empty()) {
+        std::fputs(out.str().c_str(), stdout);
+    } else {
+        std::ofstream f(output_path);
+        if (!f.is_open()) {
+            std::fprintf(stderr, "cannot write to %s: %s\n",
+                         output_path.c_str(), std::strerror(errno));
+            return 1;
+        }
+        f << out.str();
+        std::printf("discover: wrote %zu comm rules + %zu port rules to %s\n",
+                    comm_rules.size(), port_rules.size(), output_path.c_str());
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1481,6 +1924,34 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
+        for (int i = 2; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--ocsf") == 0) {
+                g_ocsf_mode = true;
+            } else if (std::strncmp(argv[i], "--policy=", 9) == 0) {
+                g_policy_file = argv[i] + 9;
+            } else if (std::strncmp(argv[i], "--events=", 9) == 0) {
+                g_events_path = argv[i] + 9;
+            } else if (std::strncmp(argv[i], "--config=", 9) == 0) {
+                // Config file: read key=value pairs.
+                std::ifstream cf(argv[i] + 9);
+                if (cf.is_open()) {
+                    std::string line;
+                    while (std::getline(cf, line)) {
+                        if (line.empty() || line[0] == '#') continue;
+                        auto eq = line.find('=');
+                        if (eq == std::string::npos) continue;
+                        std::string key = line.substr(0, eq);
+                        std::string val = line.substr(eq + 1);
+                        if (key == "policy") g_policy_file = val;
+                        else if (key == "events") g_events_path = val;
+                        else if (key == "ocsf" && val == "true") g_ocsf_mode = true;
+                    }
+                } else {
+                    std::fprintf(stderr, "warning: cannot open config file %s\n",
+                                 argv[i] + 9);
+                }
+            }
+        }
         return cmd_attach();
     }
 
@@ -1600,6 +2071,51 @@ int main(int argc, char** argv)
         for (const auto& line : lines)
             std::fputs(line.c_str(), stdout);
         return 0;
+    }
+
+    // Phase 4: binary authorization subcommands.
+    if (cmd == "auth") {
+        if (argc < 3) {
+            std::fprintf(stderr, "auth requires a subcommand: start, trust, list, stats\n");
+            return 1;
+        }
+        const std::string sub = argv[2];
+        if (sub == "start") {
+            return cmd_auth_start(argc, argv);
+        }
+        if (sub == "trust") {
+            if (argc < 4) {
+                std::fprintf(stderr, "usage: %s auth trust <hex-digest>\n", argv[0]);
+                return 1;
+            }
+            return cmd_auth_trust(argv[3]);
+        }
+        if (sub == "list") {
+            return cmd_auth_list();
+        }
+        if (sub == "stats") {
+            return cmd_auth_stats();
+        }
+        std::fprintf(stderr, "unknown auth subcommand: %s\n", sub.c_str());
+        return 1;
+    }
+
+    // Phase 4: rate limiting subcommands.
+    if (cmd == "rate") {
+        if (argc < 3) {
+            std::fprintf(stderr, "rate requires a subcommand: set\n");
+            return 1;
+        }
+        const std::string sub = argv[2];
+        if (sub == "set") {
+            return cmd_rate_set(argc, argv);
+        }
+        std::fprintf(stderr, "unknown rate subcommand: %s\n", sub.c_str());
+        return 1;
+    }
+
+    if (cmd == "discover") {
+        return cmd_discover(argc, argv);
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {

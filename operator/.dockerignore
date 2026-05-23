@@ -1,0 +1,24 @@
+# Build artifacts
+bin/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+*_test.go
+testdata/
+coverage.out
+
+# CI/CD
+.github/
+
+# Console preview (large, dev-only)
+console-preview/
+cmd/console-preview/
+
+# Config (applied separately via kubectl)
+config/

@@ -4,7 +4,7 @@
 //
 // Fallback BPF program that sends full events through a ringbuf instead
 // of writing to a BPF arena map. Used when BPF_MAP_TYPE_ARENA is not
-// available (kernels older than 6.9). Same 9 LSM hooks, same policy
+// available (kernels older than 6.9). Same 14 LSM hooks, same policy
 // enforcement, same quarantine bridge — just a different event transport.
 //
 // Key differences from arena mode (provenance.bpf.c):
@@ -599,6 +599,143 @@ int BPF_PROG(aegis_legacy_on_kmod_req, char *kmod_name)
     {
         __u64 cgid = bpf_get_current_cgroup_id();
         if (evaluate_policy(PROV_KIND_KMOD_REQ, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+// ---- Expanded hook coverage (parity with arena version) ----------
+
+SEC("lsm/ptrace_access_check")
+int BPF_PROG(aegis_legacy_on_ptrace, struct task_struct *child,
+             unsigned int mode)
+{
+    __u32 child_pid = BPF_CORE_READ(child, tgid);
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+
+    struct prov_ringbuf_event *evt = bpf_ringbuf_reserve(
+        &aegis_next_ringbuf, sizeof(*evt), 0);
+    if (evt) {
+        fill_common(evt, task, PROV_KIND_PTRACE, child_pid,
+                    (__u16)(mode & 0xFFFF));
+        bpf_ringbuf_submit(evt, 0);
+    }
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_PTRACE, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/task_fix_setuid")
+int BPF_PROG(aegis_legacy_on_setuid, struct cred *new_cred,
+             const struct cred *old_cred, int flags)
+{
+    __u32 old_uid = BPF_CORE_READ(old_cred, uid.val);
+    __u32 new_uid = BPF_CORE_READ(new_cred, uid.val);
+
+    if (old_uid == new_uid)
+        return 0;
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+
+    struct prov_ringbuf_event *evt = bpf_ringbuf_reserve(
+        &aegis_next_ringbuf, sizeof(*evt), 0);
+    if (evt) {
+        fill_common(evt, task, PROV_KIND_SETUID, new_uid,
+                    (__u16)(old_uid & 0xFFFF));
+        bpf_ringbuf_submit(evt, 0);
+    }
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SETUID, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/path_rename")
+int BPF_PROG(aegis_legacy_on_rename, const struct path *old_dir,
+             struct dentry *old_dentry, const struct path *new_dir,
+             struct dentry *new_dentry, unsigned int flags)
+{
+    __u64 ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+
+    struct prov_ringbuf_event *evt = bpf_ringbuf_reserve(
+        &aegis_next_ringbuf, sizeof(*evt), 0);
+    if (evt) {
+        fill_common(evt, task, PROV_KIND_RENAME, ino, 0);
+        bpf_ringbuf_submit(evt, 0);
+    }
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_RENAME, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/path_unlink")
+int BPF_PROG(aegis_legacy_on_unlink, const struct path *dir,
+             struct dentry *dentry)
+{
+    __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+
+    struct prov_ringbuf_event *evt = bpf_ringbuf_reserve(
+        &aegis_next_ringbuf, sizeof(*evt), 0);
+    if (evt) {
+        fill_common(evt, task, PROV_KIND_UNLINK, ino, 0);
+        bpf_ringbuf_submit(evt, 0);
+    }
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_UNLINK, comm, 0, cgid) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/socket_sendmsg")
+int BPF_PROG(aegis_legacy_on_sendmsg, struct socket *sock,
+             struct msghdr *msg, int size)
+{
+    __u16 sz = (size > 0xFFFF) ? 0xFFFF : (__u16)size;
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    __u16 dst_port = 0;
+    if (sk)
+        dst_port = BPF_CORE_READ(sk, __sk_common.skc_dport);
+    dst_port = __builtin_bswap16(dst_port);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+
+    struct prov_ringbuf_event *evt = bpf_ringbuf_reserve(
+        &aegis_next_ringbuf, sizeof(*evt), 0);
+    if (evt) {
+        fill_common(evt, task, PROV_KIND_SENDMSG, dst_port, sz);
+        bpf_ringbuf_submit(evt, 0);
+    }
+
+    {
+        char comm[12];
+        bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (evaluate_policy(PROV_KIND_SENDMSG, comm, dst_port, cgid) < 0)
             return -1;
     }
     return 0;

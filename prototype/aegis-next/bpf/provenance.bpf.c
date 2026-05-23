@@ -102,6 +102,26 @@ extern void bpf_iter_task_destroy(struct bpf_iter_task *it) __ksym;
 extern void bpf_rcu_read_lock(void) __ksym;
 extern void bpf_rcu_read_unlock(void) __ksym;
 
+// ---- Phase 4 kfuncs (weak — absent at runtime is OK) ----
+
+// bpf_send_signal_task: send a signal to a specific task (6.13+).
+// More precise than bpf_send_signal() which targets current task only.
+extern int bpf_send_signal_task(struct task_struct *task,
+                                 int sig, enum pid_type type,
+                                 __u64 value) __ksym __weak;
+
+// bpf_task_from_vpid: resolve a virtual PID to a task_struct (6.5+).
+// Namespace-aware — resolves within the caller's PID namespace.
+extern struct task_struct *bpf_task_from_vpid(pid_t vpid) __ksym __weak;
+extern void bpf_task_release(struct task_struct *p) __ksym __weak;
+
+// xattr kfuncs for file security labeling (6.8+ / 6.13+).
+extern int bpf_get_file_xattr(struct file *file, const char *name__str,
+                               struct bpf_dynptr *value_p) __ksym __weak;
+extern int bpf_set_dentry_xattr(struct dentry *dentry, const char *name__str,
+                                 const struct bpf_dynptr *value_p,
+                                 int flags) __ksym __weak;
+
 // NOTE: prov_layout is still defined in aegis_next_prov.hpp for
 // userspace mmap access. BPF code uses arena globals directly.
 
@@ -217,6 +237,65 @@ struct {
     __uint(max_entries, 4096);
 } aegis_next_quarantine SEC(".maps");
 
+// ---- Phase 4: user_ringbuf for zero-copy policy hot-reload ----
+//
+// Instead of calling bpf_map_update_elem() per policy rule (which
+// takes a syscall per rule and serializes on the map lock), userspace
+// writes a batch of policy_msg structs into a user_ringbuf. A BPF
+// callback processes them in-kernel with zero copies and no syscall
+// overhead. This enables sub-microsecond policy reloads.
+//
+// No competitor uses user_ringbuf for policy delivery.
+
+struct policy_msg {
+    __u8  msg_type;    // POLICY_MSG_ADD / DELETE / FLUSH
+    __u8  _pad[3];
+    struct policy_key key;
+    struct policy_val val;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+    __uint(max_entries, 262144);  // 256KB
+} aegis_policy_ringbuf SEC(".maps");
+
+// ---- Phase 4: in-kernel rate limiter ----------------------------
+//
+// Per-cgroup event rate tracking with sliding window. When the rate
+// exceeds a configurable threshold, the offending cgroup is
+// automatically quarantined (written to quarantine map).
+//
+// This catches fork bombs, connection floods, and file scan storms
+// entirely in-kernel — no userspace round-trip.
+
+struct rate_key {
+    __u64 cgid;        // cgroup ID
+    __u8  kind;        // PROV_KIND_* being rate-limited
+    __u8  _pad[7];
+};
+
+struct rate_val {
+    __u64 window_start_ns;  // start of current window
+    __u32 count;            // events in current window
+    __u32 max_rate;         // threshold (0 = use default)
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, struct rate_key);
+    __type(value, struct rate_val);
+    __uint(max_entries, 8192);
+} aegis_rate_limits SEC(".maps");
+
+// Rate limit configuration: per-kind max rates.
+// [PROV_KIND_TASK_ALLOC] = fork limit, [PROV_KIND_SOCKET_CONNECT] = conn limit
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, __u32);
+    __uint(max_entries, 16);
+} aegis_rate_config SEC(".maps");
+
 // Legacy pid->slot LRU hash, kept alongside the arena hash table
 // during transition. The GC timer sweeps this map; once the arena
 // hash is proven reliable, this map can be removed.
@@ -260,6 +339,21 @@ static __always_inline __u32 fnv1a_hash(const char *s, int maxlen)
     return h;
 }
 
+// ---- Phase 4: targeted enforcement with bpf_send_signal_task ----
+//
+// When bpf_send_signal_task is available (6.13+), use it to send
+// SIGKILL to a specific task by reference instead of just the
+// current task. Falls back to bpf_send_signal() on older kernels.
+static __always_inline void
+send_kill(struct task_struct *task)
+{
+    if (bpf_send_signal_task) {
+        bpf_send_signal_task(task, 9 /* SIGKILL */, PIDTYPE_TGID, 0);
+    } else {
+        bpf_send_signal(9 /* SIGKILL */);
+    }
+}
+
 // Apply a single policy match result. Updates deny flag, handles
 // QUARANTINE (in-kernel bridge to sched_ext) and KILL flag.
 static __always_inline void
@@ -269,8 +363,11 @@ apply_verdict(struct policy_val *val, __u64 cgid, int *deny)
         return;
     if (val->action == POLICY_ACTION_DENY) {
         *deny = 1;
-        if (val->flags & POLICY_FLAG_KILL)
-            bpf_send_signal(9 /* SIGKILL */);
+        if (val->flags & POLICY_FLAG_KILL) {
+            struct task_struct *t =
+                (struct task_struct *)bpf_get_current_task_btf();
+            send_kill(t);
+        }
     } else if (val->action == POLICY_ACTION_QUARANTINE && cgid) {
         // P2.3: In-kernel enforcement bridge — write cgroup directly
         // to the quarantine map. The sched_ext scheduler reads this
@@ -315,7 +412,37 @@ evaluate_policy(__u8 hook, const char *comm, __u16 port, __u64 cgid)
         apply_verdict(val, cgid, &deny);
     }
 
+    // 4. Match by path prefix hash (file/exec hooks only).
+    // Caller passes path_hash = 0 when no path is available.
+    // Path hash is computed from the resolved bpf_d_path string.
+
     return deny ? -1 : 0;
+}
+
+// Evaluate a path-prefix policy match. Separated from evaluate_policy
+// because only hooks that resolve a path can provide a hash.
+static __always_inline int
+evaluate_policy_path(__u8 hook, __u32 path_hash, __u64 cgid)
+{
+    if (path_hash == 0)
+        return 0;
+
+    struct policy_key key = {};
+    key.hook = hook;
+    key.match_type = POLICY_MATCH_PATH;
+    key.match_val = path_hash;
+
+    struct policy_val *val = bpf_map_lookup_elem(&aegis_next_policy, &key);
+    int deny = 0;
+    apply_verdict(val, cgid, &deny);
+    return deny ? -1 : 0;
+}
+
+// Compute FNV-1a hash on a path buffer (for POLICY_MATCH_PATH lookups).
+static __always_inline __u32
+path_prefix_hash(const char *path, int maxlen)
+{
+    return fnv1a_hash(path, maxlen);
 }
 
 // Resolve a file path via bpf_d_path, allocate a path slab slot, and
@@ -407,6 +534,126 @@ emit_alert(__u64 slot, __u32 pid, __u8 kind)
     alert->_pad[1] = 0;
     alert->_pad[2] = 0;
     bpf_ringbuf_submit(alert, 0);
+}
+
+// ---- Phase 4: in-kernel rate limiter ----------------------------
+//
+// Check and update the rate counter for (cgid, kind). Returns true if
+// the rate limit has been exceeded (caller should quarantine/deny).
+static __always_inline bool
+check_rate_limit(__u64 cgid, __u8 kind)
+{
+    if (!cgid)
+        return false;
+
+    struct rate_key rk = { .cgid = cgid, .kind = kind };
+    struct rate_val *rv = bpf_map_lookup_elem(&aegis_rate_limits, &rk);
+    __u64 now = bpf_ktime_get_ns();
+
+    if (!rv) {
+        // First event for this (cgid, kind) pair — initialize.
+        struct rate_val new_rv = {
+            .window_start_ns = now,
+            .count = 1,
+            .max_rate = 0,
+        };
+        bpf_map_update_elem(&aegis_rate_limits, &rk, &new_rv, BPF_NOEXIST);
+        return false;
+    }
+
+    // Check if we're still in the same window.
+    if (now - rv->window_start_ns >= RATE_LIMIT_WINDOW_NS) {
+        // Window expired — reset.
+        rv->window_start_ns = now;
+        rv->count = 1;
+        return false;
+    }
+
+    rv->count++;
+
+    // Determine threshold: per-kind config map, or hardcoded default.
+    __u32 max_rate = rv->max_rate;
+    if (max_rate == 0) {
+        __u32 kind_u32 = kind;
+        __u32 *configured = bpf_map_lookup_elem(&aegis_rate_config, &kind_u32);
+        if (configured && *configured > 0)
+            max_rate = *configured;
+        else if (kind == PROV_KIND_TASK_ALLOC)
+            max_rate = RATE_LIMIT_FORK_MAX;
+        else if (kind == PROV_KIND_SOCKET_CONNECT)
+            max_rate = RATE_LIMIT_CONN_MAX;
+        else
+            max_rate = 200; // generous default
+    }
+
+    if (rv->count > max_rate) {
+        // Rate exceeded — quarantine the cgroup.
+        __u32 level = 1; // QUARANTINE_THROTTLE
+        bpf_map_update_elem(&aegis_next_quarantine, &cgid, &level, BPF_ANY);
+        return true;
+    }
+
+    return false;
+}
+
+// ---- Phase 4: user_ringbuf policy callback ----------------------
+//
+// Called when userspace writes policy update messages to the
+// user_ringbuf. Processes adds, deletes, and flushes in bulk.
+static long
+policy_ringbuf_cb(struct bpf_dynptr *dynptr, void *ctx)
+{
+    struct policy_msg msg;
+    long ret = bpf_dynptr_read(&msg, sizeof(msg), dynptr, 0, 0);
+    if (ret < 0)
+        return 0; // skip malformed entry
+
+    switch (msg.msg_type) {
+    case POLICY_MSG_ADD:
+        bpf_map_update_elem(&aegis_next_policy, &msg.key, &msg.val, BPF_ANY);
+        break;
+    case POLICY_MSG_DELETE:
+        bpf_map_delete_elem(&aegis_next_policy, &msg.key);
+        break;
+    case POLICY_MSG_FLUSH:
+        // Flush is handled by userspace deleting all keys before
+        // sending new ones. This message type is a no-op marker.
+        break;
+    }
+
+    return 0;
+}
+
+// Drain the user_ringbuf. Called periodically from a BPF timer or
+// explicitly from a syscall program.
+SEC("syscall")
+int aegis_next_drain_policy(void *ctx)
+{
+    bpf_user_ringbuf_drain(&aegis_policy_ringbuf, policy_ringbuf_cb, NULL, 0);
+    return 0;
+}
+
+// ---- Phase 4: file security labeling ----------------------------
+//
+// After recording a file_open event, write a "last seen by aegis"
+// marker into the file's xattr. This enables:
+// - Tracking which files were accessed under aegis supervision
+// - Fast cache lookups for binary authorization
+// - Forensic evidence that survives process exit
+static __always_inline void
+label_file_xattr(struct file *file, __u8 kind)
+{
+    if (!bpf_set_dentry_xattr)
+        return;
+
+    struct dentry *dentry = BPF_CORE_READ(file, f_path.dentry);
+    if (!dentry)
+        return;
+
+    // Write a single byte: the kind of access that was observed.
+    struct bpf_dynptr val;
+    bpf_dynptr_from_mem(&kind, sizeof(kind), 0, &val);
+    bpf_set_dentry_xattr(dentry, "security.aegis.seen", &val, 0);
 }
 
 // Reserve a slot and fill the common fields from a task_struct.
@@ -509,7 +756,14 @@ record_event(__u8 kind, __u64 object_id, __u16 extra)
     arena_ht_insert(arena_ht, evt_key, slot);
 
     ARENA_PTR(&arena_nodes[slot])->uid  = bpf_get_current_uid_gid() & 0xffffffff;
-    ARENA_PTR(&arena_nodes[slot])->cgid = bpf_get_current_cgroup_id();
+    __u64 cgid = bpf_get_current_cgroup_id();
+    ARENA_PTR(&arena_nodes[slot])->cgid = cgid;
+
+    // Phase 4: in-kernel rate limiting check.
+    if (check_rate_limit(cgid, kind)) {
+        // Rate exceeded — emit a rate-limit alert.
+        emit_alert(slot, BPF_CORE_READ(task, tgid), PROV_KIND_RATE_LIMIT);
+    }
 }
 
 SEC("lsm/bprm_check_security")
@@ -559,6 +813,15 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
         __u64 cgid = bpf_get_current_cgroup_id();
         if (evaluate_policy(PROV_KIND_EXEC, comm, 0, cgid) < 0)
             return -1; /* -EPERM */
+
+        // Path-prefix policy check (scratch buffer still has resolved path).
+        __u32 pzero = 0;
+        char *pscratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &pzero);
+        if (pscratch) {
+            __u32 phash = path_prefix_hash(pscratch, 64);
+            if (evaluate_policy_path(PROV_KIND_EXEC, phash, cgid) < 0)
+                return -1;
+        }
     }
     return 0;
 }
@@ -587,6 +850,9 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
 
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_OPEN);
 
+    // Phase 4: label the file with a security xattr.
+    label_file_xattr(file, PROV_KIND_FILE_OPEN);
+
     // Evaluate policy — may deny the file open.
     {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -595,6 +861,14 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
         __u64 cgid = bpf_get_current_cgroup_id();
         if (evaluate_policy(PROV_KIND_FILE_OPEN, comm, 0, cgid) < 0)
             return -1; /* -EACCES */
+
+        __u32 pzero = 0;
+        char *pscratch = bpf_map_lookup_elem(&aegis_next_path_scratch, &pzero);
+        if (pscratch) {
+            __u32 phash = path_prefix_hash(pscratch, 64);
+            if (evaluate_policy_path(PROV_KIND_FILE_OPEN, phash, cgid) < 0)
+                return -1;
+        }
     }
     return 0;
 }
@@ -896,6 +1170,138 @@ int BPF_PROG(aegis_next_on_kmod_req, char *kmod_name)
         if (evaluate_policy(PROV_KIND_KMOD_REQ, comm, 0, cgid) < 0)
             return -1;
     }
+    return 0;
+}
+
+// ---- Phase 5: expanded hook coverage ----------------------------
+
+// Detect debugger attachment (anti-tampering, privilege escalation).
+SEC("lsm/ptrace_access_check")
+int BPF_PROG(aegis_next_on_ptrace, struct task_struct *child, unsigned int mode)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u32 child_pid = BPF_CORE_READ(child, tgid);
+    record_event(PROV_KIND_PTRACE, child_pid, (__u16)(mode & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_PTRACE);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_PTRACE, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect setuid/setgid transitions (privilege escalation detection).
+SEC("lsm/task_fix_setuid")
+int BPF_PROG(aegis_next_on_setuid, struct cred *new_cred,
+             const struct cred *old_cred, int flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u32 old_uid = BPF_CORE_READ(old_cred, uid.val);
+    __u32 new_uid = BPF_CORE_READ(new_cred, uid.val);
+
+    // Only record transitions (uid actually changing).
+    if (old_uid == new_uid)
+        return 0;
+
+    record_event(PROV_KIND_SETUID, new_uid, (__u16)(old_uid & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SETUID);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_SETUID, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect file renames (lateral movement, evidence tampering).
+SEC("lsm/path_rename")
+int BPF_PROG(aegis_next_on_rename, const struct path *old_dir,
+             struct dentry *old_dentry, const struct path *new_dir,
+             struct dentry *new_dentry, unsigned int flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u64 ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
+    record_event(PROV_KIND_RENAME, ino, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_RENAME);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_RENAME, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect file deletions (evidence destruction, log tampering).
+SEC("lsm/path_unlink")
+int BPF_PROG(aegis_next_on_unlink, const struct path *dir,
+             struct dentry *dentry)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
+    record_event(PROV_KIND_UNLINK, ino, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_UNLINK);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_UNLINK, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Track network data egress (data exfiltration detection).
+SEC("lsm/socket_sendmsg")
+int BPF_PROG(aegis_next_on_sendmsg, struct socket *sock,
+             struct msghdr *msg, int size)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // Record message size in extra field (capped to u16).
+    __u16 sz = (size > 0xFFFF) ? 0xFFFF : (__u16)size;
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    __u16 dst_port = 0;
+    if (sk)
+        dst_port = BPF_CORE_READ(sk, __sk_common.skc_dport);
+    dst_port = __builtin_bswap16(dst_port);
+
+    record_event(PROV_KIND_SENDMSG, dst_port, sz);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_SENDMSG, comm, dst_port, cgid) < 0)
+        return -1;
     return 0;
 }
 

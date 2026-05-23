@@ -1,0 +1,51 @@
+# aegis-next rule pack: Kubernetes runtime security
+#
+# Covers: container drift (unexpected binaries), package manager abuse,
+#          sensitive file access, debug tool usage in production.
+# Severity: MEDIUM-HIGH — anomalous container behavior.
+# Source: Falco default_rules (Container Drift, Launch Package Management),
+#         Sigma lnx_container_runtime_anomalies.
+
+# ---- Package managers in running containers (drift detection) ----
+exec  comm  apt         deny
+exec  comm  apt-get     deny
+exec  comm  dpkg        deny
+exec  comm  yum         deny
+exec  comm  dnf         deny
+exec  comm  rpm         deny
+exec  comm  apk         deny
+exec  comm  pip         deny
+exec  comm  pip3        deny
+exec  comm  npm         deny
+exec  comm  gem         deny
+exec  comm  cargo       log
+
+# ---- Debug/admin tools (should not run in production containers) ----
+exec  comm  strace      deny
+exec  comm  ltrace      deny
+exec  comm  gdb         deny
+exec  comm  tcpdump     deny
+exec  comm  tshark      deny
+exec  comm  wireshark   deny
+exec  comm  perf        log
+exec  comm  bpftrace    log
+
+# ---- Shells in non-shell containers ----
+exec  comm  bash        log
+exec  comm  sh          log
+exec  comm  zsh         log
+exec  comm  dash        log
+exec  comm  csh         log
+exec  comm  fish        log
+
+# ---- Sensitive file access (FIM) ----
+fperm  comm  cat        log
+fperm  comm  vi         log
+fperm  comm  vim        log
+fperm  comm  nano       log
+fperm  comm  less       log
+
+# ---- Sensitive data exfiltration ports ----
+conn  port  53    log
+conn  port  443   log
+conn  port  8080  log

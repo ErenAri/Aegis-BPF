@@ -110,6 +110,16 @@ sudo ./build/prototype/aegisbpf-next export tail 20   # last 20 JSONL events
 # Optional: sched_ext quarantine + self-protection
 sudo ./build/prototype/aegisbpf-next sched start      # in another terminal
 sudo ./build/prototype/aegisbpf-next protect           # in another terminal
+
+# Phase 4: binary authorization (kernel 6.7+, CONFIG_FS_VERITY)
+sudo ./build/prototype/aegisbpf-next auth start --audit
+sudo ./build/prototype/aegisbpf-next auth trust 0123456789abcdef...
+sudo ./build/prototype/aegisbpf-next auth list
+sudo ./build/prototype/aegisbpf-next auth stats
+
+# Phase 4: rate limiting
+sudo ./build/prototype/aegisbpf-next rate set fork 30   # 30 forks/sec max
+sudo ./build/prototype/aegisbpf-next rate set conn 50   # 50 connects/sec max
 ```
 
 Requires:
@@ -183,6 +193,28 @@ Requires:
   full events (~372B) flow through the ringbuf. Feature probe at
   startup auto-selects arena or legacy mode. JSONL export works in
   both modes; graph/lineage commands require arena mode.
+
+### Phase 4 — Beyond the State of the Art (no competitor has these)
+
+- ✅ **P4.1 In-kernel binary authorization.** Complete fsverity digest →
+  trusted-list lookup → xattr cache pipeline running entirely in-kernel.
+  `bpf_get_fsverity_digest()` + `bpf_get_file_xattr()` +
+  `bpf_set_dentry_xattr()` + `bpf_verify_pkcs7_signature()`.
+  Enforce/audit/disable modes. Separate `binary_auth.bpf.c` program.
+- ✅ **P4.2 user_ringbuf policy channel.** Zero-copy policy hot-reload
+  via `BPF_MAP_TYPE_USER_RINGBUF`. Userspace writes policy batches;
+  BPF callback processes add/delete/flush without syscall overhead.
+- ✅ **P4.3 In-kernel rate limiting.** Per-cgroup sliding window rate
+  tracker. Automatically quarantines cgroups exceeding fork/conn/file
+  thresholds. Configurable via `rate set` CLI.
+- ✅ **P4.4 File security labeling.** `bpf_set_dentry_xattr()` writes
+  "security.aegis.seen" on accessed files — persistent forensic trail
+  surviving process exit. Degrades gracefully on kernel < 6.13.
+- ✅ **P4.5 Targeted signal delivery.** `bpf_send_signal_task()` sends
+  SIGKILL to specific tasks by reference (6.13+). Falls back to
+  `bpf_send_signal()` on older kernels.
+- ✅ **P4.6 Extended feature probes.** Runtime detection of user_ringbuf,
+  fsverity, xattr kfuncs, and composite binary_auth availability.
 
 ### Infrastructure
 

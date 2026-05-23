@@ -20,6 +20,8 @@
 
 #include <cstdint>
 #include <cstring>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "aegis_next_prov.hpp"
@@ -489,6 +491,137 @@ TEST(HtLookup, EmptyTableReturnsRootSentinel)
     // full-sized table for a valid test.
     std::vector<HtEntry> table(kHtBuckets, HtEntry{0, 0});
     EXPECT_EQ(ht_lookup(table.data(), ht_make_key(0, 999)), kRootSentinel);
+}
+
+// ----- Phase 4: kind_name for new event types -------------------
+
+TEST(KindNameP4, FsverityOkReturnsVerityOk)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_FSVERITY_OK), "verity_ok");
+}
+
+TEST(KindNameP4, FsverityFailReturnsVerityFail)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_FSVERITY_FAIL), "verity_fail");
+}
+
+TEST(KindNameP4, RateLimitReturnsRateLimit)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_RATE_LIMIT), "rate_limit");
+}
+
+// ----- Phase 4: auth_verdict_name tests -------------------------
+
+TEST(AuthVerdictName, AllVerdictsCovered)
+{
+    EXPECT_STREQ(auth_verdict_name(AUTH_VERDICT_UNKNOWN), "unknown");
+    EXPECT_STREQ(auth_verdict_name(AUTH_VERDICT_ALLOW), "allow");
+    EXPECT_STREQ(auth_verdict_name(AUTH_VERDICT_DENY), "deny");
+    EXPECT_STREQ(auth_verdict_name(AUTH_VERDICT_LOG), "log");
+    EXPECT_STREQ(auth_verdict_name(255), "???");
+}
+
+// ----- Phase 4: digest_to_hex tests -----------------------------
+
+TEST(DigestToHex, EmptyDigest)
+{
+    EXPECT_EQ(digest_to_hex(nullptr, 0), "");
+}
+
+TEST(DigestToHex, SingleByte)
+{
+    std::uint8_t d[] = {0xab};
+    EXPECT_EQ(digest_to_hex(d, 1), "ab");
+}
+
+TEST(DigestToHex, MultiByte)
+{
+    std::uint8_t d[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+    EXPECT_EQ(digest_to_hex(d, 8), "0123456789abcdef");
+}
+
+TEST(DigestToHex, LeadingZeros)
+{
+    std::uint8_t d[] = {0x00, 0x0f};
+    EXPECT_EQ(digest_to_hex(d, 2), "000f");
+}
+
+// ----- Phase 4: policy constants tests --------------------------
+
+TEST(PolicyConstants, MatchDigestDefined)
+{
+    EXPECT_EQ(POLICY_MATCH_DIGEST, 4);
+}
+
+TEST(PolicyConstants, AuthFlagsDefined)
+{
+    EXPECT_EQ(AUTH_FLAG_FSVERITY, 1u);
+    EXPECT_EQ(AUTH_FLAG_XATTR_CACHED, 2u);
+    EXPECT_EQ(AUTH_FLAG_PKCS7, 4u);
+}
+
+TEST(PolicyConstants, PolicyMsgTypesDefined)
+{
+    EXPECT_EQ(POLICY_MSG_ADD, 0);
+    EXPECT_EQ(POLICY_MSG_DELETE, 1);
+    EXPECT_EQ(POLICY_MSG_FLUSH, 2);
+}
+
+TEST(PolicyConstants, RateLimitDefaults)
+{
+    EXPECT_EQ(RATE_LIMIT_WINDOW_NS, 1000000000ULL);
+    EXPECT_GT(RATE_LIMIT_FORK_MAX, 0);
+    EXPECT_GT(RATE_LIMIT_CONN_MAX, 0);
+}
+
+// ----- Phase 4: digest prefix length ----------------------------
+
+TEST(DigestConstants, PrefixLenAndMaxSize)
+{
+    EXPECT_EQ(DIGEST_PREFIX_LEN, 8);
+    EXPECT_EQ(FSVERITY_DIGEST_MAX, 64);
+    // DIGEST_PREFIX_LEN must be <= FSVERITY_DIGEST_MAX
+    EXPECT_LE(DIGEST_PREFIX_LEN, FSVERITY_DIGEST_MAX);
+}
+
+// ----- Expanded hook coverage: kind names ----------------------
+
+TEST(KindNameExpanded, PtraceReturnsPtrace)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_PTRACE), "ptrace");
+}
+
+TEST(KindNameExpanded, SetuidReturnsSetuid)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_SETUID), "setuid");
+}
+
+TEST(KindNameExpanded, RenameReturnsRename)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_RENAME), "rename");
+}
+
+TEST(KindNameExpanded, UnlinkReturnsUnlink)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_UNLINK), "unlink");
+}
+
+TEST(KindNameExpanded, SendmsgReturnsSendmsg)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_SENDMSG), "sendmsg");
+}
+
+TEST(KindNameExpanded, ConstantsAreUnique)
+{
+    std::set<int> kinds = {
+        PROV_KIND_EXEC, PROV_KIND_FILE_OPEN, PROV_KIND_SOCKET_CONNECT,
+        PROV_KIND_SOCKET_BIND, PROV_KIND_SOCKET_LISTEN, PROV_KIND_FILE_PERM,
+        PROV_KIND_MMAP_FILE, PROV_KIND_TASK_ALLOC, PROV_KIND_KMOD_REQ,
+        PROV_KIND_FSVERITY_OK, PROV_KIND_FSVERITY_FAIL, PROV_KIND_RATE_LIMIT,
+        PROV_KIND_PTRACE, PROV_KIND_SETUID, PROV_KIND_RENAME,
+        PROV_KIND_UNLINK, PROV_KIND_SENDMSG,
+    };
+    EXPECT_EQ(kinds.size(), 17u);
 }
 
 } // namespace

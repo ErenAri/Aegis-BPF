@@ -38,6 +38,12 @@ const (
 
 	// PolicyModeKey is the key in the ConfigMap data holding the enforcement mode.
 	PolicyModeKey = "policy.mode"
+
+	// NextPolicyDataKey is the key for aegis-next line-based policy format.
+	NextPolicyDataKey = "policy.next"
+
+	// NextPolicyHashKey is the key for the aegis-next policy SHA-256 hash.
+	NextPolicyHashKey = "policy-next.sha256"
 )
 
 // AegisPolicyReconciler reconciles AegisPolicy objects.
@@ -88,15 +94,30 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Translate CRD spec → INI policy.
+	// Translate CRD spec → INI policy (mainline daemon).
+	translateStart := time.Now()
 	result, err := policy.TranslateToINI(ap.Spec)
 	if err != nil {
+		policyReconcileTotal.WithLabelValues("error").Inc()
 		logger.Error(err, "Failed to translate policy")
 		markPolicyInvalid(&ap.Status, ap.Generation,
 			v1alpha1.ReasonTranslationFailed,
 			fmt.Sprintf("Translation failed: %v", err))
 		return r.updateStatus(ctx, &ap, "Error", fmt.Sprintf("Translation failed: %v", err), "")
 	}
+
+	// Translate CRD spec → aegis-next line-based policy.
+	nextResult, err := policy.TranslateToAegisNext(ap.Spec)
+	policyTranslateDuration.Observe(time.Since(translateStart).Seconds())
+	if err != nil {
+		policyReconcileTotal.WithLabelValues("error").Inc()
+		logger.Error(err, "Failed to translate aegis-next policy")
+		markPolicyInvalid(&ap.Status, ap.Generation,
+			v1alpha1.ReasonTranslationFailed,
+			fmt.Sprintf("aegis-next translation failed: %v", err))
+		return r.updateStatus(ctx, &ap, "Error", fmt.Sprintf("aegis-next translation failed: %v", err), "")
+	}
+
 	markPolicyValid(&ap.Status, ap.Generation)
 	markEnforceCapableUnknown(&ap.Status, ap.Generation)
 	if ap.Spec.Selector != nil {
@@ -109,6 +130,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		"namespace", ap.Namespace,
 		"name", ap.Name,
 		"hash", result.SHA256[:12],
+		"nextHash", nextResult.SHA256[:12],
 		"mode", ap.Spec.Mode,
 	)
 
@@ -130,9 +152,11 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			},
 		},
 		Data: map[string]string{
-			PolicyDataKey: result.INI,
-			PolicyHashKey: result.SHA256,
-			PolicyModeKey: ap.Spec.Mode,
+			PolicyDataKey:     result.INI,
+			PolicyHashKey:     result.SHA256,
+			PolicyModeKey:     ap.Spec.Mode,
+			NextPolicyDataKey: nextResult.INI,
+			NextPolicyHashKey: nextResult.SHA256,
 		},
 	}
 
@@ -146,6 +170,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		logger.Info("Creating policy ConfigMap", "configmap", cmName)
 		if err := r.Create(ctx, cm); err != nil {
+			configMapWriteErrors.Inc()
 			markDegraded(&ap.Status, ap.Generation,
 				v1alpha1.ReasonConfigMapWriteFailed,
 				fmt.Sprintf("ConfigMap create failed: %v", err))
@@ -163,6 +188,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			existing.Annotations = cm.Annotations
 			logger.Info("Updating policy ConfigMap", "configmap", cmName, "newHash", result.SHA256[:12])
 			if err := r.Update(ctx, &existing); err != nil {
+				configMapWriteErrors.Inc()
 				markDegraded(&ap.Status, ap.Generation,
 					v1alpha1.ReasonConfigMapWriteFailed,
 					fmt.Sprintf("ConfigMap update failed: %v", err))
@@ -171,6 +197,8 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	policyReconcileTotal.WithLabelValues("success").Inc()
+	activePolicies.Inc()
 	markReady(&ap.Status, ap.Generation, "Policy translated and ConfigMap written")
 	return r.updateStatus(ctx, &ap, "Applied", "Policy applied successfully", result.SHA256)
 }

@@ -5,10 +5,14 @@ on:
     branches: [main, develop, 'feat/aegis-next-*']
     paths:
       - 'prototype/aegis-next/**'
+      - 'operator/internal/policy/translator_next*'
+      - 'helm/aegisbpf/**'
       - 'CMakeLists.txt'
   pull_request:
     paths:
       - 'prototype/aegis-next/**'
+      - 'operator/internal/policy/translator_next*'
+      - 'helm/aegisbpf/**'
       - 'CMakeLists.txt'
   workflow_dispatch:
 
@@ -130,3 +134,52 @@ jobs:
           name: aegis-next-test-results
           path: build/aegis_next_test.xml
           if-no-files-found: warn
+
+  operator-next-tests:
+    name: Operator aegis-next translator
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+
+      - name: Run translator tests
+        working-directory: operator
+        run: go test ./internal/policy/... -v -count=1
+
+      - name: Vet all packages
+        working-directory: operator
+        run: go vet ./...
+
+      - name: Run all operator tests (short)
+        working-directory: operator
+        run: go test ./... -short -count=1
+
+  helm-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint default values
+        run: helm lint helm/aegisbpf/
+
+      - name: Lint with aegis-next enabled
+        run: helm lint helm/aegisbpf/ --set aegisNext.enabled=true
+
+      - name: Lint with operator enabled
+        run: helm lint helm/aegisbpf/ --set operator.enabled=true
+
+      - name: Lint with all features
+        run: helm lint helm/aegisbpf/ --set aegisNext.enabled=true --set operator.enabled=true
+
+      - name: Template renders cleanly
+        run: |
+          helm template test helm/aegisbpf/ \
+            --set aegisNext.enabled=true \
+            --set operator.enabled=true > /dev/null

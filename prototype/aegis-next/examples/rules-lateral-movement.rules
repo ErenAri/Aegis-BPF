@@ -1,0 +1,41 @@
+# aegis-next rule pack: Lateral movement & reconnaissance
+#
+# Covers: network scanning, credential harvesting, SSH abuse,
+#          data exfiltration tools.
+# Severity: HIGH — lateral movement indicates expanding compromise.
+# Source: Falco default_rules (Launch Suspicious Network Tool),
+#         Sigma net_connection_lnx_lateral_movement.
+
+# ---- Network reconnaissance ----
+exec  comm  nmap        quarantine
+exec  comm  masscan     deny  kill
+exec  comm  zmap        deny  kill
+exec  comm  rustscan    deny  kill
+exec  comm  netdiscove  deny
+exec  comm  arp-scan    deny
+exec  comm  hping3      deny
+
+# ---- Credential harvesting ----
+exec  comm  mimikatz    deny  kill
+exec  comm  hashcat     deny  kill
+exec  comm  john        deny  kill
+exec  comm  hydra       deny  kill
+exec  comm  medusa      deny  kill
+exec  comm  patator     deny
+exec  comm  crackmapex  deny  kill
+
+# ---- Data exfiltration ----
+exec  comm  exfiltrate  deny  kill
+exec  comm  rclone      deny
+exec  comm  megacmd     deny
+
+# ---- Tunneling / proxy tools ----
+exec  comm  proxychains deny
+exec  comm  revsocks    deny  kill
+exec  comm  frpc        deny  kill
+exec  comm  ngrok       deny
+
+# ---- Suspicious SSH usage ----
+conn  port  22    log
+bind  port  2222  deny
+listen  port  2222  deny

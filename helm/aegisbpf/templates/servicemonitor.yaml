@@ -1,0 +1,24 @@
+{{- if and .Values.metrics.enabled .Values.operator.enabled }}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-operator
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  selector:
+    matchLabels:
+      {{- include "aegisbpf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: operator
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

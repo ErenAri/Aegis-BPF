@@ -204,6 +204,36 @@ add_custom_command(
 set_source_files_properties(${AEGIS_NEXT_SELFPROT_SKEL} PROPERTIES GENERATED TRUE)
 add_custom_target(aegis_next_selfprot_skel DEPENDS ${AEGIS_NEXT_SELFPROT_SKEL})
 
+# ---- Phase 4: binary authorization BPF program ------------------
+set(AEGIS_NEXT_BINAUTH_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bpf/binary_auth.bpf.c)
+set(AEGIS_NEXT_BINAUTH_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/binary_auth.bpf.o)
+set(AEGIS_NEXT_BINAUTH_SKEL   ${CMAKE_CURRENT_BINARY_DIR}/binary_auth.skel.h)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_BINAUTH_OBJECT}
+    COMMAND ${AEGIS_NEXT_BPF_CLANG} -g -O2 -target bpf -mcpu=v4
+            -D__TARGET_ARCH_${AEGIS_NEXT_BPF_TARGET_ARCH}
+            ${AEGIS_NEXT_BPF_INCLUDE_FLAGS}
+            -c ${AEGIS_NEXT_BINAUTH_SOURCE}
+            -o ${AEGIS_NEXT_BINAUTH_OBJECT}
+    DEPENDS ${AEGIS_NEXT_BINAUTH_SOURCE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/bpf/prov_types.h
+            ${AEGIS_NEXT_VMLINUX_HEADER}
+    VERBATIM
+    COMMENT "Compiling aegis-next binary authorization BPF (fsverity + xattr)"
+)
+
+add_custom_command(
+    OUTPUT ${AEGIS_NEXT_BINAUTH_SKEL}
+    COMMAND ${BASH} -c "${BPFTOOL} gen skeleton ${AEGIS_NEXT_BINAUTH_OBJECT} > ${AEGIS_NEXT_BINAUTH_SKEL}"
+    DEPENDS ${AEGIS_NEXT_BINAUTH_OBJECT}
+    VERBATIM
+    COMMENT "Generating aegis-next binary auth skeleton"
+)
+
+set_source_files_properties(${AEGIS_NEXT_BINAUTH_SKEL} PROPERTIES GENERATED TRUE)
+add_custom_target(aegis_next_binauth_skel DEPENDS ${AEGIS_NEXT_BINAUTH_SKEL})
+
 # We depend on the parent project's bpf_skel target indirectly via
 # vmlinux.h. Express this explicitly so a clean build can't race.
 if(TARGET bpf_skel)
@@ -211,6 +241,7 @@ if(TARGET bpf_skel)
     add_dependencies(aegis_next_sched_skel bpf_skel)
     add_dependencies(aegis_next_selfprot_skel bpf_skel)
     add_dependencies(aegis_next_legacy_skel bpf_skel)
+    add_dependencies(aegis_next_binauth_skel bpf_skel)
 endif()
 
 # Static lib for the testable userspace pieces. Keeps the test
@@ -229,9 +260,10 @@ add_executable(aegisbpf-next
     ${AEGIS_NEXT_SCHED_SKEL}
     ${AEGIS_NEXT_SELFPROT_SKEL}
     ${AEGIS_NEXT_LEGACY_SKEL}
+    ${AEGIS_NEXT_BINAUTH_SKEL}
 )
 
-add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel aegis_next_selfprot_skel aegis_next_legacy_skel)
+add_dependencies(aegisbpf-next aegis_next_skel aegis_next_sched_skel aegis_next_selfprot_skel aegis_next_legacy_skel aegis_next_binauth_skel)
 
 target_include_directories(aegisbpf-next PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -254,6 +286,19 @@ target_link_libraries(aegisbpf-next PRIVATE
 set_target_properties(aegisbpf-next PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/prototype
 )
+
+# ---- install targets (for packaging) --------------------------------
+install(TARGETS aegisbpf-next RUNTIME DESTINATION bin COMPONENT aegis-next)
+install(FILES deploy/aegisbpf-next.service
+    DESTINATION lib/systemd/system
+    COMPONENT aegis-next)
+install(FILES deploy/aegisbpf-next.conf
+    DESTINATION share/aegisbpf-next
+    COMPONENT aegis-next)
+install(DIRECTORY examples/
+    DESTINATION share/aegisbpf-next/examples
+    COMPONENT aegis-next
+    FILES_MATCHING PATTERN "*.rules")
 
 # ----- selftests --------------------------------------------------
 #

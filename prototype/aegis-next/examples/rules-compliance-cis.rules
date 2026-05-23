@@ -1,0 +1,47 @@
+# aegis-next rule pack: CIS Benchmark & compliance controls
+#
+# Covers: CIS Docker/Kubernetes benchmarks, PCI-DSS file integrity,
+#          SOC2 access monitoring, NIST 800-53 audit controls.
+# Severity: MEDIUM — compliance and audit trail.
+# Source: CIS Benchmark for Docker v1.6, CIS Kubernetes v1.8,
+#         NIST SP 800-53 AU-2, PCI-DSS Req 10/11.
+
+# ---- CIS 5.25: Restrict container from acquiring additional privileges ----
+exec  comm  setuid      deny
+exec  comm  setgid      deny
+exec  comm  newuidmap   deny
+exec  comm  newgidmap   deny
+
+# ---- CIS 5.15: Do not share host network namespace (detect host-net tools) ----
+bind  port  80    log
+bind  port  443   log
+bind  port  8080  log
+bind  port  8443  log
+
+# ---- PCI-DSS 10.5: Secure audit trails (protect aegis itself) ----
+fperm  comm  truncate   deny
+fperm  comm  shred      deny  kill
+
+# ---- NIST AU-2: Audit cron/at/systemd-run (scheduled task manipulation) ----
+exec  comm  crontab     log
+exec  comm  at          log
+exec  comm  systemd-run log
+exec  comm  atd         log
+
+# ---- SOC2: Monitor user management commands ----
+exec  comm  useradd     log
+exec  comm  usermod     log
+exec  comm  userdel     log
+exec  comm  groupadd    log
+exec  comm  passwd      log
+exec  comm  chpasswd    log
+
+# ---- NIST CM-7: Minimize installed services ----
+exec  comm  xinetd      deny
+exec  comm  telnetd     deny  kill
+exec  comm  rlogind     deny  kill
+exec  comm  rshd        deny  kill
+exec  comm  ftpd        deny
+
+# ---- Monitor DNS-over-HTTPS (exfiltration channel) ----
+conn  port  853   log
