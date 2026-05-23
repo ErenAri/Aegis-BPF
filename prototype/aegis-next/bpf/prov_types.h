@@ -58,4 +58,43 @@
 // Policy flags (policy_val.flags).
 #define POLICY_FLAG_KILL  (1u << 0)  // send SIGKILL after deny
 
+// ---- Phase 4: Advanced Features ----
+
+// Event kinds for Phase 4 hooks.
+#define PROV_KIND_FSVERITY_OK   9   // binary passed fsverity check
+#define PROV_KIND_FSVERITY_FAIL 10  // binary failed fsverity check
+#define PROV_KIND_RATE_LIMIT    11  // rate limit triggered
+
+// Binary authorization verdict (stored in binary_auth_val.verdict).
+#define AUTH_VERDICT_UNKNOWN     0  // not yet verified
+#define AUTH_VERDICT_ALLOW       1  // trusted digest, allow exec
+#define AUTH_VERDICT_DENY        2  // untrusted / no digest, deny
+#define AUTH_VERDICT_LOG         3  // log but allow (audit mode)
+
+// Binary authorization flags.
+#define AUTH_FLAG_FSVERITY       (1u << 0)  // checked via fsverity digest
+#define AUTH_FLAG_XATTR_CACHED   (1u << 1)  // result cached in xattr
+#define AUTH_FLAG_PKCS7          (1u << 2)  // verified via PKCS7 signature
+
+// Rate limiter defaults.
+#define RATE_LIMIT_WINDOW_NS    (1000000000ULL)  // 1 second window
+#define RATE_LIMIT_FORK_MAX     50   // max forks per window per cgroup
+#define RATE_LIMIT_CONN_MAX     100  // max connects per window per cgroup
+
+// Policy match type for binary auth (extends POLICY_MATCH_*).
+#define POLICY_MATCH_DIGEST     4  // match by fsverity digest prefix
+
+// Security xattr names (for bpf_get_file_xattr / bpf_set_dentry_xattr).
+#define AEGIS_XATTR_VERIFIED    "security.aegis.verified"
+#define AEGIS_XATTR_DIGEST      "security.aegis.digest"
+
+// Digest sizes.
+#define FSVERITY_DIGEST_MAX     64  // SHA-512 = 64 bytes
+#define DIGEST_PREFIX_LEN       8   // first 8 bytes for map key
+
+// user_ringbuf policy update message types.
+#define POLICY_MSG_ADD          0  // add/update a rule
+#define POLICY_MSG_DELETE       1  // delete a rule
+#define POLICY_MSG_FLUSH        2  // flush all rules
+
 #endif // AEGIS_NEXT_PROV_TYPES_H

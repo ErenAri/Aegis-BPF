@@ -12,7 +12,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 // Event-kind constants shared with BPF side.
 #include "../bpf/prov_types.h"
@@ -189,8 +191,36 @@ inline const char* kind_name(std::uint8_t kind)
     case PROV_KIND_MMAP_FILE:      return "mmap";
     case PROV_KIND_TASK_ALLOC:     return "fork";
     case PROV_KIND_KMOD_REQ:       return "kmod";
+    case PROV_KIND_FSVERITY_OK:    return "verity_ok";
+    case PROV_KIND_FSVERITY_FAIL:  return "verity_fail";
+    case PROV_KIND_RATE_LIMIT:     return "rate_limit";
     default:                       return "???";
     }
+}
+
+// ----- binary auth helpers -----
+
+inline const char* auth_verdict_name(std::uint8_t verdict)
+{
+    switch (verdict) {
+    case AUTH_VERDICT_UNKNOWN: return "unknown";
+    case AUTH_VERDICT_ALLOW:   return "allow";
+    case AUTH_VERDICT_DENY:    return "deny";
+    case AUTH_VERDICT_LOG:     return "log";
+    default:                  return "???";
+    }
+}
+
+inline std::string digest_to_hex(const std::uint8_t* digest, std::size_t len)
+{
+    std::string hex;
+    hex.reserve(len * 2);
+    for (std::size_t i = 0; i < len; ++i) {
+        char buf[3];
+        std::snprintf(buf, sizeof(buf), "%02x", digest[i]);
+        hex += buf;
+    }
+    return hex;
 }
 
 // ----- policy helpers -----
