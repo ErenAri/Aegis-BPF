@@ -1,0 +1,169 @@
+name: E2E Kubernetes (kind)
+
+on:
+  push:
+    branches: [main, 'feat/aegis-next-*']
+    paths:
+      - 'operator/**'
+      - 'helm/aegisbpf/**'
+      - 'test/e2e/**'
+  pull_request:
+    paths:
+      - 'operator/**'
+      - 'helm/aegisbpf/**'
+      - 'test/e2e/**'
+  workflow_dispatch:
+
+jobs:
+  e2e-operator:
+    name: Operator E2E (kind)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Build operator image
+        working-directory: operator
+        run: docker build -t aegisbpf-operator:test .
+
+      - name: Create kind cluster
+        run: kind create cluster --config test/e2e/kind-config.yaml --name aegis-e2e --wait 120s
+
+      - name: Load operator image into kind
+        run: kind load docker-image aegisbpf-operator:test --name aegis-e2e
+
+      - name: Install CRDs
+        run: kubectl apply -f operator/config/crd/ --server-side
+
+      - name: Deploy via Helm (operator only)
+        run: |
+          kubectl create namespace aegisbpf-test
+          helm install aegis-e2e helm/aegisbpf \
+            --namespace aegisbpf-test \
+            --set operator.enabled=true \
+            --set operator.image.repository=aegisbpf-operator \
+            --set operator.image.tag=test \
+            --set operator.image.pullPolicy=Never \
+            --wait --timeout 120s
+
+      - name: Verify operator is running
+        run: |
+          kubectl -n aegisbpf-test rollout status deploy/aegis-e2e-aegisbpf-operator --timeout=60s
+          kubectl -n aegisbpf-test get pods
+
+      - name: Create test AegisPolicy
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: aegisbpf.io/v1alpha1
+          kind: AegisPolicy
+          metadata:
+            name: e2e-test
+            namespace: default
+          spec:
+            mode: enforce
+            execRules:
+              denyComm: [xmrig, minerd]
+            networkRules:
+              deny:
+                - port: 4444
+                  direction: outbound
+                  action: Block
+          EOF
+
+      - name: Wait for ConfigMap
+        run: |
+          for i in $(seq 1 30); do
+            if kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test 2>/dev/null; then
+              echo "ConfigMap found after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Verify ConfigMap content
+        run: |
+          set -e
+          CM=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test -o json)
+
+          # Check INI format.
+          echo "$CM" | jq -r '.data["policy.conf"]' | grep -q "xmrig"
+          echo "PASS: policy.conf contains xmrig"
+
+          # Check aegis-next format.
+          echo "$CM" | jq -r '.data["policy.next"]' | grep -q "xmrig"
+          echo "PASS: policy.next contains xmrig"
+
+          # Check hash.
+          HASH=$(echo "$CM" | jq -r '.data["policy.sha256"]')
+          [ -n "$HASH" ] && [ "$HASH" != "null" ]
+          echo "PASS: policy hash present: ${HASH:0:12}"
+
+          # Check mode.
+          MODE=$(echo "$CM" | jq -r '.data["policy.mode"]')
+          [ "$MODE" = "enforce" ]
+          echo "PASS: mode=enforce"
+
+      - name: Update policy and verify hash change
+        run: |
+          HASH_BEFORE=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test \
+            -o jsonpath='{.data.policy\.sha256}')
+
+          kubectl patch aegispolicy -n default e2e-test --type=merge \
+            -p '{"spec":{"execRules":{"denyComm":["xmrig","minerd","ethminer"]}}}'
+          sleep 5
+
+          HASH_AFTER=$(kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test \
+            -o jsonpath='{.data.policy\.sha256}')
+
+          [ "$HASH_BEFORE" != "$HASH_AFTER" ]
+          echo "PASS: hash changed from ${HASH_BEFORE:0:12} to ${HASH_AFTER:0:12}"
+
+      - name: Delete policy and verify cleanup
+        run: |
+          kubectl delete aegispolicy -n default e2e-test
+          sleep 5
+
+          if kubectl -n aegisbpf-system get configmap aegis-policy-default-e2e-test 2>/dev/null; then
+            echo "FAIL: ConfigMap still exists after policy deletion"
+            exit 1
+          fi
+          echo "PASS: ConfigMap cleaned up"
+
+      - name: Check node feature labels
+        run: |
+          LABELS=$(kubectl get nodes -o jsonpath='{.items[0].metadata.labels}')
+          echo "$LABELS" | jq .
+          if echo "$LABELS" | grep -q "aegisbpf.io/arena-capable"; then
+            echo "PASS: arena-capable label present"
+          else
+            echo "WARN: arena-capable label not present (may be expected in kind)"
+          fi
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          kubectl -n aegisbpf-test logs -l app.kubernetes.io/component=operator --tail=100 || true
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -30 || true
+          echo "=== Pods ==="
+          kubectl get pods -A || true
+          echo "=== ConfigMaps in aegisbpf-system ==="
+          kubectl -n aegisbpf-system get configmaps -o yaml || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          helm uninstall aegis-e2e -n aegisbpf-test 2>/dev/null || true
+          kind delete cluster --name aegis-e2e 2>/dev/null || true

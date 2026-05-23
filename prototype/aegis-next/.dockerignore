@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test results and benchmarks
+tests/
+results/
+
+# Documentation
+*.md
+ROADMAP.md
+
+# Packaging scripts (not needed in container)
+packaging/
