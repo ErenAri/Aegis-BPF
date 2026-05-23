@@ -215,3 +215,57 @@ readinessProbe:
 
 # Priority class
 priorityClassName: system-node-critical
+
+# --- aegis-next (BPF Arena + LSM) DaemonSet ---
+# Deploy the next-gen aegisbpf-next agent alongside or instead of the mainline agent.
+aegisNext:
+  enabled: false
+
+  image:
+    repository: ghcr.io/erenari/aegisbpf-next
+    tag: ""  # Defaults to Chart appVersion
+    pullPolicy: IfNotPresent
+
+  # Policy file to load at startup (mounted from ConfigMap).
+  policyFile: /etc/aegisbpf/policy.next
+
+  # Event export path inside the container.
+  eventLogPath: /var/log/aegisbpf/events.jsonl
+
+  # Use OCSF v1.1 structured output format.
+  ocsf: false
+
+  # Node selector — typically nodes with kernel >= 6.9 and BPF arena support.
+  nodeSelector:
+    aegisbpf.io/arena-capable: "true"
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# --- aegis-operator Deployment ---
+# Deploy the Kubernetes operator that translates AegisPolicy CRDs into ConfigMaps.
+operator:
+  enabled: false
+
+  image:
+    repository: ghcr.io/erenari/aegisbpf-operator
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  leaderElect: true
+  enableIdentityResolution: true
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi

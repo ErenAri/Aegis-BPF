@@ -1,0 +1,126 @@
+{{- if .Values.aegisNext.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-next
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+    aegisbpf.io/variant: next
+spec:
+  selector:
+    matchLabels:
+      {{- include "aegisbpf.selectorLabels" . | nindent 6 }}
+      aegisbpf.io/variant: next
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "aegisbpf.labels" . | nindent 8 }}
+        aegisbpf.io/variant: next
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "aegisbpf.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: aegisbpf-next
+          image: "{{ .Values.aegisNext.image.repository }}:{{ .Values.aegisNext.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.aegisNext.image.pullPolicy }}
+          args:
+            - attach
+            - --policy={{ .Values.aegisNext.policyFile }}
+            - --events={{ .Values.aegisNext.eventLogPath }}
+            {{- if .Values.aegisNext.ocsf }}
+            - --ocsf
+            {{- end }}
+          env:
+            - name: AEGIS_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - BPF
+                - PERFMON
+                - NET_ADMIN
+                - SYS_RESOURCE
+          resources:
+            {{- toYaml .Values.aegisNext.resources | nindent 12 }}
+          volumeMounts:
+            - name: bpffs
+              mountPath: /sys/fs/bpf
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log/aegisbpf
+            {{- if .Values.policy.enabled }}
+            - name: policy-next
+              mountPath: {{ .Values.aegisNext.policyFile }}
+              subPath: policy.next
+              readOnly: true
+            {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - test
+                - -d
+                - /sys/fs/bpf/aegis_next
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: Directory
+        - name: varlog
+          hostPath:
+            path: /var/log/aegisbpf
+            type: DirectoryOrCreate
+        {{- if .Values.policy.enabled }}
+        - name: policy-next
+          configMap:
+            name: {{ include "aegisbpf.fullname" . }}-policy
+        {{- end }}
+      {{- with .Values.aegisNext.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
