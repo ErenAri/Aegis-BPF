@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,9 +19,28 @@ import (
 	v1alpha1 "github.com/ErenAri/aegis-operator/api/v1alpha1"
 )
 
+// envtestAvailable checks whether the envtest binaries (etcd, kube-apiserver)
+// are installed. Returns false in CI and local environments without setup-envtest.
+func envtestAvailable() bool {
+	// KUBEBUILDER_ASSETS overrides the default path.
+	if dir := os.Getenv("KUBEBUILDER_ASSETS"); dir != "" {
+		if _, err := os.Stat(filepath.Join(dir, "etcd")); err == nil {
+			return true
+		}
+	}
+	// Default location used by controller-runtime.
+	if _, err := os.Stat("/usr/local/kubebuilder/bin/etcd"); err == nil {
+		return true
+	}
+	return false
+}
+
 func TestReconciler_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
+	}
+	if !envtestAvailable() {
+		t.Skip("skipping integration test: envtest binaries not installed (install with setup-envtest)")
 	}
 
 	// Start envtest API server with CRDs.
