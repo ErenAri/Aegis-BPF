@@ -287,6 +287,19 @@ set_target_properties(aegisbpf-next PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/prototype
 )
 
+# ---- install targets (for packaging) --------------------------------
+install(TARGETS aegisbpf-next RUNTIME DESTINATION bin COMPONENT aegis-next)
+install(FILES deploy/aegisbpf-next.service
+    DESTINATION lib/systemd/system
+    COMPONENT aegis-next)
+install(FILES deploy/aegisbpf-next.conf
+    DESTINATION share/aegisbpf-next
+    COMPONENT aegis-next)
+install(DIRECTORY examples/
+    DESTINATION share/aegisbpf-next/examples
+    COMPONENT aegis-next
+    FILES_MATCHING PATTERN "*.rules")
+
 # ----- selftests --------------------------------------------------
 #
 # Only built when the parent project enables testing AND has

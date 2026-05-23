@@ -73,6 +73,10 @@ using aegis_next::ProvNode;
 // Global export format flag: false = JSONL (default), true = OCSF.
 bool g_ocsf_mode = false;
 
+// Global config: policy file to load at startup, events output path.
+std::string g_policy_file;
+std::string g_events_path;
+
 // Format a NetFlow 5-tuple into a human-readable string.
 std::string format_flow(const aegis_next::NetFlow* flow)
 {
@@ -225,7 +229,12 @@ void usage(const char* prog)
                  "usage: %s <command>\n"
                  "\n"
                  "commands:\n"
-                 "  attach                 load BPF, pin maps, attach LSM, loop\n"
+                 "  attach [flags]         load BPF, pin maps, attach LSM, loop\n"
+                 "    --policy=<file>      load policy rules from file at startup\n"
+                 "    --events=<path>      write JSONL events to path (default: bpffs/events.jsonl)\n"
+                 "    --config=<file>      read config file (key=value: policy, events, ocsf)\n"
+                 "    --ocsf               use OCSF v1.1 output format\n"
+                 "\n"
                  "  graph dump             print recent exec nodes from arena\n"
                  "  graph lineage <pid>    walk exec lineage for a process\n"
                  "  graph stats            print arena header statistics\n"
@@ -617,7 +626,9 @@ int cmd_attach()
     }
 
     // P3.4: Event export — JSONL file for persistence.
-    std::string export_path = pin_dir() + "/events.jsonl";
+    std::string export_path = g_events_path.empty()
+        ? pin_dir() + "/events.jsonl"
+        : g_events_path;
     aegis_next::EventExporter exporter(export_path);
     if (exporter.is_open()) {
         std::printf("aegis-next: JSONL export active at %s\n",
@@ -689,6 +700,17 @@ int cmd_attach()
                      std::strerror(errno));
         provenance_bpf__destroy(skel);
         return 1;
+    }
+
+    // Load policy from file if --policy was specified.
+    if (!g_policy_file.empty()) {
+        std::printf("aegis-next: loading policy from %s\n",
+                    g_policy_file.c_str());
+        int rc = cmd_policy_load(g_policy_file.c_str());
+        if (rc != 0) {
+            std::fprintf(stderr,
+                         "warning: policy load failed (rc=%d), continuing without policy\n", rc);
+        }
     }
 
     std::printf("aegis-next: ringbuf polling active (sub-ms latency).\n");
@@ -1902,10 +1924,33 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
 
     if (cmd == "attach") {
-        // Check for --ocsf flag.
         for (int i = 2; i < argc; ++i) {
-            if (std::strcmp(argv[i], "--ocsf") == 0)
+            if (std::strcmp(argv[i], "--ocsf") == 0) {
                 g_ocsf_mode = true;
+            } else if (std::strncmp(argv[i], "--policy=", 9) == 0) {
+                g_policy_file = argv[i] + 9;
+            } else if (std::strncmp(argv[i], "--events=", 9) == 0) {
+                g_events_path = argv[i] + 9;
+            } else if (std::strncmp(argv[i], "--config=", 9) == 0) {
+                // Config file: read key=value pairs.
+                std::ifstream cf(argv[i] + 9);
+                if (cf.is_open()) {
+                    std::string line;
+                    while (std::getline(cf, line)) {
+                        if (line.empty() || line[0] == '#') continue;
+                        auto eq = line.find('=');
+                        if (eq == std::string::npos) continue;
+                        std::string key = line.substr(0, eq);
+                        std::string val = line.substr(eq + 1);
+                        if (key == "policy") g_policy_file = val;
+                        else if (key == "events") g_events_path = val;
+                        else if (key == "ocsf" && val == "true") g_ocsf_mode = true;
+                    }
+                } else {
+                    std::fprintf(stderr, "warning: cannot open config file %s\n",
+                                 argv[i] + 9);
+                }
+            }
         }
         return cmd_attach();
     }

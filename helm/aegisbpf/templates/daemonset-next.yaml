@@ -75,7 +75,12 @@ spec:
               readOnly: true
             - name: varlog
               mountPath: /var/log/aegisbpf
-            {{- if .Values.policy.enabled }}
+            {{- if .Values.operator.enabled }}
+            - name: operator-policy
+              mountPath: {{ .Values.aegisNext.policyFile }}
+              subPath: policy.next
+              readOnly: true
+            {{- else if .Values.policy.enabled }}
             - name: policy-next
               mountPath: {{ .Values.aegisNext.policyFile }}
               subPath: policy.next
@@ -106,7 +111,12 @@ spec:
           hostPath:
             path: /var/log/aegisbpf
             type: DirectoryOrCreate
-        {{- if .Values.policy.enabled }}
+        {{- if .Values.operator.enabled }}
+        - name: operator-policy
+          configMap:
+            name: aegis-merged-policy
+            optional: true
+        {{- else if .Values.policy.enabled }}
         - name: policy-next
           configMap:
             name: {{ include "aegisbpf.fullname" . }}-policy
