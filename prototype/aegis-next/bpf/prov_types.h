@@ -58,6 +58,13 @@
 // Policy flags (policy_val.flags).
 #define POLICY_FLAG_KILL  (1u << 0)  // send SIGKILL after deny
 
+// Phase 3+ expanded hook coverage.
+#define PROV_KIND_PTRACE          12 // ptrace_access_check
+#define PROV_KIND_SETUID          13 // task_fix_setuid
+#define PROV_KIND_RENAME          14 // inode_rename
+#define PROV_KIND_UNLINK          15 // inode_unlink
+#define PROV_KIND_SENDMSG         16 // socket_sendmsg
+
 // ---- Phase 4: Advanced Features ----
 
 // Event kinds for Phase 4 hooks.

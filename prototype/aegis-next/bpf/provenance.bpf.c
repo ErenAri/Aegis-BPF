@@ -1126,6 +1126,138 @@ int BPF_PROG(aegis_next_on_kmod_req, char *kmod_name)
     return 0;
 }
 
+// ---- Phase 5: expanded hook coverage ----------------------------
+
+// Detect debugger attachment (anti-tampering, privilege escalation).
+SEC("lsm/ptrace_access_check")
+int BPF_PROG(aegis_next_on_ptrace, struct task_struct *child, unsigned int mode)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u32 child_pid = BPF_CORE_READ(child, tgid);
+    record_event(PROV_KIND_PTRACE, child_pid, (__u16)(mode & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_PTRACE);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_PTRACE, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect setuid/setgid transitions (privilege escalation detection).
+SEC("lsm/task_fix_setuid")
+int BPF_PROG(aegis_next_on_setuid, struct cred *new_cred,
+             const struct cred *old_cred, int flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u32 old_uid = BPF_CORE_READ(old_cred, uid.val);
+    __u32 new_uid = BPF_CORE_READ(new_cred, uid.val);
+
+    // Only record transitions (uid actually changing).
+    if (old_uid == new_uid)
+        return 0;
+
+    record_event(PROV_KIND_SETUID, new_uid, (__u16)(old_uid & 0xFFFF));
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SETUID);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_SETUID, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect file renames (lateral movement, evidence tampering).
+SEC("lsm/path_rename")
+int BPF_PROG(aegis_next_on_rename, const struct path *old_dir,
+             struct dentry *old_dentry, const struct path *new_dir,
+             struct dentry *new_dentry, unsigned int flags)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u64 ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
+    record_event(PROV_KIND_RENAME, ino, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_RENAME);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_RENAME, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Detect file deletions (evidence destruction, log tampering).
+SEC("lsm/path_unlink")
+int BPF_PROG(aegis_next_on_unlink, const struct path *dir,
+             struct dentry *dentry)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
+    record_event(PROV_KIND_UNLINK, ino, 0);
+
+    __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
+    __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
+    emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_UNLINK);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_UNLINK, comm, 0, cgid) < 0)
+        return -1;
+    return 0;
+}
+
+// Track network data egress (data exfiltration detection).
+SEC("lsm/socket_sendmsg")
+int BPF_PROG(aegis_next_on_sendmsg, struct socket *sock,
+             struct msghdr *msg, int size)
+{
+    if (!aegis_is_ready())
+        return 0;
+
+    // Record message size in extra field (capped to u16).
+    __u16 sz = (size > 0xFFFF) ? 0xFFFF : (__u16)size;
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    __u16 dst_port = 0;
+    if (sk)
+        dst_port = BPF_CORE_READ(sk, __sk_common.skc_dport);
+    dst_port = __builtin_bswap16(dst_port);
+
+    record_event(PROV_KIND_SENDMSG, dst_port, sz);
+
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    char comm[12];
+    bpf_probe_read_kernel(comm, sizeof(comm), &task->comm);
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (evaluate_policy(PROV_KIND_SENDMSG, comm, dst_port, cgid) < 0)
+        return -1;
+    return 0;
+}
+
 // ---- one-shot catch-up scan -----------------------------------
 //
 // Iterates all thread-group leaders currently alive in the kernel

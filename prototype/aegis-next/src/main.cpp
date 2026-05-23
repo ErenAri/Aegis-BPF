@@ -33,7 +33,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <fstream>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -241,7 +244,8 @@ void usage(const char* prog)
                  "  auth trust <digest>    add trusted binary digest (hex)\n"
                  "  auth list              list trusted digests\n"
                  "  auth stats             show auth statistics\n"
-                 "  rate set <kind> <max>  set rate limit (fork|conn|file|mmap) per second\n",
+                 "  rate set <kind> <max>  set rate limit (fork|conn|file|mmap) per second\n"
+                 "  discover [-o <file>]   auto-discover allow-list policy from arena events\n",
                  prog);
 }
 
@@ -1262,11 +1266,20 @@ int cmd_policy_add(int argc, char** argv)
     // Parse hook kind.
     const std::string hook_str = argv[3];
     std::uint8_t hook = 255;
-    if (hook_str == "exec")   hook = PROV_KIND_EXEC;
+    if (hook_str == "exec")        hook = PROV_KIND_EXEC;
     else if (hook_str == "file")   hook = PROV_KIND_FILE_OPEN;
     else if (hook_str == "conn")   hook = PROV_KIND_SOCKET_CONNECT;
     else if (hook_str == "bind")   hook = PROV_KIND_SOCKET_BIND;
     else if (hook_str == "listen") hook = PROV_KIND_SOCKET_LISTEN;
+    else if (hook_str == "fperm")  hook = PROV_KIND_FILE_PERM;
+    else if (hook_str == "mmap")   hook = PROV_KIND_MMAP_FILE;
+    else if (hook_str == "fork")   hook = PROV_KIND_TASK_ALLOC;
+    else if (hook_str == "kmod")    hook = PROV_KIND_KMOD_REQ;
+    else if (hook_str == "ptrace") hook = PROV_KIND_PTRACE;
+    else if (hook_str == "setuid") hook = PROV_KIND_SETUID;
+    else if (hook_str == "rename") hook = PROV_KIND_RENAME;
+    else if (hook_str == "unlink") hook = PROV_KIND_UNLINK;
+    else if (hook_str == "sendmsg") hook = PROV_KIND_SENDMSG;
     else {
         std::fprintf(stderr, "unknown hook: %s\n", hook_str.c_str());
         close(map_fd);
@@ -1385,7 +1398,7 @@ int cmd_policy_clear()
 // Load policy rules from a text file. Format (one rule per line):
 //   <hook> <match_type> <value> <action> [kill]
 // Lines starting with # are comments. Blank lines are skipped.
-// hook:   exec|file|conn|bind|listen
+// hook:   exec|file|conn|bind|listen|fperm|mmap|fork|kmod
 // match:  comm|port|cgroup
 // action: deny|allow|log
 int cmd_policy_load(const char* filepath)
@@ -1425,6 +1438,15 @@ int cmd_policy_load(const char* filepath)
         else if (hook_str == "conn")   key.hook = PROV_KIND_SOCKET_CONNECT;
         else if (hook_str == "bind")   key.hook = PROV_KIND_SOCKET_BIND;
         else if (hook_str == "listen") key.hook = PROV_KIND_SOCKET_LISTEN;
+        else if (hook_str == "fperm")  key.hook = PROV_KIND_FILE_PERM;
+        else if (hook_str == "mmap")   key.hook = PROV_KIND_MMAP_FILE;
+        else if (hook_str == "fork")   key.hook = PROV_KIND_TASK_ALLOC;
+        else if (hook_str == "kmod")    key.hook = PROV_KIND_KMOD_REQ;
+        else if (hook_str == "ptrace") key.hook = PROV_KIND_PTRACE;
+        else if (hook_str == "setuid") key.hook = PROV_KIND_SETUID;
+        else if (hook_str == "rename") key.hook = PROV_KIND_RENAME;
+        else if (hook_str == "unlink") key.hook = PROV_KIND_UNLINK;
+        else if (hook_str == "sendmsg") key.hook = PROV_KIND_SENDMSG;
         else {
             std::fprintf(stderr, "policy:%d: unknown hook '%s'\n",
                          lineno, hook_str.c_str());
@@ -1712,6 +1734,143 @@ int cmd_rate_set(int argc, char** argv)
     return 0;
 }
 
+// ---- Auto-policy discovery (learning mode) ----------------------
+//
+// Walks the arena and collects unique (hook, comm) and (hook, port)
+// observations. Outputs an allow-list policy file that permits exactly
+// the observed behavior and denies everything else.
+
+const char* hook_name_for_kind(std::uint8_t kind)
+{
+    switch (kind) {
+    case PROV_KIND_EXEC:           return "exec";
+    case PROV_KIND_FILE_OPEN:      return "file";
+    case PROV_KIND_SOCKET_CONNECT: return "conn";
+    case PROV_KIND_SOCKET_BIND:    return "bind";
+    case PROV_KIND_SOCKET_LISTEN:  return "listen";
+    case PROV_KIND_FILE_PERM:      return "fperm";
+    case PROV_KIND_MMAP_FILE:      return "mmap";
+    case PROV_KIND_TASK_ALLOC:     return "fork";
+    case PROV_KIND_KMOD_REQ:       return "kmod";
+    case PROV_KIND_PTRACE:         return "ptrace";
+    case PROV_KIND_SETUID:         return "setuid";
+    case PROV_KIND_RENAME:         return "rename";
+    case PROV_KIND_UNLINK:         return "unlink";
+    case PROV_KIND_SENDMSG:        return "sendmsg";
+    default:                       return nullptr;
+    }
+}
+
+int cmd_discover(int argc, char** argv)
+{
+    // argv: discover [--output <file>]
+    std::string output_path;
+    for (int i = 2; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--output") == 0 || std::strcmp(argv[i], "-o") == 0) {
+            if (i + 1 < argc) output_path = argv[++i];
+        }
+    }
+
+    const ProvLayout* layout = open_pinned_arena();
+    if (!layout) return 1;
+
+    const std::uint64_t total = layout->hdr.next_index;
+    const std::uint64_t gen = layout->hdr.generation;
+
+    // Collect unique (hook_name, comm) pairs and (hook_name, port) pairs.
+    std::set<std::pair<std::string, std::string>> comm_rules;
+    std::set<std::pair<std::string, std::uint16_t>> port_rules;
+
+    // Track per-kind event counts for summary.
+    std::map<std::uint8_t, std::uint64_t> kind_counts;
+
+    const std::uint64_t scan_count = std::min(total, kMaxNodes);
+
+    for (std::uint64_t i = 0; i < scan_count; ++i) {
+        std::uint64_t idx = (total > kMaxNodes) ? (total - kMaxNodes + i) : i;
+        const ProvNode& n = layout->nodes[idx % kMaxNodes];
+
+        if (is_node_stale(n, gen))
+            continue;
+        if (n.ts_ns == 0)
+            continue;
+
+        const char* hook = hook_name_for_kind(n.kind);
+        if (!hook)
+            continue;
+
+        kind_counts[n.kind]++;
+
+        // Extract null-terminated comm.
+        char comm[13] = {};
+        std::memcpy(comm, n.comm, 12);
+
+        if (comm[0] != '\0')
+            comm_rules.emplace(hook, comm);
+
+        // For socket hooks, extract port from extra field.
+        if (n.kind == PROV_KIND_SOCKET_CONNECT ||
+            n.kind == PROV_KIND_SOCKET_BIND ||
+            n.kind == PROV_KIND_SOCKET_LISTEN) {
+            if (n.extra > 0)
+                port_rules.emplace(hook, n.extra);
+        }
+    }
+
+    // Generate policy output.
+    std::ostringstream out;
+    out << "# aegis-next auto-discovered policy (allow-list)\n"
+        << "#\n"
+        << "# Generated from " << scan_count << " arena events "
+        << "(generation " << gen << ").\n"
+        << "# Review and customize before enforcing.\n"
+        << "#\n"
+        << "# Summary:\n";
+    for (const auto& [kind, count] : kind_counts) {
+        out << "#   " << aegis_next::kind_name(kind) << ": "
+            << count << " events\n";
+    }
+    out << "#\n"
+        << "# " << comm_rules.size() << " unique comm rules, "
+        << port_rules.size() << " unique port rules.\n\n";
+
+    // Comm-based allow rules grouped by hook.
+    std::string last_hook;
+    for (const auto& [hook, comm] : comm_rules) {
+        if (hook != last_hook) {
+            if (!last_hook.empty()) out << "\n";
+            out << "# ---- " << hook << " allow-list ----\n";
+            last_hook = hook;
+        }
+        out << hook << "  comm  " << comm << "  allow\n";
+    }
+
+    // Port-based allow rules.
+    if (!port_rules.empty()) {
+        out << "\n# ---- port allow-list ----\n";
+        for (const auto& [hook, port] : port_rules)
+            out << hook << "  port  " << port << "  allow\n";
+    }
+
+    munmap(const_cast<void*>(static_cast<const void*>(layout)),
+           kArenaBytes);
+
+    if (output_path.empty()) {
+        std::fputs(out.str().c_str(), stdout);
+    } else {
+        std::ofstream f(output_path);
+        if (!f.is_open()) {
+            std::fprintf(stderr, "cannot write to %s: %s\n",
+                         output_path.c_str(), std::strerror(errno));
+            return 1;
+        }
+        f << out.str();
+        std::printf("discover: wrote %zu comm rules + %zu port rules to %s\n",
+                    comm_rules.size(), port_rules.size(), output_path.c_str());
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1884,6 +2043,10 @@ int main(int argc, char** argv)
         }
         std::fprintf(stderr, "unknown rate subcommand: %s\n", sub.c_str());
         return 1;
+    }
+
+    if (cmd == "discover") {
+        return cmd_discover(argc, argv);
     }
 
     if (cmd == "--help" || cmd == "-h" || cmd == "help") {

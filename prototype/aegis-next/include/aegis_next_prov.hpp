@@ -194,6 +194,11 @@ inline const char* kind_name(std::uint8_t kind)
     case PROV_KIND_FSVERITY_OK:    return "verity_ok";
     case PROV_KIND_FSVERITY_FAIL:  return "verity_fail";
     case PROV_KIND_RATE_LIMIT:     return "rate_limit";
+    case PROV_KIND_PTRACE:         return "ptrace";
+    case PROV_KIND_SETUID:         return "setuid";
+    case PROV_KIND_RENAME:         return "rename";
+    case PROV_KIND_UNLINK:         return "unlink";
+    case PROV_KIND_SENDMSG:        return "sendmsg";
     default:                       return "???";
     }
 }

@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -581,6 +582,46 @@ TEST(DigestConstants, PrefixLenAndMaxSize)
     EXPECT_EQ(FSVERITY_DIGEST_MAX, 64);
     // DIGEST_PREFIX_LEN must be <= FSVERITY_DIGEST_MAX
     EXPECT_LE(DIGEST_PREFIX_LEN, FSVERITY_DIGEST_MAX);
+}
+
+// ----- Expanded hook coverage: kind names ----------------------
+
+TEST(KindNameExpanded, PtraceReturnsPtrace)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_PTRACE), "ptrace");
+}
+
+TEST(KindNameExpanded, SetuidReturnsSetuid)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_SETUID), "setuid");
+}
+
+TEST(KindNameExpanded, RenameReturnsRename)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_RENAME), "rename");
+}
+
+TEST(KindNameExpanded, UnlinkReturnsUnlink)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_UNLINK), "unlink");
+}
+
+TEST(KindNameExpanded, SendmsgReturnsSendmsg)
+{
+    EXPECT_STREQ(kind_name(PROV_KIND_SENDMSG), "sendmsg");
+}
+
+TEST(KindNameExpanded, ConstantsAreUnique)
+{
+    std::set<int> kinds = {
+        PROV_KIND_EXEC, PROV_KIND_FILE_OPEN, PROV_KIND_SOCKET_CONNECT,
+        PROV_KIND_SOCKET_BIND, PROV_KIND_SOCKET_LISTEN, PROV_KIND_FILE_PERM,
+        PROV_KIND_MMAP_FILE, PROV_KIND_TASK_ALLOC, PROV_KIND_KMOD_REQ,
+        PROV_KIND_FSVERITY_OK, PROV_KIND_FSVERITY_FAIL, PROV_KIND_RATE_LIMIT,
+        PROV_KIND_PTRACE, PROV_KIND_SETUID, PROV_KIND_RENAME,
+        PROV_KIND_UNLINK, PROV_KIND_SENDMSG,
+    };
+    EXPECT_EQ(kinds.size(), 17u);
 }
 
 } // namespace

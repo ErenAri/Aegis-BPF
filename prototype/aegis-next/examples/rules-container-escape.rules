@@ -1,0 +1,42 @@
+# aegis-next rule pack: Container escape & privilege escalation
+#
+# Covers: container escape tools, privilege escalation binaries,
+#          rootkit-related kernel module loading, dangerous mmap usage.
+# Severity: CRITICAL — these indicate active escape attempts.
+# Source: Falco default_rules (Container Drift, Launch Privileged Container),
+#         Sigma proc_creation_lnx_container_escape.
+
+# ---- Container escape tools ----
+exec  comm  runc        log
+exec  comm  ctr         log
+exec  comm  nsenter     deny  kill
+exec  comm  unshare     deny
+exec  comm  chroot      deny
+
+# ---- Privilege escalation tools ----
+exec  comm  sudo        log
+exec  comm  su          log
+exec  comm  pkexec      deny  kill
+exec  comm  doas        log
+exec  comm  newgrp      log
+
+# ---- Known exploit tools ----
+exec  comm  dirtypipe   deny  kill
+exec  comm  pwnkit      deny  kill
+exec  comm  exploit     deny  kill
+exec  comm  linpeas     deny  kill
+exec  comm  linenum     deny  kill
+exec  comm  pspy        deny  kill
+
+# ---- Kernel module loading (rootkit prevention) ----
+kmod  comm  insmod      deny  kill
+kmod  comm  modprobe    deny
+kmod  comm  rmmod       deny
+
+# ---- Dangerous W+X mmap (code injection) ----
+mmap  comm  memfd_crea  deny  kill
+
+# ---- Fork bomb prevention ----
+fork  comm  bomb        deny  kill
+fork  comm  stress      quarantine
+fork  comm  stress-ng   quarantine

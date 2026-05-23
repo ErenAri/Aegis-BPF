@@ -1,0 +1,39 @@
+# aegis-next rule pack: Reverse shell & backdoor detection
+#
+# Covers: common reverse shell tools, backdoor ports, bind shells.
+# Severity: CRITICAL — reverse shells indicate active intrusion.
+# Source: Falco default_rules (Reverse shell), Sigma proc_creation_lnx_reverse_shell.
+
+# ---- Reverse shell tools ----
+exec  comm  nc          deny  kill
+exec  comm  ncat        deny  kill
+exec  comm  netcat      deny  kill
+exec  comm  socat       deny  kill
+exec  comm  msfconsole  deny  kill
+exec  comm  msfvenom    deny  kill
+exec  comm  meterpreter deny  kill
+exec  comm  chisel      deny  kill
+exec  comm  pwncat      deny  kill
+exec  comm  revshell    deny  kill
+
+# ---- Common C2/backdoor outbound ports ----
+conn  port  4444   deny  kill
+conn  port  4445   deny  kill
+conn  port  5555   deny  kill
+conn  port  6666   deny  kill
+conn  port  8443   deny
+conn  port  1234   deny
+conn  port  31337  deny  kill
+conn  port  12345  deny
+
+# ---- Bind shell ports (inbound listeners) ----
+bind  port  4444   deny  kill
+bind  port  5555   deny  kill
+bind  port  31337  deny  kill
+bind  port  1337   deny  kill
+bind  port  1234   deny
+
+listen  port  4444   deny  kill
+listen  port  5555   deny  kill
+listen  port  31337  deny  kill
+listen  port  1337   deny  kill
