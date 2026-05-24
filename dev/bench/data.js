@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779640459011,
+  "lastUpdate": 1779642957058,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -38490,6 +38490,102 @@ window.BENCHMARK_DATA = {
             "value": 53.971244094380495,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.9599749881396 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "88c4ea59065a05392cce8ff15acd7269ae5d5729",
+          "message": "Merge pull request #174 from ErenAri/fix/helm-oci-lowercase\n\nfix(ci): lowercase OCI registry owner for Helm chart push",
+          "timestamp": "2026-05-24T20:04:44+03:00",
+          "tree_id": "48d16a81eae3fe3a6b18b77630bd162ce1805eb2",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/88c4ea59065a05392cce8ff15acd7269ae5d5729"
+        },
+        "date": 1779642956307,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1553.9227087051604,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1553.8471504768459 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3806.6433569766373,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3805.9751056584814 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21878.82344231785,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21877.70152505448 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165982.72802284668,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165974.73383335324 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1322623.1391249609,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1322552.9101353518 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5306871.864150978,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5305963.9588050265 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4664.051913714854,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4669.070595194565 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32778.58644024842,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32782.14441101919 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 268053.121604894,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 268027.4699429711 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809113.8113017576,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 809186.5223708547 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.45753274284145,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.45428215295995 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.15336482366542,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.150933754611145 ns\nthreads: 1"
           }
         ]
       }
