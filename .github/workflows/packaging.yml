@@ -41,7 +41,7 @@ jobs:
       deb-name: ${{ steps.collect.outputs.deb }}
       rpm-name: ${{ steps.collect.outputs.rpm }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install build dependencies
         run: |
@@ -176,7 +176,7 @@ jobs:
           grep -q "postuninstall scriptlet" rpm-scripts.txt
 
       - name: Upload .deb / .rpm artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: aegisbpf-packages
           path: |
@@ -201,7 +201,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: aegisbpf-packages
 
@@ -279,7 +279,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: aegisbpf-packages
 

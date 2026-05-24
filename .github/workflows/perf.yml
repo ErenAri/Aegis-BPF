@@ -39,7 +39,7 @@ jobs:
     runs-on: [self-hosted, perf]
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies (if apt-get is available)
         run: |
@@ -222,7 +222,7 @@ jobs:
 
       - name: Upload perf evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: perf-evidence
           path: artifacts/perf/
@@ -230,7 +230,7 @@ jobs:
 
       - name: Post perf results to PR
         if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           SLO_OUTCOME: ${{ steps.slo_gate.outcome }}
           CANONICAL_OUTCOME: ${{ steps.canonical_gate.outcome }}

@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies
         run: |
@@ -29,7 +29,7 @@ jobs:
 
       - name: Upload readiness artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-live-readiness
           path: artifacts/go-live/readiness/
@@ -39,7 +39,7 @@ jobs:
     runs-on: [self-hosted, bpf-lsm]
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies (if apt-get is available)
         run: |
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload runtime artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-live-runtime
           path: |
@@ -98,7 +98,7 @@ jobs:
     runs-on: [self-hosted, perf]
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies (if apt-get is available)
         run: |
@@ -207,7 +207,7 @@ jobs:
 
       - name: Upload perf artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-live-perf
           path: artifacts/go-live/perf/
@@ -217,7 +217,7 @@ jobs:
     runs-on: [self-hosted, bpf-lsm]
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies (if apt-get is available)
         run: |
@@ -246,7 +246,7 @@ jobs:
 
       - name: Upload release-drill artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-live-release-drill
           path: artifacts/go-live/release-drill/
@@ -257,7 +257,7 @@ jobs:
     needs: [readiness, runtime-canary, perf-certification, release-drill]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: go-live-evidence
 
@@ -269,7 +269,7 @@ jobs:
           tar -czf go-live-evidence-${GITHUB_RUN_ID}.tar.gz -C bundle .
 
       - name: Upload aggregated evidence bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-live-evidence-bundle
           path: |
