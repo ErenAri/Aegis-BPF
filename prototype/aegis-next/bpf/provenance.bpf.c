@@ -14,14 +14,20 @@
 //      exec inode, start_ns) — NEVER raw kernel pointers. This
 //      side-steps the KASLR restriction on arena content.
 //
-// What this program does NOT do (intentionally, scaffold scope):
-//   - No deny/audit verdict (returns 0, observe-only).
-//   - No ringbuf fallback for old kernels.
-//   - No hash-indexed lookup; userspace walks the slot array.
-//   - No GC, no eviction, no overflow handling beyond a wrap counter.
-//
-// The point of the scaffold is to prove the wiring works. Real
-// graph semantics land in follow-up PRs.
+// What this program implements (beyond the initial scaffold):
+//   - Arena hash table (64K buckets, 8-step linear probe) for O(1) lookup
+//   - Policy-driven enforcement: deny/quarantine/kill via evaluate_policy()
+//   - In-kernel rate limiting with automatic quarantine bridge
+//   - Ringbuf alerts for sub-ms detection latency
+//   - Path resolution via bpf_d_path() + arena path slab (4K × 256B)
+//   - Network 5-tuple recording via arena net slab (4K × 48B)
+//   - Namespace awareness (mnt_ns, pid_ns in prov_node)
+//   - user_ringbuf for zero-copy policy hot-reload
+//   - File security labeling via bpf_set_dentry_xattr (6.13+)
+//   - Targeted signal delivery via bpf_send_signal_task (6.13+)
+//   - In-kernel GC via BPF timer (pid_slot sweep every 30s)
+//   - Catch-up scan seeding via open-coded task iterator
+//   - See provenance_legacy.bpf.c for ringbuf fallback (kernel < 6.9)
 
 #include "vmlinux.h"
 
