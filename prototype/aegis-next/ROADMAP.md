@@ -1,8 +1,9 @@
 # aegis-next Roadmap
 
-> Status: PLAN — derived from deep research on BPF arena scalability,
-> Tetragon/Tracee/Falco internals, sched_ext enforcement patterns,
-> and enterprise kernel compatibility. May 2026.
+> Status: MOSTLY IMPLEMENTED — derived from deep research on BPF arena
+> scalability, Tetragon/Tracee/Falco internals, sched_ext enforcement
+> patterns, and enterprise kernel compatibility. May 2026.
+> Phase 1-4 items are implemented except where noted below.
 
 ## Current State (v0.2 — enforcement-capable prototype)
 
@@ -643,3 +644,35 @@ aegisbpf-next rate set <kind> <max_per_second>
 - Windows / macOS support — Linux-only
 - BPF exceptions (`bpf_throw`) — CVE-2026-31526 still unresolved
 - Per-namespace BPF tokens — ecosystem not ready (Pixie #2040, cilium/ebpf #43587)
+
+---
+
+## Implementation Status (May 2026)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **P1.1** Arena Hash Index | ✅ Done | `bpf/arena_htable.h` — 64K buckets, 8-step linear probe |
+| **P1.2** Path Resolution | ✅ Done | `bpf_d_path()` + path slab (256B × 4K slots) |
+| **P1.3** Network 5-Tuple | ✅ Done | Net slab (48B × 4K), IPv4/IPv6 extraction |
+| **P1.4** Namespace Awareness | ✅ Done | `mnt_ns` + `pid_ns` in prov_node |
+| **P1.5** Ringbuf Alerts | ✅ Done | 2MB ringbuf, 16-byte alert struct |
+| **P1.6** Node Layout | ✅ Done | 80-byte prov_node, magic 0xA591_5BPF_A5E61571 |
+| **P2.1** LSM Deny Path | ✅ Done | Policy hash map, -EPERM/-EACCES on all hooks |
+| **P2.2** New Hook Points | ✅ Done | 14 LSM hooks (exec, file, net, task, kmod, ptrace, setuid, rename, unlink, sendmsg) |
+| **P2.3** In-Kernel Bridge | ✅ Done | LSM → quarantine map → sched_ext, zero userspace |
+| **P2.4** Policy Language | ⚠️ Partial | INI-style loader, not YAML; hot-reload works |
+| **P2.5** sched_ext Upgrade | ✅ Done | 4 quarantine levels (none/throttle/pin/starve) |
+| **P2.6** Self-Protection | ✅ Done | `bpf/selfprotect.bpf.c` — lsm/bpf + lsm/bpf_map |
+| **P3.1** Ringbuf Fallback | ✅ Done | `bpf/provenance_legacy.bpf.c` for kernel < 6.9 |
+| **P3.2** Feature Matrix | ✅ Done | `include/feature_probe.hpp` — 8 runtime probes |
+| **P3.3** BPF Testing | ✅ Done | Unit tests + fuzz harness + CI workflow |
+| **P3.4** Event Export | ✅ Done | JSONL exporter with file rotation |
+| **P3.5** CLI/Daemon | ✅ Done | 20+ subcommands; missing formal daemonization |
+| **P3.6** Pre-Fault Pages | ✅ Done | `src/main.cpp:562-577` |
+| **P3.7** Documentation | ✅ Done | `docs/HARDENING.md` + `docs/ARCHITECTURE.md` |
+| **P4.1** Binary Auth | ✅ Done | `bpf/binary_auth.bpf.c` — fsverity + PKCS7 + xattr |
+| **P4.2** user_ringbuf | ✅ Done | Batch policy updates via callback |
+| **P4.3** Rate Limiting | ✅ Done | Per-cgroup sliding window + LSM deny verdict |
+| **P4.4** Xattr Labeling | ✅ Done | `security.aegis.seen` on file_open |
+| **P4.5** Signal Delivery | ✅ Done | `bpf_send_signal_task` with fallback |
+| **P4.6** Feature Probes | ✅ Done | Composite binary_auth check |
