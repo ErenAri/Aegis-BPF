@@ -13,7 +13,7 @@ jobs:
   audit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Audit branch protection required checks
         id: audit_checks
@@ -45,14 +45,14 @@ jobs:
 
       - name: Upload audit log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: branch-protection-audit
           path: branch-protection-audit.log
 
       - name: Open or update drift issue
         if: steps.audit_checks.outputs.failed == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const fs = require('fs');
