@@ -174,14 +174,14 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         } else if (arg.rfind("--event-format=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--event-format="));
             if (!set_event_format(value)) {
-                logger().log(SLOG_ERROR("Invalid event format (try aegis or ocsf)").field("value", value));
+                logger().log(SLOG_ERROR("Invalid event format (try aegis, ocsf, or cef)").field("value", value));
                 return 1;
             }
         } else if (arg == "--event-format") {
             if (i + 1 >= argc)
                 return usage(prog);
             if (!set_event_format(argv[++i])) {
-                logger().log(SLOG_ERROR("Invalid event format (try aegis or ocsf)").field("value", argv[i]));
+                logger().log(SLOG_ERROR("Invalid event format (try aegis, ocsf, or cef)").field("value", argv[i]));
                 return 1;
             }
         } else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {

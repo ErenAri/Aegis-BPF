@@ -20,30 +20,40 @@ This is **not** a complete coverage matrix. It is a starter set that
 operators are expected to read, audit, and adapt for their workload.
 Every pack documents its scope and known false-positive vectors.
 
-## Pack layout
+## Pack layout (25 packs)
 
 ```
 rules/
 ├── README.md                       — this file
-├── kernel-tampering/               — block kernel-level abuse vectors
-│   ├── README.md
-│   └── kernel-tampering.conf
+├── cis-k8s-control-plane/          — CIS Kubernetes Benchmark §1 (control plane)
+├── cis-k8s-worker-node/            — CIS Kubernetes Benchmark §4 (worker)
+├── cloud-metadata/                 — protect cloud credential files (AWS/Azure/GCP)
+├── container-escape/               — block container breakout vectors
+├── credential-access/              — block credential dumping tools/paths
+├── cryptominers/                   — well-known cryptominer binaries
+├── data-exfiltration/              — restrict common exfiltration tools
+├── dns-hijack/                     — protect DNS/name resolution configs
+├── file-integrity/                 — protect critical system binaries
+├── k8s-secrets/                    — protect Kubernetes secrets on disk
+├── kernel-tampering/               — block kernel module/BPF/ptrace abuse
+├── log-tampering/                  — protect system logs from modification
+├── malware-staging/                — block execution from staging directories
+├── network-tools/                  — restrict network reconnaissance tools
+├── package-manager/                — protect package manager integrity
+├── pam-backdoor/                   — protect PAM configuration
+├── persistence-cron/               — protect cron/at persistence mechanisms
+├── persistence-shell/              — protect shell profile persistence
+├── persistence-systemd/            — protect systemd unit persistence
+├── privilege-escalation/           — protect sudoers/PAM from abuse
+├── reverse-shell/                  — block common reverse shell tools
+├── runtime-protection/             — protect container runtime sockets
 ├── secrets-protection/             — protect on-disk credentials
-│   ├── README.md
-│   └── secrets-protection.conf
 ├── ssh-hardening/                  — protect SSH server + authorized_keys
-│   ├── README.md
-│   └── ssh-hardening.conf
-├── cis-k8s-control-plane/          — CIS Kubernetes Benchmark, control plane
-│   ├── README.md
-│   └── cis-k8s-control-plane.conf
-├── cis-k8s-worker-node/            — CIS Kubernetes Benchmark, worker
-│   ├── README.md
-│   └── cis-k8s-worker-node.conf
-└── cryptominers/                   — well-known cryptominer install paths
-    ├── README.md
-    └── cryptominers.conf
+└── web-shell/                      — block common web shell staging
 ```
+
+Each pack contains a `.conf` policy file and a `README.md` documenting
+threat model, MITRE coverage, false-positive vectors, and install steps.
 
 Every `.conf` file is validated in CI by
 `.github/workflows/rule-library.yml`, which runs

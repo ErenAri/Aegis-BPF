@@ -77,6 +77,9 @@ bool g_ocsf_mode = false;
 std::string g_policy_file;
 std::string g_events_path;
 
+// Forward declarations for subcommands used during attach.
+int cmd_policy_load(const char* filepath);
+
 // Format a NetFlow 5-tuple into a human-readable string.
 std::string format_flow(const aegis_next::NetFlow* flow)
 {
