@@ -193,6 +193,9 @@ func buildExecSections(b *strings.Builder, er *v1alpha1.ExecRules) {
 		}
 		emitSection(b, "deny_binary_hash", entries)
 	}
+	if len(er.DenyComm) > 0 {
+		emitSection(b, "deny_comm", er.DenyComm)
+	}
 }
 
 func buildKernelSections(b *strings.Builder, kr *v1alpha1.KernelRules) {

@@ -35,6 +35,7 @@ class ShadowMap {
 struct ShadowMapSet {
     ShadowMap deny_inode;
     ShadowMap deny_path;
+    ShadowMap deny_comm;
     ShadowMap allow_cgroup;
     ShadowMap allow_exec_inode;
     ShadowMap deny_ipv4;

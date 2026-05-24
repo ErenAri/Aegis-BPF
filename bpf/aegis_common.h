@@ -465,6 +465,20 @@ struct {
     __type(value, __u8);
 } deny_path_map SEC(".maps");
 
+/* Deny-by-comm map: blocks execution of binaries whose basename
+ * matches a configured command name.  Key is the 16-byte comm
+ * string (TASK_COMM_LEN), value is unused. */
+#define MAX_DENY_COMM_ENTRIES 1024
+struct deny_comm_key {
+    char comm[16]; /* TASK_COMM_LEN */
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_DENY_COMM_ENTRIES);
+    __type(key, struct deny_comm_key);
+    __type(value, __u8);
+} deny_comm_map SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
     __uint(max_entries, MAX_DENY_CGROUP_STATS_ENTRIES);

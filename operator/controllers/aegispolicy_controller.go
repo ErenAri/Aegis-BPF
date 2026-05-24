@@ -119,7 +119,7 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	markPolicyValid(&ap.Status, ap.Generation)
-	markEnforceCapableUnknown(&ap.Status, ap.Generation)
+	probeEnforceCapable(ctx, r.Client, &ap.Status, ap.Generation)
 	if ap.Spec.Selector != nil {
 		markLegacySelectorDeprecated(&ap.Status, ap.Generation)
 	} else {

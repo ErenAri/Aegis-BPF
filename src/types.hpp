@@ -536,6 +536,7 @@ struct Policy {
     std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
     std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
     std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)
+    std::vector<std::string> deny_comm;           // process comm names to block (v5+)
     // Kernel security hooks (MITRE ATT&CK coverage)
     bool deny_ptrace = false;      // block ptrace (T1055.008)
     bool deny_module_load = false; // block kernel module loading (T1547.006)

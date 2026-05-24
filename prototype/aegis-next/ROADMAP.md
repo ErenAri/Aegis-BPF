@@ -4,18 +4,31 @@
 > Tetragon/Tracee/Falco internals, sched_ext enforcement patterns,
 > and enterprise kernel compatibility. May 2026.
 
-## Current State (v0.1 — proof-of-concept)
+## Current State (v0.2 — enforcement-capable prototype)
 
-- 3 LSM hooks (exec, file_open, socket_connect), all return 0
+- 5 LSM hooks (exec, file_open, socket_connect, socket_bind, kernel_module_request)
+  with policy-driven enforcement (return -EPERM on deny)
 - Flat 64MB arena slot array, 1M nodes, wrap-around with generation tag
 - pid_slot LRU hash for parent linkage
 - In-kernel GC via BPF timer
-- Minimal sched_ext scheduler (time-slice throttle)
+- Minimal sched_ext scheduler (time-slice throttle + quarantine bridge)
+- In-kernel policy engine: BPF hash map keyed by (hook, match_type, match_val)
+  with per-cgroup scoping and comm/path/port matching
+- In-kernel rate limiting: per-cgroup event rate tracking with windowed counters
+  and automatic quarantine bridge (alert emitted, verdict not yet wired to LSM return)
+- user_ringbuf for zero-copy policy hot-reload (bulk batch updates)
+- Targeted signal delivery via bpf_send_signal_task (6.13+ fallback)
+- File security labeling via bpf_set_dentry_xattr (6.13+)
+- In-kernel binary authorization: fsverity digest + PKCS7 signature verification
 - Userspace: poll loop, deny-list comm matching, graph dump/lineage CLI
-- LOC: ~1,900 total
+- Operator integration: CRD → ConfigMap with dual-format policy (INI + aegis-next),
+  denyComm support across full stack (BPF map + daemon parser + INI translator),
+  EnforceCapable node probing via BPF LSM kernel label, aegis-next line format
+- LOC: ~3,000+ total
 
-What's missing: real graph, real enforcement, real policy, path resolution,
-network correlation, fallback for older kernels, tests, hardening.
+What's missing: real graph (arena hash index), path resolution (bpf_path_d_path),
+network 5-tuple correlation, rate-limit verdict wiring to LSM hooks,
+fallback for older kernels, comprehensive tests, hardening.
 
 ---
 
@@ -461,7 +474,7 @@ Phase 3 sequence:
 
 ## Phase 4 — Beyond the State of the Art
 
-> Status: IMPLEMENTED — May 2026. These features use cutting-edge BPF
+> Status: PARTIALLY IMPLEMENTED — May 2026. These features use cutting-edge BPF
 > capabilities (kernel 6.7-6.13+) that no competing security tool
 > implements. Research confirmed: Falco, Tetragon, Tracee, and KubeArmor
 > lack all of these.
