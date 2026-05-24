@@ -125,6 +125,45 @@ The operator includes a built-in web console for monitoring policy status, daemo
 - Zero JavaScript framework dependencies
 - Embedded in the operator binary via `go:embed`
 
+## aegis-next Prototype
+
+The `prototype/aegis-next/` directory contains a research prototype that
+explores **post-2024 BPF primitives** — features no shipping security agent
+uses as load-bearing infrastructure today. It is an isolated playground:
+not linked into the mainline daemon, not shipped in release packages, and
+gated behind `cmake -DBUILD_AEGIS_NEXT=ON`.
+
+**Core idea:** an 82 MiB BPF arena map (`BPF_MAP_TYPE_ARENA`, kernel 6.9+)
+replaces per-event perfbuf/ringbuf round-trips. Nine LSM hooks write 80-byte
+provenance nodes directly into the arena. Userspace `mmap(2)`s the arena
+read-only and walks the slot array on demand — zero `bpf_map_lookup_elem`
+syscalls for graph traversal.
+
+Key capabilities (all fully implemented):
+
+| Phase | Highlights |
+|-------|------------|
+| **P1 — Arena Infrastructure** | O(1) hash table (64K buckets, 8-step probe), path slab (4K x 256B), network 5-tuple slab (4K x 48B), namespace awareness, ringbuf hybrid alerts |
+| **P2 — Enforcement** | Policy-driven deny/quarantine/kill, 9 LSM hooks, in-kernel quarantine bridge to sched_ext, tiered CPU scheduling (throttle/pin/starve), BPF self-protection |
+| **P3 — Production Readiness** | Ringbuf-only fallback (kernel < 6.9), 39 GTest cases, JSONL export with rotation, runtime feature probing, arena pre-fault |
+| **P4 — Beyond State of the Art** | In-kernel binary authorization (fsverity), user_ringbuf zero-copy policy reload, per-cgroup rate limiting with auto-quarantine, file security labeling (`bpf_set_dentry_xattr`), targeted signal delivery (`bpf_send_signal_task`) |
+
+**No other open-source agent** combines arena-backed provenance graphs,
+sched_ext quarantine, and in-kernel binary authorization in a single BPF
+program.
+
+Build and run:
+```bash
+cmake -DBUILD_AEGIS_NEXT=ON -S . -B build && cmake --build build --target aegisbpf-next
+sudo ./build/prototype/aegisbpf-next attach    # arena + 9 LSM hooks
+sudo ./build/prototype/aegisbpf-next status    # feature probes + utilization
+sudo ./build/prototype/aegisbpf-next policy load examples/policy.rules
+```
+
+Full documentation: [`prototype/aegis-next/README.md`](prototype/aegis-next/README.md) |
+Roadmap status: [`prototype/aegis-next/ROADMAP.md`](prototype/aegis-next/ROADMAP.md) |
+Architecture: [`prototype/aegis-next/ARCHITECTURE.md`](prototype/aegis-next/ARCHITECTURE.md)
+
 ## Comparison with Other Tools
 
 ### Architecture & feature matrix

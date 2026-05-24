@@ -1,12 +1,15 @@
 # aegis-next (prototype)
 
-> **Status: PROTOTYPE — breaking changes expected. Not for production.**
+> **Status: PROTOTYPE — all 4 phases fully implemented. Breaking changes still expected. Not for production.**
 >
 > This directory is an isolated playground for the post-2024 BPF
 > stack (BPF arena maps, sched_ext, open-coded iterators). It is
 > **not** linked into the shipped `aegisbpf` daemon, does **not**
 > ship in release packages, and is gated behind a separate CMake
 > flag so a casual build is unaffected.
+>
+> All Phase 1–4 roadmap items are implemented and tested. See
+> [`ROADMAP.md`](ROADMAP.md) for the full status table.
 
 ## Why this exists
 
@@ -30,10 +33,15 @@ not garnish?**
 
 ## What this prototype demonstrates
 
+A complete in-kernel security agent built on post-2024 BPF primitives
+that no shipping agent uses as foundation today.
+
 An 82 MiB BPF arena map (`aegis_next_arena`) is allocated at load
 time. Nine LSM hooks write 80-byte `prov_node` records directly into
 the arena — no perfbuf, no per-event syscall round-trip. A 2MB
-ringbuf carries compact alerts for sub-ms notification.
+ringbuf carries compact alerts for sub-ms notification. Policy
+evaluation, rate limiting, quarantine bridging, binary authorization,
+and file security labeling all run entirely in-kernel.
 
 Userspace `mmap(2)`s the arena read-only and walks the slot array
 on demand. The header at offset 0 carries a monotonic
@@ -238,6 +246,21 @@ Requires:
   verifier fallback) and cilium/ebpf's #43587 (no library bindings)
   mean the ecosystem isn't ready. Mainline AegisBPF keeps the
   capability-based model until both are resolved.
+
+## What sets this apart from every other eBPF security agent
+
+No open-source runtime security agent (Falco, Tetragon, Tracee,
+KubeArmor) uses any of these BPF primitives as load-bearing
+infrastructure. aegis-next combines all of them in a single program:
+
+- **BPF arena maps** (6.9+) for zero-syscall provenance graph traversal
+- **sched_ext** (6.12+) for CPU-level quarantine enforcement
+- **user_ringbuf** for zero-copy policy hot-reload
+- **bpf_set_dentry_xattr** (6.13+) for persistent file security labeling
+- **bpf_send_signal_task** (6.13+) for targeted process termination
+- **bpf_get_fsverity_digest** (6.7+) for in-kernel binary authorization
+- **Open-coded task iterator** for catch-up process seeding at attach time
+- **BPF timer** for in-kernel garbage collection (no userspace polling)
 
 ## Graduation path
 
