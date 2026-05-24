@@ -261,6 +261,14 @@ operator:
     pullPolicy: IfNotPresent
 
   replicas: 1
+  # Pod topology spread for HA (effective when replicas > 1).
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: operator
 
   leaderElect: true
   enableIdentityResolution: true

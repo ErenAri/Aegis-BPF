@@ -381,3 +381,64 @@ func TestMergePoliciesAllowEmptiesSection(t *testing.T) {
 		t.Error("[allow_path] should still be present")
 	}
 }
+
+func TestTranslateDenyComm(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"xmrig", "minerd"},
+		},
+	}
+	result, err := TranslateToINI(spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.INI, "[deny_comm]") {
+		t.Error("missing [deny_comm] section")
+	}
+	if !strings.Contains(result.INI, "xmrig") {
+		t.Error("missing xmrig entry")
+	}
+	if !strings.Contains(result.INI, "minerd") {
+		t.Error("missing minerd entry")
+	}
+}
+
+func TestTranslateDenyCommSorted(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"zzz", "aaa", "mmm"},
+		},
+	}
+	result, _ := TranslateToINI(spec)
+	aIdx := strings.Index(result.INI, "aaa")
+	mIdx := strings.Index(result.INI, "mmm")
+	zIdx := strings.Index(result.INI, "zzz")
+	if aIdx < 0 || mIdx < 0 || zIdx < 0 {
+		t.Fatal("missing entries")
+	}
+	if !(aIdx < mIdx && mIdx < zIdx) {
+		t.Error("deny_comm entries not sorted")
+	}
+}
+
+func TestTranslateDenyCommChangesHash(t *testing.T) {
+	spec1 := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"xmrig"},
+		},
+	}
+	spec2 := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"xmrig", "ethminer"},
+		},
+	}
+	r1, _ := TranslateToINI(spec1)
+	r2, _ := TranslateToINI(spec2)
+	if r1.SHA256 == r2.SHA256 {
+		t.Error("adding ethminer to denyComm should change the hash")
+	}
+}

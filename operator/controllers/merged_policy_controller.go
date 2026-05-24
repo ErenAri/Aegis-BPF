@@ -35,7 +35,8 @@ const (
 // daemon mounts this ConfigMap to get the combined enforcement policy.
 type MergedPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Publisher EventPublisher // optional: pushes SSE events to console
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies,verbs=get;list;watch
@@ -203,6 +204,9 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		}
 	}
 
+	if r.Publisher != nil {
+		r.Publisher.PublishReconcile("MergedPolicy", MergedConfigMapName, "Applied", "Merged policy updated")
+	}
 	return ctrl.Result{}, nil
 }
 

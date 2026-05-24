@@ -16,6 +16,10 @@ const (
 	// LabelArenaCapable is set to "true" on nodes with kernel >= 6.9 (BPF arena support).
 	LabelArenaCapable = "aegisbpf.io/arena-capable"
 
+	// LabelBPFLSMCapable is set to "true" on nodes with kernel >= 5.7 (BPF LSM support).
+	// This is required for enforce mode — without BPF LSM, only audit mode works.
+	LabelBPFLSMCapable = "aegisbpf.io/bpf-lsm-capable"
+
 	// LabelKernelVersion records the parsed major.minor kernel version.
 	LabelKernelVersion = "aegisbpf.io/kernel-version"
 )
@@ -45,11 +49,15 @@ func (r *NodeFeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	arenaCapable := major > 6 || (major == 6 && minor >= 9)
+	bpfLSMCapable := major > 5 || (major == 5 && minor >= 7)
 	arenaStr := strconv.FormatBool(arenaCapable)
+	bpfLSMStr := strconv.FormatBool(bpfLSMCapable)
 	versionStr := fmt.Sprintf("%d.%d", major, minor)
 
 	// Check if labels already match — avoid unnecessary updates.
-	if node.Labels[LabelArenaCapable] == arenaStr && node.Labels[LabelKernelVersion] == versionStr {
+	if node.Labels[LabelArenaCapable] == arenaStr &&
+		node.Labels[LabelBPFLSMCapable] == bpfLSMStr &&
+		node.Labels[LabelKernelVersion] == versionStr {
 		return ctrl.Result{}, nil
 	}
 
@@ -59,6 +67,7 @@ func (r *NodeFeatureReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		node.Labels = map[string]string{}
 	}
 	node.Labels[LabelArenaCapable] = arenaStr
+	node.Labels[LabelBPFLSMCapable] = bpfLSMStr
 	node.Labels[LabelKernelVersion] = versionStr
 
 	if err := r.Patch(ctx, &node, patch); err != nil {

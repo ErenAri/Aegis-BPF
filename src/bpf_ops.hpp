@@ -58,6 +58,7 @@ class BpfState {
             events = other.events;
             deny_inode = other.deny_inode;
             deny_path = other.deny_path;
+            deny_comm = other.deny_comm;
             allow_cgroup = other.allow_cgroup;
             allow_exec_inode = other.allow_exec_inode;
             exec_identity_mode = other.exec_identity_mode;
@@ -152,6 +153,7 @@ class BpfState {
             other.events = nullptr;
             other.deny_inode = nullptr;
             other.deny_path = nullptr;
+            other.deny_comm = nullptr;
             other.allow_cgroup = nullptr;
             other.allow_exec_inode = nullptr;
             other.exec_identity_mode = nullptr;
@@ -241,6 +243,7 @@ class BpfState {
     bpf_map* events = nullptr;
     bpf_map* deny_inode = nullptr;
     bpf_map* deny_path = nullptr;
+    bpf_map* deny_comm = nullptr;
     bpf_map* allow_cgroup = nullptr;
     bpf_map* allow_exec_inode = nullptr;
     bpf_map* exec_identity_mode = nullptr;
@@ -439,6 +442,7 @@ Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& 
 Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
 Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
 Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id);
+Result<void> add_deny_comm_to_fd(int deny_comm_fd, const std::string& comm);
 
 // Cgroup-scoped deny operations (FD-based for shadow or live maps)
 Result<void> add_cgroup_deny_inode_to_fd(int map_fd, uint64_t cgid, const InodeId& inode);

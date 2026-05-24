@@ -91,8 +91,9 @@ func main() {
 	eventBroker := console.NewBroker()
 
 	if err := (&controllers.AegisPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Publisher: eventBroker,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "Unable to create AegisPolicy controller")
 		os.Exit(1)
@@ -109,16 +110,18 @@ func main() {
 	}
 
 	if err := (&controllers.AegisClusterPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Publisher: eventBroker,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "Unable to create AegisClusterPolicy controller")
 		os.Exit(1)
 	}
 
 	if err := (&controllers.MergedPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Publisher: eventBroker,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "Unable to create MergedPolicy controller")
 		os.Exit(1)

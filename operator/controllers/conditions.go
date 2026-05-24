@@ -6,8 +6,13 @@
 package controllers
 
 import (
+	"context"
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/ErenAri/aegis-operator/api/v1alpha1"
 )
@@ -63,17 +68,32 @@ func markDegraded(status *v1alpha1.AegisPolicyStatus, gen int64, reason, message
 		v1alpha1.ConditionDegraded, metav1.ConditionTrue, reason, message)
 }
 
-// markEnforceCapableUnknown is the default value for EnforceCapable until a
-// node-posture aggregator (future work) reports actual daemon capability.
-// Setting Unknown rather than True/False is deliberate: the controller does
-// not yet observe per-node posture, and surfacing that uncertainty to
-// operators is more honest than guessing.
+// markEnforceCapableUnknown sets EnforceCapable=Unknown when no node
+// posture information is available.
 func markEnforceCapableUnknown(status *v1alpha1.AegisPolicyStatus, gen int64) {
 	setCondition(status, gen,
 		v1alpha1.ConditionEnforceCapable, metav1.ConditionUnknown,
 		v1alpha1.ReasonAwaitingNodePosture,
 		"Per-node enforcement capability is not yet observed by the operator; "+
 			"check daemon logs and `aegisbpf posture` on each node")
+}
+
+// markEnforceCapableTrue sets EnforceCapable=True when at least one node
+// supports BPF LSM (kernel >= 5.7).
+func markEnforceCapableTrue(status *v1alpha1.AegisPolicyStatus, gen int64, capableNodes int) {
+	setCondition(status, gen,
+		v1alpha1.ConditionEnforceCapable, metav1.ConditionTrue,
+		v1alpha1.ReasonPolicyApplied,
+		fmt.Sprintf("%d node(s) support BPF LSM enforce mode", capableNodes))
+}
+
+// markEnforceCapableFalse sets EnforceCapable=False when no nodes support
+// BPF LSM.
+func markEnforceCapableFalse(status *v1alpha1.AegisPolicyStatus, gen int64) {
+	setCondition(status, gen,
+		v1alpha1.ConditionEnforceCapable, metav1.ConditionFalse,
+		v1alpha1.ReasonAwaitingNodePosture,
+		"No nodes with BPF LSM support (kernel >= 5.7) detected; enforce mode will not work")
 }
 
 // markLegacySelectorDeprecated flips Deprecated=True with the
@@ -85,6 +105,22 @@ func markLegacySelectorDeprecated(status *v1alpha1.AegisPolicyStatus, gen int64)
 		v1alpha1.ConditionDeprecated, metav1.ConditionTrue,
 		v1alpha1.ReasonLegacySelectorInUse,
 		"spec.selector is deprecated; migrate to spec.workloadSelector for matchExpressions support")
+}
+
+// probeEnforceCapable lists nodes labelled by the NodeFeatureReconciler and
+// sets the EnforceCapable condition accordingly. On list errors it falls back
+// to Unknown so the operator never blocks reconciliation on transient failures.
+func probeEnforceCapable(ctx context.Context, c client.Client, status *v1alpha1.AegisPolicyStatus, gen int64) {
+	var nodes corev1.NodeList
+	if err := c.List(ctx, &nodes, client.MatchingLabels{LabelBPFLSMCapable: "true"}); err != nil {
+		markEnforceCapableUnknown(status, gen)
+		return
+	}
+	if len(nodes.Items) > 0 {
+		markEnforceCapableTrue(status, gen, len(nodes.Items))
+	} else {
+		markEnforceCapableFalse(status, gen)
+	}
 }
 
 // clearDeprecated flips Deprecated=False. Called when a previously legacy

@@ -186,6 +186,29 @@ struct path_key {
 };
 ```
 
+### `deny_comm_map`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_HASH` |
+| Key            | `struct deny_comm_key` (16 bytes) |
+| Value          | `__u8` (presence flag) |
+| Max entries    | 1,024 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/deny_comm` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Managed by policy apply (shadow map swap) |
+
+Process comm-name deny list. Checked in `bprm_check_security` by extracting
+the basename from `bprm->filename` and looking it up in this map. Entries are
+null-padded to `TASK_COMM_LEN` (16 bytes). Maximum comm length is 15 characters.
+
+**Key struct:**
+```c
+struct deny_comm_key {
+    char comm[16];  /* TASK_COMM_LEN */
+};
+```
+
 ---
 
 ## Network Deny Rules
@@ -926,6 +949,7 @@ struct forensic_event {
 | `survival_allowlist` | 16 + 1 = 17 B | 256 | ~4 KB |
 | `deny_inode_map` | 16 + 1 = 17 B | 65,536 | ~1.1 MB |
 | `deny_path_map` | 256 + 1 = 257 B | 16,384 | ~4.2 MB |
+| `deny_comm_map` | 16 + 1 = 17 B | 1,024 | ~17 KB |
 | `deny_ipv4` | 4 + 1 = 5 B | 65,536 | ~327 KB |
 | `deny_ipv6` | 16 + 1 = 17 B | 65,536 | ~1.1 MB |
 | `deny_port` | 4 + 1 = 5 B | 4,096 | ~20 KB |

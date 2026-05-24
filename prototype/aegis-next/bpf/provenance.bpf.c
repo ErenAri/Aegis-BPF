@@ -14,14 +14,20 @@
 //      exec inode, start_ns) — NEVER raw kernel pointers. This
 //      side-steps the KASLR restriction on arena content.
 //
-// What this program does NOT do (intentionally, scaffold scope):
-//   - No deny/audit verdict (returns 0, observe-only).
-//   - No ringbuf fallback for old kernels.
-//   - No hash-indexed lookup; userspace walks the slot array.
-//   - No GC, no eviction, no overflow handling beyond a wrap counter.
-//
-// The point of the scaffold is to prove the wiring works. Real
-// graph semantics land in follow-up PRs.
+// What this program implements (beyond the initial scaffold):
+//   - Arena hash table (64K buckets, 8-step linear probe) for O(1) lookup
+//   - Policy-driven enforcement: deny/quarantine/kill via evaluate_policy()
+//   - In-kernel rate limiting with automatic quarantine bridge
+//   - Ringbuf alerts for sub-ms detection latency
+//   - Path resolution via bpf_d_path() + arena path slab (4K × 256B)
+//   - Network 5-tuple recording via arena net slab (4K × 48B)
+//   - Namespace awareness (mnt_ns, pid_ns in prov_node)
+//   - user_ringbuf for zero-copy policy hot-reload
+//   - File security labeling via bpf_set_dentry_xattr (6.13+)
+//   - Targeted signal delivery via bpf_send_signal_task (6.13+)
+//   - In-kernel GC via BPF timer (pid_slot sweep every 30s)
+//   - Catch-up scan seeding via open-coded task iterator
+//   - See provenance_legacy.bpf.c for ringbuf fallback (kernel < 6.9)
 
 #include "vmlinux.h"
 
@@ -738,7 +744,9 @@ record_task(struct task_struct *task, __u64 exec_inode)
     bpf_map_update_elem(&aegis_next_pid_slot, &tgid, &slot, BPF_ANY);
 }
 
-static __always_inline void
+// Record a non-exec event. Returns true if the per-cgroup rate limit
+// was exceeded — LSM hook callers check this and return -1 to deny.
+static __always_inline bool
 record_event(__u8 kind, __u64 object_id, __u16 extra)
 {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -761,9 +769,11 @@ record_event(__u8 kind, __u64 object_id, __u16 extra)
 
     // Phase 4: in-kernel rate limiting check.
     if (check_rate_limit(cgid, kind)) {
-        // Rate exceeded — emit a rate-limit alert.
+        // Rate exceeded — emit a rate-limit alert and signal caller to deny.
         emit_alert(slot, BPF_CORE_READ(task, tgid), PROV_KIND_RATE_LIMIT);
+        return true;
     }
+    return false;
 }
 
 SEC("lsm/bprm_check_security")
@@ -806,6 +816,15 @@ int BPF_PROG(aegis_next_on_exec, struct linux_binprm *bprm, int ret)
 
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_EXEC);
 
+    // Rate-limit check for exec events (fork bomb / exec storm detection).
+    {
+        __u64 cgid = bpf_get_current_cgroup_id();
+        if (check_rate_limit(cgid, PROV_KIND_EXEC)) {
+            emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_RATE_LIMIT);
+            return -1; /* -EPERM */
+        }
+    }
+
     // Evaluate policy — may deny the exec.
     {
         char comm[12];
@@ -838,7 +857,7 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
         inode = BPF_CORE_READ(ino, i_ino);
 
     __u16 open_flags = (__u16)(BPF_CORE_READ(file, f_flags) & 0xFFFF);
-    record_event(PROV_KIND_FILE_OPEN, inode, open_flags);
+    bool rate_exceeded = record_event(PROV_KIND_FILE_OPEN, inode, open_flags);
 
     // Resolve the opened file's path into the path slab.
     // `file` is the direct BTF-typed LSM hook argument, so
@@ -852,6 +871,10 @@ int BPF_PROG(aegis_next_on_file_open, struct file *file)
 
     // Phase 4: label the file with a security xattr.
     label_file_xattr(file, PROV_KIND_FILE_OPEN);
+
+    // Deny if rate limit exceeded for this cgroup.
+    if (rate_exceeded)
+        return -1; /* -EACCES */
 
     // Evaluate policy — may deny the file open.
     {
@@ -920,7 +943,7 @@ int BPF_PROG(aegis_next_on_socket_connect,
         object_id = ((__u64)dst_port << 32) | addr_low;
     }
 
-    record_event(PROV_KIND_SOCKET_CONNECT, object_id, family);
+    bool rate_exceeded = record_event(PROV_KIND_SOCKET_CONNECT, object_id, family);
 
     // Store full 5-tuple in net slab.
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
@@ -931,6 +954,9 @@ int BPF_PROG(aegis_next_on_socket_connect,
         (family == 10) ? dst_v6_buf : (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_CONNECT);
+
+    if (rate_exceeded)
+        return -1; /* -EACCES */
 
     // Evaluate policy — may deny the connect.
     {
@@ -982,7 +1008,7 @@ int BPF_PROG(aegis_next_on_socket_bind,
         object_id = ((__u64)bind_port << 32) | addr_low;
     }
 
-    record_event(PROV_KIND_SOCKET_BIND, object_id, family);
+    bool rate_exceeded = record_event(PROV_KIND_SOCKET_BIND, object_id, family);
 
     // Store bind address in net slab (src = bind addr, dst = 0).
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
@@ -993,6 +1019,9 @@ int BPF_PROG(aegis_next_on_socket_bind,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_BIND);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -1034,7 +1063,7 @@ int BPF_PROG(aegis_next_on_socket_listen,
         object_id = ((__u64)src_port << 32) | addr_low;
     }
 
-    record_event(PROV_KIND_SOCKET_LISTEN, object_id, family);
+    bool rate_exceeded = record_event(PROV_KIND_SOCKET_LISTEN, object_id, family);
 
     // Store listen address in net slab (src = listen addr, dst = 0).
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
@@ -1045,6 +1074,9 @@ int BPF_PROG(aegis_next_on_socket_listen,
         (void *)0);
     ARENA_PTR(&arena_nodes[slot])->net_slab_idx = nidx;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SOCKET_LISTEN);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -1069,11 +1101,14 @@ int BPF_PROG(aegis_next_on_file_perm, struct file *file, int mask)
     if (ino)
         inode = BPF_CORE_READ(ino, i_ino);
 
-    record_event(PROV_KIND_FILE_PERM, inode, (__u16)(mask & 0xFFFF));
+    bool rate_exceeded = record_event(PROV_KIND_FILE_PERM, inode, (__u16)(mask & 0xFFFF));
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_FILE_PERM);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -1104,11 +1139,14 @@ int BPF_PROG(aegis_next_on_mmap_file, struct file *file,
     if (ino)
         inode = BPF_CORE_READ(ino, i_ino);
 
-    record_event(PROV_KIND_MMAP_FILE, inode, prot_flags);
+    bool rate_exceeded = record_event(PROV_KIND_MMAP_FILE, inode, prot_flags);
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_MMAP_FILE);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -1131,11 +1169,14 @@ int BPF_PROG(aegis_next_on_task_alloc, struct task_struct *task,
     // Record fork/clone events for fork bomb detection.
     struct task_struct *current = (struct task_struct *)bpf_get_current_task_btf();
     __u64 object_id = clone_flags;
-    record_event(PROV_KIND_TASK_ALLOC, object_id, 0);
+    bool rate_exceeded = record_event(PROV_KIND_TASK_ALLOC, object_id, 0);
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_TASK_ALLOC);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         char comm[12];
@@ -1159,11 +1200,14 @@ int BPF_PROG(aegis_next_on_kmod_req, char *kmod_name)
 
     // Use comm hash as object_id for module request events.
     __u32 name_hash = fnv1a_hash(comm, 12);
-    record_event(PROV_KIND_KMOD_REQ, name_hash, 0);
+    bool rate_exceeded = record_event(PROV_KIND_KMOD_REQ, name_hash, 0);
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_KMOD_REQ);
+
+    if (rate_exceeded)
+        return -1;
 
     {
         __u64 cgid = bpf_get_current_cgroup_id();
@@ -1183,11 +1227,14 @@ int BPF_PROG(aegis_next_on_ptrace, struct task_struct *child, unsigned int mode)
         return 0;
 
     __u32 child_pid = BPF_CORE_READ(child, tgid);
-    record_event(PROV_KIND_PTRACE, child_pid, (__u16)(mode & 0xFFFF));
+    bool rate_exceeded = record_event(PROV_KIND_PTRACE, child_pid, (__u16)(mode & 0xFFFF));
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_PTRACE);
+
+    if (rate_exceeded)
+        return -1;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     char comm[12];
@@ -1213,11 +1260,14 @@ int BPF_PROG(aegis_next_on_setuid, struct cred *new_cred,
     if (old_uid == new_uid)
         return 0;
 
-    record_event(PROV_KIND_SETUID, new_uid, (__u16)(old_uid & 0xFFFF));
+    bool rate_exceeded = record_event(PROV_KIND_SETUID, new_uid, (__u16)(old_uid & 0xFFFF));
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_SETUID);
+
+    if (rate_exceeded)
+        return -1;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     char comm[12];
@@ -1238,11 +1288,14 @@ int BPF_PROG(aegis_next_on_rename, const struct path *old_dir,
         return 0;
 
     __u64 ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
-    record_event(PROV_KIND_RENAME, ino, 0);
+    bool rate_exceeded = record_event(PROV_KIND_RENAME, ino, 0);
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_RENAME);
+
+    if (rate_exceeded)
+        return -1;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     char comm[12];
@@ -1262,11 +1315,14 @@ int BPF_PROG(aegis_next_on_unlink, const struct path *dir,
         return 0;
 
     __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
-    record_event(PROV_KIND_UNLINK, ino, 0);
+    bool rate_exceeded = record_event(PROV_KIND_UNLINK, ino, 0);
 
     __u64 idx = ARENA_PTR(&arena_hdr)->next_index - 1;
     __u64 slot = idx % AEGIS_NEXT_MAX_NODES;
     emit_alert(slot, ARENA_PTR(&arena_nodes[slot])->tgid, PROV_KIND_UNLINK);
+
+    if (rate_exceeded)
+        return -1;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     char comm[12];
@@ -1294,7 +1350,10 @@ int BPF_PROG(aegis_next_on_sendmsg, struct socket *sock,
         dst_port = BPF_CORE_READ(sk, __sk_common.skc_dport);
     dst_port = __builtin_bswap16(dst_port);
 
-    record_event(PROV_KIND_SENDMSG, dst_port, sz);
+    bool rate_exceeded = record_event(PROV_KIND_SENDMSG, dst_port, sz);
+
+    if (rate_exceeded)
+        return -1;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
     char comm[12];

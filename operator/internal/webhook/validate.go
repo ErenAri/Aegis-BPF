@@ -242,6 +242,16 @@ func validateExecRules(er *v1alpha1.ExecRules) []string {
 			errs = append(errs, fmt.Sprintf("execRules.denyBinaryHashes[%d]: must be 64-char SHA-256 hex", i))
 		}
 	}
+	for i, comm := range er.DenyComm {
+		if len(comm) == 0 {
+			errs = append(errs, fmt.Sprintf("execRules.denyComm[%d]: must not be empty", i))
+		} else if len(comm) > 15 {
+			errs = append(errs, fmt.Sprintf("execRules.denyComm[%d]: %q exceeds 15 chars (kernel TASK_COMM_LEN-1)", i, comm))
+		}
+		if strings.ContainsAny(comm, "/\x00") {
+			errs = append(errs, fmt.Sprintf("execRules.denyComm[%d]: %q must not contain '/' or null bytes", i, comm))
+		}
+	}
 	// Detect Allow/Block hash collisions in the same spec.
 	allow := make(map[string]struct{}, len(er.AllowBinaryHashes))
 	for _, h := range er.AllowBinaryHashes {

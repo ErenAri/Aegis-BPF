@@ -30,7 +30,8 @@ const (
 // AegisClusterPolicyReconciler reconciles AegisClusterPolicy objects.
 type AegisClusterPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Publisher EventPublisher // optional: pushes SSE events to console
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegisclusterpolicies,verbs=get;list;watch;update;patch
@@ -71,7 +72,7 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 	}
 
-	// Translate CRD → INI.
+	// Translate CRD → INI (mainline daemon).
 	result, err := policy.TranslateToINI(acp.Spec)
 	if err != nil {
 		logger.Error(err, "Failed to translate cluster policy")
@@ -80,8 +81,19 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 			fmt.Sprintf("Translation failed: %v", err))
 		return r.updateStatus(ctx, &acp, "Error", fmt.Sprintf("Translation failed: %v", err), "")
 	}
+
+	// Translate CRD → aegis-next line-based policy.
+	nextResult, err := policy.TranslateToAegisNext(acp.Spec)
+	if err != nil {
+		logger.Error(err, "Failed to translate aegis-next cluster policy")
+		markPolicyInvalid(&acp.Status, acp.Generation,
+			v1alpha1.ReasonTranslationFailed,
+			fmt.Sprintf("aegis-next translation failed: %v", err))
+		return r.updateStatus(ctx, &acp, "Error", fmt.Sprintf("aegis-next translation failed: %v", err), "")
+	}
+
 	markPolicyValid(&acp.Status, acp.Generation)
-	markEnforceCapableUnknown(&acp.Status, acp.Generation)
+	probeEnforceCapable(ctx, r.Client, &acp.Status, acp.Generation)
 	if acp.Spec.Selector != nil {
 		markLegacySelectorDeprecated(&acp.Status, acp.Generation)
 	} else {
@@ -91,6 +103,7 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	logger.Info("Translated cluster policy",
 		"name", acp.Name,
 		"hash", result.SHA256[:12],
+		"nextHash", nextResult.SHA256[:12],
 		"mode", acp.Spec.Mode,
 	)
 
@@ -111,9 +124,11 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 			},
 		},
 		Data: map[string]string{
-			PolicyDataKey: result.INI,
-			PolicyHashKey: result.SHA256,
-			PolicyModeKey: acp.Spec.Mode,
+			PolicyDataKey:     result.INI,
+			PolicyHashKey:     result.SHA256,
+			PolicyModeKey:     acp.Spec.Mode,
+			NextPolicyDataKey: nextResult.INI,
+			NextPolicyHashKey: nextResult.SHA256,
 		},
 	}
 
@@ -132,7 +147,7 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	} else if err != nil {
 		return ctrl.Result{}, err
 	} else {
-		if existing.Data[PolicyHashKey] != result.SHA256 {
+		if existing.Data[PolicyHashKey] != result.SHA256 || existing.Data[NextPolicyHashKey] != nextResult.SHA256 {
 			existing.Data = cm.Data
 			existing.Labels = cm.Labels
 			existing.Annotations = cm.Annotations
@@ -146,6 +161,9 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	markReady(&acp.Status, acp.Generation, "Cluster policy translated and ConfigMap written")
+	if r.Publisher != nil {
+		r.Publisher.PublishReconcile("AegisClusterPolicy", acp.Name, "Applied", "Cluster policy applied successfully")
+	}
 	return r.updateStatus(ctx, &acp, "Applied", "Cluster policy applied successfully", result.SHA256)
 }
 

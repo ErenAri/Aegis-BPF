@@ -11,9 +11,37 @@
 
     {{template "stats_cards" .}}
 
+    <div class="flex items-center gap-2 mb-2">
+        <input id="policy-search" type="text" placeholder="Filter by name, namespace, or mode…"
+               class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+               oninput="filterPolicies(this.value)">
+        <select id="policy-scope-filter"
+                class="bg-gray-900 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-blue-500"
+                onchange="filterPolicies(document.getElementById('policy-search').value)">
+            <option value="">All scopes</option>
+            <option value="Cluster">Cluster</option>
+            <option value="Namespaced">Namespaced</option>
+        </select>
+    </div>
+    <script>
+    function filterPolicies(query) {
+        const q = query.toLowerCase();
+        const scope = document.getElementById('policy-scope-filter').value;
+        document.querySelectorAll('[data-policy-card]').forEach(card => {
+            const text = card.dataset.policyCard.toLowerCase();
+            const cardScope = card.dataset.policyScope || '';
+            const matchText = !q || text.includes(q);
+            const matchScope = !scope || cardScope === scope;
+            card.style.display = (matchText && matchScope) ? '' : 'none';
+        });
+    }
+    </script>
+
     <div class="space-y-4">
         {{range .Policies}}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors"
+             data-policy-card="{{.Name}} {{.Namespace}} {{.Mode}} {{.Phase}} {{.Scope}}"
+             data-policy-scope="{{.Scope}}">
             <div class="flex items-start justify-between">
                 <div>
                     <a href="/console/policies/{{if eq .Scope "Cluster"}}cluster/{{.Name}}{{else}}namespaced/{{.Namespace}}/{{.Name}}{{end}}"

@@ -313,6 +313,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.events = bpf_object__find_map_by_name(state.obj, "events");
         state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
         state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
+        state.deny_comm = bpf_object__find_map_by_name(state.obj, "deny_comm_map");
         state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
         state.allow_exec_inode = bpf_object__find_map_by_name(state.obj, "allow_exec_inode_map");
         state.exec_identity_mode = bpf_object__find_map_by_name(state.obj, "exec_identity_mode_map");
@@ -886,6 +887,22 @@ Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& 
     uint8_t one = 1;
     if (bpf_map_update_elem(allow_exec_inode_fd, &id, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update shadow allow_exec_inode_map");
+    }
+    return {};
+}
+
+Result<void> add_deny_comm_to_fd(int deny_comm_fd, const std::string& comm)
+{
+    struct {
+        char comm[16];
+    } key = {};
+    size_t len = comm.size();
+    if (len > 15)
+        len = 15;
+    std::memcpy(key.comm, comm.c_str(), len);
+    uint8_t one = 1;
+    if (bpf_map_update_elem(deny_comm_fd, &key, &one, BPF_ANY)) {
+        return Error::system(errno, "Failed to update deny_comm_map for '" + comm + "'");
     }
     return {};
 }

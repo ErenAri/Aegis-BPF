@@ -114,6 +114,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     std::unordered_set<std::string> deny_hash_seen;
     std::unordered_set<std::string> allow_hash_seen;
+    std::unordered_set<std::string> deny_comm_seen;
     std::unordered_set<std::string> cgroup_deny_inode_seen;
     std::unordered_set<std::string> cgroup_deny_ip_seen;
     std::unordered_set<std::string> cgroup_deny_port_seen;
@@ -137,7 +138,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                                                                    "cgroup_deny_port",
                                                                    "deny_ptrace",
                                                                    "deny_module_load",
-                                                                   "deny_bpf"};
+                                                                   "deny_bpf",
+                                                                   "deny_comm"};
 
     while (std::getline(in, line)) {
         ++line_no;
@@ -417,6 +419,18 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             if (allow_hash_seen.insert(hash).second) {
                 policy.allow_binary_hashes.push_back(hash);
+            }
+            continue;
+        }
+
+        if (section == "deny_comm") {
+            if (trimmed.size() > 15) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": deny_comm entry exceeds 15 chars (kernel TASK_COMM_LEN - 1)");
+                continue;
+            }
+            if (deny_comm_seen.insert(trimmed).second) {
+                policy.deny_comm.push_back(trimmed);
             }
             continue;
         }

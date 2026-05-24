@@ -21,6 +21,10 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create"]
+  # Nodes for EnforceCapable probing
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
   # Pods for identity resolution
   - apiGroups: [""]
     resources: ["pods"]
