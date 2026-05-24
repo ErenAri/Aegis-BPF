@@ -119,4 +119,5 @@ jobs:
       - name: Push to OCI registry
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          helm push aegisbpf-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm push aegisbpf-${VERSION}.tgz oci://${{ env.REGISTRY }}/${OWNER}/charts
