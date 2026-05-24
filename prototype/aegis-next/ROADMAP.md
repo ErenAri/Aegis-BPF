@@ -14,8 +14,8 @@
 - Minimal sched_ext scheduler (time-slice throttle + quarantine bridge)
 - In-kernel policy engine: BPF hash map keyed by (hook, match_type, match_val)
   with per-cgroup scoping and comm/path/port matching
-- In-kernel rate limiting: per-cgroup event rate tracking with windowed counters
-  and automatic quarantine bridge (alert emitted, verdict not yet wired to LSM return)
+- In-kernel rate limiting: per-cgroup event rate tracking with windowed counters,
+  automatic quarantine bridge, and LSM deny verdict on all hooks (exec, file, net, etc.)
 - user_ringbuf for zero-copy policy hot-reload (bulk batch updates)
 - Targeted signal delivery via bpf_send_signal_task (6.13+ fallback)
 - File security labeling via bpf_set_dentry_xattr (6.13+)
@@ -27,8 +27,8 @@
 - LOC: ~3,000+ total
 
 What's missing: real graph (arena hash index), path resolution (bpf_path_d_path),
-network 5-tuple correlation, rate-limit verdict wiring to LSM hooks,
-fallback for older kernels, comprehensive tests, hardening.
+network 5-tuple correlation, fallback for older kernels, comprehensive tests,
+hardening.
 
 ---
 
