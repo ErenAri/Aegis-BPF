@@ -334,6 +334,84 @@ func TestValidateClusterPolicyAllowsCrossNamespaceSelector(t *testing.T) {
 	}
 }
 
+// --- v0.6.0: denyComm validation -----------------------------------------
+
+func TestValidateDenyCommValid(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"xmrig", "minerd", "bash"},
+		},
+	}
+	errs := validateSpec(spec, "")
+	if len(errs) > 0 {
+		t.Errorf("expected no errors, got: %v", errs)
+	}
+}
+
+func TestValidateDenyCommTooLong(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"this-name-is-way-too-long"},
+		},
+	}
+	errs := validateSpec(spec, "")
+	if len(errs) == 0 {
+		t.Fatal("expected error for comm exceeding 15 chars")
+	}
+	if !strings.Contains(errs[0], "15 chars") {
+		t.Errorf("expected error about 15 chars, got: %v", errs[0])
+	}
+}
+
+func TestValidateDenyCommEmpty(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{""},
+		},
+	}
+	errs := validateSpec(spec, "")
+	if len(errs) == 0 {
+		t.Fatal("expected error for empty comm")
+	}
+}
+
+func TestValidateDenyCommSlash(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"/usr/bin/xmrig"},
+		},
+	}
+	errs := validateSpec(spec, "")
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e, "must not contain '/'") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error about slash, got: %v", errs)
+	}
+}
+
+func TestValidateDenyCommExactly15(t *testing.T) {
+	// 15 chars is the max — should pass.
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		ExecRules: &v1alpha1.ExecRules{
+			DenyComm: []string{"123456789012345"},
+		},
+	}
+	errs := validateSpec(spec, "")
+	if len(errs) > 0 {
+		t.Errorf("15-char comm should be valid, got: %v", errs)
+	}
+}
+
 func TestValidateRejectsInvalidNamespaceName(t *testing.T) {
 	spec := v1alpha1.AegisPolicySpec{
 		Mode: "enforce",
