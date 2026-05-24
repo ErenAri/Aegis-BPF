@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779643490489,
+  "lastUpdate": 1779644283006,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -38778,6 +38778,102 @@ window.BENCHMARK_DATA = {
             "value": 66.33311874095627,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.32976342710809 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "875fa3685db9bccc894e7abc94fac66af8067326",
+          "message": "Merge pull request #177 from ErenAri/fix/dependabot-go-deps\n\nfix(deps): patch 4 Dependabot vulnerabilities in operator Go modules",
+          "timestamp": "2026-05-24T20:26:45+03:00",
+          "tree_id": "ca8afe51e2d3270c094ec1d77fd0f5f495f238fc",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/875fa3685db9bccc894e7abc94fac66af8067326"
+        },
+        "date": 1779644281976,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1567.2910477932246,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1567.190358615899 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3932.140612979121,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3931.418897741692 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22880.345622383535,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22878.91425873237 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 174457.06328391054,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 174445.0533059226 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1391946.145606204,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1391851.493888337 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5566096.920634929,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5565070.77645501 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4731.817034119518,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4735.53057897732 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32893.167528863654,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32897.19365981554 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267899.29585691105,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267871.8418419493 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 807865.8128829162,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 807973.1701151616 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.01890133839807,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.01472370336346 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.65347970894689,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.65018812302008 ns\nthreads: 1"
           }
         ]
       }
