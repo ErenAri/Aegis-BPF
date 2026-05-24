@@ -190,20 +190,20 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | Policy language | INI + K8s CRD | YAML DSL | K8s CRD TracingPolicy | Rego / Go signatures | K8s CRD KubeArmorPolicy |
 | Break-glass / deadman-TTL | ✅ Emergency + revert | ❌ | ❌ | ❌ | ❌ |
 | CO‑RE + BTF | ✅ | ✅ | ✅ | ✅ | ✅ |
-| BTFhub fallback (kernels w/o BTF) | ❌ (roadmap) | ✅ | ✅ | ✅ | ✅ |
+| BTFhub fallback (kernels w/o BTF) | ✅ multi-tier resolver + `scripts/btfgen.sh` | ✅ | ✅ | ✅ | ✅ |
 | Kubernetes CRD + validating webhook | ✅ v1alpha1 | ◐ | ✅ v1 | ◐ | ✅ |
 | Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
-| Signed BPF objects | ◐ (hash verify today, sig prep) | ❌ | ❌ | ❌ | ❌ |
+| Signed BPF objects | ✅ SHA-256 + Ed25519 (`AEGIS_REQUIRE_BPF_SIGNATURE`) | ❌ | ❌ | ❌ | ❌ |
 | SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
 | SLSA L3 build provenance | ✅ v1.0 Build L3 (self-verified) | ✅ | ✅ | ✅ | ◐ |
 | MITRE ATT&CK rule tags | ✅ schema + 5 rules tagged + CI gate | ✅ | ◐ | ◐ | ◐ |
 | CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
 | Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
-| OCSF / ECS / CEF event schema | ◐ OCSF 1.1.0 (`--event-format=ocsf`) for File + Network Activity classes; ECS formatter; CEF roadmap | ✅ | ◐ | ✅ | ◐ |
+| OCSF / ECS / CEF event schema | ✅ OCSF 1.1.0 (`--event-format=ocsf`), ECS formatter, CEF (`--event-format=cef`) for File + Network Activity | ✅ | ◐ | ✅ | ◐ |
 | SIEM integrations (Splunk / Elastic / OTLP) | ✅ | ✅ Falcosidekick | ◐ JSON | ◐ JSON | ◐ JSON |
 | Multi-cluster control plane | ❌ (roadmap) | ◐ | ◐ (Isovalent Ent) | ❌ | ◐ (AccuKnox) |
-| Community rule library | ❌ (roadmap) | ✅ large | ◐ | ◐ | ◐ |
+| Community rule library | ✅ 25 packs (MITRE-tagged) | ✅ large | ◐ | ◐ | ◐ |
 | 3rd-party security audit | ❌ (roadmap) | ✅ | ✅ | ◐ | ◐ |
 | Runtime | C++20 + C (BPF), single binary | C++ | Go | Go | Go |
 
@@ -478,7 +478,7 @@ listed anonymously.
 | Compliance | PCI DSS 4.0 | ✅ `docs/compliance/PCI_DSS_4_MAPPING.md` |
 | Compliance | CIS Kubernetes Benchmark v1.8 | ✅ `docs/compliance/CIS_KUBERNETES_BENCHMARK.md` |
 | Compliance | MITRE ATT&CK for Containers / Linux | ✅ tag schema + CI gate (`docs/rules/MITRE_ATTACK_TAG_SCHEMA.md`) |
-| Event schema | OCSF 1.1 / ECS / CEF | Roadmap (custom JSON + ECS formatter today) |
+| Event schema | OCSF 1.1 / ECS / CEF | ✅ OCSF 1.1.0 + ECS + CEF (`--event-format=ocsf\|cef`) |
 | Community | CNCF Sandbox → Incubating → Graduated | Pre-sandbox |
 
 Full compliance mappings live under [`docs/compliance/`](docs/compliance/).
@@ -511,10 +511,10 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    parent-process / label selectors in match criteria yet.
 6. **BTF fallback requires per-kernel blobs.** Kernels without
    `/sys/kernel/btf/vmlinux` (RHEL 7, very old embedded) need a
-   matching BTF blob staged under `/lib/modules/<release>/btf/vmlinux`,
-   `/var/lib/aegisbpf/btfs/<release>.btf`, `/usr/lib/aegisbpf/btfs/`,
-   `/etc/aegisbpf/btfs/`, or pointed at via `AEGIS_BTF_PATH`. Use
-   `scripts/btfgen.sh` to harvest from BTFhub-archive. See
+   matching BTF blob staged in one of 4 fallback locations. Use
+   `scripts/btfgen.sh --auto` to auto-download from BTFhub-archive
+   (supports Ubuntu, Debian, Fedora, RHEL, CentOS, Amazon Linux,
+   Oracle, SLES, openSUSE, Arch). See
    [`docs/BTF_FALLBACK.md`](docs/BTF_FALLBACK.md).
 7. **No distro packages yet.** Install requires build-from-source or
    the provided container image; Ubuntu PPA / Fedora COPR are on the
