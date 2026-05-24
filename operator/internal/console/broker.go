@@ -71,3 +71,13 @@ func (b *Broker) ClientCount() int {
 	defer b.mu.RUnlock()
 	return len(b.clients)
 }
+
+// PublishReconcile implements controllers.EventPublisher, sending a reconcile
+// event to all connected SSE clients. This bridges the controller loop to
+// the browser without the controllers package importing the console package.
+func (b *Broker) PublishReconcile(kind, name, phase, message string) {
+	b.Publish(Event{
+		Type: EventReconcile,
+		HTML: kind + ": " + name + " → " + phase + " (" + message + ")",
+	})
+}

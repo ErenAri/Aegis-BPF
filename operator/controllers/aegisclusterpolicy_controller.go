@@ -30,7 +30,8 @@ const (
 // AegisClusterPolicyReconciler reconciles AegisClusterPolicy objects.
 type AegisClusterPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Publisher EventPublisher // optional: pushes SSE events to console
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegisclusterpolicies,verbs=get;list;watch;update;patch
@@ -160,6 +161,9 @@ func (r *AegisClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	markReady(&acp.Status, acp.Generation, "Cluster policy translated and ConfigMap written")
+	if r.Publisher != nil {
+		r.Publisher.PublishReconcile("AegisClusterPolicy", acp.Name, "Applied", "Cluster policy applied successfully")
+	}
 	return r.updateStatus(ctx, &acp, "Applied", "Cluster policy applied successfully", result.SHA256)
 }
 

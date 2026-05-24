@@ -49,7 +49,8 @@ const (
 // AegisPolicyReconciler reconciles AegisPolicy objects.
 type AegisPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Publisher EventPublisher // optional: pushes SSE events to console
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies,verbs=get;list;watch;update;patch
@@ -200,6 +201,9 @@ func (r *AegisPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	policyReconcileTotal.WithLabelValues("success").Inc()
 	activePolicies.Inc()
 	markReady(&ap.Status, ap.Generation, "Policy translated and ConfigMap written")
+	if r.Publisher != nil {
+		r.Publisher.PublishReconcile("AegisPolicy", ap.Namespace+"/"+ap.Name, "Applied", "Policy applied successfully")
+	}
 	return r.updateStatus(ctx, &ap, "Applied", "Policy applied successfully", result.SHA256)
 }
 
