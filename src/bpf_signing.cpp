@@ -163,8 +163,7 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
         const auto& trusted_keys = *keys_result;
 
         if (trusted_keys.empty()) {
-            return Error(ErrorCode::SignatureInvalid,
-                         "No trusted keys found; cannot verify BPF signature");
+            return Error(ErrorCode::SignatureInvalid, "No trusted keys found; cannot verify BPF signature");
         }
 
         // Verify signature over the SHA-256 hash bytes
@@ -180,8 +179,7 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
         }
 
         if (!verified) {
-            return Error(ErrorCode::SignatureInvalid,
-                         "BPF Ed25519 signature did not match any trusted key", sig_path);
+            return Error(ErrorCode::SignatureInvalid, "BPF Ed25519 signature did not match any trusted key", sig_path);
         }
     } else if (!signature_hex.empty()) {
         // Signature present but not required -- opportunistically verify and log
