@@ -11,6 +11,11 @@
 > All Phase 1–4 roadmap items are implemented and tested. See
 > [`ROADMAP.md`](ROADMAP.md) for the full status table.
 
+<p>
+  <img width="1491" height="1055" alt="ChatGPT Image May 24, 2026, 08_12_05 PM" src="https://github.com/user-attachments/assets/ebd34862-73a7-41bb-99df-3f73a00a81f1" />
+
+</p>
+
 ## Why this exists
 
 AegisBPF's mainline daemon is designed around the 2019-2023 BPF
