@@ -418,7 +418,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
                bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
                uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
                uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
-               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode)
+               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode,
+               bool enforce_fallback_signal)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -623,6 +624,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
     config.break_glass_active = break_glass_active ? 1 : 0;
     config.deadman_enabled = (deadman_ttl > 0) ? 1 : 0;
     config.enforce_signal = enforce_signal;
+    config.signal_fallback_enforce = enforce_fallback_signal ? 1 : 0;
     config.deadman_ttl_seconds = deadman_ttl;
     config.event_sample_rate = event_sample_rate ? event_sample_rate : 1;
     config.sigkill_escalation_threshold = sigkill_escalation_threshold;

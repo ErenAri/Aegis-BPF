@@ -1305,3 +1305,179 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
     record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
     return -EPERM;
 }
+
+/* ============================================================================
+ * Signal-fallback enforcement (Tier 3 — for kernels without BPF-LSM)
+ *
+ * On hosts where BPF-LSM is unavailable, lsm/socket_connect cannot attach and
+ * outbound connect() cannot be denied with -EPERM. This connect() tracepoint
+ * provides a weaker enforcement tier: when agent_cfg.signal_fallback_enforce is
+ * set AND the agent is in enforce mode, a connect() to a denied endpoint is met
+ * with bpf_send_signal(), terminating the offending process.
+ *
+ * This is detection + signal, NOT synchronous denial: the connect() syscall may
+ * partially proceed before the signal is delivered on syscall return. The
+ * program is inert unless explicitly enabled (default off), so on LSM-capable
+ * hosts running normally it early-returns after a single global read.
+ *
+ * Protocol is unknown at syscall entry (no socket lookup), so only
+ * protocol-agnostic deny rules (protocol=any) are evaluated here.
+ * ============================================================================ */
+SEC("tracepoint/syscalls/sys_enter_connect")
+int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
+{
+    if (!agent_cfg.signal_fallback_enforce)
+        return 0;
+    if (agent_cfg.net_policy_empty)
+        return 0;
+
+    void *uaddr = (void *)ctx->args[1];
+    int addrlen = (int)ctx->args[2];
+    if (!uaddr)
+        return 0;
+
+    __u16 family = 0;
+    if (bpf_probe_read_user(&family, sizeof(family), uaddr))
+        return 0;
+    if (family != AF_INET && family != AF_INET6)
+        return 0;
+
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (is_cgroup_allowed(cgid))
+        return 0;
+
+    __be32 remote_ip_v4 = 0;
+    struct ipv6_key remote_ip_v6 = {};
+    __u16 remote_port = 0;
+
+    if (family == AF_INET) {
+        struct sockaddr_in sin = {};
+        if (addrlen < (int)sizeof(sin))
+            return 0;
+        if (bpf_probe_read_user(&sin, sizeof(sin), uaddr))
+            return 0;
+        remote_ip_v4 = sin.sin_addr.s_addr;
+        remote_port = bpf_ntohs(sin.sin_port);
+    } else {
+        struct sockaddr_in6 sin6 = {};
+        if (addrlen < (int)sizeof(sin6))
+            return 0;
+        if (bpf_probe_read_user(&sin6, sizeof(sin6), uaddr))
+            return 0;
+        remote_port = bpf_ntohs(sin6.sin6_port);
+        __builtin_memcpy(remote_ip_v6.addr, &sin6.sin6_addr, sizeof(remote_ip_v6.addr));
+    }
+
+    __u8 protocol = 0; /* protocol-agnostic: socket not resolvable at entry */
+    int matched = 0;
+    char rule_type[16] = {};
+
+    if (family == AF_INET) {
+        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+        }
+        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip", 3);
+        }
+        if (!matched) {
+            struct ipv4_lpm_key lpm_key = {
+                .prefixlen = 32,
+                .addr = remote_ip_v4,
+            };
+            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+                matched = 1;
+                __builtin_memcpy(rule_type, "cidr", 5);
+            }
+        }
+    } else {
+        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
+        }
+        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+            matched = 1;
+            __builtin_memcpy(rule_type, "ip", 3);
+        }
+        if (!matched) {
+            struct ipv6_lpm_key lpm_key = {
+                .prefixlen = 128,
+                .addr = {0},
+            };
+            __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
+            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+                matched = 1;
+                __builtin_memcpy(rule_type, "cidr", 5);
+            }
+        }
+    }
+
+    if (!matched && port_rule_matches(remote_port, protocol, 0)) {
+        matched = 1;
+        __builtin_memcpy(rule_type, "port", 5);
+    }
+    if (!matched && family == AF_INET && cgroup_ipv4_denied(cgid, remote_ip_v4)) {
+        matched = 1;
+        __builtin_memcpy(rule_type, "cg_ip", 6);
+    }
+    if (!matched && cgroup_port_denied(cgid, remote_port, protocol, 0)) {
+        matched = 1;
+        __builtin_memcpy(rule_type, "cg_port", 8);
+    }
+
+    if (!matched)
+        return 0;
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+    __u8 audit = get_effective_audit_mode();
+
+    increment_net_connect_stats();
+    increment_cgroup_stat(cgid);
+
+    __u8 enforce_signal = 0;
+    if (!audit) {
+        __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+        __u8 configured_signal = get_effective_enforce_signal();
+        if (configured_signal == SIGKILL) {
+            enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time,
+                                                    get_sigkill_escalation_threshold(),
+                                                    get_sigkill_escalation_window_ns());
+        } else {
+            /* A tracepoint cannot return -EPERM, so a too-weak signal would let
+             * the connect proceed. When no SIGKILL escalation is configured,
+             * default the fallback to SIGKILL to make the tier meaningful. */
+            enforce_signal = configured_signal ? configured_signal : SIGKILL;
+        }
+        maybe_send_enforce_signal(enforce_signal);
+    }
+
+    __u32 sample_rate = get_event_sample_rate();
+    if (should_emit_event(sample_rate)) {
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (e) {
+            e->type = EVENT_NET_CONNECT_BLOCK;
+            fill_net_block_event_process_info(&e->net_block, pid, task);
+            e->net_block.cgid = cgid;
+            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
+            e->net_block.family = family;
+            e->net_block.protocol = protocol;
+            e->net_block.local_port = 0;
+            e->net_block.remote_port = remote_port;
+            e->net_block.direction = 0; /* egress (connect) */
+            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
+            if (family == AF_INET6)
+                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
+            else
+                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
+            set_action_string(e->net_block.action, audit, enforce_signal);
+            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
+            bpf_ringbuf_submit(e, 0);
+        } else {
+            increment_net_ringbuf_drops();
+        }
+    }
+
+    return 0;
+}

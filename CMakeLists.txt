@@ -767,6 +767,12 @@ if(BUILD_TESTING)
     set_tests_properties(cli_run_rejects_invalid_enforce_signal PROPERTIES WILL_FAIL TRUE)
 
     add_test(
+        NAME cli_run_rejects_invalid_enforce_fallback
+        COMMAND $<TARGET_FILE:aegisbpf> run --enforce --enforce-fallback=bogus
+    )
+    set_tests_properties(cli_run_rejects_invalid_enforce_fallback PROPERTIES WILL_FAIL TRUE)
+
+    add_test(
         NAME cli_run_rejects_sigkill_without_allow_gate
         COMMAND $<TARGET_FILE:aegisbpf> run --enforce --enforce-signal=kill
     )
