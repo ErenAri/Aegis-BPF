@@ -106,6 +106,9 @@ endif()
 #
 # Levels are probed for compiler support so the cross-compiler/cross-arch matrix
 # (GCC/Clang, x86_64/arm64) degrades gracefully instead of failing the build.
+# Skipped for fuzzing builds, where the sanitizer/fuzzing-engine toolchain owns
+# the compile/link flags (FORTIFY can interfere with sanitizer instrumentation).
+if(NOT ENABLE_FUZZING)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 
@@ -134,6 +137,7 @@ check_cxx_compiler_flag("-D_GLIBCXX_ASSERTIONS" AEGIS_HAS_GLIBCXX_ASSERTIONS)
 if(AEGIS_HAS_GLIBCXX_ASSERTIONS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_ASSERTIONS")
 endif()
+endif() # NOT ENABLE_FUZZING
 
 # Sanitizer configuration
 if(ENABLE_ASAN)
@@ -785,40 +789,35 @@ endif()
 if(ENABLE_FUZZING)
     message(STATUS "Building fuzzing targets")
 
-    # Policy parser fuzzer
-    add_executable(fuzz_policy tests/fuzz/fuzz_policy_parser.cpp)
-    target_link_libraries(fuzz_policy PRIVATE aegisbpf_lib)
-    target_include_directories(fuzz_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_options(fuzz_policy PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_policy PRIVATE -fsanitize=fuzzer,address)
+    # libFuzzer harness name -> source mapping (flat pairs for list(POP_FRONT)).
+    set(AEGIS_FUZZ_TARGETS
+        fuzz_policy  tests/fuzz/fuzz_policy_parser.cpp
+        fuzz_bundle  tests/fuzz/fuzz_signed_bundle.cpp
+        fuzz_network tests/fuzz/fuzz_network_rules.cpp
+        fuzz_path    tests/fuzz/fuzz_path_validation.cpp
+        fuzz_event   tests/fuzz/fuzz_event_handling.cpp
+    )
 
-    # Signed bundle parser fuzzer
-    add_executable(fuzz_bundle tests/fuzz/fuzz_signed_bundle.cpp)
-    target_link_libraries(fuzz_bundle PRIVATE aegisbpf_lib)
-    target_include_directories(fuzz_bundle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_options(fuzz_bundle PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_bundle PRIVATE -fsanitize=fuzzer,address)
+    # OSS-Fuzz / ClusterFuzzLite inject the fuzzing engine and sanitizers via
+    # $LIB_FUZZING_ENGINE + $CFLAGS/$CXXFLAGS. When that is present we must NOT
+    # hardcode -fsanitize=fuzzer,address (it conflicts with their toolchain);
+    # for local/standalone builds we wire libFuzzer + ASan ourselves.
+    set(AEGIS_FUZZ_ENGINE "$ENV{LIB_FUZZING_ENGINE}")
 
-    # Network rules fuzzer
-    add_executable(fuzz_network tests/fuzz/fuzz_network_rules.cpp)
-    target_link_libraries(fuzz_network PRIVATE aegisbpf_lib)
-    target_include_directories(fuzz_network PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_options(fuzz_network PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_network PRIVATE -fsanitize=fuzzer,address)
-
-    # Path validation fuzzer
-    add_executable(fuzz_path tests/fuzz/fuzz_path_validation.cpp)
-    target_link_libraries(fuzz_path PRIVATE aegisbpf_lib)
-    target_include_directories(fuzz_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_options(fuzz_path PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_path PRIVATE -fsanitize=fuzzer,address)
-
-    # Event handling fuzzer
-    add_executable(fuzz_event tests/fuzz/fuzz_event_handling.cpp)
-    target_link_libraries(fuzz_event PRIVATE aegisbpf_lib)
-    target_include_directories(fuzz_event PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_options(fuzz_event PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
-    target_link_options(fuzz_event PRIVATE -fsanitize=fuzzer,address)
+    while(AEGIS_FUZZ_TARGETS)
+        list(POP_FRONT AEGIS_FUZZ_TARGETS _fuzz_name _fuzz_src)
+        add_executable(${_fuzz_name} ${_fuzz_src})
+        target_link_libraries(${_fuzz_name} PRIVATE aegisbpf_lib)
+        target_include_directories(${_fuzz_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_options(${_fuzz_name} PRIVATE -fno-omit-frame-pointer)
+        if(AEGIS_FUZZ_ENGINE)
+            # Engine + sanitizer supplied by the OSS-Fuzz/CFLite environment.
+            target_link_options(${_fuzz_name} PRIVATE ${AEGIS_FUZZ_ENGINE})
+        else()
+            target_compile_options(${_fuzz_name} PRIVATE -fsanitize=fuzzer,address)
+            target_link_options(${_fuzz_name} PRIVATE -fsanitize=fuzzer,address)
+        endif()
+    endwhile()
 endif()
 
 # Installation

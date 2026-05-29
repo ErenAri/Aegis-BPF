@@ -1,0 +1,7 @@
+language: c++
+main_repo: "https://github.com/ErenAri/Aegis-BPF"
+sanitizers:
+  - address
+  - undefined
+fuzzing_engines:
+  - libfuzzer
