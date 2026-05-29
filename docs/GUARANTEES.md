@@ -121,6 +121,15 @@ see `docs/THREAT_MODEL.md`.
 - Network and distributed filesystems (NFS, FUSE variants) are not guaranteed
   surfaces.
 
+### OverlayFS copy-up propagation is asynchronous
+
+- `lsm/inode_copy_up` fires synchronously when a denied lower-layer inode is
+  copied up, but the hook only emits an event and allows the copy-up to proceed.
+- Userspace re-resolves the new upper-layer inode and adds it to the deny map.
+  Between the copy-up completing and that re-propagation there is a brief window
+  in which the new upper-layer inode is not yet denied. This is detection plus
+  best-effort propagation, not synchronous enforcement.
+
 ## Known bypass classes
 
 | Bypass | Affected surface | Mitigation |

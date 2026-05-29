@@ -137,12 +137,12 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | Tracepoint audit when LSM absent | ✅ | ✅ | ✅ | ✅ | ◐ |
 | File enforcement | ✅ Kernel deny | ❌ Detect only | ✅ | ◐ | ✅ |
 | Network enforcement (full socket lifecycle) | ✅ connect/bind/listen/accept/sendmsg/recvmsg | ❌ | ✅ | ◐ | ◐ |
-| **OverlayFS `inode_copy_up` propagation** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **OverlayFS `inode_copy_up` detection + async re-propagation** | ◐ async | ❌ | ❌ | ❌ | ❌ |
 | **IMA-backed trusted exec** (kernel 6.1+) | ✅ `bpf_ima_file_hash` | ❌ | ◐ | ❌ | ❌ |
 | Process ancestry + argv | ✅ 4 MB priority ringbuf | ◐ | ✅ | ✅ | ◐ |
 | Cgroup-scoped policy | ✅ inode / IPv4 / port | ◐ | ✅ | ◐ | ✅ |
 | LPM CIDR v4/v6 network deny | ✅ | ◐ | ✅ | ◐ | ◐ |
-| Ptrace / module-load / BPF syscall blocking | ✅ all three | ❌ | ◐ | ❌ | ◐ |
+| Ptrace / module-load / BPF syscall blocking | ✅ ptrace + bpf · ◐ module (needs kernel lockdown) | ❌ | ◐ | ❌ | ◐ |
 | Policy evaluation | O(1) BPF map lookup | O(rules) userspace | In-kernel TracingPolicy | Hybrid signatures | In-kernel + userspace |
 | Policy language | INI + K8s CRD | YAML DSL | K8s CRD TracingPolicy | Rego / Go signatures | K8s CRD KubeArmorPolicy |
 | Break-glass / deadman-TTL | ✅ Emergency + revert | ❌ | ❌ | ❌ | ❌ |
@@ -167,8 +167,11 @@ Legend: ✅ full · ◐ partial · ❌ absent
 ### Where AegisBPF is uniquely differentiated today
 
 - **OverlayFS copy-up propagation.** No other open-source runtime
-  security agent enforces on `lsm/inode_copy_up`. This closes a
-  real container-escape bypass class.
+  security agent hooks `lsm/inode_copy_up` at all. AegisBPF detects the
+  copy-up synchronously, then re-propagates the deny rule to the new
+  upper-layer inode asynchronously from userspace (best-effort: a brief
+  window exists between copy-up and re-propagation). This addresses a
+  real container-escape bypass class that other agents miss entirely.
 - **IMA-backed trusted exec identity.** Kernel 6.1+ `bpf_ima_file_hash()`
   integration ties allow-listed execs to cryptographic file hashes inside
   `bprm_check_security`.
@@ -239,14 +242,15 @@ Current flagship contract:
 > cgroup-scoped workloads, with safe rollback and signed policy provenance.
 
 Current scope labels:
-- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), OverlayFS
-  copy-up propagation via `inode_copy_up`, outbound network deny for configured
-  `connect()` / `sendmsg()` rules, inbound `recvmsg()` deny, port-oriented
-  `bind()` / `listen()` deny, accepted-peer `accept()` deny, cgroup-scoped
-  inode/IPv4/port deny rules, and IMA-backed exec hash trust on kernel 6.1+
-  when those LSM hooks/helpers are available
+- `ENFORCED`: file deny via LSM (`file_open` / `inode_permission`), outbound
+  network deny for configured `connect()` / `sendmsg()` rules, inbound
+  `recvmsg()` deny, port-oriented `bind()` / `listen()` deny, accepted-peer
+  `accept()` deny, cgroup-scoped inode/IPv4/port deny rules, and IMA-backed
+  exec hash trust on kernel 6.1+ when those LSM hooks/helpers are available
 - `AUDITED`: tracepoint fallback path (no syscall deny), detailed metrics mode,
-  forensic block events with UID/username and exec identity
+  forensic block events with UID/username and exec identity, and OverlayFS
+  copy-up detection via `inode_copy_up` (the deny rule is re-propagated to the
+  new upper-layer inode asynchronously from userspace, so a brief window exists)
 - `PLANNED`: broader runtime surfaces beyond current documented hooks
 
 ## Validation Results
@@ -292,6 +296,7 @@ Public proof lives in the docs and CI artifacts:
 - Kernel/CI execution model: `docs/CI_EXECUTION_STRATEGY.md`
 - Kernel/distro compatibility: `docs/COMPATIBILITY.md`
 - Threat model + non-goals: `docs/THREAT_MODEL.md`
+- Memory-safety posture: `docs/MEMORY_SAFETY.md`
 - Enforcement guarantees + TOCTOU analysis: `docs/GUARANTEES.md`
 - Enforce posture guarantees contract: `docs/ENFORCEMENT_GUARANTEES.md`
 - Emergency control contract: `docs/EMERGENCY_CONTROL_CONTRACT.md`

@@ -479,6 +479,7 @@ if(BUILD_TESTING)
     # Test sources
     set(TEST_SOURCES
         tests/test_main.cpp
+        tests/test_logging.cpp
         tests/test_commands.cpp
         tests/test_crash_policy.cpp
         tests/test_crypto_safe.cpp
