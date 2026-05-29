@@ -269,7 +269,7 @@ Current scope labels:
 | **Binary Hardening** |  VERIFIED | FORTIFY_SOURCE, stack-protector, PIE, full RELRO                                                                              |
 
 **Security Hardening Applied:**
-- Compiler security flags (FORTIFY_SOURCE=2, stack-protector-strong, PIE, RELRO)
+- Compiler security flags (FORTIFY_SOURCE=3, stack-protector-strong, stack-clash-protection, _GLIBCXX_ASSERTIONS, PIE, full RELRO) — probed per-compiler, fall back gracefully
 - Timeout protection on BPF operations (prevents indefinite hangs)
 - Secure temporary file creation via `mkstemp()` (symlink-attack resistant)
 - Atomic file writes (write-rename pattern) for all persistent state

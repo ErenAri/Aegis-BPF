@@ -103,9 +103,37 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
 endif()
 
 # Security hardening flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE")
+#
+# Levels are probed for compiler support so the cross-compiler/cross-arch matrix
+# (GCC/Clang, x86_64/arm64) degrades gracefully instead of failing the build.
+include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
+
+# _FORTIFY_SOURCE: prefer level 3 (GCC 12+/Clang 9+ with glibc >= 2.34), else 2.
+check_cxx_compiler_flag("-D_FORTIFY_SOURCE=3" AEGIS_HAS_FORTIFY3)
+if(AEGIS_HAS_FORTIFY3)
+    set(AEGIS_FORTIFY_LEVEL 3)
+else()
+    set(AEGIS_FORTIFY_LEVEL 2)
+endif()
+
+set(AEGIS_HARDEN_FLAGS "-D_FORTIFY_SOURCE=${AEGIS_FORTIFY_LEVEL} -fstack-protector-strong -fPIE")
+
+# Stack clash protection (large-stack-probe guard; GCC 8+/Clang 11+, x86_64/arm64).
+check_cxx_compiler_flag("-fstack-clash-protection" AEGIS_HAS_STACK_CLASH)
+if(AEGIS_HAS_STACK_CLASH)
+    string(APPEND AEGIS_HARDEN_FLAGS " -fstack-clash-protection")
+endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${AEGIS_HARDEN_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${AEGIS_HARDEN_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie -Wl,-z,relro,-z,now")
+
+# libstdc++ hardened mode (C++ only): bounds/precondition assertions in std:: containers.
+check_cxx_compiler_flag("-D_GLIBCXX_ASSERTIONS" AEGIS_HAS_GLIBCXX_ASSERTIONS)
+if(AEGIS_HAS_GLIBCXX_ASSERTIONS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_ASSERTIONS")
+endif()
 
 # Sanitizer configuration
 if(ENABLE_ASAN)
