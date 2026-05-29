@@ -1,0 +1,46 @@
+#!/bin/sh
+# AegisBPF post-removal maintainer script.
+#
+# Runs after files have been removed. Responsibilities:
+#   1. systemctl daemon-reload so the now-absent unit file is dropped from
+#      systemd's in-memory cache.
+#   2. On `purge` (Debian) only, also remove operator-side state:
+#        /var/lib/aegisbpf  (BPF map pins, capability snapshot, runtime cache)
+#      Config under /etc/aegisbpf is left in place by both Debian
+#      conffile policy and Fedora %config(noreplace), so an operator
+#      who reinstalls does not lose their hand-edited policy.
+#
+# Argument convention:
+#   Debian: $1 = "remove" | "purge" | "upgrade" | "failed-upgrade" | "abort-*"
+#   RPM:    $1 = 1 (upgrade aftermath) or 0 (final removal aftermath)
+
+set -e
+
+ACTION="${1:-remove}"
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+case "${ACTION}" in
+    purge)
+        # Debian-only: operator explicitly asked for full removal.
+        rm -rf /var/lib/aegisbpf || true
+        if command -v deb-systemd-helper >/dev/null 2>&1; then
+            deb-systemd-helper purge aegisbpf.service >/dev/null 2>&1 || true
+            deb-systemd-helper unmask aegisbpf.service >/dev/null 2>&1 || true
+        fi
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Debian non-purge cleanup: leave state dir in place.
+        :
+        ;;
+    0|1)
+        # RPM. /var/lib/aegisbpf is left in place; consistent with
+        # Fedora's general convention that %postun does not delete
+        # operator-side data on package removal.
+        :
+        ;;
+esac
+
+exit 0

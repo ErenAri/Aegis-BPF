@@ -39,12 +39,22 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 option(STATIC_LIBBPF "Build and statically link libbpf from source" OFF)
+option(PORTABLE_GLIBC "Suppress glibc 2.38+ C23 redirections for older distro compat" OFF)
+
+if(PORTABLE_GLIBC)
+    set(GLIBC_COMPAT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/cmake/glibc_compat.h")
+    # Force-include the compat header before any system headers so that
+    # <features.h>'s ISOC2X macros are overridden before <stdlib.h> etc.
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -include ${GLIBC_COMPAT_HEADER}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include ${GLIBC_COMPAT_HEADER}")
+    message(STATUS "Portable glibc: suppressing C23 symbol redirections via ${GLIBC_COMPAT_HEADER}")
+endif()
 
 if(STATIC_LIBBPF)
     include(FetchContent)
     include(ExternalProject)
 
-    set(LIBBPF_VERSION "1.5.0" CACHE STRING "libbpf version to build from source")
+    set(LIBBPF_VERSION "1.6.1" CACHE STRING "libbpf version to build from source")
 
     FetchContent_Declare(
         libbpf_src
@@ -62,6 +72,13 @@ if(STATIC_LIBBPF)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBELF REQUIRED libelf)
 
+    # Pass the glibc compat header to libbpf's Makefile so its object
+    # files also avoid __isoc23_* symbols (e.g. __isoc23_strtoull).
+    set(LIBBPF_EXTRA_CFLAGS "")
+    if(PORTABLE_GLIBC)
+        set(LIBBPF_EXTRA_CFLAGS "-include ${GLIBC_COMPAT_HEADER}")
+    endif()
+
     add_custom_command(
         OUTPUT ${LIBBPF_STATIC_LIB}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${LIBBPF_BUILD_DIR}
@@ -70,6 +87,7 @@ if(STATIC_LIBBPF)
             "OBJDIR=${LIBBPF_BUILD_DIR}"
             "DESTDIR=${LIBBPF_INSTALL_DIR}"
             "PREFIX="
+            "EXTRA_CFLAGS=${LIBBPF_EXTRA_CFLAGS}"
             make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install
         DEPENDS ${LIBBPF_SRC_DIR}/Makefile
         COMMENT "Building libbpf ${LIBBPF_VERSION} (static)"
@@ -269,6 +287,7 @@ set(AEGIS_SOURCES
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
+    src/commands_simulate.cpp
     src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
@@ -279,12 +298,14 @@ set(AEGIS_SOURCES
     src/daemon_runtime.cpp
     src/bpf_attach.cpp
     src/bpf_config.cpp
+    src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
+    src/event_dedup.cpp
     src/events.cpp
     src/hook_capabilities.cpp
     src/json_scan.cpp
@@ -297,6 +318,7 @@ set(AEGIS_SOURCES
     src/policy_runtime.cpp
     src/seccomp.cpp
     src/landlock.cpp
+    src/capabilities.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -309,6 +331,7 @@ set(AEGIS_SOURCES
     src/plugin.cpp
     src/k8s_identity.cpp
     src/ocsf_formatter.cpp
+    src/cef_formatter.cpp
 )
 
 set(AEGIS_HEADERS
@@ -330,6 +353,7 @@ set(AEGIS_HEADERS
     src/commands_network.hpp
     src/commands_policy.hpp
     src/commands_probe.hpp
+    src/commands_simulate.hpp
     src/commands.hpp
     src/control.hpp
     src/daemon.hpp
@@ -339,12 +363,14 @@ set(AEGIS_HEADERS
     src/daemon_test_hooks.hpp
     src/bpf_attach.hpp
     src/bpf_config.hpp
+    src/bpf_link_pin.hpp
     src/bpf_integrity.hpp
     src/bpf_maps.hpp
     src/bpf_ops.hpp
     src/btf_loader.hpp
     src/crypto.hpp
     src/exec_identity.hpp
+    src/event_dedup.hpp
     src/events.hpp
     src/hook_capabilities.hpp
     src/json_scan.hpp
@@ -357,8 +383,10 @@ set(AEGIS_HEADERS
     src/result.hpp
     src/seccomp.hpp
     src/landlock.hpp
+    src/capabilities.hpp
     src/sha256.hpp
     src/ocsf_formatter.hpp
+    src/cef_formatter.hpp
     src/tracing.hpp
     src/tweetnacl.h
     src/types.hpp
@@ -373,12 +401,19 @@ set(AEGIS_HEADERS
     src/k8s_identity.hpp
 )
 
+# Portable glibc compat shims (weak stubs for __isoc23_*, arc4random,
+# _dl_find_object) so the binary runs on glibc < 2.38.
+set(GLIBC_COMPAT_SOURCES "")
+if(PORTABLE_GLIBC)
+    set(GLIBC_COMPAT_SOURCES src/glibc_compat.c)
+endif()
+
 # Build main executable
 if(NOT SKIP_BPF_BUILD)
-    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${SKELETON_HEADER})
+    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${SKELETON_HEADER} ${GLIBC_COMPAT_SOURCES})
     add_dependencies(aegisbpf bpf_skel)
 else()
-    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS})
+    add_executable(aegisbpf ${AEGIS_SOURCES} ${AEGIS_HEADERS} ${GLIBC_COMPAT_SOURCES})
 endif()
 
 target_include_directories(aegisbpf PRIVATE
@@ -389,6 +424,17 @@ target_include_directories(aegisbpf PRIVATE
 target_link_directories(aegisbpf PRIVATE ${LIBBPF_LIBRARY_DIRS})
 find_package(ZLIB REQUIRED)
 target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
+
+# Static libstdc++/libgcc for portable binary packages.
+# Eliminates GLIBCXX version dependencies so the binary runs on
+# older distros (Debian 12) even when built on Ubuntu 24.04.
+# libelf and zlib stay dynamic — the target system's versions are
+# compatible with its own glibc, avoiding the __isoc23_* problem
+# that arises when static-linking Ubuntu 24.04's pre-compiled .a files.
+option(STATIC_STDCXX "Statically link libstdc++ and libgcc" OFF)
+if(STATIC_STDCXX)
+    target_link_options(aegisbpf PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 
 # Systemd integration (optional)
 if (SYSTEMD_FOUND)
@@ -423,6 +469,7 @@ set(AEGIS_LIB_SOURCES
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
+    src/commands_simulate.cpp
     src/commands_metrics.cpp
     src/commands_keys_survival.cpp
     src/commands_monitoring.cpp
@@ -433,12 +480,14 @@ set(AEGIS_LIB_SOURCES
     src/daemon_runtime.cpp
     src/bpf_attach.cpp
     src/bpf_config.cpp
+    src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
     src/exec_identity.cpp
+    src/event_dedup.cpp
     src/events.cpp
     src/hook_capabilities.cpp
     src/json_scan.cpp
@@ -451,6 +500,7 @@ set(AEGIS_LIB_SOURCES
     src/policy_runtime.cpp
     src/seccomp.cpp
     src/landlock.cpp
+    src/capabilities.cpp
     src/sha256.cpp
     src/tweetnacl.c
     src/utils.cpp
@@ -463,6 +513,7 @@ set(AEGIS_LIB_SOURCES
     src/plugin.cpp
     src/k8s_identity.cpp
     src/ocsf_formatter.cpp
+    src/cef_formatter.cpp
 )
 
 add_library(aegisbpf_lib STATIC ${AEGIS_LIB_SOURCES} ${AEGIS_HEADERS})
@@ -529,9 +580,15 @@ if(BUILD_TESTING)
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp
+        tests/test_capabilities.cpp
         tests/test_ocsf_formatter.cpp
+        tests/test_cef_formatter.cpp
+        tests/test_bpf_link_pin.cpp
         tests/test_btf_loader.cpp
         tests/test_hook_capabilities.cpp
+        tests/test_commands_simulate.cpp
+        tests/test_event_dedup.cpp
+        tests/test_net_block_event_dedup.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})
@@ -826,6 +883,12 @@ if(ENABLE_FUZZING)
     endwhile()
 endif()
 
+# Optional post-2024 BPF stack prototype (BPF arena, sched_ext, ...).
+# Gated off by default; see prototype/aegis-next/README.md.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/prototype/aegis-next/CMakeLists.txt")
+    add_subdirectory(prototype/aegis-next)
+endif()
+
 # Installation
 install(TARGETS aegisbpf RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(NOT SKIP_BPF_BUILD)
@@ -840,19 +903,95 @@ install(FILES config/policy.example DESTINATION /etc/aegisbpf)
 set(CPACK_PACKAGE_NAME "aegisbpf")
 set(CPACK_PACKAGE_VENDOR "AegisBPF")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AegisBPF runtime security agent")
+set(CPACK_PACKAGE_DESCRIPTION
+    "AegisBPF is an eBPF + LSM runtime security agent.\n\
+It enforces deny / audit policy for file, exec, and network events on\n\
+modern Linux kernels with BPF-LSM enabled. The daemon is managed via\n\
+the bundled aegisbpf.service systemd unit and configured through\n\
+/etc/default/aegisbpf and /etc/aegisbpf/policy.example.")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_CONTACT "aegisbpf@localhost")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/ErenAri/Aegis-BPF")
+set(CPACK_PACKAGE_CONTACT "AegisBPF maintainers <aegisbpf-maintainers@users.noreply.github.com>")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_SET_DESTDIR ON)
+# Default CPack generator is TGZ; downstream callers (release tooling,
+# CI packaging job, distro maintainers) override on the command line:
+#   cpack -G DEB    # produces aegisbpf_<ver>_<arch>.deb
+#   cpack -G RPM    # produces aegisbpf-<ver>-<rel>.<arch>.rpm
 set(CPACK_GENERATOR "TGZ")
+
+# --- Debian package metadata -------------------------------------------------
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-if(STATIC_LIBBPF)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1")
-    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf")
+set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${CPACK_PACKAGE_CONTACT}")
+# Disable shlibdeps when libstdc++/libgcc are static — dpkg-shlibdeps
+# misreports glibc version needs from the static archives.  With
+# PORTABLE_GLIBC the remaining dynamic deps (libelf, zlib, libc) are
+# declared manually above.
+if(STATIC_STDCXX)
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0")
-    set(CPACK_RPM_PACKAGE_REQUIRES "libbpf")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 endif()
+# systemd is a Recommends, not a hard Depends, so the package can also be
+# installed on minimal containers / non-systemd hosts (operators run the
+# binary directly under their own supervisor in that case).
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "systemd")
+if(STATIC_LIBBPF)
+    # libelf and zlib are dynamic even with STATIC_STDCXX — they must be
+    # present on the target system.
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libelf1t64 | libelf1, zlib1g, libc6")
+else()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libbpf1 | libbpf0, libelf1t64 | libelf1, libc6")
+endif()
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postinst;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/prerm;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm;\
+${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/conffiles")
+
+# --- RPM package metadata ----------------------------------------------------
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_LICENSE "Apache-2.0")
+set(CPACK_RPM_PACKAGE_GROUP "System Environment/Daemons")
+# We install to absolute paths (/etc/default, /etc/aegisbpf, ...) so the
+# package is non-relocatable; CPack defaults handle this correctly when
+# CPACK_RPM_PACKAGE_RELOCATABLE is left unset.
+set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_RPM_PACKAGE_VENDOR "${CPACK_PACKAGE_VENDOR}")
+# CPack's RPM generator falls back to a placeholder if this is unset;
+# pin the description explicitly so `rpm -qpi` shows real text.
+set(CPACK_RPM_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION}")
+set(CPACK_RPM_PACKAGE_SUMMARY "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+if(STATIC_LIBBPF)
+    set(CPACK_RPM_PACKAGE_REQUIRES "elfutils-libelf, zlib, glibc")
+else()
+    set(CPACK_RPM_PACKAGE_REQUIRES "libbpf, elfutils-libelf, glibc")
+endif()
+set(CPACK_RPM_PACKAGE_REQUIRES_POST "systemd")
+set(CPACK_RPM_PACKAGE_REQUIRES_PREUN "systemd")
+set(CPACK_RPM_PACKAGE_REQUIRES_POSTUN "systemd")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postinst")
+set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/prerm")
+set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/maintainer-scripts/postrm")
+# Strip is intentionally disabled so debug-info post-builders don't change
+# the binary in a way that defeats reproducibility verification.
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __brp_strip /bin/true\n%global __brp_strip_static_archive /bin/true")
+# Keep RPM file ownership stable across staging directory variation.
+set(CPACK_RPM_USER_FILELIST
+    "%config(noreplace) /etc/default/aegisbpf"
+    "%config(noreplace) /etc/aegisbpf/policy.example")
+# /etc/aegisbpf is created by the install rule for policy.example; ensure
+# /etc/default/aegisbpf is not flagged %ghost.
+if(STATIC_STDCXX)
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV OFF)
+else()
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+endif()
+
 include(CPack)

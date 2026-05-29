@@ -24,9 +24,10 @@ int usage(const char* prog)
            "[--allow-unsigned-bpf] [--allow-unknown-binary-identity] [--strict-degrade] "
            "[--enforce-gate-mode=fail-closed|audit-fallback] "
            "[--kill-escalation-threshold=<n>] [--kill-escalation-window-seconds=<seconds>] [--seccomp] [--landlock] "
+           "[--drop-caps] "
            "[--deadman-ttl=<seconds>] [--lsm-hook=file|inode|both] [--ringbuf-bytes=<bytes>] [--event-sample-rate=<n>] "
            "[--log=stdout|journald|both] [--log-level=debug|info|warn|error] [--log-format=text|json] "
-           "[--event-format=aegis|ocsf]"
+           "[--event-format=aegis|ocsf|cef]"
         << " | block {add|del|list|clear} [path]" << " | allow {add|del} <cgroup_path> | allow list"
         << " | network deny {add|del} --ip <ipv4|ipv6> | --cidr <cidr> | --ip-port <ip:port[:protocol]> "
            "| --port <port> [--protocol tcp|udp|any] [--direction egress|bind|both]"
@@ -39,7 +40,9 @@ int usage(const char* prog)
         << " | emergency-disable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-enable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"
         << " | emergency-status [--json] [--log=stdout|journald|both]" << " | probe"
-        << " | explain <event.json> [--policy <path>] [--json]" << " | version | --version | -V" << '\n';
+        << " | explain <event.json> [--policy <path>] [--json]"
+        << " | simulate <events.jsonl>|- --policy <candidate.conf> [--per-event] [--json]"
+        << " | version | --version | -V" << '\n';
     return 1;
 }
 

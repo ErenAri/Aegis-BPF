@@ -311,6 +311,15 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 }
             }
 
+            for (const auto& comm : policy.deny_comm) {
+                auto result = add_deny_comm_to_fd(shadows.deny_comm.fd(), comm);
+                if (!result) {
+                    logger().log(SLOG_WARN("Failed to add deny comm to shadow")
+                                     .field("comm", comm)
+                                     .field("error", result.error().message()));
+                }
+            }
+
             for (const auto& cgid : policy.allow_cgroup_ids) {
                 auto result = add_allow_cgroup_to_fd(shadows.allow_cgroup.fd(), cgid);
                 if (!result) {
@@ -487,6 +496,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
             TRY(sync_from_shadow(state.deny_inode, shadows.deny_inode.fd()));
             TRY(sync_from_shadow(state.deny_path, shadows.deny_path.fd()));
+            TRY(sync_from_shadow(state.deny_comm, shadows.deny_comm.fd()));
             TRY(sync_from_shadow(state.allow_cgroup, shadows.allow_cgroup.fd()));
             TRY(sync_from_shadow(state.allow_exec_inode, shadows.allow_exec_inode.fd()));
 

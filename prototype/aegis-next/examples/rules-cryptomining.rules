@@ -1,0 +1,34 @@
+# aegis-next rule pack: Cryptocurrency mining detection
+#
+# Covers: known miner binaries, mining pool ports, mining-related tools.
+# Severity: HIGH — miners indicate compromise or unauthorized resource use.
+# Source: Falco default_rules (Detect crypto miners), Sigma proc_creation_lnx_crypto_mining.
+
+# ---- Known miner binaries (SIGKILL on exec) ----
+exec  comm  xmrig       deny  kill
+exec  comm  xmr-stak    deny  kill
+exec  comm  minerd      deny  kill
+exec  comm  cpuminer    deny  kill
+exec  comm  cgminer     deny  kill
+exec  comm  bfgminer    deny  kill
+exec  comm  ethminer    deny  kill
+exec  comm  nbminer     deny  kill
+exec  comm  t-rex       deny  kill
+exec  comm  gminer      deny  kill
+exec  comm  lolminer    deny  kill
+exec  comm  phoenixmine deny  kill
+exec  comm  teamredmine deny  kill
+exec  comm  nanominer   deny  kill
+exec  comm  srbminer    deny  kill
+exec  comm  wildrig     deny  kill
+exec  comm  ccminer     deny  kill
+
+# ---- Mining pool ports (Stratum protocol) ----
+conn  port  3333  deny  kill
+conn  port  4444  deny  kill
+conn  port  5555  deny  kill
+conn  port  7777  deny  kill
+conn  port  8888  deny
+conn  port  9999  deny
+conn  port  14444 deny  kill
+conn  port  45700 deny  kill

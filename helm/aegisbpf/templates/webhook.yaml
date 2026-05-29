@@ -1,0 +1,89 @@
+{{- if and .Values.operator.enabled .Values.operator.webhook.enabled }}
+{{- $certManagerEnabled := .Values.operator.webhook.certManager }}
+{{- $createIssuerVal := .Values.operator.webhook.createSelfSignedIssuer }}
+{{- $createIssuer := and $certManagerEnabled (not (eq (printf "%v" $createIssuerVal) "false")) }}
+{{- $issuerName := default (printf "%s-selfsigned-issuer" (include "aegisbpf.fullname" .)) .Values.operator.webhook.issuerRef.name }}
+{{- $issuerKind := default "ClusterIssuer" .Values.operator.webhook.issuerRef.kind }}
+{{/*
+  Self-signed ClusterIssuer — created automatically so cert-manager
+  works out of the box without any pre-existing PKI infrastructure.
+*/}}
+{{- if $createIssuer }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $issuerName }}
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  selfSigned: {}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  ports:
+    - port: 443
+      targetPort: {{ .Values.operator.webhook.port }}
+      protocol: TCP
+  selector:
+    {{- include "aegisbpf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-policy-validator
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+  {{- if $certManagerEnabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "aegisbpf.fullname" . }}-webhook-cert
+  {{- end }}
+webhooks:
+  - name: validate.aegispolicy.aegisbpf.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.operator.webhook.failurePolicy }}
+    clientConfig:
+      service:
+        name: {{ include "aegisbpf.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-aegisbpf-io-v1alpha1-policy
+        port: 443
+    rules:
+      - apiGroups: ["aegisbpf.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["aegispolicies", "aegisclusterpolicies"]
+        scope: "*"
+    matchPolicy: Equivalent
+    timeoutSeconds: 10
+{{- if $certManagerEnabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "aegisbpf.fullname" . }}-webhook-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aegisbpf.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "aegisbpf.fullname" . }}-webhook-tls
+  issuerRef:
+    name: {{ $issuerName }}
+    kind: {{ $issuerKind }}
+  dnsNames:
+    - {{ include "aegisbpf.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "aegisbpf.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  duration: 8760h   # 1 year
+  renewBefore: 720h # 30 days
+{{- end }}
+{{- end }}

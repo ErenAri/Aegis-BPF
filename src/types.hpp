@@ -152,7 +152,14 @@ enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
 /// OCSF natively (Splunk, Elastic, Snowflake, AWS Security Lake)
 /// can parse without a custom mapping. See `src/ocsf_formatter.cpp`
 /// for the per-event-type class assignment.
-enum class EventFormat { Aegis, Ocsf };
+///
+/// `Cef` emits ArcSight Common Event Format records — single-line
+/// pipe-delimited headers with a `key=value` extension section. CEF
+/// is the canonical ingestion format for ArcSight, and Splunk's
+/// CEF-add-on / Splunk Enterprise Security TA-cef parses it without a
+/// custom sourcetype. See `src/cef_formatter.cpp` for the per-event
+/// signature/extension mapping.
+enum class EventFormat { Aegis, Ocsf, Cef };
 
 inline constexpr size_t kMaxArgvSize = 256;
 inline constexpr size_t kAncestorMaxDepth = 8;
@@ -530,6 +537,7 @@ struct Policy {
     std::vector<std::string> deny_binary_hashes;  // sha256:... entries (v3+)
     std::vector<std::string> allow_binary_hashes; // sha256:... entries (v3+)
     std::vector<std::string> scan_paths;          // Extra paths for binary hash scan (v3+)
+    std::vector<std::string> deny_comm;           // process comm names to block (v5+)
     // Kernel security hooks (MITRE ATT&CK coverage)
     bool deny_ptrace = false;      // block ptrace (T1055.008)
     bool deny_module_load = false; // block kernel module loading (T1547.006)

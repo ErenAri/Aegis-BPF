@@ -135,6 +135,12 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
     }
     set.deny_path = std::move(*r);
 
+    r = mk(state.deny_comm);
+    if (!r) {
+        return r.error();
+    }
+    set.deny_comm = std::move(*r);
+
     r = mk(state.allow_cgroup);
     if (!r) {
         return r.error();

@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "crypto.hpp"
 #include "logging.hpp"
 
 namespace aegis {
@@ -68,6 +69,9 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
     const char* allow_unsigned = std::getenv("AEGIS_ALLOW_UNSIGNED_BPF");
     bool unsigned_allowed = (allow_unsigned != nullptr && std::string(allow_unsigned) == "1");
 
+    const char* require_sig_env = std::getenv("AEGIS_REQUIRE_BPF_SIGNATURE");
+    bool require_signature = (require_sig_env != nullptr && std::string(require_sig_env) == "1");
+
     std::string sig_path = obj_path + ".sig";
     std::ifstream sig_file(sig_path);
 
@@ -76,6 +80,11 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
             logger().log(
                 SLOG_WARN("BPF signature file not found, unsigned allowed via break-glass").field("path", sig_path));
             return {};
+        }
+
+        if (require_signature) {
+            return Error(ErrorCode::SignatureInvalid,
+                         "BPF signature file not found and AEGIS_REQUIRE_BPF_SIGNATURE is set", sig_path);
         }
 
         const char* require_hash = std::getenv("AEGIS_REQUIRE_BPF_HASH");
@@ -97,10 +106,13 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
     }
 
     std::string expected_hex;
+    std::string signature_hex;
     std::string line;
     while (std::getline(sig_file, line)) {
         if (line.rfind("sha256:", 0) == 0) {
             expected_hex = line.substr(7);
+        } else if (line.rfind("signature:", 0) == 0) {
+            signature_hex = line.substr(10);
         }
     }
 
@@ -122,7 +134,76 @@ Result<void> verify_bpf_signature(const std::string& obj_path)
                      "expected=" + expected_hex + " actual=" + actual_hex);
     }
 
-    logger().log(SLOG_INFO("BPF signature verified").field("hash", actual_hex));
+    logger().log(SLOG_INFO("BPF object hash verified").field("hash", actual_hex));
+
+    // Ed25519 signature verification
+    if (require_signature) {
+        if (signature_hex.empty()) {
+            if (unsigned_allowed) {
+                logger().log(SLOG_WARN("BPF signature missing but unsigned allowed via break-glass"));
+                return {};
+            }
+            return Error(ErrorCode::SignatureInvalid,
+                         "BPF .sig file lacks Ed25519 signature and AEGIS_REQUIRE_BPF_SIGNATURE is set", sig_path);
+        }
+
+        // Decode the signature from hex
+        auto sig_result = decode_signature(signature_hex);
+        if (!sig_result) {
+            return Error(ErrorCode::SignatureInvalid, "Failed to decode BPF Ed25519 signature",
+                         sig_result.error().message());
+        }
+        const Signature& ed_sig = *sig_result;
+
+        // Load trusted keys
+        auto keys_result = load_trusted_keys();
+        if (!keys_result) {
+            return Error(ErrorCode::SignatureInvalid, "Failed to load trusted keys", keys_result.error().message());
+        }
+        const auto& trusted_keys = *keys_result;
+
+        if (trusted_keys.empty()) {
+            return Error(ErrorCode::SignatureInvalid, "No trusted keys found; cannot verify BPF signature");
+        }
+
+        // Verify signature over the SHA-256 hash bytes
+        bool verified = false;
+        for (const auto& key : trusted_keys) {
+            if (verify_bytes(hash_result->data(), hash_result->size(), ed_sig, key)) {
+                logger().log(SLOG_INFO("BPF Ed25519 signature verified")
+                                 .field("key", encode_hex(key))
+                                 .field("hash", actual_hex));
+                verified = true;
+                break;
+            }
+        }
+
+        if (!verified) {
+            return Error(ErrorCode::SignatureInvalid, "BPF Ed25519 signature did not match any trusted key", sig_path);
+        }
+    } else if (!signature_hex.empty()) {
+        // Signature present but not required -- opportunistically verify and log
+        auto sig_result = decode_signature(signature_hex);
+        if (sig_result) {
+            auto keys_result = load_trusted_keys();
+            if (keys_result && !keys_result->empty()) {
+                bool verified = false;
+                for (const auto& key : *keys_result) {
+                    if (verify_bytes(hash_result->data(), hash_result->size(), *sig_result, key)) {
+                        verified = true;
+                        break;
+                    }
+                }
+                if (verified) {
+                    logger().log(SLOG_INFO("BPF Ed25519 signature verified (advisory)").field("hash", actual_hex));
+                } else {
+                    logger().log(SLOG_WARN("BPF Ed25519 signature present but did not match any trusted key")
+                                     .field("hash", actual_hex));
+                }
+            }
+        }
+    }
+
     return {};
 }
 
@@ -139,6 +220,12 @@ Result<void> write_bpf_signature(const std::string& obj_path, const BpfSignature
     f << "timestamp:" << sig.timestamp << "\n";
     f << "key_id:" << hex_encode(sig.signer_key_id.data(), 32) << "\n";
     f << "format_version:" << sig.format_version << "\n";
+
+    // Write Ed25519 signature if present (non-zero)
+    static constexpr std::array<uint8_t, 64> zero_sig{};
+    if (sig.signature != zero_sig) {
+        f << "signature:" << hex_encode(sig.signature.data(), 64) << "\n";
+    }
 
     return {};
 }
@@ -162,6 +249,8 @@ Result<BpfSignature> read_bpf_signature(const std::string& obj_path)
             sig.timestamp = std::stoull(line.substr(10));
         } else if (line.rfind("key_id:", 0) == 0) {
             hex_decode(line.substr(7), sig.signer_key_id.data(), 32);
+        } else if (line.rfind("signature:", 0) == 0) {
+            hex_decode(line.substr(10), sig.signature.data(), 64);
         }
     }
 

@@ -20,8 +20,11 @@
 #include <fstream>
 #include <memory>
 #include <thread>
+#include <vector>
 
+#include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
+#include "capabilities.hpp"
 #include "daemon_policy_gate.hpp"
 #include "daemon_posture.hpp"
 #include "daemon_runtime.hpp"
@@ -414,12 +417,12 @@ void reset_attach_all_for_test()
     g_deps.attach_all = make_default_deps().attach_all;
 }
 
-int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint32_t deadman_ttl, uint8_t enforce_signal,
-               bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes, uint32_t event_sample_rate,
-               uint32_t sigkill_escalation_threshold, uint32_t sigkill_escalation_window_seconds,
-               uint32_t deny_rate_threshold, uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf,
-               bool allow_unknown_binary_identity, bool strict_degrade, EnforceGateMode enforce_gate_mode,
-               bool enforce_fallback_signal)
+int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool enable_cap_drop, uint32_t deadman_ttl,
+               uint8_t enforce_signal, bool allow_sigkill, LsmHookMode lsm_hook, uint32_t ringbuf_bytes,
+               uint32_t event_sample_rate, uint32_t sigkill_escalation_threshold,
+               uint32_t sigkill_escalation_window_seconds, uint32_t deny_rate_threshold,
+               uint32_t deny_rate_breach_limit, bool allow_unsigned_bpf, bool allow_unknown_binary_identity,
+               bool strict_degrade, EnforceGateMode enforce_gate_mode, bool enforce_fallback_signal)
 {
     const std::string trace_id = make_span_id("trace-daemon");
     ScopedSpan root_span("daemon.run", trace_id);
@@ -692,6 +695,46 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
         }
         attach_network_hooks = false;
     }
+    // Configure pinned-link fail-safe before attach. Off by default;
+    // operators opt in via env var so this change cannot regress any
+    // existing deployment. The pin root defaults to
+    // `/sys/fs/bpf/aegisbpf` and must already be on a mounted bpffs.
+    // Failure to set up bpffs / mkdir is fatal when the flag is on —
+    // partial pinning would silently weaken the guarantee.
+    state.enforce_pin_links = false;
+    state.pin_root.clear();
+    if (const char* env = std::getenv("AEGIS_ENFORCE_PIN_LINKS"); env != nullptr && env[0] == '1') {
+        const char* pin_root_env = std::getenv("AEGIS_PIN_ROOT");
+        std::string pin_root = (pin_root_env != nullptr && pin_root_env[0] != '\0') ? pin_root_env : kDefaultPinRoot;
+        // Parent of pin_root must be a mounted bpffs.
+        std::string parent = pin_root;
+        auto slash = parent.find_last_of('/');
+        if (slash != std::string::npos && slash > 0) {
+            parent.resize(slash);
+        }
+        if (!is_bpffs_mounted(parent)) {
+            return fail(Error(ErrorCode::IoError, "AEGIS_ENFORCE_PIN_LINKS=1 but bpffs is not mounted at " + parent +
+                                                      " (try: mount -t bpf bpf /sys/fs/bpf)")
+                            .to_string());
+        }
+        auto ensure_result = ensure_pin_root(pin_root);
+        if (!ensure_result) {
+            return fail(ensure_result.error().to_string());
+        }
+        state.enforce_pin_links = true;
+        state.pin_root = pin_root;
+
+        // Heartbeat auto-heal: default ON whenever pin-links is enabled.
+        // Operators can disable via `AEGIS_PIN_HEAL=0` to fall back to
+        // warn-only verify (useful while debugging a flaky bpffs).
+        const char* heal_env = std::getenv("AEGIS_PIN_HEAL");
+        state.enable_pin_heal = (heal_env == nullptr) || (heal_env[0] != '0');
+
+        logger().log(SLOG_INFO("Pinned-link fail-safe ENABLED — LSM hooks will survive daemon crash")
+                         .field("pin_root", pin_root)
+                         .field("auto_heal", state.enable_pin_heal));
+    }
+
     ScopedSpan attach_span("daemon.attach_programs", trace_id, root_span.span_id());
     auto attach_result =
         g_deps.attach_all(state, lsm_enabled, use_inode_permission, use_file_open, attach_network_hooks);
@@ -810,6 +853,33 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
         }
     }
 
+    // Drop capabilities that were only needed for BPF program load and
+    // attach. Map updates from this point onward use file descriptors
+    // that were already opened with the appropriate caps; we keep
+    // CAP_NET_ADMIN (cgroup-scoped network maps) and CAP_DAC_READ_SEARCH
+    // (read /proc/<pid>/{exe,cgroup,ns/*}). Best-effort: a failure here
+    // logs a WARN but does not stop the daemon, since LSM enforcement
+    // still works with wider caps.
+    std::vector<int> caps_dropped;
+    if (enable_cap_drop) {
+        ScopedSpan cap_span("daemon.drop_capabilities", trace_id, root_span.span_id());
+        if (!capabilities_split_supported()) {
+            logger().log(SLOG_WARN("Capability split (CAP_BPF/CAP_PERFMON) unsupported on this kernel; "
+                                   "continuing without post-attach drop"));
+        } else {
+            auto drop_result = apply_post_attach_cap_drop();
+            if (!drop_result) {
+                cap_span.fail(drop_result.error().to_string());
+                logger().log(SLOG_WARN("Failed to drop post-attach capabilities; continuing")
+                                 .field("error", drop_result.error().to_string()));
+            } else {
+                caps_dropped = std::move(*drop_result);
+                logger().log(SLOG_INFO("Capabilities dropped post-attach")
+                                 .field("count", static_cast<int64_t>(caps_dropped.size())));
+            }
+        }
+    }
+
     // Apply Landlock LSM filesystem sandbox before seccomp. This narrows
     // the set of paths the daemon can open at all; seccomp narrows the
     // set of syscalls. Doing Landlock first means a kernel that supports
@@ -861,6 +931,8 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, uint3
             .field("seccomp", enable_seccomp)
             .field("landlock", enable_landlock)
             .field("landlock_abi", static_cast<int64_t>(landlock_abi_version()))
+            .field("cap_drop", enable_cap_drop)
+            .field("caps_dropped", static_cast<int64_t>(caps_dropped.size()))
             .field("break_glass", break_glass_active)
             .field("deadman_ttl", static_cast<int64_t>(deadman_ttl))
             .field("exec_identity_kernel", kernel_exec_identity_enabled)

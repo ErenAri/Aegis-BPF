@@ -67,6 +67,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     bool audit_only = false;
     bool enable_seccomp = false;
     bool enable_landlock = false;
+    bool enable_cap_drop = false;
     bool allow_sigkill = false;
     bool allow_unsigned_bpf = false;
     bool allow_unknown_binary_identity = false;
@@ -85,6 +86,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t max_network_entries = 0;
     EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
     bool enforce_fallback_signal = false;
+    uint32_t event_dedup_window_ms = 0;
+    uint32_t event_dedup_max_entries = 4096;
 
     const char* env_gate = std::getenv("AEGIS_ENFORCE_GATE_MODE");
     if (env_gate != nullptr && std::strlen(env_gate) > 0) {
@@ -93,6 +96,27 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             enforce_gate_mode = parsed;
         } else {
             logger().log(SLOG_WARN("Invalid AEGIS_ENFORCE_GATE_MODE; using default").field("value", env_gate));
+        }
+    }
+
+    const char* env_dedup_window = std::getenv("AEGIS_EVENT_DEDUP_WINDOW_MS");
+    if (env_dedup_window != nullptr && std::strlen(env_dedup_window) > 0) {
+        uint64_t parsed = 0;
+        if (parse_uint64(env_dedup_window, parsed) && parsed <= UINT32_MAX) {
+            event_dedup_window_ms = static_cast<uint32_t>(parsed);
+        } else {
+            logger().log(
+                SLOG_WARN("Invalid AEGIS_EVENT_DEDUP_WINDOW_MS; using default").field("value", env_dedup_window));
+        }
+    }
+    const char* env_dedup_max = std::getenv("AEGIS_EVENT_DEDUP_MAX_ENTRIES");
+    if (env_dedup_max != nullptr && std::strlen(env_dedup_max) > 0) {
+        uint64_t parsed = 0;
+        if (parse_uint64(env_dedup_max, parsed) && parsed <= UINT32_MAX && parsed > 0) {
+            event_dedup_max_entries = static_cast<uint32_t>(parsed);
+        } else {
+            logger().log(
+                SLOG_WARN("Invalid AEGIS_EVENT_DEDUP_MAX_ENTRIES; using default").field("value", env_dedup_max));
         }
     }
 
@@ -106,6 +130,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             enable_seccomp = true;
         } else if (arg == "--landlock") {
             enable_landlock = true;
+        } else if (arg == "--drop-caps") {
+            enable_cap_drop = true;
         } else if (arg == "--allow-sigkill") {
             allow_sigkill = true;
         } else if (arg == "--allow-unsigned-bpf") {
@@ -171,14 +197,14 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         } else if (arg.rfind("--event-format=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--event-format="));
             if (!set_event_format(value)) {
-                logger().log(SLOG_ERROR("Invalid event format (try aegis or ocsf)").field("value", value));
+                logger().log(SLOG_ERROR("Invalid event format (try aegis, ocsf, or cef)").field("value", value));
                 return 1;
             }
         } else if (arg == "--event-format") {
             if (i + 1 >= argc)
                 return usage(prog);
             if (!set_event_format(argv[++i])) {
-                logger().log(SLOG_ERROR("Invalid event format (try aegis or ocsf)").field("value", argv[i]));
+                logger().log(SLOG_ERROR("Invalid event format (try aegis, ocsf, or cef)").field("value", argv[i]));
                 return 1;
             }
         } else if (arg.rfind("--log-level=", 0) == 0 || arg.rfind("--log-format=", 0) == 0) {
@@ -280,6 +306,24 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
                 return usage(prog);
             if (!parse_u32_option(argv[++i], max_network_entries, "Invalid max network entries", true))
                 return 1;
+        } else if (arg.rfind("--event-dedup-window-ms=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--event-dedup-window-ms="));
+            if (!parse_u32_option(value, event_dedup_window_ms, "Invalid event dedup window (milliseconds)", false))
+                return 1;
+        } else if (arg == "--event-dedup-window-ms") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], event_dedup_window_ms, "Invalid event dedup window (milliseconds)", false))
+                return 1;
+        } else if (arg.rfind("--event-dedup-max-entries=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--event-dedup-max-entries="));
+            if (!parse_u32_option(value, event_dedup_max_entries, "Invalid event dedup max entries", true))
+                return 1;
+        } else if (arg == "--event-dedup-max-entries") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            if (!parse_u32_option(argv[++i], event_dedup_max_entries, "Invalid event dedup max entries", true))
+                return 1;
         } else if (arg.rfind("--lsm-hook=", 0) == 0) {
             std::string value = arg.substr(std::strlen("--lsm-hook="));
             if (!parse_lsm_hook(value, lsm_hook)) {
@@ -309,10 +353,24 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
         set_max_network_entries(max_network_entries);
     }
 
-    return daemon_run(audit_only, enable_seccomp, enable_landlock, deadman_ttl, enforce_signal, allow_sigkill, lsm_hook,
-                      ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold, sigkill_escalation_window_seconds,
-                      deny_rate_threshold, deny_rate_breach_limit, allow_unsigned_bpf, allow_unknown_binary_identity,
-                      strict_degrade, enforce_gate_mode, enforce_fallback_signal);
+    configure_block_event_dedup(event_dedup_window_ms, event_dedup_max_entries);
+    // Same flags drive the network-block-event deduper. The two
+    // dedupers maintain independent state (and the key includes a
+    // per-event-class tag, so domains never overlap) but operators
+    // configure both at once - they think in terms of "duplicate
+    // suppression window", not "block vs net-block window".
+    configure_net_block_event_dedup(event_dedup_window_ms, event_dedup_max_entries);
+    if (event_dedup_window_ms > 0) {
+        logger().log(SLOG_INFO("Block-event dedup enabled")
+                         .field("window_ms", static_cast<uint64_t>(event_dedup_window_ms))
+                         .field("max_entries", static_cast<uint64_t>(event_dedup_max_entries)));
+    }
+
+    return daemon_run(audit_only, enable_seccomp, enable_landlock, enable_cap_drop, deadman_ttl, enforce_signal,
+                      allow_sigkill, lsm_hook, ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
+                      sigkill_escalation_window_seconds, deny_rate_threshold, deny_rate_breach_limit,
+                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode,
+                      enforce_fallback_signal);
 }
 
 } // namespace aegis

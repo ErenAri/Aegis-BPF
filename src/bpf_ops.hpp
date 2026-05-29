@@ -17,6 +17,22 @@
 
 namespace aegis {
 
+/// One pinned LSM/tracepoint hook tracked alongside `BpfState::links` so
+/// the heartbeat thread can verify the bpffs pin still exists. The `link`
+/// pointer is **borrowed** — its lifetime is owned by `BpfState::links`
+/// and freed by `cleanup_bpf()`; this struct does not own it.
+struct PinnedHook {
+    /// libbpf program name (`bpf_program__name()`), used both as the
+    /// basename of the pin path and as a stable key for diagnostics.
+    std::string program_name;
+
+    /// Borrowed; do NOT destroy from this struct.
+    bpf_link* link = nullptr;
+
+    /// Absolute pin path, e.g. `/sys/fs/bpf/aegisbpf/handle_inode_permission`.
+    std::string pin_path;
+};
+
 /**
  * RAII wrapper for BPF state
  *
@@ -42,6 +58,7 @@ class BpfState {
             events = other.events;
             deny_inode = other.deny_inode;
             deny_path = other.deny_path;
+            deny_comm = other.deny_comm;
             allow_cgroup = other.allow_cgroup;
             allow_exec_inode = other.allow_exec_inode;
             exec_identity_mode = other.exec_identity_mode;
@@ -57,6 +74,18 @@ class BpfState {
             deny_cgroup_ipv4 = other.deny_cgroup_ipv4;
             deny_cgroup_port = other.deny_cgroup_port;
             links = std::move(other.links);
+            enforce_pin_links = other.enforce_pin_links;
+            pin_root = std::move(other.pin_root);
+            pinned_hooks = std::move(other.pinned_hooks);
+            enable_pin_heal = other.enable_pin_heal;
+            pin_heal_attempts = other.pin_heal_attempts;
+            pin_heal_successes = other.pin_heal_successes;
+            pin_heal_failures = other.pin_heal_failures;
+            other.enforce_pin_links = false;
+            other.enable_pin_heal = false;
+            other.pin_heal_attempts = 0;
+            other.pin_heal_successes = 0;
+            other.pin_heal_failures = 0;
             inode_reused = other.inode_reused;
             deny_path_reused = other.deny_path_reused;
             cgroup_reused = other.cgroup_reused;
@@ -124,6 +153,7 @@ class BpfState {
             other.events = nullptr;
             other.deny_inode = nullptr;
             other.deny_path = nullptr;
+            other.deny_comm = nullptr;
             other.allow_cgroup = nullptr;
             other.allow_exec_inode = nullptr;
             other.exec_identity_mode = nullptr;
@@ -213,6 +243,7 @@ class BpfState {
     bpf_map* events = nullptr;
     bpf_map* deny_inode = nullptr;
     bpf_map* deny_path = nullptr;
+    bpf_map* deny_comm = nullptr;
     bpf_map* allow_cgroup = nullptr;
     bpf_map* allow_exec_inode = nullptr;
     bpf_map* exec_identity_mode = nullptr;
@@ -223,6 +254,35 @@ class BpfState {
     bpf_map* agent_meta = nullptr;
     bpf_map* config_map = nullptr;
     std::vector<bpf_link*> links;
+
+    // ------------------------------------------------------------------
+    // Pinned-link fail-safe (gated by `enforce_pin_links`, default OFF)
+    // ------------------------------------------------------------------
+    // When `enforce_pin_links` is true, each successful attach in
+    // `attach_prog()` is immediately pinned at
+    // `<pin_root>/<program_name>` inside bpffs. This keeps LSM hooks
+    // active even if `aegisbpfd` segfaults / is OOM-killed, so a hostile
+    // process cannot disable enforcement just by killing the daemon.
+    //
+    // `pinned_hooks` records each pin so the heartbeat thread can
+    // periodically verify the pin still exists (auto re-attach is
+    // deferred to a follow-up PR — this PR is warn-only on missing pin).
+    bool enforce_pin_links = false;
+    std::string pin_root; // populated only when enforce_pin_links is true
+    std::vector<PinnedHook> pinned_hooks;
+
+    // When true (default when enforce_pin_links is enabled), the heartbeat
+    // thread re-pins any link whose bpffs entry disappears. The userspace
+    // bpf_link* stays alive in `links`, so heal is just a fresh
+    // bpf_link__pin() call — no kernel attach syscall is invoked.
+    // Set to false via `AEGIS_PIN_HEAL=0` to fall back to warn-only verify.
+    bool enable_pin_heal = false;
+
+    // Heartbeat-visible counters for the heal watchdog. Aggregated across
+    // the daemon's lifetime; surfaced via diagnostics for SIEMs.
+    uint64_t pin_heal_attempts = 0;
+    uint64_t pin_heal_successes = 0;
+    uint64_t pin_heal_failures = 0;
 
     // Reuse flags
     bool inode_reused = false;
@@ -304,6 +364,33 @@ class BpfState {
 };
 
 // BPF loading and lifecycle
+/**
+ * One entry in the optional-LSM-hook autoload-gating catalog.
+ *
+ * `hook_name` is the bare hook symbol (matches the keys passed to
+ * `disable_optional_program(...)` and the keys used internally by
+ * `detect_missing_optional_lsm_hooks`).
+ *
+ * `btf_symbol` is the `bpf_lsm_<hook>` trampoline FUNC entry that
+ * actually appears in vmlinux BTF and that the BPF-LSM attach path
+ * binds to. The two names diverge for `mmap_file` (kernel hook
+ * renamed from `file_mmap` pre-5.6); the catalog records the rename
+ * explicitly so it can be unit-tested against `hook_capabilities.cpp`.
+ */
+struct OptionalLsmHookSpec {
+    std::string hook_name;
+    std::string btf_symbol;
+};
+
+/**
+ * Catalog of optional LSM hooks that AegisBPF gates via
+ * `bpf_program__set_autoload(false)` when the kernel does not expose
+ * the matching `bpf_lsm_<hook>` trampoline. Returned by-value so
+ * tests can pin the catalog shape without reaching into TU-private
+ * state.
+ */
+std::vector<OptionalLsmHookSpec> optional_lsm_hook_catalog();
+
 Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state);
 void set_ringbuf_bytes(uint32_t bytes);
 void set_max_deny_inodes(uint32_t count);
@@ -355,6 +442,7 @@ Result<void> add_deny_path_to_fds(int inode_fd, int path_fd, const std::string& 
 Result<void> add_allow_cgroup_to_fd(int cgroup_fd, uint64_t cgid);
 Result<void> add_allow_cgroup_path_to_fd(int cgroup_fd, const std::string& path);
 Result<void> add_allow_exec_inode_to_fd(int allow_exec_inode_fd, const InodeId& id);
+Result<void> add_deny_comm_to_fd(int deny_comm_fd, const std::string& comm);
 
 // Cgroup-scoped deny operations (FD-based for shadow or live maps)
 Result<void> add_cgroup_deny_inode_to_fd(int map_fd, uint64_t cgid, const InodeId& inode);

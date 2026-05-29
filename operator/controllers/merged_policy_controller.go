@@ -35,7 +35,8 @@ const (
 // daemon mounts this ConfigMap to get the combined enforcement policy.
 type MergedPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Publisher EventPublisher // optional: pushes SSE events to console
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies,verbs=get;list;watch
@@ -59,8 +60,9 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("listing namespaced policies: %w", err)
 	}
 
-	// Filter by selector and translate.
+	// Filter by selector and translate (both INI and aegis-next formats).
 	var results []policy.TranslateResult
+	var nextResults []policy.TranslateResult
 	hasEnforce := false
 
 	// Sort for deterministic output.
@@ -85,6 +87,12 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 			continue
 		}
 		results = append(results, result)
+		nextResult, err := policy.TranslateToAegisNext(cp.Spec)
+		if err != nil {
+			logger.Error(err, "Failed to translate cluster policy to aegis-next", "name", cp.Name)
+		} else {
+			nextResults = append(nextResults, nextResult)
+		}
 		if cp.Spec.Mode == "enforce" {
 			hasEnforce = true
 		}
@@ -118,6 +126,13 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 			continue
 		}
 		results = append(results, result)
+		nextResult, err := policy.TranslateToAegisNext(np.Spec)
+		if err != nil {
+			logger.Error(err, "Failed to translate policy to aegis-next",
+				"namespace", np.Namespace, "name", np.Name)
+		} else {
+			nextResults = append(nextResults, nextResult)
+		}
 		if np.Spec.Mode == "enforce" {
 			hasEnforce = true
 		}
@@ -129,6 +144,7 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 	}
 
 	merged := policy.MergePolicies(results)
+	mergedNext := policy.MergeNextPolicies(nextResults)
 	mode := "audit"
 	if hasEnforce {
 		mode = "enforce"
@@ -138,6 +154,7 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		"clusterPolicies", len(clusterPolicies.Items),
 		"namespacedPolicies", len(namespacedPolicies.Items),
 		"mergedHash", merged.SHA256[:12],
+		"mergedNextHash", mergedNext.SHA256[:12],
 		"mode", mode,
 	)
 
@@ -150,15 +167,18 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 				"aegisbpf.io/policy-type":      "merged",
 			},
 			Annotations: map[string]string{
-				"aegisbpf.io/policy-hash":  merged.SHA256,
-				"aegisbpf.io/last-applied": time.Now().UTC().Format(time.RFC3339),
-				"aegisbpf.io/policy-count": fmt.Sprintf("%d", len(results)),
+				"aegisbpf.io/policy-hash":      merged.SHA256,
+				"aegisbpf.io/policy-next-hash": mergedNext.SHA256,
+				"aegisbpf.io/last-applied":     time.Now().UTC().Format(time.RFC3339),
+				"aegisbpf.io/policy-count":     fmt.Sprintf("%d", len(results)),
 			},
 		},
 		Data: map[string]string{
 			PolicyDataKey:       merged.INI,
 			PolicyHashKey:       merged.SHA256,
 			MergedPolicyModeKey: mode,
+			NextPolicyDataKey:   mergedNext.INI,
+			NextPolicyHashKey:   mergedNext.SHA256,
 		},
 	}
 
@@ -174,7 +194,7 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		}
 	} else if err != nil {
 		return ctrl.Result{}, err
-	} else if existing.Data[PolicyHashKey] != merged.SHA256 {
+	} else if existing.Data[PolicyHashKey] != merged.SHA256 || existing.Data[NextPolicyHashKey] != mergedNext.SHA256 {
 		existing.Data = cm.Data
 		existing.Labels = cm.Labels
 		existing.Annotations = cm.Annotations
@@ -184,6 +204,9 @@ func (r *MergedPolicyReconciler) Reconcile(ctx context.Context, _ ctrl.Request) 
 		}
 	}
 
+	if r.Publisher != nil {
+		r.Publisher.PublishReconcile("MergedPolicy", MergedConfigMapName, "Applied", "Merged policy updated")
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -219,7 +242,10 @@ func (r *MergedPolicyReconciler) ensureNamespace(ctx context.Context) error {
 				Labels: map[string]string{"app.kubernetes.io/managed-by": "aegis-operator"},
 			},
 		}
-		return r.Create(ctx, &ns)
+		if createErr := r.Create(ctx, &ns); createErr != nil && !errors.IsAlreadyExists(createErr) {
+			return createErr
+		}
+		return nil
 	}
 	return err
 }

@@ -1,0 +1,4 @@
+starting daemon for soak test (mode=audit duration=86400s workers=16 net=1)
+preloaded temporary soak block rule: /etc/hosts
+starting network workload workers (UDP connect to 127.0.0.1:9)
+initial RSS: 50804 kB

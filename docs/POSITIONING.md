@@ -105,7 +105,7 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 | **SOC 2 Type II** | ✅ evidence kit | — |
 | **OCSF 1.1.0** | ◐ shipped for File + Network Activity | `--event-format=ocsf` on `aegisbpfd run` emits OCSF JSON for `BlockEvent` (File Activity 1001) and `NetBlockEvent` (Network Activity 4001). Process Activity (1007) for `ExecEvent` and forensic Process Activity for `ForensicEvent` remain on roadmap. See `docs/SIEM_INTEGRATION.md` §OCSF and `src/ocsf_formatter.cpp`. |
 | **ECS (Elastic Common Schema)** | ✅ formatter | Promote to first-class |
-| **CEF** | Roadmap | Splunk-friendly alt format |
+| **CEF (ArcSight Common Event Format)** | ◐ shipped for File + Network Activity | `--event-format=cef` on `aegisbpfd run` emits single-line CEF records for `BlockEvent` (signature `aegis:file:open`) and `NetBlockEvent` (signature `aegis:net:{connect,bind,listen,accept,send,recv}`). Header escaping (`\`, `|`, CR/LF) and extension escaping (`\`, `=`, CR/LF) follow the ArcSight Implementation Standard; severity remaps audit to 4 (Medium) and enforce to 8 (High); AegisBPF-specific forensic context (cgroup_path, parent_exec_id, rule_type, event_type, cgid, inode, device, direction) is preserved under custom slots (`cs1..cs4`/`cn1..cn3` with explicit `*Label` keys). CEF for `ExecEvent` / `ForensicEvent` / `KernelBlockEvent` is deferred until OCSF Process Activity (1007) lands so the two formats stay class-aligned. See `src/cef_formatter.cpp`. |
 | **STIX 2.1 / TAXII** | Roadmap | Ingest threat-intel → auto-deny rules |
 
 ### 3.4 CNCF maturity ladder
@@ -148,21 +148,47 @@ Ordered by user-impact. Each has a tracked roadmap item.
 7. **Policy language is INI + CRD only.** No CEL/Rego expressions, no
    parent-process or label selectors in match criteria. Target: **CEL**
    (Kubernetes-native, aligns with admission policies).
-8. **No event dedup / aggregation on the agent.** High-rate events ship
-   individually. Target: bounded time-window dedup (Falco-style
-   `-o events.rate`).
+8. ~~**No event dedup / aggregation on the agent.**~~ **Partially shipped:**
+   bounded time-window dedup for `BlockEvent` and `NetBlockEvent` is
+   opt-in via `--event-dedup-window-ms=N --event-dedup-max-entries=N`
+   (or the equivalent `AEGIS_EVENT_DEDUP_*` env vars). The same flags
+   drive both dedupers, but their state is independent and the key
+   includes a per-event-class tag so domains never alias. When
+   enabled, identical `(cgid, ino, pid, dev)` block events and
+   identical `(cgid, pid|direction|protocol|family, addr|ports)`
+   net-block events inside the window are coalesced; the first emit
+   after window expiry surfaces the accumulated
+   `suppressed_during_prior_window` count so the downstream SIEM never
+   silently loses information. Exec, forensic, kernel and
+   OCSF-augmented payloads are deferred to a follow-up (OCSF *suppresses*
+   correctly today but does not carry the count, since OCSF 1.1 has
+   no analog field). See
+   [`EVENT_LOSS_AND_BACKPRESSURE.md`](EVENT_LOSS_AND_BACKPRESSURE.md).
 9. **No response actions.** Blocking is enforcement; *responses* (quarantine
    pod, kill tree, freeze cgroup, rotate creds, pause deployment) are a
    separate muscle. Target: pluggable response engine subscribed to the
    priority ringbuf.
-10. **No policy simulation / dry-run diffing.** We have audit; we don't yet
-    replay audit events against a candidate enforce policy to produce a
-    would-break report.
+10. ~~**No policy simulation / dry-run diffing.**~~ **Shipped:** `aegisbpf
+    simulate <events.jsonl>|- --policy <candidate.conf> [--per-event] [--json]`
+    replays an audit-mode JSONL event stream against a candidate enforce
+    policy and reports what would change. Reuses the live daemon's allow/deny
+    precedence via a shared `evaluate_event_against_policy()` helper so
+    simulator verdicts cannot drift from runtime decisions. Network event
+    simulation is deferred to a follow-up.
 
 ### 4.3 Distribution / ops
 
-11. **No distro packages.** No Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch
-    AUR. Target: at least the first three.
+11. **Hosted distro repos not yet stood up.** As of this PR, every
+    release builds installable `aegisbpf_<ver>_<arch>.deb` and
+    `aegisbpf-<ver>-<rel>.<arch>.rpm` artefacts via CPack, and the
+    `packaging` CI gate smoke-tests `dpkg -i` on `debian:12` +
+    `ubuntu:24.04` and `rpm -ivh` on `fedora:40` + `rockylinux:9` per
+    PR. What's still missing is **hosted-repo upload** — Ubuntu PPA
+    (Launchpad), Fedora COPR, OpenSUSE OBS, Arch AUR — all of which
+    require maintainer-account credentials that should not live in
+    public CI. See `docs/PACKAGING.md` §5 for the maintainer-side
+    upload workflow. Target for Phase 1 GA: at least the first three
+    hosted, signed by a maintainer key.
 12. **No signed container images on a public registry.** Target:
     `ghcr.io/ErenAri/aegisbpf` + cosign.
 13. **Helm chart ships; OperatorHub / OpenShift catalog listings do not.**
@@ -177,8 +203,12 @@ Ordered by user-impact. Each has a tracked roadmap item.
 
 16. **168 h soak evidence not yet published.** 24 h AWS soak is clean;
     laptop 24 h soak aborted at ~14.5 h due to a harness bug (daemon stdout
-    filled disk — not an AegisBPF defect; RSS was flat). FedRAMP expects
-    30-day continuous evidence.
+    filled disk — not an AegisBPF defect; RSS was flat across the run).
+    Harness bug fixed in `scripts/soak_reliability.sh` (cap+rotate
+    `daemon.log`, disk-free pre-flight, in-loop watchdog); aborted-run
+    evidence and laptop wrapper published under
+    `evidence/soak-24h-laptop/`. 168 h bare-metal re-run still pending.
+    FedRAMP expects 30-day continuous evidence.
 17. **No chaos testing.** What happens if the BPF object is corrupted
     mid-run, or the ringbuf is detached, or a new LSM loads after us?
 18. **Performance SLO unpublished.** Benchmarks exist; commitments do not.
@@ -192,9 +222,15 @@ Ordered by user-impact. Each has a tracked roadmap item.
 ### 4.5 Positioning / go-to-market
 
 21. **No named adopters.** CNCF Incubation requires three.
-22. **No community rule library.** Falco's is its moat. Target:
-    `aegisbpf/rules` repo with MITRE-tagged, community-contributed deny
-    bundles (cryptominers, reverse shells, CIS Kubernetes packs).
+22. ~~**No community rule library.**~~ **Starter set shipped:** six
+    audited, MITRE-tagged packs live under `rules/`
+    (`kernel-tampering`, `secrets-protection`, `ssh-hardening`,
+    `cis-k8s-control-plane`, `cis-k8s-worker-node`, `cryptominers`),
+    each validated on every PR by `.github/workflows/rule-library.yml`.
+    See `rules/README.md` for the contribution model. The standalone
+    `aegisbpf/rules` repo is still pending — extracting the in-tree
+    starter packs into a dedicated repo is a follow-up once the
+    contribution flow has been exercised against in-tree.
 23. **Single-maintainer project.** Professional procurement and CNCF both
     require multi-maintainer, multi-org stewardship.
 
@@ -211,13 +247,17 @@ of buyer. Dates are directional, not commitments.
 
 - SLSA L3 via `slsa-github-generator`; cosign-sign all artifacts; OpenSSF
   Best Practices gold badge; Scorecard ≥ 8.0; VEX alongside SBOM.
-- Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch AUR packages.
+- Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch AUR packages. (`.deb` +
+  `.rpm` artefacts now built and CI-smoke-tested per PR; hosted-repo
+  upload still pending — see `docs/PACKAGING.md`.)
 - Hardened systemd unit (`ProtectSystem=strict`,
   `CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE`,
   `SystemCallFilter=@system-service`).
 - Daemon post-init capability drop; Landlock self-sandbox; published
   seccomp profile artifact.
-- Fix soak harness bug (cap `daemon.log`, disk pre-flight, watchdog).
+- ~~Fix soak harness bug (cap `daemon.log`, disk pre-flight, watchdog).~~
+  Done — see `scripts/soak_reliability.sh` and
+  `evidence/soak-24h-laptop/NOTES.md`.
 - Publish 168 h bare-metal soak evidence.
 - Governance: `GOVERNANCE.md`, `MAINTAINERS.md` with ≥ 1 external
   maintainer.
@@ -272,12 +312,15 @@ of buyer. Dates are directional, not commitments.
 
 ## 6. Next-week priorities (concrete)
 
-1. **Fix the soak harness bug** that filled disk on the laptop 24 h run.
+1. ~~**Fix the soak harness bug** that filled disk on the laptop 24 h run.~~
+   Done. Re-run for 168 h on a host with adequate disk + thermal headroom.
 2. **Add MITRE ATT&CK tags** to built-in rules.
 3. **Turn on `slsa-github-generator`** in `release.yml` — jumps from SLSA L1
    to L3 for release artifacts.
 4. **Stand up OpenSSF Best Practices badge** and OpenSSF Scorecard action.
-5. **Publish an Ubuntu PPA** of the current binary.
+5. **Publish an Ubuntu PPA** of the current binary. (`.deb` artefact +
+   CI gate landed; remaining step is `dput` from a maintainer
+   workstation — see `docs/PACKAGING.md` §5.1.)
 6. **Write a `GOVERNANCE.md`** + `MAINTAINERS.md` with an `external-maintainer`
    slot flagged open for a PR from a second contributor.
 

@@ -1,0 +1,65 @@
+AegisBPF has been installed.
+
+{{- if .Values.aegisNext.enabled }}
+
+=== aegis-next DaemonSet ===
+
+The next-gen BPF arena agent is deployed. It targets nodes labeled:
+  aegisbpf.io/arena-capable=true
+
+Check DaemonSet status:
+  kubectl get ds {{ include "aegisbpf.fullname" . }}-next -n {{ .Release.Namespace }}
+
+View agent logs:
+  kubectl logs -l aegisbpf.io/variant=next -n {{ .Release.Namespace }} --tail=50
+
+{{- if .Values.operator.enabled }}
+Policies are managed via AegisPolicy CRDs. Apply a policy:
+  kubectl apply -f - <<EOF
+  apiVersion: aegisbpf.io/v1alpha1
+  kind: AegisPolicy
+  metadata:
+    name: block-miners
+  spec:
+    mode: enforce
+    execRules:
+      denyComm: [xmrig, minerd]
+  EOF
+
+View merged policy ConfigMap:
+  kubectl get cm aegis-merged-policy -n {{ .Release.Namespace }} -o yaml
+{{- else if .Values.policy.enabled }}
+Static policy is mounted from ConfigMap {{ include "aegisbpf.fullname" . }}-policy.
+{{- end }}
+{{- end }}
+
+{{- if .Values.operator.enabled }}
+
+=== Operator ===
+
+The AegisBPF operator is running with {{ .Values.operator.replicas }} replica(s).
+
+Check operator status:
+  kubectl get deploy {{ include "aegisbpf.fullname" . }}-operator -n {{ .Release.Namespace }}
+
+List policies:
+  kubectl get aegispolicies -A
+  kubectl get aegisclusterpolicies
+
+{{- if .Values.operator.webhook.enabled }}
+
+Webhook validation is enabled (cert-manager: {{ .Values.operator.webhook.certManager }}).
+{{- end }}
+{{- end }}
+
+{{- if not .Values.aegisNext.enabled }}
+
+=== Mainline Agent ===
+
+The mainline AegisBPF agent DaemonSet is deployed.
+
+Check status:
+  kubectl get ds {{ include "aegisbpf.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}
+
+Documentation: https://github.com/ErenAri/aegisbpf/blob/main/docs/aegis-next-guide.md

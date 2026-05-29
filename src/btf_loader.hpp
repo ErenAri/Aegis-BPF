@@ -15,8 +15,8 @@ namespace aegis {
 //
 // `source` is a short tag describing where `path` came from, for
 // logging: "kernel", "override", "modules", "var-lib", "usr-lib",
-// "etc", or "none" (no BTF available — daemon will likely fail to
-// load on a kernel without built-in BTF).
+// "etc", "btfhub-download", or "none" (no BTF available — daemon
+// will likely fail to load on a kernel without built-in BTF).
 //
 // `searched` is the ordered list of paths that were probed (skipping
 // the kernel-built-in fast path); useful for the "no BTF found" log
@@ -43,6 +43,12 @@ struct BtfResolution {
 //      post-install hook.
 //   5. `/usr/lib/aegisbpf/btfs/<release>.btf` — package-shipped.
 //   6. `/etc/aegisbpf/btfs/<release>.btf` — operator-managed.
+//   7. BTFhub-archive auto-download (opt-in). Only attempted when
+//      `AEGIS_BTF_AUTO_DOWNLOAD=1` is set. Invokes `btfgen.sh` to
+//      download a matching BTF blob from
+//      https://github.com/aquasecurity/btfhub-archive and caches it
+//      at `/var/lib/aegisbpf/btfs/<release>.btf` for subsequent runs.
+//      Override the script path with `AEGIS_BTFGEN_PATH`.
 //
 // `kernel_release` is typically `utsname.release` from `uname(2)`.
 // `override` is the value of `--btf-path` / `AEGIS_BTF_PATH`, or

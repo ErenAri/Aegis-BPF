@@ -13,7 +13,7 @@ struct BpfSignature {
     uint32_t format_version = 1;
     std::array<uint8_t, 32> sha256_hash{};   // SHA-256 of the .bpf.o file
     std::array<uint8_t, 32> signer_key_id{}; // Key identifier
-    std::array<uint8_t, 64> signature{};     // Ed25519 signature (placeholder)
+    std::array<uint8_t, 64> signature{};     // Ed25519 signature over SHA-256 hash
     uint64_t timestamp = 0;
     std::string signer_name;
 };

@@ -15,7 +15,7 @@ jobs:
     name: benchmark
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies
         run: |
@@ -74,7 +74,7 @@ jobs:
 
       - name: Store benchmark result (PR advisory)
         if: steps.benchmark-history.outputs.exists == 'true' && github.event_name == 'pull_request'
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@f4c8b6b6887e53d3f07a8f026d9d75157713386b # v1
         with:
           tool: googlecpp
           output-file-path: benchmark.json
@@ -87,7 +87,7 @@ jobs:
 
       - name: Store benchmark result (main advisory)
         if: steps.benchmark-history.outputs.exists == 'true' && github.event_name != 'pull_request'
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@f4c8b6b6887e53d3f07a8f026d9d75157713386b # v1
         with:
           tool: googlecpp
           output-file-path: benchmark.json
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload benchmark artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-result
           path: |

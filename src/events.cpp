@@ -4,12 +4,15 @@
 #include <arpa/inet.h>
 #include <grp.h>
 #include <pwd.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstring>
 #include <sstream>
 
+#include "cef_formatter.hpp"
+#include "event_dedup.hpp"
 #include "k8s_identity.hpp"
 #include "logging.hpp"
 #include "ocsf_formatter.hpp"
@@ -52,6 +55,103 @@ EventLogSink g_event_sink = EventLogSink::Stdout;
 EventFormat g_event_format = EventFormat::Aegis;
 
 namespace {
+
+// Block-event deduper. Owned by the ringbuf consumer thread; no
+// locking. Disabled by default; configured by the CLI before the
+// daemon's consumer loop starts.
+EventDeduper& block_event_deduper()
+{
+    static EventDeduper instance;
+    return instance;
+}
+
+uint64_t monotonic_now_ns()
+{
+    struct timespec ts {};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return static_cast<uint64_t>(ts.tv_sec) * 1'000'000'000ULL + static_cast<uint64_t>(ts.tv_nsec);
+}
+
+uint64_t block_event_dedup_key(const BlockEvent& ev)
+{
+    // Coalesce by (event-class, cgid, ino, pid). Same process repeating
+    // the same denied I/O against the same inode is the dominant
+    // SIEM-noise pattern; keying on cgid+ino+pid keeps cross-cgroup
+    // and cross-pid events distinct.
+    constexpr uint32_t kBlockEventTag = 1;
+    return event_dedup_hash(kBlockEventTag, ev.cgid, ev.ino,
+                            (static_cast<uint64_t>(ev.pid) << 32) | static_cast<uint64_t>(ev.dev));
+}
+
+// Network-block deduper. Mirrors block_event_deduper(): owned by the
+// ringbuf consumer thread, no locking, disabled by default.
+EventDeduper& net_block_event_deduper()
+{
+    static EventDeduper instance;
+    return instance;
+}
+
+uint64_t net_block_event_dedup_key(const NetBlockEvent& ev)
+{
+    // Coalesce by (event-class, cgid, pid, direction, protocol, family,
+    // remote-address, remote_port, local_port). Same workload retrying
+    // the same denied (ip, port, direction) tuple is the dominant
+    // SIEM-noise pattern; widening past direction/protocol would
+    // collapse semantically distinct events (e.g. egress connect vs
+    // bind to the same port).
+    //
+    // For IPv6 the 128-bit remote address is XOR-folded into 64 bits
+    // before mixing - acceptable for collision-rate control on bounded
+    // tables given the daemon is the trusted producer of these keys
+    // (see EventDeduper class comment).
+    constexpr uint32_t kNetBlockEventTag = 2;
+
+    uint64_t addr_slot = 0;
+    if (ev.family == kFamilyIPv6) {
+        uint64_t hi = 0;
+        uint64_t lo = 0;
+        std::memcpy(&hi, &ev.remote_ipv6[0], sizeof(hi));
+        std::memcpy(&lo, &ev.remote_ipv6[8], sizeof(lo));
+        addr_slot = hi ^ lo;
+    } else {
+        addr_slot = static_cast<uint64_t>(ev.remote_ipv4);
+    }
+
+    const uint64_t shape_slot = (static_cast<uint64_t>(ev.pid) << 32) | (static_cast<uint64_t>(ev.direction) << 24) |
+                                (static_cast<uint64_t>(ev.protocol) << 16) | (static_cast<uint64_t>(ev.family) << 8);
+
+    // Mix address + ports without shifting bits off the high end. The
+    // earlier `(addr_slot << 32)` form silently aliased IPv6 addresses
+    // that differed only in their upper 64 bits (e.g. `::1` vs `::2`
+    // after the XOR-fold) — see test_net_block_event_dedup.cpp's
+    // DistinctRemoteIPv6DoNotCollapse case for the regression contract.
+    const uint64_t port_slot =
+        addr_slot ^ ((static_cast<uint64_t>(ev.remote_port) << 32) | static_cast<uint64_t>(ev.local_port));
+
+    return event_dedup_hash(kNetBlockEventTag, ev.cgid, shape_slot, port_slot);
+}
+
+} // namespace
+
+void configure_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
+{
+    EventDedupConfig cfg{};
+    cfg.window_ns = window_ms * 1'000'000ULL;
+    cfg.max_entries = max_entries;
+    block_event_deduper() = EventDeduper(cfg);
+}
+
+void configure_net_block_event_dedup(uint64_t window_ms, std::size_t max_entries)
+{
+    EventDedupConfig cfg{};
+    cfg.window_ns = window_ms * 1'000'000ULL;
+    cfg.max_entries = max_entries;
+    net_block_event_deduper() = EventDeduper(cfg);
+}
+
+namespace {
 std::string& cached_hostname()
 {
     static std::string h = []() {
@@ -78,6 +178,10 @@ bool set_event_format(const std::string& value)
     }
     if (is_ocsf_format_keyword(value)) {
         g_event_format = EventFormat::Ocsf;
+        return true;
+    }
+    if (is_cef_format_keyword(value)) {
+        g_event_format = EventFormat::Cef;
         return true;
     }
     return false;
@@ -286,6 +390,21 @@ void print_exec_event(const ExecEvent& ev)
 
 void print_block_event(const BlockEvent& ev)
 {
+    // Bounded time-window dedup: when enabled by the operator, identical
+    // (event-class, cgid, ino, pid, dev) repetitions inside the window
+    // are suppressed. The first emit after window expiry surfaces the
+    // accumulated suppressed count so the downstream consumer sees how
+    // many were collapsed - the count is never silently lost. When
+    // disabled (the default), the deduper short-circuits and behaviour
+    // is identical to before this code shipped.
+    EventDedupDecision dedup_decision{};
+    if (block_event_deduper().is_enabled()) {
+        dedup_decision = block_event_deduper().should_emit(block_event_dedup_key(ev), monotonic_now_ns());
+        if (!dedup_decision.emit) {
+            return;
+        }
+    }
+
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string path = to_string(ev.path, sizeof(ev.path));
     std::string resolved_path = resolve_relative_path(ev.pid, ev.start_time, path);
@@ -304,6 +423,23 @@ void print_block_event(const BlockEvent& ev)
         if (sink_wants_journald(g_event_sink)) {
             // OCSF payload still goes to journald with the same metadata
             // fields; consumers that want OCSF read MESSAGE= directly.
+            journal_send_block(ev, payload, cgpath, path, resolved_path, action, comm, exec_id, parent_exec_id);
+        }
+#endif
+        return;
+    }
+
+    if (g_event_format == EventFormat::Cef) {
+        std::string payload = format_block_event_cef(ev, cgpath, path, resolved_path, action, comm, exec_id,
+                                                     parent_exec_id, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            // CEF payload rides the same journald entry; consumers
+            // wanting CEF read MESSAGE= directly. Other AEGIS_* fields
+            // remain identical so journald-side filters keep working.
             journal_send_block(ev, payload, cgpath, path, resolved_path, action, comm, exec_id, parent_exec_id);
         }
 #endif
@@ -330,6 +466,9 @@ void print_block_event(const BlockEvent& ev)
     }
     oss << ",\"ino\":" << ev.ino << ",\"dev\":" << ev.dev << ",\"action\":\"" << json_escape(action) << "\",\"comm\":\""
         << json_escape(comm) << "\"";
+    if (dedup_decision.suppressed_during_prior_window > 0) {
+        oss << ",\"suppressed_during_prior_window\":" << dedup_decision.suppressed_during_prior_window;
+    }
     append_k8s_identity(oss, ev.pid);
     oss << "}";
 
@@ -378,6 +517,19 @@ static std::string protocol_to_string(uint8_t protocol)
 
 void print_net_block_event(const NetBlockEvent& ev)
 {
+    // Bounded time-window dedup, mirroring print_block_event(). The
+    // gate runs before the OCSF branch so suppression applies in both
+    // output formats; only the Aegis-native JSON shape carries the
+    // accumulated `suppressed_during_prior_window` counter (OCSF has no
+    // analog field, and we will not invent one off-spec).
+    EventDedupDecision dedup_decision{};
+    if (net_block_event_deduper().is_enabled()) {
+        dedup_decision = net_block_event_deduper().should_emit(net_block_event_dedup_key(ev), monotonic_now_ns());
+        if (!dedup_decision.emit) {
+            return;
+        }
+    }
+
     std::string cgpath = resolve_cgroup_path(ev.cgid);
     std::string action = to_string(ev.action, sizeof(ev.action));
     std::string rule_type = to_string(ev.rule_type, sizeof(ev.rule_type));
@@ -428,6 +580,20 @@ void print_net_block_event(const NetBlockEvent& ev)
         return;
     }
 
+    if (g_event_format == EventFormat::Cef) {
+        std::string payload = format_net_block_event_cef(ev, cgpath, comm, exec_id, parent_exec_id, event_type,
+                                                         remote_ip, cached_hostname());
+        if (sink_wants_stdout(g_event_sink)) {
+            std::cout << payload << '\n';
+        }
+#ifdef HAVE_SYSTEMD
+        if (sink_wants_journald(g_event_sink)) {
+            journal_send_net_block(ev, payload, cgpath, comm, exec_id, parent_exec_id, event_type, remote_ip);
+        }
+#endif
+        return;
+    }
+
     std::ostringstream oss;
     oss << "{\"type\":\"" << event_type << "\"" << ",\"pid\":" << ev.pid << ",\"ppid\":" << ev.ppid
         << ",\"start_time\":" << ev.start_time;
@@ -464,6 +630,9 @@ void print_net_block_event(const NetBlockEvent& ev)
 
     oss << ",\"rule_type\":\"" << json_escape(rule_type) << "\"" << ",\"action\":\"" << json_escape(action) << "\""
         << ",\"comm\":\"" << json_escape(comm) << "\"";
+    if (dedup_decision.suppressed_during_prior_window > 0) {
+        oss << ",\"suppressed_during_prior_window\":" << dedup_decision.suppressed_during_prior_window;
+    }
     append_k8s_identity(oss, ev.pid);
     oss << "}";
 

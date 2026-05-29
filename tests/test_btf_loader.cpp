@@ -98,7 +98,7 @@ TEST(BtfLoaderTest, KernelBuiltinSourceWhenAvailable)
     } else {
         // Fallbacks may or may not exist on the test runner.
         EXPECT_TRUE(res.source == "none" || res.source == "modules" || res.source == "var-lib" ||
-                    res.source == "usr-lib" || res.source == "etc");
+                    res.source == "usr-lib" || res.source == "etc" || res.source == "btfhub-download");
     }
 }
 

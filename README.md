@@ -8,6 +8,11 @@
 
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
+<p align="center">
+  <img width="1491" height="1055" alt="f6e6b416-5ffb-4eb7-8342-c3725e82b878" src="https://github.com/user-attachments/assets/77205c28-7999-413f-ad99-a95da33507f8" />
+</p>
+
+
 ### Positioning
 
 AegisBPF is an **enforcement-first** eBPF runtime security engine for Linux
@@ -121,6 +126,45 @@ The operator includes a built-in web console for monitoring policy status, daemo
 - Zero JavaScript framework dependencies
 - Embedded in the operator binary via `go:embed`
 
+## aegis-next Prototype
+
+The `prototype/aegis-next/` directory contains a research prototype that
+explores **post-2024 BPF primitives** — features no shipping security agent
+uses as load-bearing infrastructure today. It is an isolated playground:
+not linked into the mainline daemon, not shipped in release packages, and
+gated behind `cmake -DBUILD_AEGIS_NEXT=ON`.
+
+**Core idea:** an 82 MiB BPF arena map (`BPF_MAP_TYPE_ARENA`, kernel 6.9+)
+replaces per-event perfbuf/ringbuf round-trips. Nine LSM hooks write 80-byte
+provenance nodes directly into the arena. Userspace `mmap(2)`s the arena
+read-only and walks the slot array on demand — zero `bpf_map_lookup_elem`
+syscalls for graph traversal.
+
+Key capabilities (all fully implemented):
+
+| Phase | Highlights |
+|-------|------------|
+| **P1 — Arena Infrastructure** | O(1) hash table (64K buckets, 8-step probe), path slab (4K x 256B), network 5-tuple slab (4K x 48B), namespace awareness, ringbuf hybrid alerts |
+| **P2 — Enforcement** | Policy-driven deny/quarantine/kill, 9 LSM hooks, in-kernel quarantine bridge to sched_ext, tiered CPU scheduling (throttle/pin/starve), BPF self-protection |
+| **P3 — Production Readiness** | Ringbuf-only fallback (kernel < 6.9), 39 GTest cases, JSONL export with rotation, runtime feature probing, arena pre-fault |
+| **P4 — Beyond State of the Art** | In-kernel binary authorization (fsverity), user_ringbuf zero-copy policy reload, per-cgroup rate limiting with auto-quarantine, file security labeling (`bpf_set_dentry_xattr`), targeted signal delivery (`bpf_send_signal_task`) |
+
+**No other open-source agent** combines arena-backed provenance graphs,
+sched_ext quarantine, and in-kernel binary authorization in a single BPF
+program.
+
+Build and run:
+```bash
+cmake -DBUILD_AEGIS_NEXT=ON -S . -B build && cmake --build build --target aegisbpf-next
+sudo ./build/prototype/aegisbpf-next attach    # arena + 9 LSM hooks
+sudo ./build/prototype/aegisbpf-next status    # feature probes + utilization
+sudo ./build/prototype/aegisbpf-next policy load examples/policy.rules
+```
+
+Full documentation: [`prototype/aegis-next/README.md`](prototype/aegis-next/README.md) |
+Roadmap status: [`prototype/aegis-next/ROADMAP.md`](prototype/aegis-next/ROADMAP.md) |
+Architecture: [`prototype/aegis-next/ARCHITECTURE.md`](prototype/aegis-next/ARCHITECTURE.md)
+
 ## Comparison with Other Tools
 
 ### Architecture & feature matrix
@@ -147,20 +191,20 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | Policy language | INI + K8s CRD | YAML DSL | K8s CRD TracingPolicy | Rego / Go signatures | K8s CRD KubeArmorPolicy |
 | Break-glass / deadman-TTL | ✅ Emergency + revert | ❌ | ❌ | ❌ | ❌ |
 | CO‑RE + BTF | ✅ | ✅ | ✅ | ✅ | ✅ |
-| BTFhub fallback (kernels w/o BTF) | ❌ (roadmap) | ✅ | ✅ | ✅ | ✅ |
+| BTFhub fallback (kernels w/o BTF) | ✅ multi-tier resolver + `scripts/btfgen.sh` | ✅ | ✅ | ✅ | ✅ |
 | Kubernetes CRD + validating webhook | ✅ v1alpha1 | ◐ | ✅ v1 | ◐ | ✅ |
 | Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
-| Signed BPF objects | ◐ (hash verify today, sig prep) | ❌ | ❌ | ❌ | ❌ |
+| Signed BPF objects | ✅ SHA-256 + Ed25519 (`AEGIS_REQUIRE_BPF_SIGNATURE`) | ❌ | ❌ | ❌ | ❌ |
 | SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
 | SLSA L3 build provenance | ✅ v1.0 Build L3 (self-verified) | ✅ | ✅ | ✅ | ◐ |
 | MITRE ATT&CK rule tags | ✅ schema + 5 rules tagged + CI gate | ✅ | ◐ | ◐ | ◐ |
 | CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
 | Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
-| OCSF / ECS / CEF event schema | ◐ OCSF 1.1.0 (`--event-format=ocsf`) for File + Network Activity classes; ECS formatter; CEF roadmap | ✅ | ◐ | ✅ | ◐ |
+| OCSF / ECS / CEF event schema | ✅ OCSF 1.1.0 (`--event-format=ocsf`), ECS formatter, CEF (`--event-format=cef`) for File + Network Activity | ✅ | ◐ | ✅ | ◐ |
 | SIEM integrations (Splunk / Elastic / OTLP) | ✅ | ✅ Falcosidekick | ◐ JSON | ◐ JSON | ◐ JSON |
 | Multi-cluster control plane | ❌ (roadmap) | ◐ | ◐ (Isovalent Ent) | ❌ | ◐ (AccuKnox) |
-| Community rule library | ❌ (roadmap) | ✅ large | ◐ | ◐ | ◐ |
+| Community rule library | ✅ 25 packs (MITRE-tagged) | ✅ large | ◐ | ◐ | ◐ |
 | 3rd-party security audit | ❌ (roadmap) | ✅ | ✅ | ◐ | ◐ |
 | Runtime | C++20 + C (BPF), single binary | C++ | Go | Go | Go |
 
@@ -432,7 +476,7 @@ listed anonymously.
 | Supply chain | Bit-for-bit reproducible builds | ✅ verified in CI (`scripts/check_reproducible_build.sh`, `docs/REPRODUCIBLE_BUILDS.md`) |
 | Daemon hardening | seccomp-bpf allowlist | ✅ |
 | Daemon hardening | Landlock self-sandbox | ✅ opt-in via `--landlock` (`docs/HARDENING.md`) |
-| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | Roadmap (root today) |
+| Daemon hardening | Split capabilities (`CAP_BPF` + `CAP_PERFMON`) | ✅ opt-in post-attach drop via `--drop-caps` (`docs/HARDENING.md`) |
 | Compliance | NIST SP 800‑53 Rev 5 control mapping | ✅ `docs/compliance/NIST_800_53_MAPPING.md` |
 | Compliance | NIST SP 800‑190 (container security) | Roadmap |
 | Compliance | ISO/IEC 27001:2022 | ✅ `docs/compliance/ISO_27001_CONTROLS.md` |
@@ -440,7 +484,7 @@ listed anonymously.
 | Compliance | PCI DSS 4.0 | ✅ `docs/compliance/PCI_DSS_4_MAPPING.md` |
 | Compliance | CIS Kubernetes Benchmark v1.8 | ✅ `docs/compliance/CIS_KUBERNETES_BENCHMARK.md` |
 | Compliance | MITRE ATT&CK for Containers / Linux | ✅ tag schema + CI gate (`docs/rules/MITRE_ATTACK_TAG_SCHEMA.md`) |
-| Event schema | OCSF 1.1 / ECS / CEF | Roadmap (custom JSON + ECS formatter today) |
+| Event schema | OCSF 1.1 / ECS / CEF | ✅ OCSF 1.1.0 + ECS + CEF (`--event-format=ocsf\|cef`) |
 | Community | CNCF Sandbox → Incubating → Graduated | Pre-sandbox |
 
 Full compliance mappings live under [`docs/compliance/`](docs/compliance/).
@@ -473,16 +517,18 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    parent-process / label selectors in match criteria yet.
 6. **BTF fallback requires per-kernel blobs.** Kernels without
    `/sys/kernel/btf/vmlinux` (RHEL 7, very old embedded) need a
-   matching BTF blob staged under `/lib/modules/<release>/btf/vmlinux`,
-   `/var/lib/aegisbpf/btfs/<release>.btf`, `/usr/lib/aegisbpf/btfs/`,
-   `/etc/aegisbpf/btfs/`, or pointed at via `AEGIS_BTF_PATH`. Use
-   `scripts/btfgen.sh` to harvest from BTFhub-archive. See
+   matching BTF blob staged in one of 4 fallback locations. Use
+   `scripts/btfgen.sh --auto` to auto-download from BTFhub-archive
+   (supports Ubuntu, Debian, Fedora, RHEL, CentOS, Amazon Linux,
+   Oracle, SLES, openSUSE, Arch). See
    [`docs/BTF_FALLBACK.md`](docs/BTF_FALLBACK.md).
 7. **No distro packages yet.** Install requires build-from-source or
    the provided container image; Ubuntu PPA / Fedora COPR are on the
    roadmap.
-8. **Daemon runs as root for its full lifetime.** It should drop to
-   `CAP_BPF` + `CAP_PERFMON` after BPF load; tracked on roadmap.
+8. **Daemon runs as root for its full lifetime by default.** Opt-in
+   `--drop-caps` removes `CAP_SYS_ADMIN`/`CAP_BPF`/`CAP_PERFMON` after
+   BPF attach (kept: `CAP_NET_ADMIN`, `CAP_DAC_READ_SEARCH`); see
+   [`docs/HARDENING.md`](docs/HARDENING.md).
 9. **No third-party security audit yet.** Planned before v1.0 GA.
 10. **Linux only.** Windows (`ebpf-for-windows`) is a v2.0 consideration;
     macOS is an explicit non-goal.

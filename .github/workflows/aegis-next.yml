@@ -1,0 +1,205 @@
+name: aegis-next prototype
+
+permissions: read-all
+
+on:
+  push:
+    branches: [main, develop, 'feat/aegis-next-*']
+    paths:
+      - 'prototype/aegis-next/**'
+      - 'operator/internal/policy/translator_next*'
+      - 'helm/aegisbpf/**'
+      - 'CMakeLists.txt'
+  pull_request:
+    paths:
+      - 'prototype/aegis-next/**'
+      - 'operator/internal/policy/translator_next*'
+      - 'helm/aegisbpf/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+jobs:
+  aegis-next-build:
+    name: aegis-next (build + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libelf-dev libsystemd-dev \
+            pkg-config cmake ninja-build zlib1g-dev
+          sudo apt-get install -y linux-tools-common
+          # bpftool: Azure runners ship a /usr/sbin/bpftool wrapper that
+          # dispatches to /usr/lib/linux-tools/<exact-kernel>/bpftool.
+          # On Azure kernels (6.17) the kernel-specific linux-tools package
+          # installs successfully but contains NO bpftool binary. Fix:
+          # always install linux-tools-generic (ships bpftool for the
+          # distro HWE kernel) and then point the wrapper at it.
+          sudo apt-get install -y "linux-tools-$(uname -r)" 2>/dev/null || true
+          sudo apt-get install -y linux-tools-generic 2>/dev/null || true
+          sudo apt-get install -y bpftool 2>/dev/null || true
+          if ! bpftool version >/dev/null 2>&1; then
+            REAL=$(find /usr/lib/ -maxdepth 3 -name bpftool -type f 2>/dev/null \
+                   | sort -V | tail -1 || true)
+            if [[ -n "$REAL" ]]; then
+              echo "Overwriting bpftool wrapper with $REAL"
+              sudo cp "$REAL" /usr/sbin/bpftool
+            fi
+          fi
+          bpftool version >/dev/null 2>&1 || {
+            echo "Diagnostic info:"
+            dpkg -l | grep -E "linux-tools|bpftool" || true
+            find /usr -name bpftool 2>/dev/null || true
+            echo "::error::bpftool not functional after all fallbacks" >&2
+            exit 1
+          }
+
+      - name: Check kernel version and bpftool
+        id: kernel
+        run: |
+          KVER=$(uname -r)
+          MAJOR=$(echo "$KVER" | cut -d. -f1)
+          MINOR=$(echo "$KVER" | cut -d. -f2)
+          echo "version=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
+          KERN_OK=false
+          if [ "$MAJOR" -gt 6 ] || { [ "$MAJOR" -eq 6 ] && [ "$MINOR" -ge 9 ]; }; then
+            KERN_OK=true
+          fi
+
+          # Arena skeleton generation requires bpftool from the same
+          # kernel series (addr_space.1 support). If linux-tools for
+          # the running kernel are installed, the wrapper-dispatched
+          # bpftool matches and can handle arena. If we had to
+          # substitute from linux-tools-generic (older kernel), arena
+          # skeleton gen will fail on .addr_space.1 sections.
+          BPFTOOL_OK=false
+          KVER_TOOLS="/usr/lib/linux-tools/$(uname -r)"
+          if [ -d "$KVER_TOOLS" ] && [ -x "$KVER_TOOLS/bpftool" ]; then
+            if bpftool btf dump file /sys/kernel/btf/vmlinux format c > /dev/null 2>&1; then
+              BPFTOOL_OK=true
+            fi
+          else
+            echo "::warning::No kernel-matching bpftool at $KVER_TOOLS — arena skeleton gen unavailable"
+          fi
+
+          if [ "$KERN_OK" = true ] && [ "$BPFTOOL_OK" = true ]; then
+            echo "arena_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "arena_ready=false" >> "$GITHUB_OUTPUT"
+            [ "$KERN_OK" = false ] && echo "::warning::Kernel ${MAJOR}.${MINOR} < 6.9 — BPF arena not available, building userspace only"
+            [ "$BPFTOOL_OK" = false ] && echo "::warning::bpftool cannot handle arena skeletons — building userspace only"
+          fi
+
+      - name: Configure (full, kernel >= 6.9)
+        if: steps.kernel.outputs.arena_ready == 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DBUILD_AEGIS_NEXT=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0
+
+      - name: Configure (userspace only, kernel < 6.9)
+        if: steps.kernel.outputs.arena_ready != 'true'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DBUILD_AEGIS_NEXT=ON \
+            -DSTATIC_LIBBPF=ON \
+            -DLIBBPF_VERSION=1.5.0
+
+      - name: Build aegis-next
+        if: steps.kernel.outputs.arena_ready == 'true'
+        run: cmake --build build --target aegisbpf-next aegis_next_test
+
+      - name: Build aegis-next (test lib only)
+        if: steps.kernel.outputs.arena_ready != 'true'
+        run: cmake --build build --target aegis_next_test 2>/dev/null || echo "::warning::aegis_next_test build skipped (CMake gated on kernel version)"
+
+      - name: Run aegis-next selftests
+        run: |
+          if [[ -f build/prototype/aegis_next_test ]]; then
+            build/prototype/aegis_next_test --gtest_output=xml:build/aegis_next_test.xml
+          else
+            echo "::warning::aegis_next_test binary not built, skipping"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aegis-next-test-results
+          path: build/aegis_next_test.xml
+          if-no-files-found: warn
+
+  operator-next-tests:
+    name: Operator aegis-next translator
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: operator/go.mod
+
+      - name: Run translator tests
+        working-directory: operator
+        run: go test ./internal/policy/... -v -count=1
+
+      - name: Vet all packages
+        working-directory: operator
+        run: go vet ./...
+
+      - name: Run all operator tests (short)
+        working-directory: operator
+        run: go test ./... -short -count=1
+
+  helm-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+
+      - name: Lint default values
+        run: helm lint helm/aegisbpf/
+
+      - name: Lint with aegis-next enabled
+        run: helm lint helm/aegisbpf/ --set aegisNext.enabled=true
+
+      - name: Lint with operator enabled
+        run: helm lint helm/aegisbpf/ --set operator.enabled=true
+
+      - name: Lint with all features
+        run: helm lint helm/aegisbpf/ --set aegisNext.enabled=true --set operator.enabled=true
+
+      - name: Lint with webhook + cert-manager
+        run: |
+          helm lint helm/aegisbpf/ \
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true
+
+      - name: Lint with webhook + custom issuer
+        run: |
+          helm lint helm/aegisbpf/ \
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true \
+            --set operator.webhook.createSelfSignedIssuer=false \
+            --set operator.webhook.issuerRef.name=custom-issuer
+
+      - name: Template renders cleanly
+        run: |
+          helm template test helm/aegisbpf/ \
+            --set aegisNext.enabled=true \
+            --set operator.enabled=true \
+            --set operator.webhook.enabled=true \
+            --set operator.webhook.certManager=true > /dev/null

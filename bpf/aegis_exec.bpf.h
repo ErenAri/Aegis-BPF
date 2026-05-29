@@ -182,6 +182,61 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
         return 0;
     }
 
+    /* deny_comm check: extract basename from bprm->filename and look up
+     * in the deny_comm_map. This runs unconditionally — independent of
+     * exec identity mode — so that comm-based deny works as a standalone
+     * feature (e.g. blocking known crypto-miners by name). */
+    {
+        const char *fn_ptr = BPF_CORE_READ(bprm, filename);
+        if (fn_ptr) {
+            char fn[64] = {};
+            long fn_len = bpf_probe_read_kernel_str(fn, sizeof(fn), fn_ptr);
+            if (fn_len > 0) {
+                int base_off = 0;
+#pragma unroll
+                for (int i = 0; i < (int)sizeof(fn); ++i) {
+                    if (fn[i] == '\0')
+                        break;
+                    if (fn[i] == '/')
+                        base_off = i + 1;
+                }
+                struct deny_comm_key ck = {};
+                /* Copy basename into key. Buffer is zero-initialized and
+                 * null-terminated, so a fixed 15-byte copy captures the
+                 * comm name (TASK_COMM_LEN - 1). Clamp base_off so we
+                 * never read past the 64-byte fn buffer. */
+                if (base_off > 49)
+                    base_off = 49;
+                __builtin_memcpy(ck.comm, &fn[base_off], 15);
+                if (bpf_map_lookup_elem(&deny_comm_map, &ck)) {
+                    __u32 _pid = bpf_get_current_pid_tgid() >> 32;
+                    struct task_struct *_task = bpf_get_current_task_btf();
+                    __u8 _audit = get_effective_audit_mode();
+
+                    increment_block_stats();
+
+                    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+                    if (e) {
+                        e->type = EVENT_BLOCK;
+                        fill_block_event_process_info(&e->block, _pid, _task);
+                        e->block.cgid = bpf_get_current_cgroup_id();
+                        __builtin_memcpy(e->block.comm, ck.comm, 16);
+                        e->block.ino = 0;
+                        e->block.dev = 0;
+                        __builtin_memset(e->block.path, 0, sizeof(e->block.path));
+                        set_action_string(e->block.action, _audit, 0);
+                        bpf_ringbuf_submit(e, 0);
+                    }
+
+                    if (!_audit) {
+                        record_hook_latency(HOOK_BPRM_CHECK, _start_ns);
+                        return -EPERM;
+                    }
+                }
+            }
+        }
+    }
+
     if (!exec_identity_mode_enabled()) {
         record_hook_latency(HOOK_BPRM_CHECK, _start_ns);
         return 0;
@@ -368,7 +423,12 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     return -EPERM;
 }
 
-SEC("lsm/file_mmap")
+/* Kernel hook name is `mmap_file` (renamed from `file_mmap` pre-5.6); the
+ * BPF-LSM trampoline is `bpf_lsm_mmap_file`. The program function name
+ * `handle_file_mmap` and operator-facing posture key `lsm_file_mmap`
+ * intentionally retain the legacy spelling so the JSON capability surface
+ * stays stable across the rename. */
+SEC("lsm/mmap_file")
 int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigned long prot, unsigned long flags)
 {
     __u64 _start_ns = bpf_ktime_get_ns();

@@ -1,0 +1,31 @@
+# kind cluster configuration for aegis-next e2e testing.
+#
+# Usage:
+#   kind create cluster --config test/e2e/kind-config.yaml --name aegis-e2e
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    # Mount BPF filesystem (required by aegis-next).
+    extraMounts:
+      - hostPath: /sys/fs/bpf
+        containerPath: /sys/fs/bpf
+        propagation: Bidirectional
+      - hostPath: /sys/kernel/btf
+        containerPath: /sys/kernel/btf
+        readOnly: true
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            # Enable admission webhooks.
+            enable-admission-plugins: "NodeRestriction,ValidatingAdmissionWebhook"
+  - role: worker
+    extraMounts:
+      - hostPath: /sys/fs/bpf
+        containerPath: /sys/fs/bpf
+        propagation: Bidirectional
+      - hostPath: /sys/kernel/btf
+        containerPath: /sys/kernel/btf
+        readOnly: true

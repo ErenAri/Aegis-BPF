@@ -1,0 +1,31 @@
+# aegis-next policy rules
+#
+# Format: <hook> <match_type> <value> <action> [kill]
+#
+# hook:   exec|file|conn|bind|listen
+# match:  comm|port|cgroup
+# action: deny|allow|log
+#
+# Lines starting with # are comments. Blank lines are skipped.
+# Rules are loaded via: aegisbpf-next policy load <file>
+# Hot-reload: update the file and re-run `policy load`.
+
+# Block known crypto miners
+exec  comm  xmrig   deny  kill
+exec  comm  minerd  deny  kill
+
+# Block reverse shell ports
+conn  port  4444  deny  kill
+conn  port  5555  deny
+
+# Block bind shells on common backdoor ports
+bind  port  31337  deny  kill
+bind  port  1337   deny
+
+# Block C2 listener patterns
+listen  port  4444  deny  kill
+listen  port  8443  deny
+
+# Quarantine suspicious processes (throttle via sched_ext, no kill)
+exec  comm  stress  quarantine
+exec  comm  nmap    quarantine
