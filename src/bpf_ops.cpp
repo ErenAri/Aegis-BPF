@@ -57,7 +57,14 @@ std::set<std::string> detect_missing_optional_lsm_hooks()
     }
 
     for (const char* hook : kOptionalHooks) {
-        if (btf__find_by_name_kind(vmlinux, hook, BTF_KIND_FUNC) < 0) {
+        // BPF-LSM attach points are exposed in vmlinux BTF as `bpf_lsm_<hook>`
+        // FUNCs, not the bare hook name. Querying the bare name (e.g.
+        // "socket_connect") never matches, which previously marked every
+        // optional LSM hook as missing and silently disabled network/exec/mmap
+        // enforcement. Match the same bpf_lsm_-prefixed symbol the kernel and
+        // the `probe` command use.
+        const std::string sym = std::string("bpf_lsm_") + hook;
+        if (btf__find_by_name_kind(vmlinux, sym.c_str(), BTF_KIND_FUNC) < 0) {
             missing.insert(hook);
         }
     }
