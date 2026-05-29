@@ -85,6 +85,7 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     uint32_t max_deny_paths = 0;
     uint32_t max_network_entries = 0;
     EnforceGateMode enforce_gate_mode = EnforceGateMode::FailClosed;
+    bool enforce_fallback_signal = false;
     uint32_t event_dedup_window_ms = 0;
     uint32_t event_dedup_max_entries = 4096;
 
@@ -151,6 +152,28 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
             std::string value = argv[++i];
             if (!parse_enforce_gate_mode(value, enforce_gate_mode)) {
                 logger().log(SLOG_ERROR("Invalid enforce gate mode").field("value", value));
+                return 1;
+            }
+        } else if (arg.rfind("--enforce-fallback=", 0) == 0) {
+            std::string value = arg.substr(std::strlen("--enforce-fallback="));
+            if (value == "signal") {
+                enforce_fallback_signal = true;
+            } else if (value == "off" || value == "none") {
+                enforce_fallback_signal = false;
+            } else {
+                logger().log(SLOG_ERROR("Invalid enforce fallback mode (expected signal|off)").field("value", value));
+                return 1;
+            }
+        } else if (arg == "--enforce-fallback") {
+            if (i + 1 >= argc)
+                return usage(prog);
+            std::string value = argv[++i];
+            if (value == "signal") {
+                enforce_fallback_signal = true;
+            } else if (value == "off" || value == "none") {
+                enforce_fallback_signal = false;
+            } else {
+                logger().log(SLOG_ERROR("Invalid enforce fallback mode (expected signal|off)").field("value", value));
                 return 1;
             }
         } else if (arg.rfind("--deadman-ttl=", 0) == 0) {
@@ -346,7 +369,8 @@ int dispatch_run_command(int argc, char** argv, const char* prog)
     return daemon_run(audit_only, enable_seccomp, enable_landlock, enable_cap_drop, deadman_ttl, enforce_signal,
                       allow_sigkill, lsm_hook, ringbuf_bytes, event_sample_rate, sigkill_escalation_threshold,
                       sigkill_escalation_window_seconds, deny_rate_threshold, deny_rate_breach_limit,
-                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode);
+                      allow_unsigned_bpf, allow_unknown_binary_identity, strict_degrade, enforce_gate_mode,
+                      enforce_fallback_signal);
 }
 
 } // namespace aegis

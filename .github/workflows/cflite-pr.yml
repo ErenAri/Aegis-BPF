@@ -1,0 +1,43 @@
+name: ClusterFuzzLite PR
+
+# Free, in-repo continuous fuzzing of the userspace input-parsing surface.
+# Builds the libFuzzer harnesses in the OSS-Fuzz base image and fuzzes only the
+# code changed by the PR (mode: code-change), failing the check on a new crash.
+# No run: steps and no untrusted event input are used (injection-safe).
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/fuzz/**'
+      - '.clusterfuzzlite/**'
+      - 'CMakeLists.txt'
+
+permissions: read-all
+
+concurrency:
+  group: cflite-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  PR:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined]
+    steps:
+      - name: Build fuzzers (${{ matrix.sanitizer }})
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: c++
+          sanitizer: ${{ matrix.sanitizer }}
+      - name: Run fuzzers (${{ matrix.sanitizer }})
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: 'code-change'
+          sanitizer: ${{ matrix.sanitizer }}
+          output-sarif: true

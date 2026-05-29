@@ -465,7 +465,8 @@ struct AgentConfig {
     uint8_t deny_ptrace;                        /* block ptrace attachment (MITRE T1055.008) */
     uint8_t deny_module_load;                   /* block kernel module loading (MITRE T1547.006) */
     uint8_t deny_bpf;                           /* block unauthorized BPF program load (MITRE T1562) */
-    uint8_t _reserved[4];                       /* alignment padding */
+    uint8_t signal_fallback_enforce;            /* enforce via signal on tracepoints when BPF-LSM is absent */
+    uint8_t _reserved[3];                       /* alignment padding */
 };
 
 struct AgentMeta {

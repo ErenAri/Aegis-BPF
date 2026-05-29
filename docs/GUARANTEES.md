@@ -121,6 +121,31 @@ see `docs/THREAT_MODEL.md`.
 - Network and distributed filesystems (NFS, FUSE variants) are not guaranteed
   surfaces.
 
+### OverlayFS copy-up propagation is asynchronous
+
+- `lsm/inode_copy_up` fires synchronously when a denied lower-layer inode is
+  copied up, but the hook only emits an event and allows the copy-up to proceed.
+- Userspace re-resolves the new upper-layer inode and adds it to the deny map.
+  Between the copy-up completing and that re-propagation there is a brief window
+  in which the new upper-layer inode is not yet denied. This is detection plus
+  best-effort propagation, not synchronous enforcement.
+
+### Signal-fallback enforcement is opt-in and signal-based
+
+- On kernels without BPF-LSM, `connect()` cannot be denied with `-EPERM`. The
+  opt-in `--enforce-fallback=signal` flag attaches a `sys_enter_connect`
+  tracepoint that, in enforce mode, terminates a process connecting to a denied
+  endpoint via `bpf_send_signal()` (default `SIGKILL`).
+- This is signal-based termination, not synchronous denial: the `connect()` may
+  partially proceed before the signal is delivered on syscall return. Protocol is
+  not resolvable at syscall entry, so only protocol-agnostic rules are evaluated.
+- Verified to fire (`SIGKILL`, `net_connect_block` action=`KILL`) on a connect to
+  a denied IP. NOTE: when BPF-LSM is genuinely absent the enforce-gate currently
+  treats the missing LSM hook as a degradation (fail-closed exit or audit
+  fallback); teaching the gate to accept signal-fallback as primary connect
+  enforcement on no-LSM hosts is a follow-up. Today the tier is verified as
+  defense-in-depth alongside LSM enforcement.
+
 ## Known bypass classes
 
 | Bypass | Affected surface | Mitigation |

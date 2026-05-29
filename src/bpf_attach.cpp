@@ -242,6 +242,21 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
                                 "Optional socket_recvmsg hook attach failed");
     }
 
+    // Signal-fallback enforcement (Tier 3): connect() tracepoint that kills
+    // denied connections via bpf_send_signal when BPF-LSM is unavailable.
+    // Attached regardless of lsm_enabled (its purpose is the LSM-absent case);
+    // inert at runtime unless agent_cfg.signal_fallback_enforce is set. The link
+    // is tracked in state.links by attach_prog, so a local flag is sufficient.
+    if (attach_network_hooks) {
+        ScopedSpan span("bpf.attach.signal_fallback", trace_id, root_span.span_id());
+        (void)span;
+        bool fallback_attached = false;
+        bpf_program* prog = bpf_object__find_program_by_name(state.obj, "handle_tp_connect");
+        attach_optional_program(state, prog, fallback_attached,
+                                "Optional signal-fallback connect tracepoint attach failed");
+        (void)fallback_attached;
+    }
+
     // Optional LSM-only hooks: kernel security (ptrace/module/bpf), overlay
     // copy-up propagation, and IMA hash verification (kernel 6.1+).
     if (lsm_enabled) {

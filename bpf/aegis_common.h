@@ -338,7 +338,8 @@ struct agent_config {
     __u8 deny_ptrace;        /* block ptrace attachment (MITRE T1055.008) */
     __u8 deny_module_load;   /* block kernel module loading (MITRE T1547.006) */
     __u8 deny_bpf;           /* block unauthorized BPF program load (MITRE T1562) */
-    __u8 _reserved[4];       /* alignment padding */
+    __u8 signal_fallback_enforce; /* enforce via bpf_send_signal on tracepoints when BPF-LSM is absent */
+    __u8 _reserved[3];       /* alignment padding */
 };
 
 /* Agent config is stored as a BPF global so programs can read it without a
@@ -364,6 +365,7 @@ volatile struct agent_config agent_cfg = {
     .deny_ptrace = 0,
     .deny_module_load = 0,
     .deny_bpf = 0,
+    .signal_fallback_enforce = 0,
     ._reserved = {0},
 };
 

@@ -75,6 +75,16 @@ class LogEntry {
         return *this;
     }
 
+    // A const char* overload is required. Without it, string-literal and C-string
+    // arguments bind to the bool overload below (const char*->bool is a standard
+    // boolean conversion that outranks the user-defined const char*->std::string),
+    // which silently renders every C-string field as "true".
+    LogEntry& field(const std::string& key, const char* value)
+    {
+        fields_.emplace_back(key, value ? std::string(value) : std::string());
+        return *this;
+    }
+
     LogEntry& field(const std::string& key, bool value)
     {
         fields_.emplace_back(key, value ? "true" : "false");

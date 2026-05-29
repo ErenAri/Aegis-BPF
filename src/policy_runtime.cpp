@@ -247,19 +247,12 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
     size_t expected_allow_exec_inode_entries = 0;
 
-    // Bump policy generation before sync — forces BPF hooks into audit mode
-    // during the transition window until we commit the matching generation.
-    {
-        auto gen_result = bump_policy_generation(state);
-        if (gen_result) {
-            pending_generation = *gen_result;
-            logger().log(SLOG_INFO("Policy generation bumped; hooks in audit-mode during sync")
-                             .field("generation", static_cast<int64_t>(pending_generation)));
-        } else {
-            logger().log(SLOG_WARN("Failed to bump policy generation; sync proceeds without atomic guard")
-                             .field("error", gen_result.error().to_string()));
-        }
-    }
+    // Policy generation guard: each apply path bumps the generation exactly once,
+    // immediately before it begins mutating live maps, which forces BPF hooks into
+    // audit mode until the matching generation is committed. The shadow path bumps
+    // right before the shadow->live sync; the direct-apply path bumps at the top of
+    // its branch. Bumping any earlier (e.g. during shadow population, while the live
+    // maps are still untouched) would open an unnecessary enforcement-downgrade window.
 
     bool use_shadow = false;
     ShadowMapSet shadows;
@@ -526,6 +519,21 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             logger().log(SLOG_INFO("Shadow maps synced to live maps"));
         }
     } else {
+        // Direct-apply path mutates live maps in place. Bump the generation now,
+        // before any live-map write, so hooks fall back to audit mode until the
+        // matching generation is committed after the writes complete.
+        {
+            auto gen_result = bump_policy_generation(state);
+            if (gen_result) {
+                pending_generation = *gen_result;
+                logger().log(SLOG_INFO("Policy generation bumped; hooks in audit-mode during direct apply")
+                                 .field("generation", static_cast<int64_t>(pending_generation)));
+            } else {
+                logger().log(SLOG_WARN("Failed to bump policy generation; direct apply proceeds without atomic guard")
+                                 .field("error", gen_result.error().to_string()));
+            }
+        }
+
         if (reset) {
             ScopedSpan span("policy.reset_maps", root_span.trace_id(), root_span.span_id());
             auto reset_result = reset_policy_maps(state);
