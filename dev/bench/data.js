@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780137701204,
+  "lastUpdate": 1780162641169,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -38970,6 +38970,96 @@ window.BENCHMARK_DATA = {
             "value": 50.07368214001095,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 50.071417293696605 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1084473a8a9ac87b23b4fce1b3f9ecd6da48530a",
+          "message": "Merge pull request #181 from ErenAri/fix/scorecard-publish-and-readme-badge\n\nfix(ci): disable failing Scorecard publish + restore OpenSSF badge in README",
+          "timestamp": "2026-05-30T20:26:08+03:00",
+          "tree_id": "dcd50554924c42a292e605131eb10f2a88c80a03",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/1084473a8a9ac87b23b4fce1b3f9ecd6da48530a"
+        },
+        "date": 1780162639391,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1542.7274636939064,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1542.6277451652957 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4349.056955819905,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4348.792636479707 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26881.474244285742,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26878.064101333555 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 206380.57574306047,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 206368.03265782367 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1643173.345168232,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1643080.4882629116 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6569686.795383405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6568762.856025036 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4278.102700236559,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4282.607933002857 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29721.352140670337,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29709.434010248617 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 240639.10913789016,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 240616.17712269575 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 719248.223872762,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 719256.0807718108 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.33743262590781,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.3343281767112 ns\nthreads: 1"
           }
         ]
       }
