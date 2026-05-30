@@ -1,6 +1,7 @@
 # AegisBPF
 
 [![CI](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml/badge.svg)](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13039/badge)](https://www.bestpractices.dev/projects/13039)
 [![Tests](https://img.shields.io/badge/tests-240%2B%20passing-brightgreen)]()
 [![Architecture](https://img.shields.io/badge/arch-x86__64%20%7C%20ARM64-informational)]()
 [![Kernel](https://img.shields.io/badge/kernel-5.15%2B-orange)]()
