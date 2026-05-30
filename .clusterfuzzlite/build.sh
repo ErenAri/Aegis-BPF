@@ -10,10 +10,15 @@
 
 cd "$SRC/aegisbpf"
 
+# Build and statically link a modern libbpf (the base image's system libbpf-dev
+# is too old for clang++ -std=gnu++20). The source is pre-fetched in the
+# Dockerfile so no network is needed here.
 cmake -S . -B build-fuzz -G Ninja \
     -DENABLE_FUZZING=ON \
     -DBUILD_TESTING=OFF \
-    -DSKIP_BPF_BUILD=ON
+    -DSKIP_BPF_BUILD=ON \
+    -DSTATIC_LIBBPF=ON \
+    -DFETCHCONTENT_SOURCE_DIR_LIBBPF_SRC=/opt/libbpf-src
 
 FUZZERS="fuzz_policy fuzz_bundle fuzz_network fuzz_path fuzz_event"
 cmake --build build-fuzz --target ${FUZZERS}
