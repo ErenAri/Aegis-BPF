@@ -129,16 +129,26 @@ endif()
 if(NOT ENABLE_FUZZING)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
+include(CheckCXXSourceCompiles)
 
-# _FORTIFY_SOURCE: prefer level 3 (GCC 12+/Clang 9+ with glibc >= 2.34), else 2.
-check_cxx_compiler_flag("-D_FORTIFY_SOURCE=3" AEGIS_HAS_FORTIFY3)
+# _FORTIFY_SOURCE: prefer level 3, else 2. Probe with the fortified headers under
+# -O2 -Werror so a compiler that only partially supports level 3 (e.g. GCC 11)
+# correctly falls back — a bare -D probe wrongly reports success there.
+set(CMAKE_REQUIRED_FLAGS "-O2 -Werror -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3")
+check_cxx_source_compiles(
+    "#include <cstring>\nint main(){char b[32];std::memset(b,0,sizeof(b));return b[0];}"
+    AEGIS_HAS_FORTIFY3)
+unset(CMAKE_REQUIRED_FLAGS)
 if(AEGIS_HAS_FORTIFY3)
     set(AEGIS_FORTIFY_LEVEL 3)
 else()
     set(AEGIS_FORTIFY_LEVEL 2)
 endif()
 
-set(AEGIS_HARDEN_FLAGS "-D_FORTIFY_SOURCE=${AEGIS_FORTIFY_LEVEL} -fstack-protector-strong -fPIE")
+# Always -U_FORTIFY_SOURCE before redefining: some distros (Ubuntu) predefine it
+# (gcc-11 -> 2, gcc-13/Ubuntu 24.04 -> 3), and redefining to a different level is
+# a "_FORTIFY_SOURCE redefined" error under -Werror.
+set(AEGIS_HARDEN_FLAGS "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=${AEGIS_FORTIFY_LEVEL} -fstack-protector-strong -fPIE")
 
 # Stack clash protection (large-stack-probe guard; GCC 8+/Clang 11+, x86_64/arm64).
 check_cxx_compiler_flag("-fstack-clash-protection" AEGIS_HAS_STACK_CLASH)
