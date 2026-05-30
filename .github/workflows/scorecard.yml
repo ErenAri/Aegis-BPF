@@ -33,9 +33,12 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Enable publishing results to OpenSSF so the badge works.
-          # Requires the repo to be public.
-          publish_results: true
+          # Publishing to the OpenSSF Scorecard API is disabled: the publish
+          # step retries and then errors for this repo, failing the job. The
+          # analysis still runs and results upload to GitHub code-scanning below,
+          # so regressions still surface. Re-enable once the repo is onboarded
+          # with the OpenSSF Scorecard webapp.
+          publish_results: false
 
       # Upload the results as artifacts (optional; useful for PR review).
       - name: Upload artifact
