@@ -3,9 +3,9 @@
 // Regression guard for the const char* -> bool overload trap: before a dedicated
 // const char* overload existed, string-literal / C-string field values bound to
 // field(key, bool) and rendered as "true" instead of the actual string.
-#include "logging.hpp"
-
 #include <gtest/gtest.h>
+
+#include "logging.hpp"
 
 using namespace aegis;
 
