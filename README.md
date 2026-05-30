@@ -187,7 +187,7 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | Process ancestry + argv | ✅ 4 MB priority ringbuf | ◐ | ✅ | ✅ | ◐ |
 | Cgroup-scoped policy | ✅ inode / IPv4 / port | ◐ | ✅ | ◐ | ✅ |
 | LPM CIDR v4/v6 network deny | ✅ | ◐ | ✅ | ◐ | ◐ |
-| Ptrace / module-load / BPF syscall blocking | ✅ ptrace + bpf · ◐ module (needs kernel lockdown) | ❌ | ◐ | ❌ | ◐ |
+| Ptrace / module-load / BPF syscall blocking | ✅ all three (module via `kernel_read_file`/`kernel_load_data`) | ❌ | ◐ | ❌ | ◐ |
 | Policy evaluation | O(1) BPF map lookup | O(rules) userspace | In-kernel TracingPolicy | Hybrid signatures | In-kernel + userspace |
 | Policy language | INI + K8s CRD | YAML DSL | K8s CRD TracingPolicy | Rego / Go signatures | K8s CRD KubeArmorPolicy |
 | Break-glass / deadman-TTL | ✅ Emergency + revert | ❌ | ❌ | ❌ | ❌ |

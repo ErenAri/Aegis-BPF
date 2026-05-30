@@ -164,6 +164,120 @@ int BPF_PROG(handle_locked_down, enum lockdown_reason what)
 }
 
 /*
+ * Shared policy application for module-load denials. Callers have already
+ * confirmed deny_module_load is set and that this is a module-load operation.
+ * Emits an EVENT_KERNEL_MODULE_BLOCK and returns -EPERM in enforce mode.
+ */
+static __always_inline int apply_module_load_policy(__u64 _start_ns)
+{
+    __u64 cgid = bpf_get_current_cgroup_id();
+    if (is_cgroup_allowed(cgid)) {
+        record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+        return 0;
+    }
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    struct task_struct *task = bpf_get_current_task_btf();
+
+    __u8 audit = get_effective_audit_mode();
+    __u8 enforce_signal = 0;
+    if (!audit) {
+        enforce_signal = get_effective_enforce_signal();
+    }
+
+    increment_block_stats();
+    increment_cgroup_stat(cgid);
+
+    __u32 sample_rate = get_event_sample_rate();
+    if (should_emit_event(sample_rate)) {
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        if (e) {
+            e->type = EVENT_KERNEL_MODULE_BLOCK;
+            e->kernel_block.pid = pid;
+            e->kernel_block.ppid = task ? BPF_CORE_READ(task, real_parent, tgid) : 0;
+            e->kernel_block.start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+            e->kernel_block.parent_start_time = task ? BPF_CORE_READ(task, real_parent, start_time) : 0;
+            e->kernel_block.cgid = cgid;
+            bpf_get_current_comm(e->kernel_block.comm, sizeof(e->kernel_block.comm));
+            e->kernel_block.target_pid = 0;
+            e->kernel_block._pad = 0;
+            set_action_string(e->kernel_block.action, audit, enforce_signal);
+            __builtin_memcpy(e->kernel_block.rule_type, "module\0\0\0\0\0\0\0\0\0", 16);
+            bpf_ringbuf_submit(e, 0);
+        } else {
+            increment_ringbuf_drops();
+        }
+    }
+
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
+    }
+
+    record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+    return audit ? 0 : -EPERM;
+}
+
+/*
+ * LSM hook: kernel_read_file
+ *
+ * Fires for finit_module(2) — a kernel module loaded from a file descriptor
+ * (the path modern insmod/modprobe use). When deny_module_load is enabled this
+ * denies the load with -EPERM. Unlike locked_down, this does NOT require kernel
+ * lockdown to be active, so it blocks module loading on ordinary systems.
+ *
+ * MITRE ATT&CK: T1547.006 (Kernel Modules and Extensions)
+ */
+SEC("lsm/kernel_read_file")
+int BPF_PROG(handle_kernel_read_file, struct file *file, enum kernel_read_file_id id, bool contents)
+{
+    __u64 _start_ns = bpf_ktime_get_ns();
+    (void)file;
+    (void)contents;
+
+    if (!agent_cfg.deny_module_load) {
+        record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+        return 0;
+    }
+
+    /* CO-RE enum read so the program adapts if the kernel renumbers the enum. */
+    int module_id = bpf_core_enum_value(enum kernel_read_file_id, READING_MODULE);
+    if ((int)id != module_id) {
+        record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+        return 0;
+    }
+
+    return apply_module_load_policy(_start_ns);
+}
+
+/*
+ * LSM hook: kernel_load_data
+ *
+ * Fires for init_module(2) — a kernel module loaded from a memory buffer.
+ * Complements kernel_read_file so both module-loading syscalls are covered.
+ *
+ * MITRE ATT&CK: T1547.006 (Kernel Modules and Extensions)
+ */
+SEC("lsm/kernel_load_data")
+int BPF_PROG(handle_kernel_load_data, enum kernel_load_data_id id, bool contents)
+{
+    __u64 _start_ns = bpf_ktime_get_ns();
+    (void)contents;
+
+    if (!agent_cfg.deny_module_load) {
+        record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+        return 0;
+    }
+
+    int module_id = bpf_core_enum_value(enum kernel_load_data_id, LOADING_MODULE);
+    if ((int)id != module_id) {
+        record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
+        return 0;
+    }
+
+    return apply_module_load_policy(_start_ns);
+}
+
+/*
  * LSM hook: bpf
  *
  * Called when a process attempts to execute the bpf() syscall.
