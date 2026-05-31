@@ -516,8 +516,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         // process and the running daemon share ONE map; otherwise the daemon's
         // programs read a private committed=0 against the applied expected>0, and the
         // generation gate silently downgrades enforcement to audit.
-        TRY(check(try_reuse_optional(state.policy_generation_map, kPolicyGenerationPin,
-                                     state.policy_generation_reused)));
+        TRY(check(
+            try_reuse_optional(state.policy_generation_map, kPolicyGenerationPin, state.policy_generation_reused)));
         TRY(check(try_reuse(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional - don't fail if not found)
