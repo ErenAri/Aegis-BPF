@@ -88,7 +88,13 @@ if(STATIC_LIBBPF)
             "DESTDIR=${LIBBPF_INSTALL_DIR}"
             "PREFIX="
             "EXTRA_CFLAGS=${LIBBPF_EXTRA_CFLAGS}"
-            make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install
+            # `install` ships only bpf/*.h; `install_uapi_headers` is a separate
+            # target that ships the bundled UAPI linux/{bpf,bpf_common,btf}.h.
+            # Without it, libbpf.h's `#include <linux/bpf.h>` falls through to the
+            # build image's stale system UAPI (no `enum bpf_link_type`), and
+            # libbpf.h:`libbpf_bpf_link_type_str(enum bpf_link_type)` fails to
+            # compile under C++ ("ISO C++ forbids forward references to 'enum'").
+            make -C ${LIBBPF_SRC_DIR} -j$ENV{NPROC} install install_uapi_headers
         DEPENDS ${LIBBPF_SRC_DIR}/Makefile
         COMMENT "Building libbpf ${LIBBPF_VERSION} (static)"
         VERBATIM
