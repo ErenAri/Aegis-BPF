@@ -47,7 +47,7 @@ Audit-mode dry run first:
 
 ```sh
 sudo aegisbpf policy validate rules/kernel-tampering/kernel-tampering.conf
-sudo aegisbpf policy apply --reset rules/kernel-tampering/kernel-tampering.conf
+sudo aegisbpf policy apply rules/kernel-tampering/kernel-tampering.conf --reset
 sudo aegisbpf run --audit
 # Inspect events for ~24h. If clean, switch to enforce.
 ```

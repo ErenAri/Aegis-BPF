@@ -49,5 +49,5 @@ processes.
 
 ```sh
 sudo aegisbpf policy validate rules/pam-backdoor/pam-backdoor.conf
-sudo aegisbpf policy apply --reset rules/pam-backdoor/pam-backdoor.conf
+sudo aegisbpf policy apply rules/pam-backdoor/pam-backdoor.conf --reset
 ```

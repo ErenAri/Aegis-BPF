@@ -5,7 +5,8 @@ Each pack is a small, **focused** `.conf` file in the project's INI policy
 format (`docs/POLICY.md`) covering one threat or one hardening
 benchmark. Packs are designed to be loaded individually with
 `aegisbpf policy apply <pack>.conf` or composed by an operator-curated
-top-level policy that `# include`s individual packs by hand.
+top-level policy that copies the selected sections explicitly. The daemon
+policy parser does not implement an `include` directive.
 
 ## Why this exists
 
@@ -93,7 +94,7 @@ Each pack `README.md` MUST document:
 ```sh
 # Audit-mode dry run first — never enforce a fresh pack blind.
 sudo aegisbpf policy validate rules/secrets-protection/secrets-protection.conf
-sudo aegisbpf policy apply --reset rules/secrets-protection/secrets-protection.conf
+sudo aegisbpf policy apply rules/secrets-protection/secrets-protection.conf --reset
 sudo aegisbpf run --audit
 # Inspect events; if clean for your workload, switch to enforce.
 sudo systemctl restart aegisbpf  # picks up /etc/default/aegisbpf

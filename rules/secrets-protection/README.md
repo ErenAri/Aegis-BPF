@@ -53,7 +53,7 @@ mandatory.
 
 ```sh
 sudo aegisbpf policy validate rules/secrets-protection/secrets-protection.conf
-sudo aegisbpf policy apply --reset rules/secrets-protection/secrets-protection.conf
+sudo aegisbpf policy apply rules/secrets-protection/secrets-protection.conf --reset
 sudo aegisbpf run --audit
 # 24h audit. If clean, enforce.
 ```

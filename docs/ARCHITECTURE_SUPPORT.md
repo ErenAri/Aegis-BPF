@@ -156,10 +156,10 @@ and `linux/arm64`:
 
 ```bash
 # Pull the correct architecture automatically
-docker pull ghcr.io/aegisbpf/aegisbpf:latest
+docker pull ghcr.io/erenari/aegis-bpf:latest
 
 # Force a specific architecture
-docker pull --platform linux/arm64 ghcr.io/aegisbpf/aegisbpf:latest
+docker pull --platform linux/arm64 ghcr.io/erenari/aegis-bpf:latest
 ```
 
 The multi-arch build uses Docker Buildx with QEMU for ARM64 and native

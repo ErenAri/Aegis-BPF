@@ -63,7 +63,7 @@ config rotation (cert-manager), allow-list the component's cgroup.
 
 ```sh
 sudo aegisbpf policy validate rules/cis-k8s-control-plane/cis-k8s-control-plane.conf
-sudo aegisbpf policy apply --reset rules/cis-k8s-control-plane/cis-k8s-control-plane.conf
+sudo aegisbpf policy apply rules/cis-k8s-control-plane/cis-k8s-control-plane.conf --reset
 sudo aegisbpf run --audit
 # 24h audit. If clean, enforce.
 ```

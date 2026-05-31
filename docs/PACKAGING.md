@@ -185,7 +185,8 @@ docker run --rm -v "$PWD/build:/pkg" fedora:40 \
 CPack pulls the version from `project(... VERSION X.Y.Z ...)` in
 `CMakeLists.txt`. The release-tag flow is:
 
-1. Bump `project(aegisbpf VERSION X.Y.Z LANGUAGES C CXX)` and the
+1. Bump `project(aegisbpf VERSION X.Y.Z LANGUAGES C CXX)`,
+   `helm/aegisbpf/Chart.yaml` (`version` and `appVersion`), and the
    `## [X.Y.Z] - YYYY-MM-DD` heading in `docs/CHANGELOG.md`.
 2. Tag: `git tag -s vX.Y.Z -m "vX.Y.Z"`.
 3. Push: `git push origin vX.Y.Z` — this fires `release.yml`, which

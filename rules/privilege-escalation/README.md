@@ -40,5 +40,5 @@ This pack defends both stages:
 
 ```sh
 sudo aegisbpf policy validate rules/privilege-escalation/privilege-escalation.conf
-sudo aegisbpf policy apply --reset rules/privilege-escalation/privilege-escalation.conf
+sudo aegisbpf policy apply rules/privilege-escalation/privilege-escalation.conf --reset
 ```

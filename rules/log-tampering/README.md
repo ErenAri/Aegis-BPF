@@ -42,5 +42,5 @@ should be exempted via `allow_cgroup`.
 
 ```sh
 sudo aegisbpf policy validate rules/log-tampering/log-tampering.conf
-sudo aegisbpf policy apply --reset rules/log-tampering/log-tampering.conf
+sudo aegisbpf policy apply rules/log-tampering/log-tampering.conf --reset
 ```

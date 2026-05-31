@@ -42,5 +42,5 @@ This pack write-protects all standard DNS configuration files.
 
 ```sh
 sudo aegisbpf policy validate rules/dns-hijack/dns-hijack.conf
-sudo aegisbpf policy apply --reset rules/dns-hijack/dns-hijack.conf
+sudo aegisbpf policy apply rules/dns-hijack/dns-hijack.conf --reset
 ```

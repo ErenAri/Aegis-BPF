@@ -9,13 +9,13 @@ minor moves to End of Life immediately.
 
 | Version | Status            | Notes                                       |
 | ------- | ----------------- | ------------------------------------------- |
-| 0.4.x   | Supported         | Current stable. All security fixes land here. |
-| 0.3.x   | Supported         | Previous minor. Critical security fixes only. |
-| 0.2.x   | End of Life       | No further fixes. Upgrade to 0.4.x.         |
-| 0.1.x   | End of Life       | No further fixes. Upgrade to 0.4.x.         |
+| 0.8.x   | Supported         | Current stable. All security fixes land here. |
+| 0.7.x   | Supported         | Previous minor. Critical security fixes only. |
+| 0.6.x   | End of Life       | No further fixes. Upgrade to 0.8.x.         |
+| <= 0.5.x | End of Life      | No further fixes. Upgrade to 0.8.x.         |
 
 Release notes for each minor live on the GitHub Releases page:
-<https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/releases>
+<https://github.com/ErenAri/Aegis-BPF/releases>
 
 This table is the authoritative source for supportedness. If it ever
 disagrees with anything else in the repository, this table wins and the
@@ -100,7 +100,7 @@ All releases are signed using Sigstore Cosign. To verify a release:
 cosign verify-blob \
   --certificate aegisbpf-*.tar.gz.pem \
   --signature aegisbpf-*.tar.gz.sig \
-  --certificate-identity-regexp 'https://github.com/aegisbpf/aegisbpf/*' \
+  --certificate-identity-regexp 'https://github.com/ErenAri/Aegis-BPF/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   aegisbpf-*.tar.gz
 ```

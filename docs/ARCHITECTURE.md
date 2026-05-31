@@ -189,8 +189,9 @@ Seccomp filter:
 #### Security modules
 
 - `src/bpf_signing.cpp`
-  - SHA-256 hash verification of BPF object files before loading
-  - Ed25519 signature preparation (placeholder for full signing infra)
+  - Ed25519 signature helper code for future full signing infra
+- `src/bpf_integrity.cpp`
+  - SHA-256 hash sidecar verification of BPF object files before loading
   - Break-glass override via `AEGIS_ALLOW_UNSIGNED_BPF`
 - `src/binary_hash.cpp`
   - Integrity verification for allow-listed binaries via SHA-256

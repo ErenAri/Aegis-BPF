@@ -366,7 +366,7 @@ If issues persist:
    sudo dmesg | tail -100 >> aegisbpf-health.txt
    ```
 
-2. Open an issue at: https://github.com/aegisbpf/aegisbpf/issues
+2. Open an issue at: https://github.com/ErenAri/Aegis-BPF/issues
 
 Include:
 - Health check output

@@ -17,7 +17,7 @@ and Helm defaults.
 ## Schema Contract
 
 - `schema_version`: integer compatibility anchor (currently `1`)
-- `schema_semver`: semantic contract version (currently `1.5.0`)
+- `schema_semver`: semantic contract version (currently `1.6.0`)
 - Consumers must reject malformed payloads and treat unknown versions as
   non-compliant posture.
 

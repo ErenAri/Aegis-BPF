@@ -56,7 +56,7 @@ config-management agent's cgroup.
 
 ```sh
 sudo aegisbpf policy validate rules/ssh-hardening/ssh-hardening.conf
-sudo aegisbpf policy apply --reset rules/ssh-hardening/ssh-hardening.conf
+sudo aegisbpf policy apply rules/ssh-hardening/ssh-hardening.conf --reset
 sudo aegisbpf run --audit
 # 24h audit. If clean, enforce.
 ```

@@ -143,7 +143,7 @@ for those is tracked in `docs/POSITIONING.md` §3.3.
     "product": {
       "name": "AegisBPF",
       "vendor_name": "AegisBPF Project",
-      "version": "0.5.1"
+      "version": "0.8.0"
     },
     "uid": "exec-1234-deadbeef"
   },

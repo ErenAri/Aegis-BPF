@@ -41,5 +41,5 @@ installation at the filesystem layer.
 
 ```sh
 sudo aegisbpf policy validate rules/persistence-cron/persistence-cron.conf
-sudo aegisbpf policy apply --reset rules/persistence-cron/persistence-cron.conf
+sudo aegisbpf policy apply rules/persistence-cron/persistence-cron.conf --reset
 ```

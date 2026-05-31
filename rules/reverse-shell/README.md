@@ -39,5 +39,5 @@ own tooling or use language-native reverse shells (Python, Perl, bash
 
 ```sh
 sudo aegisbpf policy validate rules/reverse-shell/reverse-shell.conf
-sudo aegisbpf policy apply --reset rules/reverse-shell/reverse-shell.conf
+sudo aegisbpf policy apply rules/reverse-shell/reverse-shell.conf --reset
 ```

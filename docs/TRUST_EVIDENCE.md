@@ -1,7 +1,7 @@
 # Trust & Evidence Framework
 
-**Project:** AegisBPF v0.1.1
-**Last Updated:** 2026-02-15
+**Project:** AegisBPF v0.8.0
+**Last Updated:** 2026-05-31
 **Status:** Production Ready
 
 This document provides verifiable evidence of AegisBPF's trustworthiness across security, quality, and operational dimensions.
@@ -364,10 +364,10 @@ Outputs:
 **Verification:**
 ```bash
 # Verify release
-wget https://github.com/.../aegisbpf-0.1.1.tar.gz
-wget https://github.com/.../aegisbpf-0.1.1.tar.gz.sha256
+wget https://github.com/.../aegisbpf-0.8.0.tar.gz
+wget https://github.com/.../aegisbpf-0.8.0.tar.gz.sha256
 
-sha256sum -c aegisbpf-0.1.1.tar.gz.sha256
+sha256sum -c aegisbpf-0.8.0.tar.gz.sha256
 # Expected: OK
 ```
 

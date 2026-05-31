@@ -1,8 +1,9 @@
 # CI Workflow Audit — 2026-04-26
 
 This document is a one-time audit of `.github/workflows/`. The
-project ships **34 workflows**; this pass categorizes them, flags
-staleness, identifies overlap, and proposes consolidation.
+project shipped **34 workflows** at audit time; the current tree has since
+grown to **41 workflows**. This pass categorizes the audit-time inventory,
+flags staleness, identifies overlap, and proposes consolidation.
 
 It is intentionally non-prescriptive — it documents the current
 state and surfaces decisions the maintainers can make. No workflows

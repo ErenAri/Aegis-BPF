@@ -99,7 +99,7 @@ Where it fits on the runtime-security map:
 - **Startup self-tests** - Validates map accessibility, config readability, and ring buffer health on boot
 - **Map capacity monitoring** - Warns when BPF map usage approaches configured limits
 - **Process cache reconciliation** - Scans /proc at startup to populate process tree for pre-existing processes
-- **BPF object signing** - SHA-256 hash verification with Ed25519 signature preparation
+- **BPF object integrity** - SHA-256 hash verification before loading, with explicit break-glass override
 - **Binary hash verification** - Integrity checks for allow-listed binaries
 - **IMA-backed exec trust (kernel 6.1+)** - Optional `bpf_ima_file_hash()` integration verifies executables against a SHA-256 trust map (`trusted_exec_hash`) inside `bprm_check_security`
 - **Deep process lineage** - Process tree records ancestor PIDs for richer rule matching and post-mortem correlation, with retained metadata for recently exited processes
@@ -164,7 +164,7 @@ sudo ./build/prototype/aegisbpf-next policy load examples/policy.rules
 
 Full documentation: [`prototype/aegis-next/README.md`](prototype/aegis-next/README.md) |
 Roadmap status: [`prototype/aegis-next/ROADMAP.md`](prototype/aegis-next/ROADMAP.md) |
-Architecture: [`prototype/aegis-next/ARCHITECTURE.md`](prototype/aegis-next/ARCHITECTURE.md)
+Architecture: [`prototype/aegis-next/docs/ARCHITECTURE.md`](prototype/aegis-next/docs/ARCHITECTURE.md)
 
 ## Comparison with Other Tools
 
@@ -195,10 +195,10 @@ Legend: ✅ full · ◐ partial · ❌ absent
 | BTFhub fallback (kernels w/o BTF) | ✅ multi-tier resolver + `scripts/btfgen.sh` | ✅ | ✅ | ✅ | ✅ |
 | Kubernetes CRD + validating webhook | ✅ v1alpha1 | ◐ | ✅ v1 | ◐ | ✅ |
 | Signed policies (Ed25519 / cosign) | ✅ Ed25519 | ❌ | ◐ | ❌ | ◐ |
-| Signed BPF objects | ✅ SHA-256 + Ed25519 (`AEGIS_REQUIRE_BPF_SIGNATURE`) | ❌ | ❌ | ❌ | ❌ |
+| BPF object integrity | ✅ SHA-256 hash gate (`AEGIS_REQUIRE_BPF_HASH`) | ❌ | ❌ | ❌ | ❌ |
 | SBOM (SPDX + CycloneDX) | ✅ both | ✅ | ✅ | ✅ | ✅ |
 | SLSA L3 build provenance | ✅ v1.0 Build L3 (self-verified) | ✅ | ✅ | ✅ | ◐ |
-| MITRE ATT&CK rule tags | ✅ schema + 5 rules tagged + CI gate | ✅ | ◐ | ◐ | ◐ |
+| MITRE ATT&CK rule tags | ✅ schema + 25 rule packs tagged + CI gate | ✅ | ◐ | ◐ | ◐ |
 | CIS / NIST / PCI mappings | ✅ docs/compliance/ | ✅ | ◐ | ◐ | ✅ |
 | Prometheus metrics | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OpenTelemetry OTLP | ✅ | ◐ | ✅ | ◐ | ◐ |
@@ -619,7 +619,7 @@ Recent maintenance work split the old hotspot files into narrower modules:
 - Quality and observability modules: `src/selftest.cpp` (startup validation),
   `src/map_monitor.cpp` (capacity warnings), `src/proc_scan.cpp` (/proc
   reconciliation).
-- Security modules: `src/bpf_signing.cpp` (BPF object integrity),
+- Security modules: `src/bpf_signing.cpp` (BPF object signature helpers),
   `src/binary_hash.cpp` (allow-list hash verification).
 - Extension modules: `src/rule_engine.cpp` (hot-loadable detection rules),
   `src/plugin.cpp` (event handler plugin system).
@@ -748,7 +748,7 @@ sudo aegisbpf allow del /sys/fs/cgroup/system.slice
 
 ```ini
 # /etc/aegisbpf/policy.conf
-version=5
+version=6
 
 [deny_path]
 /usr/bin/dangerous
@@ -772,8 +772,21 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 # Optional hard gate: require host IMA appraisal when enforcing
 [require_ima_appraisal]
 
+[deny_comm]
+xmrig
+minerd
+
 [protect_path]
 /etc/shadow
+
+[cgroup_deny_inode]
+cgid:123456 259:12345
+
+[cgroup_deny_ip]
+cgid:123456 10.0.0.1
+
+[cgroup_deny_port]
+cgid:123456 443:tcp:egress
 ```
 
 ```bash

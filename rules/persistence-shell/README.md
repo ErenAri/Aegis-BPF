@@ -40,5 +40,5 @@ global environment configuration.
 
 ```sh
 sudo aegisbpf policy validate rules/persistence-shell/persistence-shell.conf
-sudo aegisbpf policy apply --reset rules/persistence-shell/persistence-shell.conf
+sudo aegisbpf policy apply rules/persistence-shell/persistence-shell.conf --reset
 ```

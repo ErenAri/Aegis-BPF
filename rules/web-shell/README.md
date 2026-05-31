@@ -41,5 +41,5 @@ This pack takes a two-layer approach:
 
 ```sh
 sudo aegisbpf policy validate rules/web-shell/web-shell.conf
-sudo aegisbpf policy apply --reset rules/web-shell/web-shell.conf
+sudo aegisbpf policy apply rules/web-shell/web-shell.conf --reset
 ```

@@ -54,12 +54,24 @@ Represents a parsed policy file.
 
 ```cpp
 struct Policy {
-    int version;                              // Policy format version (1 or 2)
+    int version;                              // Policy format version (1 through 6)
     std::vector<std::string> deny_paths;      // Paths to block
     std::vector<InodeId> deny_inodes;         // Inodes to block (dev:ino)
+    std::vector<std::string> protect_paths;   // Protected resources (version 4+)
+    bool protect_connect;                     // Protected connect() posture (version 4+)
+    bool protect_runtime_deps;                // Runtime dependency trust (version 4+)
+    bool require_ima_appraisal;               // IMA appraisal gate (version 5+)
     std::vector<std::string> allow_cgroup_paths;  // Allowed cgroup paths
     std::vector<uint64_t> allow_cgroup_ids;   // Allowed cgroup IDs
     NetworkPolicy network;                    // Network rules (version 2)
+    CgroupPolicy cgroup;                      // Per-cgroup deny rules (version 6+)
+    std::vector<std::string> deny_binary_hashes;  // SHA-256 deny expansion (version 3+)
+    std::vector<std::string> allow_binary_hashes; // Exec allowlist hashes (version 3+)
+    std::vector<std::string> scan_paths;      // Extra binary hash scan roots (version 3+)
+    std::vector<std::string> deny_comm;       // Exec basename deny entries
+    bool deny_ptrace;                         // Ptrace block toggle
+    bool deny_module_load;                    // Module-load block toggle
+    bool deny_bpf;                            // BPF abuse block toggle
 };
 ```
 

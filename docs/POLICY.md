@@ -1,4 +1,4 @@
-# Policy Format (v1-v5)
+# Policy Format (v1-v6)
 
 Policy files are line-oriented and ASCII-only. Lines starting with `#` are
 comments. Blank lines are ignored.
@@ -11,17 +11,18 @@ edge cases), see `docs/POLICY_SEMANTICS.md`.
 The header is a set of `key=value` pairs before any section.
 
 Required:
-- `version=<1|2|3|4|5>`
+- `version=<1|2|3|4|5|6>`
 
 Notes:
 - `version=1` and `version=2` remain valid for file/network rules.
 - `version=3` is required when using binary hash sections.
 - `version=4` is required when using exec-identity protected-resource sections.
 - `version=5` is required when using IMA appraisal gating.
+- `version=6` is required when using cgroup-scoped deny sections.
 
 Example:
 ```
-version=5
+version=6
 ```
 
 ## Sections
@@ -46,6 +47,19 @@ One entry per line. Use a cgroup path (preferred) or `cgid:<id>` when a path is
 not available.
 
 This section is an explicit bypass control: matching cgroups skip deny rules.
+
+### [deny_ptrace]
+Flag section with no entries. When present, ptrace attempts are blocked through
+the kernel ptrace LSM hook when the hook is available.
+
+### [deny_module_load]
+Flag section with no entries. When present, kernel module load paths are blocked
+through the kernel read/load LSM hooks when available.
+
+### [deny_bpf]
+Flag section with no entries. When present, BPF program-load abuse is blocked
+through the kernel lockdown/BPF path when the hook is available. Use this with
+`[deny_module_load]` for broader kernel-tampering coverage.
 
 ### [deny_binary_hash] (version 3+)
 One entry per line in `sha256:<64-hex>` format.
@@ -117,9 +131,46 @@ Behavior:
 This section does not change exec behavior directly; it hardens protected-resource
 policy posture by requiring kernel integrity appraisal capability.
 
+### [deny_comm]
+One executable basename per line, with a maximum of 15 bytes
+(`TASK_COMM_LEN - 1`). Runtime matching is performed in `bprm_check_security`
+against the basename being executed.
+
 ### [scan_paths] (version 3+)
 Optional additional absolute directories to include during
 `[deny_binary_hash]` and `[allow_binary_hash]` scans.
+
+### [cgroup_deny_inode] (version 6+)
+One cgroup-scoped inode deny per line:
+
+```
+<cgroup_path_or_cgid> <dev>:<ino>
+```
+
+The cgroup may be a path or `cgid:<id>`. Example:
+
+```
+cgid:12345 259:67890
+```
+
+### [cgroup_deny_ip] (version 6+)
+One cgroup-scoped IPv4 deny per line:
+
+```
+<cgroup_path_or_cgid> <ipv4>
+```
+
+IPv6 is intentionally not accepted by this section in the current daemon.
+
+### [cgroup_deny_port] (version 6+)
+One cgroup-scoped port deny per line:
+
+```
+<cgroup_path_or_cgid> <port>[:<protocol>[:<direction>]]
+```
+
+`protocol` is `tcp`, `udp`, or `any`; `direction` is `egress`, `bind`, or
+`both`.
 
 ## CLI lifecycle
 
@@ -141,7 +192,7 @@ Environment variables:
 
 ## Example
 ```
-version=5
+version=6
 
 [deny_path]
 /etc/shadow
@@ -163,6 +214,19 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 [require_ima_appraisal]
 
+[deny_comm]
+xmrig
+minerd
+
 [protect_path]
 /etc/shadow
+
+[cgroup_deny_inode]
+cgid:10243 2049:123456
+
+[cgroup_deny_ip]
+cgid:10243 10.0.0.1
+
+[cgroup_deny_port]
+cgid:10243 443:tcp:egress
 ```

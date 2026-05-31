@@ -14,5 +14,5 @@ Restricts network reconnaissance tools used during lateral movement.
 ## How to install
 ```sh
 sudo aegisbpf policy validate rules/network-tools/network-tools.conf
-sudo aegisbpf policy apply --reset rules/network-tools/network-tools.conf
+sudo aegisbpf policy apply rules/network-tools/network-tools.conf --reset
 ```

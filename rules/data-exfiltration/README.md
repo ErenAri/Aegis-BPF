@@ -47,5 +47,5 @@ those.
 
 ```sh
 sudo aegisbpf policy validate rules/data-exfiltration/data-exfiltration.conf
-sudo aegisbpf policy apply --reset rules/data-exfiltration/data-exfiltration.conf
+sudo aegisbpf policy apply rules/data-exfiltration/data-exfiltration.conf --reset
 ```

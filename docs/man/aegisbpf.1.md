@@ -399,7 +399,7 @@ Notes:
 Policy files use INI-style syntax:
 
 ```
-version=5
+version=6
 
 # Block these paths
 [deny_path]
@@ -426,8 +426,21 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 [require_ima_appraisal]
 
+[deny_comm]
+xmrig
+minerd
+
 [protect_path]
 /etc/shadow
+
+[cgroup_deny_inode]
+cgid:123456 259:12345
+
+[cgroup_deny_ip]
+cgid:123456 10.0.0.1
+
+[cgroup_deny_port]
+cgid:123456 443:tcp:egress
 ```
 
 ## ENVIRONMENT
@@ -602,4 +615,4 @@ AegisBPF Team
 
 ## BUGS
 
-Report bugs at: https://github.com/aegisbpf/aegisbpf/issues
+Report bugs at: https://github.com/ErenAri/Aegis-BPF/issues

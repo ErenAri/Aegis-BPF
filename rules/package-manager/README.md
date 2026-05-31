@@ -43,5 +43,5 @@ across Debian, RHEL, and SUSE families.
 
 ```sh
 sudo aegisbpf policy validate rules/package-manager/package-manager.conf
-sudo aegisbpf policy apply --reset rules/package-manager/package-manager.conf
+sudo aegisbpf policy apply rules/package-manager/package-manager.conf --reset
 ```

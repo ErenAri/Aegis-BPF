@@ -36,7 +36,7 @@ Fallback model:
 Use the helper script on **each runner host** (must run as root):
 
 ```bash
-sudo REPO=ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype \
+sudo REPO=ErenAri/Aegis-BPF \
   RUNNER_NAME=kernel-6.8-host \
   LABELS=kernel-6.8,bpf-lsm \
   scripts/setup_self_hosted_runner.sh

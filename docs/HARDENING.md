@@ -8,7 +8,7 @@ operators can adopt them at the pace their kernel/userland allows.
 | seccomp-bpf syscall allowlist | `--seccomp` | off | ≥ 3.5 | Restricts the daemon to ~60 needed syscalls; default deny → `SECCOMP_RET_KILL_PROCESS`. |
 | Landlock filesystem sandbox | `--landlock` | off | ≥ 5.13 | Restricts the daemon to a fixed allowlist of paths (BPF maps, config, state, `/proc`). |
 | Post-attach capability drop | `--drop-caps` | off | ≥ 5.8 | Drops `CAP_BPF`, `CAP_SYS_ADMIN`, `CAP_PERFMON`, etc. once BPF programs are attached; only `CAP_NET_ADMIN` and `CAP_DAC_READ_SEARCH` are kept. |
-| Signed BPF objects | `AEGIS_REQUIRE_BPF_SIG=1` | off | n/a | Hard-requires Ed25519 signature on `aegis.bpf.o` (`docs/SIGNED_BPF_OBJECTS.md`). |
+| BPF object integrity gate | `AEGIS_REQUIRE_BPF_HASH=1` | on in enforce mode | n/a | Requires `aegis.bpf.o` to match its SHA-256 sidecar; break-glass is `AEGIS_ALLOW_UNSIGNED_BPF=1` (`docs/BPF_OBJECT_INTEGRITY.md`). |
 | Anti-rollback policy versioning | always on | n/a | n/a | Monotonic counter in `/var/lib/aegisbpf/version_counter`. |
 | Break-glass disable | file marker | n/a | n/a | `/etc/aegisbpf/break_glass[.token]` short-circuits enforcement (audit-only). |
 | Pinned-link crash fail-safe | `AEGIS_ENFORCE_PIN_LINKS=1` | off | ≥ 5.7 (BPF LSM) | Pins LSM links into bpffs so enforcement survives daemon crash / `SIGKILL` / OOM. |
@@ -93,8 +93,8 @@ sudo rm -rf /sys/fs/bpf/aegisbpf/
 - `AEGIS_UNPIN_ON_EXIT=1` for clean shutdowns is on the roadmap.
 
 This document focuses on the **Landlock** layer. The seccomp layer is
-described inline in `src/seccomp.cpp`; signing is in
-[`docs/SIGNED_BPF_OBJECTS.md`](SIGNED_BPF_OBJECTS.md).
+described inline in `src/seccomp.cpp`; BPF object integrity is in
+[`docs/BPF_OBJECT_INTEGRITY.md`](BPF_OBJECT_INTEGRITY.md).
 
 ## Landlock self-sandbox
 
@@ -327,7 +327,7 @@ The bits set should correspond to the keep set
 
 ## See also
 
-- [`docs/SIGNED_BPF_OBJECTS.md`](SIGNED_BPF_OBJECTS.md) — Ed25519 signing of `aegis.bpf.o`.
+- [`docs/BPF_OBJECT_INTEGRITY.md`](BPF_OBJECT_INTEGRITY.md) — SHA-256 integrity gate for `aegis.bpf.o`.
 - [`docs/THREAT_MODEL.md`](THREAT_MODEL.md) — attacker capabilities and trust boundaries.
 - [`src/landlock.cpp`](../src/landlock.cpp), [`tests/test_landlock_sandbox.cpp`](../tests/test_landlock_sandbox.cpp).
 - [`src/capabilities.cpp`](../src/capabilities.cpp), [`tests/test_capabilities.cpp`](../tests/test_capabilities.cpp).

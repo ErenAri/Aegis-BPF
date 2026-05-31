@@ -71,7 +71,7 @@ program lifecycle management).
 |---|---|
 | Org repo URL | N/A (single repo) |
 | Project repo URL | <https://github.com/ErenAri/Aegis-BPF> |
-| Additional repos | None yet (planned: `aegisbpf/rules` community rule library) |
+| Additional repos | None yet (in-tree community rule library under `rules/`; standalone `aegisbpf/rules` repo planned) |
 | Website URL | <https://github.com/ErenAri/Aegis-BPF> (project site planned) |
 | Roadmap | <https://github.com/ErenAri/Aegis-BPF/blob/main/docs/POSITIONING.md#5-roadmap-to-v10-ga> |
 | Roadmap context | The roadmap is published as `docs/POSITIONING.md` §5 with four phases: Phase 1 "Serious OSS project" (distribution/hardening), Phase 2 "Enterprise-credible" (compliance + community rule library + simulation), Phase 3 "Platform, not agent" (multi-cluster control plane, signed OCI policy bundles), Phase 4 "CNCF Incubation & GA". `docs/ROADMAP_TO_EXCELLENCE.md` is a parallel document focused on industry recognition, performance leadership, and academic validation. The next-six-months priorities are listed in `docs/POSITIONING.md` §6. |
@@ -148,7 +148,7 @@ review process, per the CNCF Sandbox process guidance.
 
 ### Current maturity
 
-- **Released:** v0.5.1 (2026-04-23) on GitHub Releases with cosign
+- **Released:** v0.8.0 (2026-05-24) on GitHub Releases with cosign
   keyless signatures, SLSA v1.0 Build L3 provenance attestations, SPDX
   2.3 + CycloneDX 1.6 SBOMs, signed Docker image at
   `ghcr.io/erenari/aegis-bpf`, and signed `.deb` / `.rpm` packages.
@@ -159,7 +159,7 @@ review process, per the CNCF Sandbox process guidance.
   `--landlock`), FORTIFY_SOURCE=2, stack-protector-strong, PIE, full
   RELRO, atomic-write file persistence, Ed25519-signed break-glass
   tokens.
-- **CI:** 38 GitHub Actions workflows including kernel-matrix, perf SLO
+- **CI:** 41 GitHub Actions workflows including kernel-matrix, perf SLO
   gate, MITRE ATT&CK schema gate, BPF compiler matrix (clang 14/15/16/17),
   reproducibility check, scorecard, security scanning, weekly comparison
   vs Falco + Tetragon.
