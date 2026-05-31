@@ -185,6 +185,9 @@ TEST_F(BpfProgRunTest, AllExpectedProgramsExist)
         "handle_socket_bind",   "handle_socket_listen",
         "handle_socket_accept", "handle_socket_sendmsg",
         "handle_file_mmap",
+        // Module-load enforcement (Phase 2.1): kernel_read_file covers
+        // finit_module(2), kernel_load_data covers init_module(2).
+        "handle_kernel_read_file", "handle_kernel_load_data",
     };
 
     for (const char* name : expected_progs) {
@@ -336,6 +339,7 @@ TEST_F(BpfProgRunTest, LSMProgramsHaveCorrectType)
         "handle_bprm_check_security", "handle_file_open",      "handle_inode_permission",
         "handle_file_mmap",           "handle_socket_connect", "handle_socket_bind",
         "handle_socket_listen",       "handle_socket_accept",  "handle_socket_sendmsg",
+        "handle_kernel_read_file",    "handle_kernel_load_data",
     };
 
     for (const char* name : lsm_progs) {
