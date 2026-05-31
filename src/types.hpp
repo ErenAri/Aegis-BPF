@@ -26,6 +26,7 @@ inline constexpr const char* kDenyInodeStatsPin = "/sys/fs/bpf/aegisbpf/deny_ino
 inline constexpr const char* kDenyPathStatsPin = "/sys/fs/bpf/aegisbpf/deny_path_stats";
 inline constexpr const char* kAgentMetaPin = "/sys/fs/bpf/aegisbpf/agent_meta";
 inline constexpr const char* kAgentConfigPin = "/sys/fs/bpf/aegisbpf/agent_config";
+inline constexpr const char* kPolicyGenerationPin = "/sys/fs/bpf/aegisbpf/policy_generation";
 inline constexpr const char* kSurvivalAllowlistPin = "/sys/fs/bpf/aegisbpf/survival_allowlist";
 inline constexpr const char* kBpfObjInstallPath = "/usr/lib/aegisbpf/aegis.bpf.o";
 

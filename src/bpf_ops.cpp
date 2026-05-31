@@ -511,6 +511,13 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
         TRY(check(try_reuse(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
         TRY(check(try_reuse_optional(state.config_map, kAgentConfigPin, state.config_map_reused)));
+        // policy_generation holds the committed atomic-apply generation. Like every
+        // other state map it must be pinned/reused so a separate `policy apply`
+        // process and the running daemon share ONE map; otherwise the daemon's
+        // programs read a private committed=0 against the applied expected>0, and the
+        // generation gate silently downgrades enforcement to audit.
+        TRY(check(try_reuse_optional(state.policy_generation_map, kPolicyGenerationPin,
+                                     state.policy_generation_reused)));
         TRY(check(try_reuse(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional - don't fail if not found)
@@ -641,6 +648,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.exec_identity_mode_reused || !state.block_stats_reused || !state.deny_cgroup_stats_reused ||
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
         (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
+        (state.policy_generation_map && !state.policy_generation_reused) ||
         (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
         (state.deny_port && !state.deny_port_reused) || (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
         (state.deny_ip_port_v6 && !state.deny_ip_port_v6_reused) ||
@@ -688,6 +696,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_pin(state.deny_path_stats, kDenyPathStatsPin, state.deny_path_stats_reused)));
         TRY(check(try_pin(state.agent_meta, kAgentMetaPin, state.agent_meta_reused)));
         TRY(check(try_pin(state.config_map, kAgentConfigPin, state.config_map_reused)));
+        if (state.policy_generation_map) {
+            TRY(check(try_pin(state.policy_generation_map, kPolicyGenerationPin, state.policy_generation_reused)));
+        }
         TRY(check(try_pin(state.survival_allowlist, kSurvivalAllowlistPin, state.survival_allowlist_reused)));
 
         // Network maps (optional)

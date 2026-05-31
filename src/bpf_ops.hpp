@@ -97,6 +97,7 @@ class BpfState {
             deny_path_stats_reused = other.deny_path_stats_reused;
             agent_meta_reused = other.agent_meta_reused;
             config_map_reused = other.config_map_reused;
+            policy_generation_reused = other.policy_generation_reused;
             survival_allowlist_reused = other.survival_allowlist_reused;
 
             // Diagnostics and process cache
@@ -198,6 +199,7 @@ class BpfState {
             other.deny_path_stats_reused = false;
             other.agent_meta_reused = false;
             other.config_map_reused = false;
+            other.policy_generation_reused = false;
             other.survival_allowlist_reused = false;
             other.deny_ipv4_reused = false;
             other.deny_ipv6_reused = false;
@@ -296,6 +298,7 @@ class BpfState {
     bool deny_path_stats_reused = false;
     bool agent_meta_reused = false;
     bool config_map_reused = false;
+    bool policy_generation_reused = false;
     bool survival_allowlist_reused = false;
 
     // Survival allowlist map
