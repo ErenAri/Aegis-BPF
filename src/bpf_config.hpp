@@ -10,6 +10,16 @@ namespace aegis {
 
 class BpfState;
 
+/// Merge the incoming full agent config with the config already present on the
+/// map, preserving the fields owned by the `policy apply` path so that a daemon
+/// startup (whose AgentConfig carries zeros for them) cannot silently wipe an
+/// already-applied policy: emergency_disable, exec_identity_flags, the kernel
+/// security deny flags (deny_ptrace/deny_module_load/deny_bpf) and the monotonic
+/// policy_generation. `incoming` supplies the mode/runtime fields (audit_only,
+/// deadman, sampling, …); `existing` supplies the preserved fields. Pure: no map
+/// I/O, so it is unit-testable without a BPF-capable kernel.
+AgentConfig merge_preserving_policy_apply_fields(const AgentConfig& existing, const AgentConfig& incoming);
+
 Result<void> set_agent_config(BpfState& state, bool audit_only);
 Result<void> set_exec_identity_flags(BpfState& state, uint8_t flags);
 Result<void> set_kernel_security_flags(BpfState& state, bool deny_ptrace, bool deny_module_load, bool deny_bpf);

@@ -579,6 +579,7 @@ if(BUILD_TESTING)
     set(TEST_SOURCES
         tests/test_main.cpp
         tests/test_logging.cpp
+        tests/test_bpf_config.cpp
         tests/test_commands.cpp
         tests/test_crash_policy.cpp
         tests/test_crypto_safe.cpp

@@ -146,6 +146,24 @@ Result<void> set_kernel_security_flags(BpfState& state, bool deny_ptrace, bool d
     return {};
 }
 
+AgentConfig merge_preserving_policy_apply_fields(const AgentConfig& existing, const AgentConfig& incoming)
+{
+    AgentConfig merged = incoming;
+    merged.emergency_disable = existing.emergency_disable;
+    merged.exec_identity_flags = existing.exec_identity_flags;
+    // Preserve fields owned by the `policy apply` path (set_kernel_security_flags
+    // and the atomic generation commit). The daemon's startup config{} carries
+    // zeros for these, so without this a `policy apply` that ran before the
+    // daemon attached (e.g. systemd ExecStartPre) would be silently wiped:
+    // deny flags reset to 0 and the expected generation reset to 0, which the
+    // in-BPF generation gate then reads as a mismatch and downgrades to AUDIT.
+    merged.deny_ptrace = existing.deny_ptrace;
+    merged.deny_module_load = existing.deny_module_load;
+    merged.deny_bpf = existing.deny_bpf;
+    merged.policy_generation = existing.policy_generation;
+    return merged;
+}
+
 Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
 {
     if (!state.config_map) {
@@ -167,8 +185,7 @@ Result<void> set_agent_config_full(BpfState& state, const AgentConfig& config)
     AgentConfig existing{};
     int fd = bpf_map__fd(state.config_map);
     if (bpf_map_lookup_elem(fd, &key, &existing) == 0) {
-        normalized.emergency_disable = existing.emergency_disable;
-        normalized.exec_identity_flags = existing.exec_identity_flags;
+        normalized = merge_preserving_policy_apply_fields(existing, normalized);
     } else if (errno != ENOENT) {
         return Error::system(errno, "Failed to read agent config");
     }
