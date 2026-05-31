@@ -178,13 +178,23 @@ bool BpfProgRunTest::loaded_ = false;
 TEST_F(BpfProgRunTest, AllExpectedProgramsExist)
 {
     const char* expected_progs[] = {
-        "handle_execve",        "handle_bprm_check_security",
-        "handle_file_open",     "handle_inode_permission",
-        "handle_openat",        "handle_fork",
-        "handle_exit",          "handle_socket_connect",
-        "handle_socket_bind",   "handle_socket_listen",
-        "handle_socket_accept", "handle_socket_sendmsg",
+        "handle_execve",
+        "handle_bprm_check_security",
+        "handle_file_open",
+        "handle_inode_permission",
+        "handle_openat",
+        "handle_fork",
+        "handle_exit",
+        "handle_socket_connect",
+        "handle_socket_bind",
+        "handle_socket_listen",
+        "handle_socket_accept",
+        "handle_socket_sendmsg",
         "handle_file_mmap",
+        // Module-load enforcement (Phase 2.1): kernel_read_file covers
+        // finit_module(2), kernel_load_data covers init_module(2).
+        "handle_kernel_read_file",
+        "handle_kernel_load_data",
     };
 
     for (const char* name : expected_progs) {
@@ -333,9 +343,9 @@ TEST_F(BpfProgRunTest, AgentConfigGlobalHasAuditOnByDefault)
 TEST_F(BpfProgRunTest, LSMProgramsHaveCorrectType)
 {
     const char* lsm_progs[] = {
-        "handle_bprm_check_security", "handle_file_open",      "handle_inode_permission",
-        "handle_file_mmap",           "handle_socket_connect", "handle_socket_bind",
-        "handle_socket_listen",       "handle_socket_accept",  "handle_socket_sendmsg",
+        "handle_bprm_check_security", "handle_file_open",        "handle_inode_permission", "handle_file_mmap",
+        "handle_socket_connect",      "handle_socket_bind",      "handle_socket_listen",    "handle_socket_accept",
+        "handle_socket_sendmsg",      "handle_kernel_read_file", "handle_kernel_load_data",
     };
 
     for (const char* name : lsm_progs) {

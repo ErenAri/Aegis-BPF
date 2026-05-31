@@ -268,7 +268,18 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
 
         bpf_program* module_prog = bpf_object__find_program_by_name(state.obj, "handle_locked_down");
         attach_optional_program(state, module_prog, state.module_load_hook_attached,
-                                "Optional module load hook attach failed");
+                                "Optional module load (locked_down) hook attach failed");
+
+        // Primary module-load enforcement (does not require kernel lockdown):
+        // kernel_read_file covers finit_module(2), kernel_load_data covers
+        // init_module(2). module_load_hook_attached becomes true if any attaches.
+        bpf_program* kread_prog = bpf_object__find_program_by_name(state.obj, "handle_kernel_read_file");
+        attach_optional_program(state, kread_prog, state.module_load_hook_attached,
+                                "Optional kernel_read_file (module load) hook attach failed");
+
+        bpf_program* kload_prog = bpf_object__find_program_by_name(state.obj, "handle_kernel_load_data");
+        attach_optional_program(state, kload_prog, state.module_load_hook_attached,
+                                "Optional kernel_load_data (module load) hook attach failed");
 
         bpf_program* bpf_prog = bpf_object__find_program_by_name(state.obj, "handle_bpf");
         attach_optional_program(state, bpf_prog, state.bpf_hook_attached, "Optional BPF hook attach failed");
