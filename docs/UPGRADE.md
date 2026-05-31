@@ -28,7 +28,8 @@ Recovery:
 4. Start the service.
 
 ## Policy format versions
-Current policy formats are `version=1` and `version=2`.
+Current policy formats are `version=1` through `version=6`.
+- Use `version=6` for cgroup-scoped deny sections (`[cgroup_deny_*]`).
 - Validate new files with `policy lint` before applying.
 - For risky changes, roll out in audit mode first by setting
   `AEGIS_MODE=--audit` in `/etc/default/aegisbpf`.

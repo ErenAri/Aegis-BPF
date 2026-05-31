@@ -56,7 +56,7 @@ host.
 
 ```sh
 sudo aegisbpf policy validate rules/cryptominers/cryptominers.conf
-sudo aegisbpf policy apply --reset rules/cryptominers/cryptominers.conf
+sudo aegisbpf policy apply rules/cryptominers/cryptominers.conf --reset
 sudo aegisbpf run --audit
 # 24h audit. If clean, enforce.
 ```

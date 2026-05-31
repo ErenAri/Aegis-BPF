@@ -46,5 +46,5 @@ Kubernetes cluster.
 
 ```sh
 sudo aegisbpf policy validate rules/k8s-secrets/k8s-secrets.conf
-sudo aegisbpf policy apply --reset rules/k8s-secrets/k8s-secrets.conf
+sudo aegisbpf policy apply rules/k8s-secrets/k8s-secrets.conf --reset
 ```

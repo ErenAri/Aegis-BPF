@@ -42,5 +42,5 @@ and write-protects the shadow password database.
 
 ```sh
 sudo aegisbpf policy validate rules/credential-access/credential-access.conf
-sudo aegisbpf policy apply --reset rules/credential-access/credential-access.conf
+sudo aegisbpf policy apply rules/credential-access/credential-access.conf --reset
 ```

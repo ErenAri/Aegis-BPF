@@ -27,7 +27,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 
 | # | Criterion | Status | Evidence |
 |---|-----------|:------:|----------|
-| basics_1 | Project website exists and describes what it does | ✅ | `README.md` top section, <https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype> |
+| basics_1 | Project website exists and describes what it does | ✅ | `README.md` top section, <https://github.com/ErenAri/Aegis-BPF> |
 | basics_2 | Interact with potential users and contributors | ✅ | GitHub Issues + Discussions enabled; `CONTRIBUTING.md` |
 | basics_3 | Non-trivial contribution from multiple people possible | ◐ | Single primary maintainer; `MAINTAINERS.md` explicitly solicits co-maintainers. Contribution process is documented; the criterion is about *possibility*, not head-count. |
 | basics_4 | OSS license | ✅ | Apache License 2.0, in `LICENSE` (relicensed from MIT 2026-04-25 to align with CNCF preference for core code and to obtain the §3 explicit patent grant). `NOTICE` carries third-party attribution. |
@@ -44,7 +44,7 @@ Last reviewed: 2026-04-23 (commit to be filled in by release).
 | # | Criterion | Status | Evidence |
 |---|-----------|:------:|----------|
 | change_1 | Public VCS | ✅ | GitHub |
-| change_2 | Unique version identifiers | ✅ | SemVer; git tags `v0.1.0`, `v0.1.1` |
+| change_2 | Unique version identifiers | ✅ | SemVer; git tags through `v0.8.0` |
 | change_3 | Release notes for each release | ✅ | `docs/CHANGELOG.md` + GitHub Releases |
 
 ### Reporting

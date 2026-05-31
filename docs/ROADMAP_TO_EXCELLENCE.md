@@ -413,8 +413,8 @@
   ```
 - [ ] **Kubernetes CRD for policies:**
   ```yaml
-  apiVersion: aegis.io/v1alpha1
-  kind: SecurityPolicy
+  apiVersion: aegisbpf.io/v1alpha1
+  kind: AegisPolicy
   metadata:
     name: block-crypto-miners
   spec:

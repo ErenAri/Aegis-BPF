@@ -40,5 +40,5 @@ file-access layer regardless of container runtime configuration.
 
 ```sh
 sudo aegisbpf policy validate rules/container-escape/container-escape.conf
-sudo aegisbpf policy apply --reset rules/container-escape/container-escape.conf
+sudo aegisbpf policy apply rules/container-escape/container-escape.conf --reset
 ```

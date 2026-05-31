@@ -15,7 +15,7 @@ For every artifact attached to a GitHub Release tag `vX.Y.Z`:
 | `aegisbpf-*.tar.gz` (release archives) | cosign keyless (`*.sig` + `*.pem`) | SPDX 2.3 + CycloneDX 1.6 | SLSA v1.0 L3 |
 | `*.deb` / `*.rpm` | cosign keyless | Included in release SBOM | SLSA v1.0 L3 |
 | `SHA256SUMS.txt` | cosign keyless | — | SLSA v1.0 L3 |
-| `ghcr.io/ErenAri/aegis-bpf:vX.Y.Z` (OCI image) | cosign keyless image sig | — | SLSA v1.0 L3 |
+| `ghcr.io/erenari/aegis-bpf:vX.Y.Z` (OCI image) | cosign keyless image sig | — | SLSA v1.0 L3 |
 
 Provenance is published to the Sigstore Rekor transparency log and is
 discoverable via `gh attestation verify`.
@@ -36,7 +36,7 @@ chmod +x cosign-linux-amd64 && sudo mv cosign-linux-amd64 /usr/local/bin/cosign
 ### 2. Download a release
 
 ```bash
-VERSION=v0.1.1
+VERSION=v0.8.0
 gh release download "${VERSION}" --repo ErenAri/Aegis-BPF \
   --pattern 'aegisbpf-*.tar.gz' \
   --pattern 'SHA256SUMS.txt' \
@@ -47,7 +47,7 @@ gh release download "${VERSION}" --repo ErenAri/Aegis-BPF \
 ### 3. Verify SLSA provenance
 
 ```bash
-gh attestation verify aegisbpf-0.1.1-ubuntu-24.04-x86_64.tar.gz \
+gh attestation verify aegisbpf-0.8.0-ubuntu-24.04-x86_64.tar.gz \
   --repo ErenAri/Aegis-BPF
 ```
 
@@ -68,17 +68,17 @@ Build L3 claim:
 
 ```bash
 cosign verify-blob \
-  --certificate aegisbpf-0.1.1-ubuntu-24.04-x86_64.tar.gz.pem \
-  --signature aegisbpf-0.1.1-ubuntu-24.04-x86_64.tar.gz.sig \
+  --certificate aegisbpf-0.8.0-ubuntu-24.04-x86_64.tar.gz.pem \
+  --signature aegisbpf-0.8.0-ubuntu-24.04-x86_64.tar.gz.sig \
   --certificate-identity-regexp 'https://github.com/ErenAri/Aegis-BPF/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  aegisbpf-0.1.1-ubuntu-24.04-x86_64.tar.gz
+  aegisbpf-0.8.0-ubuntu-24.04-x86_64.tar.gz
 ```
 
 ### 5. Verify the OCI image
 
 ```bash
-cosign verify ghcr.io/erenari/aegis-bpf:v0.1.1 \
+cosign verify ghcr.io/erenari/aegis-bpf:v0.8.0 \
   --certificate-identity-regexp 'https://github.com/ErenAri/Aegis-BPF/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
@@ -105,9 +105,9 @@ as follows:
 additionally pin to a specific tag or commit:
 
 ```bash
-gh attestation verify aegisbpf-0.1.1-ubuntu-24.04-x86_64.tar.gz \
+gh attestation verify aegisbpf-0.8.0-ubuntu-24.04-x86_64.tar.gz \
   --repo ErenAri/Aegis-BPF \
-  --source-ref refs/tags/v0.1.1
+  --source-ref refs/tags/v0.8.0
 ```
 
 ## References

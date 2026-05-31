@@ -29,7 +29,8 @@ deprecation guarantees for production deployments.
   - 6.1+
   - 6.5+
 - Policy format compatibility:
-  - Current agent accepts policy `version=1` and `version=2`.
+  - Current agent accepts policy `version=1` through `version=6`.
+  - `version=6` is required for cgroup-scoped deny sections.
   - Backward compatibility for N-1 policies is required in CI.
 
 ## Deprecation Policy

@@ -64,7 +64,7 @@ allow-list or stop AegisBPF for the rotation window.
 
 ```sh
 sudo aegisbpf policy validate rules/cis-k8s-worker-node/cis-k8s-worker-node.conf
-sudo aegisbpf policy apply --reset rules/cis-k8s-worker-node/cis-k8s-worker-node.conf
+sudo aegisbpf policy apply rules/cis-k8s-worker-node/cis-k8s-worker-node.conf --reset
 sudo aegisbpf run --audit
 # 48h audit covers a typical cert-rotation window. If clean, enforce.
 ```

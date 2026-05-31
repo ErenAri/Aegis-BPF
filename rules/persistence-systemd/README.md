@@ -42,5 +42,5 @@ init paths.
 
 ```sh
 sudo aegisbpf policy validate rules/persistence-systemd/persistence-systemd.conf
-sudo aegisbpf policy apply --reset rules/persistence-systemd/persistence-systemd.conf
+sudo aegisbpf policy apply rules/persistence-systemd/persistence-systemd.conf --reset
 ```

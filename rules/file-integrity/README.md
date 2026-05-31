@@ -50,5 +50,5 @@ the dynamic linker configuration.
 
 ```sh
 sudo aegisbpf policy validate rules/file-integrity/file-integrity.conf
-sudo aegisbpf policy apply --reset rules/file-integrity/file-integrity.conf
+sudo aegisbpf policy apply rules/file-integrity/file-integrity.conf --reset
 ```

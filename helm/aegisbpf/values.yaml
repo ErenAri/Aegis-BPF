@@ -3,7 +3,7 @@
 
 # Image configuration
 image:
-  repository: ghcr.io/aegisbpf/aegisbpf
+  repository: ghcr.io/erenari/aegis-bpf
   tag: ""  # Defaults to Chart appVersion
   pullPolicy: IfNotPresent
 

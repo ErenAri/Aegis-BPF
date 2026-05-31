@@ -46,5 +46,5 @@ SDKs cache tokens and credentials in well-known dotfile locations.
 
 ```sh
 sudo aegisbpf policy validate rules/cloud-metadata/cloud-metadata.conf
-sudo aegisbpf policy apply --reset rules/cloud-metadata/cloud-metadata.conf
+sudo aegisbpf policy apply rules/cloud-metadata/cloud-metadata.conf --reset
 ```

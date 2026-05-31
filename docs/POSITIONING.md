@@ -190,7 +190,7 @@ Ordered by user-impact. Each has a tracked roadmap item.
     upload workflow. Target for Phase 1 GA: at least the first three
     hosted, signed by a maintainer key.
 12. **No signed container images on a public registry.** Target:
-    `ghcr.io/ErenAri/aegisbpf` + cosign.
+    `ghcr.io/erenari/aegis-bpf` + cosign.
 13. **Helm chart ships; OperatorHub / OpenShift catalog listings do not.**
 14. **No Windows story.** `ebpf-for-windows` is real; v2.0 consideration.
     macOS is a permanent non-goal.
@@ -222,11 +222,9 @@ Ordered by user-impact. Each has a tracked roadmap item.
 ### 4.5 Positioning / go-to-market
 
 21. **No named adopters.** CNCF Incubation requires three.
-22. ~~**No community rule library.**~~ **Starter set shipped:** six
-    audited, MITRE-tagged packs live under `rules/`
-    (`kernel-tampering`, `secrets-protection`, `ssh-hardening`,
-    `cis-k8s-control-plane`, `cis-k8s-worker-node`, `cryptominers`),
-    each validated on every PR by `.github/workflows/rule-library.yml`.
+22. ~~**No community rule library.**~~ **Starter set shipped:** 25
+    audited, MITRE-tagged packs live under `rules/`, each validated on
+    every PR by `.github/workflows/rule-library.yml`.
     See `rules/README.md` for the contribution model. The standalone
     `aegisbpf/rules` repo is still pending — extracting the in-tree
     starter packs into a dedicated repo is a follow-up once the

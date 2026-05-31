@@ -1,7 +1,7 @@
 # Policy Semantics
 
-Version: 1.1 (2026-04-09)
-Status: Canonical semantics reference for the v1-v5 daemon contract plus
+Version: 1.2 (2026-05-31)
+Status: Canonical semantics reference for the v1-v6 daemon contract plus
 the v0.5.0 operator policy model.
 
 This document defines how policy rules are interpreted at runtime, including
@@ -20,13 +20,17 @@ Policy sections:
 - `[deny_ip]`, `[deny_cidr]`, `[deny_port]`, `[deny_ip_port]` -> network deny rules
 - `[deny_binary_hash]` -> policy-apply inode deny expansion from SHA256 matches
 - `[allow_binary_hash]` -> policy-apply exec inode allowlist enforced at `bprm_check_security`
+- `[deny_comm]` -> exec basename deny through `bprm_check_security`
+- `[deny_ptrace]`, `[deny_module_load]`, `[deny_bpf]` -> kernel-tampering block toggles
+- `[cgroup_deny_inode]`, `[cgroup_deny_ip]`, `[cgroup_deny_port]` -> per-cgroup deny rules
 
 Supported versions:
-- `version=1` and `version=2` are accepted by parser.
+- `version=1` through `version=6` are accepted by parser.
 - Use `version=2` for network-aware policies.
 - Use `version=3` for binary hash policy sections.
 - Use `version=4` for protected-resource and verified-exec policies.
 - Use `version=5` for IMA appraisal posture gating (`[require_ima_appraisal]`).
+- Use `version=6` for cgroup-scoped deny sections (`[cgroup_deny_*]`).
 
 ## File decision semantics
 

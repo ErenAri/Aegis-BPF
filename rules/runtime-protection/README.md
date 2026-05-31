@@ -41,5 +41,5 @@ Docker socket mounted can trivially break out to the host.
 
 ```sh
 sudo aegisbpf policy validate rules/runtime-protection/runtime-protection.conf
-sudo aegisbpf policy apply --reset rules/runtime-protection/runtime-protection.conf
+sudo aegisbpf policy apply rules/runtime-protection/runtime-protection.conf --reset
 ```
