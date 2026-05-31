@@ -17,21 +17,17 @@
 #include <cstring>
 #include <unistd.h>
 
-// BPF_MAP_TYPE_ARENA was added in kernel 6.9 and may not be in
-// the installed libbpf/uapi headers yet. Use a typed constant
-// to avoid implicit int→enum conversion errors in C++.
-#ifndef BPF_MAP_TYPE_ARENA
-static constexpr auto BPF_MAP_TYPE_ARENA =
-    static_cast<enum bpf_map_type>(33);
-#endif
-
 namespace aegis_next {
 
-// BPF_MAP_TYPE_USER_RINGBUF was added in kernel 6.1.
-#ifndef BPF_MAP_TYPE_USER_RINGBUF
-static constexpr auto BPF_MAP_TYPE_USER_RINGBUF =
-    static_cast<enum bpf_map_type>(31);
-#endif
+// Canonical kernel UAPI ids for map types that may be absent from an older
+// toolchain's <linux/bpf.h>. We deliberately do NOT reuse the upstream
+// enumerator names (BPF_MAP_TYPE_ARENA / BPF_MAP_TYPE_USER_RINGBUF): those are
+// enum constants, not preprocessor macros, so an `#ifndef` guard can never see
+// them — the fallback would always be defined and then clash ("redefinition as
+// a different kind of symbol") once the UAPI header catches up. A typed
+// constant with the stable numeric id works on both old and new headers.
+inline constexpr auto kBpfMapTypeArena = static_cast<enum bpf_map_type>(33);       // kernel 6.9+
+inline constexpr auto kBpfMapTypeUserRingbuf = static_cast<enum bpf_map_type>(31); // kernel 6.1+
 
 struct FeatureSupport {
     bool arena;        // BPF_MAP_TYPE_ARENA (kernel 6.9+)
@@ -53,7 +49,7 @@ inline bool probe_map_type(enum bpf_map_type type,
     LIBBPF_OPTS(bpf_map_create_opts, opts);
 
     // Arena requires special setup — pages field.
-    if (type == BPF_MAP_TYPE_ARENA) {
+    if (type == kBpfMapTypeArena) {
         opts.map_extra = 0; // addr hint
         // Arena needs map_flags and specific sizes.
         int fd = bpf_map_create(type, "probe_arena",
@@ -130,10 +126,10 @@ inline FeatureSupport probe_features()
 
     // Arena probe: try to create a minimal arena map.
     // On 6.9+ this succeeds; on older kernels EINVAL.
-    fs.arena = probe_map_type(BPF_MAP_TYPE_ARENA, 0, 0, 0);
+    fs.arena = probe_map_type(kBpfMapTypeArena, 0, 0, 0);
 
     // Phase 4 probes.
-    fs.user_ringbuf = probe_map_type(BPF_MAP_TYPE_USER_RINGBUF, 0, 0, 4096);
+    fs.user_ringbuf = probe_map_type(kBpfMapTypeUserRingbuf, 0, 0, 4096);
     fs.fsverity = probe_fsverity();
     // xattr kfuncs are available if kernel >= 6.8 and BPF LSM is on.
     // We approximate: if arena is available (6.9+), xattr kfuncs should be too.
