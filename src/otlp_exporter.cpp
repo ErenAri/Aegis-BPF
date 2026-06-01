@@ -101,15 +101,14 @@ void OtlpExporter::export_exec(const ExecEvent& ev)
 void OtlpExporter::export_exec_argv(const ExecArgvEvent& ev)
 {
     std::ostringstream argv_str;
-    int offset = 0;
-    for (int i = 0; i < ev.argc && offset < ev.total_len; i++) {
+    // Fixed-slot argv buffer: argument i at argv[i * kArgvSlot], NUL-terminated.
+    for (int i = 0; i < ev.argc && i < static_cast<int>(kMaxArgvEntries); i++) {
         if (i > 0)
             argv_str << " ";
-        while (offset < ev.total_len && ev.argv[offset] != '\0') {
-            argv_str << ev.argv[offset];
-            offset++;
+        const size_t base = static_cast<size_t>(i) * kArgvSlot;
+        for (size_t j = 0; j < kArgvSlot && ev.argv[base + j] != '\0'; j++) {
+            argv_str << ev.argv[base + j];
         }
-        offset++;
     }
 
     std::ostringstream attrs;

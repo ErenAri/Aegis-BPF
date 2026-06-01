@@ -77,6 +77,10 @@
 #define DIAGNOSTICS_RINGBUF_SIZE (1 << 20) /* 1MB */
 #define MAX_ARGV_SIZE 256
 #define MAX_ARGV_ENTRIES 8
+/* Fixed per-argument slot. handle_execve writes argument i at the compile-time
+ * constant offset i * ARGV_SLOT, which every kernel verifier proves in-bounds
+ * trivially (a variable accumulating offset is rejected by <= 6.8 verifiers). */
+#define ARGV_SLOT (MAX_ARGV_SIZE / MAX_ARGV_ENTRIES)
 #define MAX_HOOK_LATENCY_ENTRIES 16
 #define MAX_EVENT_APPROVER_ENTRIES 4096
 #define PRIORITY_RINGBUF_SIZE (1 << 22) /* 4MB for high-priority security events */

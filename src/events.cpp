@@ -653,17 +653,16 @@ void print_exec_argv_event(const ExecArgvEvent& ev)
     oss << "{\"type\":\"exec_argv\",\"pid\":" << ev.pid << ",\"start_time\":" << ev.start_time
         << ",\"argc\":" << ev.argc << ",\"argv\":[";
 
-    // Parse null-separated argv buffer
-    int offset = 0;
-    for (int i = 0; i < ev.argc && offset < ev.total_len; i++) {
+    // Fixed-slot argv buffer: argument i occupies a kArgvSlot-byte slot at
+    // argv[i * kArgvSlot], NUL-terminated within its slot.
+    for (int i = 0; i < ev.argc && i < static_cast<int>(kMaxArgvEntries); i++) {
         if (i > 0)
             oss << ",";
+        const size_t base = static_cast<size_t>(i) * kArgvSlot;
         std::string arg;
-        while (offset < ev.total_len && ev.argv[offset] != '\0') {
-            arg += ev.argv[offset];
-            offset++;
+        for (size_t j = 0; j < kArgvSlot && ev.argv[base + j] != '\0'; j++) {
+            arg += ev.argv[base + j];
         }
-        offset++; // skip null separator
         oss << "\"" << json_escape(arg) << "\"";
     }
 
