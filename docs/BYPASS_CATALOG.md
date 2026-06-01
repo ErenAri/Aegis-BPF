@@ -75,6 +75,25 @@ access is still denied.
 - **Mitigation:** inode-based deny — the bind alias shares the inode.
 - **Regression:** `enforcement_proof.sh:bindmount`
 
+### BYP-M5 Outbound datagram (`sendmsg`) endpoint evasion
+- **Status:** mitigated
+- **Class:** network
+- **PoC:** reach a denied remote endpoint via UDP `sendto()` instead of `connect()`.
+- **Mitigation:** `lsm/socket_sendmsg` applies the same remote-endpoint deny as
+  `connect()`; the `sendto()` returns `-EPERM`.
+- **Regression:** `enforcement_proof.sh:sendmsg`
+
+### BYP-M6 OverlayFS copy-up of a denied lower inode
+- **Status:** mitigated
+- **Class:** file
+- **PoC:** reach a denied lower-layer file through an overlayfs merged path and
+  write to it (which would trigger copy-up).
+- **Mitigation:** the merged dentry maps to the denied lower inode, so access is
+  refused (`lsm/file_open`) and the copy-up does not succeed; the upper layer
+  never receives a copy. `lsm/inode_copy_up` (`handle_inode_copy_up`) closes the
+  copy-up path synchronously for `RULE_FLAG_DENY_ALWAYS` rules.
+- **Regression:** `enforcement_proof.sh:overlay_copyup`
+
 ---
 
 ## Roadmap (mechanism present or planned; behavioral regression pending)
@@ -83,27 +102,14 @@ These have either a designed mechanism without a behavioral regression yet, or
 planned coverage expansion. They are deliberately **not** labeled mitigated
 until a reproducible test exists.
 
-### BYP-R1 OverlayFS copy-up of a denied lower inode
-- **Status:** roadmap
-- **Mechanism:** `lsm/inode_copy_up` (`handle_inode_copy_up`) returns `-EPERM`
-  synchronously for `RULE_FLAG_DENY_ALWAYS` rules (see `bpf/aegis_overlay.bpf.h`),
-  so no userspace TOCTOU window. **Pending:** a behavioral copy-up regression in
-  the proof harness (kernel-matrix currently has only a structural overlay step).
-
-### BYP-R2 Outbound datagram (`sendmsg`) endpoint evasion
-- **Status:** roadmap
-- **Mechanism:** `lsm/socket_sendmsg` applies the same remote-endpoint deny as
-  `connect()` where the hook is available. **Pending:** a `sendmsg`-specific
-  behavioral probe (the harness currently proves the `connect()` path).
-
-### BYP-R3 Pre-accept inbound policy coverage
+### BYP-R1 Pre-accept inbound policy coverage
 - **Status:** roadmap
 - Add earlier inbound filtering / richer hook coverage before `accept()` returns.
 
-### BYP-R4 Broader filesystem matrix
+### BYP-R2 Broader filesystem matrix
 - **Status:** roadmap
 - Extend validation beyond ext4/xfs to additional filesystem types.
 
-### BYP-R5 Namespace-specific path views
+### BYP-R3 Namespace-specific path views
 - **Status:** roadmap
 - Improve operator tooling to reconcile path differences across namespaces.
