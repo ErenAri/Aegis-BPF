@@ -90,6 +90,15 @@ test case and evidence artifacts.
 ## 6) Evidence and verification
 
 Evidence for this contract is produced by:
+- **Enforcement proof harness:** `tests/enforcement/enforcement_proof.sh` — boots
+  the real artifact and asserts `-EPERM` per ENFORCED class + the bypass
+  regressions, on the kernel matrix.
+- **Determinism benchmark:** `docs/DETERMINISM_BENCHMARK.md` +
+  `tests/enforcement/determinism_demo.sh` — synchronous in-kernel deny vs
+  post-hoc signal.
+- **Proof contract gate:** `scripts/validate_enforcement_proof_contract.py`
+  (CI job `enforcement-proof-contract`) — fails the build if any ENFORCED claim
+  or mitigated bypass lacks a backing test.
 - **Edge‑Case Compliance Suite:** `docs/EDGE_CASE_COMPLIANCE_SUITE.md`
 - **Kernel Matrix:** `.github/workflows/kernel-matrix.yml`
 - **Reference Enforcement Slice:** `docs/REFERENCE_ENFORCEMENT_SLICE.md`
