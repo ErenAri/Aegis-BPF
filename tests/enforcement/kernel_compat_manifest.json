@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "artifact": "aegis.bpf.o",
+  "generated_from": [
+    "src/hook_capabilities.cpp",
+    "tests/enforcement/enforcement_classes.tsv"
+  ],
+  "note": "GENERATED \u2014 do not edit by hand. Run scripts/gen_kernel_compat_manifest.py.",
+  "lsm_boot_requirement": "kernels with bpf_lsm=true MUST boot with 'bpf' in the lsm= list; verify /sys/kernel/security/lsm contains 'bpf' (CONFIG_BPF_LSM=y alone is not enough).",
+  "kernel_matrix": [
+    {
+      "version": "5.15",
+      "bpf_lsm": true,
+      "note": "Ubuntu 22.04 LTS \u2014 realistic floor"
+    },
+    {
+      "version": "6.1",
+      "bpf_lsm": true,
+      "note": "Debian 12 LTS"
+    },
+    {
+      "version": "6.6",
+      "bpf_lsm": true,
+      "note": "LTS"
+    },
+    {
+      "version": "6.8",
+      "bpf_lsm": true,
+      "note": "Ubuntu 24.04 LTS"
+    },
+    {
+      "version": "6.12",
+      "bpf_lsm": true,
+      "note": "latest LTS"
+    },
+    {
+      "version": "no-lsm",
+      "bpf_lsm": false,
+      "note": "kernel without bpf in lsm= \u2014 proves No-Pretend invariant"
+    }
+  ],
+  "programs": [
+    {
+      "name": "lsm_file_open",
+      "attach": "bpf_lsm_file_open",
+      "required": true
+    },
+    {
+      "name": "lsm_inode_permission",
+      "attach": "bpf_lsm_inode_permission",
+      "required": true
+    },
+    {
+      "name": "lsm_bprm_check_security",
+      "attach": "bpf_lsm_bprm_check_security",
+      "required": false
+    },
+    {
+      "name": "lsm_bprm_ima_check",
+      "attach": "bpf_lsm_bprm_ima_check",
+      "required": false
+    },
+    {
+      "name": "lsm_file_mmap",
+      "attach": "bpf_lsm_mmap_file",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_connect",
+      "attach": "bpf_lsm_socket_connect",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_bind",
+      "attach": "bpf_lsm_socket_bind",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_listen",
+      "attach": "bpf_lsm_socket_listen",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_accept",
+      "attach": "bpf_lsm_socket_accept",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_sendmsg",
+      "attach": "bpf_lsm_socket_sendmsg",
+      "required": false
+    },
+    {
+      "name": "lsm_socket_recvmsg",
+      "attach": "bpf_lsm_socket_recvmsg",
+      "required": false
+    },
+    {
+      "name": "lsm_ptrace_access_check",
+      "attach": "bpf_lsm_ptrace_access_check",
+      "required": false
+    },
+    {
+      "name": "lsm_locked_down",
+      "attach": "bpf_lsm_locked_down",
+      "required": false
+    },
+    {
+      "name": "lsm_kernel_read_file",
+      "attach": "bpf_lsm_kernel_read_file",
+      "required": false
+    },
+    {
+      "name": "lsm_kernel_load_data",
+      "attach": "bpf_lsm_kernel_load_data",
+      "required": false
+    },
+    {
+      "name": "lsm_bpf",
+      "attach": "bpf_lsm_bpf",
+      "required": false
+    },
+    {
+      "name": "lsm_inode_copy_up",
+      "attach": "bpf_lsm_inode_copy_up",
+      "required": false
+    }
+  ],
+  "enforcement_classes": [
+    {
+      "class": "module",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/kernel_read_file",
+        "lsm/kernel_load_data"
+      ]
+    },
+    {
+      "class": "file",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/file_open",
+        "lsm/inode_permission"
+      ]
+    },
+    {
+      "class": "exec",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/bprm_check_security"
+      ]
+    },
+    {
+      "class": "ptrace",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/ptrace_access_check"
+      ]
+    },
+    {
+      "class": "bpf",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/bpf"
+      ]
+    },
+    {
+      "class": "network",
+      "label": "ENFORCED",
+      "hooks": [
+        "lsm/socket_connect",
+        "lsm/socket_sendmsg",
+        "lsm/socket_bind",
+        "lsm/socket_listen",
+        "lsm/socket_accept",
+        "lsm/socket_recvmsg"
+      ]
+    }
+  ],
+  "layers": {
+    "A_object_compat": {
+      "action": "load + verify + attach aegis.bpf.o",
+      "gate": "all programs with required=true attach; non-required may be absent on older kernels"
+    },
+    "B_behavioral": {
+      "action": "run the enforcement proof harness on the kernel",
+      "entrypoint": "tests/enforcement/enforcement_proof.sh",
+      "needs_root": true,
+      "needs_bpf_lsm": true,
+      "gate": "exit 0 \u2014 every ENFORCED class returns -EPERM and runtime_state==ENFORCE",
+      "no_lsm_expectation": "on a bpf_lsm=false kernel the harness exits 77 (daemon honestly refuses enforce)"
+    }
+  }
+}
