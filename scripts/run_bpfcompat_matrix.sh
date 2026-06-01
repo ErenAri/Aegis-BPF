@@ -31,6 +31,14 @@ MATRIX="${AEGIS_BPFCOMPAT_MATRIX:-$REPO_ROOT/tests/enforcement/bpfcompat-matrix.
 MANIFEST="$REPO_ROOT/tests/enforcement/bpfcompat-manifest.yaml"
 SUMMARY="${AEGIS_MATRIX_OUT:-/tmp/aegis-bpfcompat-matrix.json}"
 
+# Absolutize while cwd is still the AegisBPF checkout: the run below cd's into the
+# bpfcompat checkout (so it finds vm/cache), and relative inputs (e.g. CI's
+# AEGIS_BPF_OBJ=build/aegis.bpf.o) would otherwise resolve against the wrong dir.
+ARTIFACT="$(realpath -m "$ARTIFACT")"
+MATRIX="$(realpath -m "$MATRIX")"
+MANIFEST="$(realpath -m "$MANIFEST")"
+SUMMARY="$(realpath -m "$SUMMARY")"
+
 # REQUIRED hooks (src/hook_capabilities.cpp required=true). These must load on
 # every target kernel; everything else is best-effort/gated.
 REQUIRED_PROGS="handle_file_open handle_inode_permission"

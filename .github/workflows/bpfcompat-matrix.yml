@@ -28,7 +28,7 @@ jobs:
 
       - name: Build BPF object
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build --target bpf_obj
 
       - name: Run Layer-A kernel matrix
