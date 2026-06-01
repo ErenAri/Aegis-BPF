@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780311338988,
+  "lastUpdate": 1780312037671,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -39846,6 +39846,102 @@ window.BENCHMARK_DATA = {
             "value": 55.20591660360989,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.20170068903709 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82907f0ca732eaeabb68f16e293db28a98649c42",
+          "message": "Merge pull request #190 from ErenAri/feat/bypass-catalog\n\nStep 3: behavioral bypass catalog bound to regression tests",
+          "timestamp": "2026-06-01T13:55:47+03:00",
+          "tree_id": "895a314532b9f4f804a0109fd82861ba4d4c9c1b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/82907f0ca732eaeabb68f16e293db28a98649c42"
+        },
+        "date": 1780312036050,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1526.9451082999874,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1526.8328027139596 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3765.53841501769,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3764.935114399361 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21903.149465035316,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21901.81073506067 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166185.01003439314,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166174.0947453782 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1322122.471958927,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1321903.7540284337 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5290639.434905648,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5290249.142767309 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4759.281477497961,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4767.197087703085 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33251.14432271146,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33258.88394423031 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269648.43432065565,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269614.55497119186 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 810994.5806748866,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 811120.6423529998 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.2477841429305,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.24297255220587 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.641562036228486,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.6326195185923 ns\nthreads: 1"
           }
         ]
       }
