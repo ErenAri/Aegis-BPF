@@ -112,3 +112,39 @@ artifact + manifest to the bpfcompat HTTP API (`bpfcompat serve`) with
 `BPFCOMPAT_API_*` secrets — wire that into the workflow instead. Either way the
 manifest, matrix, wrapper, and verdict logic are all ready; only the execution
 environment is a deployment decision.
+
+## Standing up the continuous gate (self-hosted runner)
+
+Verified end-to-end on a KVM host. On the runner machine (Linux with `/dev/kvm`,
+`qemu-system-x86_64`, Go, clang, libbpf/libelf headers):
+
+```sh
+# 1. Check out bpfcompat and build it (host orchestrator + static in-VM validator)
+git clone https://github.com/ErenAri/adaptive-bpf-runtime-program.git ~/bpfcompat
+cd ~/bpfcompat
+make build && make validator-static
+
+# 2. Provision the kernel images the matrix profiles need (downloads/builds qcow2
+#    base images into vm/cache; see the project's README for tier1/extended sets)
+make vm-images            # base set; `make vm-images-tier1` / `-extended` for more
+
+# 3. (smoke) run the matrix against a built aegis.bpf.o from the AegisBPF repo
+AEGIS_BPFCOMPAT_DIR=~/bpfcompat AEGIS_BPF_OBJ=/path/to/build/aegis.bpf.o \
+  bash /path/to/aegisbpf/scripts/run_bpfcompat_matrix.sh
+```
+
+Then make it CI:
+
+1. **Register the runner** — repo *Settings → Actions → Runners → New self-hosted
+   runner*; configure it with labels **`self-hosted,kvm,bpfcompat`** (matching
+   `runs-on` in `.github/workflows/bpfcompat-matrix.yml`).
+2. **Set the repo variable** `BPFCOMPAT_DIR` (*Settings → Secrets and variables →
+   Actions → Variables*) to the bpfcompat checkout path on that runner (e.g.
+   `/home/runner/bpfcompat`).
+3. **Run it** — dispatch *bpfcompat Kernel Matrix* (Actions tab), or add a
+   `schedule:` trigger to the workflow for a recurring gate. The summary uploads
+   as the `bpfcompat-matrix-summary` artifact.
+
+(No self-hosted host available? Point the workflow at the bpfcompat HTTP API
+instead — `bpfcompat serve` + `BPFCOMPAT_API_*` secrets — and submit the artifact
+there.) Latest manual results: [KERNEL_MATRIX_RESULTS.md](KERNEL_MATRIX_RESULTS.md).
