@@ -502,6 +502,11 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
         TRY(check(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused)));
         TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
+        // deny_comm (comm-based exec deny) must be pinned/reused like the other deny
+        // maps so a separate `policy apply` process and the running daemon share ONE
+        // map. Otherwise apply populates a private copy, the daemon enforces against
+        // an empty map, and comm-based exec deny silently never fires.
+        TRY(check(try_reuse_optional(state.deny_comm, kDenyCommPin, state.deny_comm_reused)));
         TRY(check(try_reuse(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
         TRY(check(try_reuse(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
         TRY(check(try_reuse(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));
@@ -649,8 +654,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
         (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
         (state.policy_generation_map && !state.policy_generation_reused) ||
-        (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
-        (state.deny_port && !state.deny_port_reused) || (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
+        (state.deny_comm && !state.deny_comm_reused) || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
+        (state.deny_ipv6 && !state.deny_ipv6_reused) || (state.deny_port && !state.deny_port_reused) ||
+        (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
         (state.deny_ip_port_v6 && !state.deny_ip_port_v6_reused) ||
         (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
@@ -687,6 +693,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
 
         TRY(check(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused)));
         TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
+        if (state.deny_comm) {
+            TRY(check(try_pin(state.deny_comm, kDenyCommPin, state.deny_comm_reused)));
+        }
         TRY(check(try_pin(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
         TRY(check(try_pin(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
         TRY(check(try_pin(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));

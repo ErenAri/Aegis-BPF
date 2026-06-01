@@ -17,6 +17,7 @@ namespace aegis {
 inline constexpr const char* kPinRoot = "/sys/fs/bpf/aegisbpf";
 inline constexpr const char* kDenyInodePin = "/sys/fs/bpf/aegisbpf/deny_inode";
 inline constexpr const char* kDenyPathPin = "/sys/fs/bpf/aegisbpf/deny_path";
+inline constexpr const char* kDenyCommPin = "/sys/fs/bpf/aegisbpf/deny_comm";
 inline constexpr const char* kAllowCgroupPin = "/sys/fs/bpf/aegisbpf/allow_cgroup";
 inline constexpr const char* kAllowExecInodePin = "/sys/fs/bpf/aegisbpf/allow_exec_inode";
 inline constexpr const char* kExecIdentityModePin = "/sys/fs/bpf/aegisbpf/exec_identity_mode";
