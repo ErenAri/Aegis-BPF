@@ -68,6 +68,14 @@ DENIED_EXE="$WORK/aegis_denied_x"   # comm == basename, <=15 chars
 cp /bin/true "$DENIED_EXE" 2>/dev/null || { skip "cannot stage exec probe"; exit 77; }
 chmod +x "$DENIED_EXE"
 
+# OverlayFS copy-up target: a denied LOWER-layer file. The deny resolves to the
+# lower inode at apply time; copying it up via the merged layer must be refused.
+# The lower file must exist BEFORE `policy apply` so its inode is resolvable.
+OVL="$WORK/ovl"
+mkdir -p "$OVL/lower" "$OVL/upper" "$OVL/work" "$OVL/merged"
+OVL_LOWER="$OVL/lower/ovl_secret"
+echo "overlay secret" > "$OVL_LOWER"
+
 # Compile the syscall-level probes (ptrace / bpf / connect) once.
 HAVE_CC=1
 command -v cc >/dev/null 2>&1 || HAVE_CC=0
@@ -135,9 +143,30 @@ int main(void){
   printf("errno=%d\n", e); return 2;
 }
 C
-  cc -O0 -o "$WORK/p_ptrace" "$WORK/p_ptrace.c" 2>/dev/null || HAVE_CC=0
-  cc -O0 -o "$WORK/p_bpf"     "$WORK/p_bpf.c"     2>/dev/null || HAVE_CC=0
-  cc -O0 -o "$WORK/p_connect" "$WORK/p_connect.c" 2>/dev/null || HAVE_CC=0
+  cat > "$WORK/p_sendmsg.c" <<'C'
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+int main(void){
+  signal(SIGALRM, SIG_DFL); alarm(3);
+  int s = socket(AF_INET, SOCK_DGRAM, 0);   /* UDP: reach an endpoint without connect() */
+  struct sockaddr_in sa; sa.sin_family=AF_INET; sa.sin_port=htons(80);
+  inet_pton(AF_INET, "240.0.0.1", &sa.sin_addr);   /* denied CIDR 240.0.0.0/4 */
+  ssize_t r = sendto(s, "x", 1, 0, (struct sockaddr*)&sa, sizeof(sa));
+  int e = errno; close(s);
+  if (r>=0){ printf("sent\n"); return 1; }
+  if (e==EPERM){ printf("EPERM\n"); return 0; }
+  printf("errno=%d\n", e); return 2;
+}
+C
+  cc -O0 -o "$WORK/p_ptrace"  "$WORK/p_ptrace.c"  2>/dev/null || HAVE_CC=0
+  cc -O0 -o "$WORK/p_bpf"      "$WORK/p_bpf.c"      2>/dev/null || HAVE_CC=0
+  cc -O0 -o "$WORK/p_connect"  "$WORK/p_connect.c"  2>/dev/null || HAVE_CC=0
+  cc -O0 -o "$WORK/p_sendmsg"  "$WORK/p_sendmsg.c"  2>/dev/null || HAVE_CC=0
 fi
 
 # ---------------------------------------------------------------- policy (all classes)
@@ -153,6 +182,7 @@ version=1
 
 [deny_path]
 $DENIED_FILE
+$OVL_LOWER
 
 [deny_comm]
 aegis_denied_x
@@ -269,6 +299,28 @@ if mv "$DENIED_FILE" "$BRN" 2>/dev/null; then
   mv "$BRN" "$DENIED_FILE" 2>/dev/null || true
 else
   skip "bypass 'rename': cannot rename target"
+fi
+
+# sendmsg endpoint evasion (BYP-R2): reach a denied endpoint via UDP sendto()
+# instead of connect(). socket_sendmsg must apply the same remote-endpoint deny.
+if [ "$HAVE_CC" -eq 1 ]; then
+  scope "$WORK/p_sendmsg"
+  assert_bypass sendmsg "$?" "sendto() denied endpoint 240.0.0.1 (UDP)"
+else
+  skip "bypass 'sendmsg': no C compiler"
+fi
+
+# overlay copy-up (BYP-R1): a denied lower-layer inode reached through an
+# overlayfs merged path must still be refused (the merged dentry maps to the
+# denied lower inode until copy-up; copy-up of it must not succeed).
+if mount -t overlay aegisproof -o "lowerdir=$OVL/lower,upperdir=$OVL/upper,workdir=$OVL/work" "$OVL/merged" 2>/dev/null; then
+  scope --pipe sh -c "printf x >> '$OVL/merged/ovl_secret'" >/dev/null 2>&1   # write triggers copy-up
+  wrote_rc=$?
+  if [ "$wrote_rc" -ne 0 ] && [ ! -s "$OVL/upper/ovl_secret" ]; then ovl_blocked=0; else ovl_blocked=1; fi
+  assert_bypass overlay_copyup "$ovl_blocked" "merged-path access of denied lower inode"
+  umount "$OVL/merged" 2>/dev/null || true
+else
+  skip "bypass 'overlay_copyup': cannot mount overlayfs"
 fi
 
 # ---------------------------------------------------------------- no silent downgrade
