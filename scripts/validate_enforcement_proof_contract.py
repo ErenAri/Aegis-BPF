@@ -13,7 +13,9 @@ Fails (exit 1) if:
   * an ENFORCED-labeled manifest row's claim phrase is missing from the
     whitepaper's "In-scope (ENFORCED)" section,
   * a 'mitigated' entry in docs/BYPASS_CATALOG.md cites no Regression anchor, or
-    an anchor that does not resolve to a real test/probe/step.
+    an anchor that does not resolve to a real test/probe/step,
+  * a hook a manifest class enforces with (lsm/X) is missing from the capability
+    catalog src/hook_capabilities.cpp (as bpf_lsm_X).
 
 This makes "every ENFORCED claim points to a green per-class test" and "no bypass
 is mitigated without a regression" structural, not editorial. Kernel-free; the
@@ -35,6 +37,7 @@ WHITEPAPER = REPO / "docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md"
 BYPASS_CATALOG = REPO / "docs/BYPASS_CATALOG.md"
 BYPASS_TESTS = REPO / "tests/e2e/test_bypasses.cpp"
 KERNEL_MATRIX = REPO / ".github/workflows/kernel-matrix.yml"
+HOOK_CATALOG = REPO / "src/hook_capabilities.cpp"
 
 ASSERT_RE = re.compile(r"assert_blocked\s+([A-Za-z_]\w*)")
 ENTRY_RE = re.compile(r"\n### (BYP-\S+)[^\n]*\n")
@@ -152,6 +155,24 @@ def main() -> int:
                 f"phrase {row['claim']!r} is absent from the whitepaper "
                 "'In-scope (ENFORCED)' section"
             )
+
+    # Every hook a manifest class enforces with must be in the capability catalog
+    # (src/hook_capabilities.cpp), so `capabilities` honestly reports it. The hook
+    # `lsm/X` is catalogued as the trampoline symbol `bpf_lsm_X`.
+    try:
+        hook_catalog_text = read(HOOK_CATALOG)
+        for row in manifest:
+            for hook in (h.strip() for h in row["hooks"].split(",") if h.strip()):
+                if not hook.startswith("lsm/"):
+                    continue
+                symbol = "bpf_lsm_" + hook.split("/", 1)[1]
+                if symbol not in hook_catalog_text:
+                    errors.append(
+                        f"class '{row['class']}' enforces with {hook} but its capability-catalog "
+                        f"symbol {symbol!r} is absent from {HOOK_CATALOG.name}"
+                    )
+    except FileNotFoundError as exc:
+        errors.append(f"hook catalog check: {exc}")
 
     # Bypass catalog: every 'mitigated' entry must cite a regression that exists.
     mitigated = 0
