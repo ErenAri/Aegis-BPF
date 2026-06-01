@@ -1,0 +1,18 @@
+# bpfcompat kernel matrix for AegisBPF Layer-A (object load/verify/attach)
+# validation. Profile IDs are bpfcompat's; images live in its vm/cache.
+# Run: bpfcompat test --artifact build/aegis.bpf.o \
+#        --manifest tests/enforcement/bpfcompat-manifest.yaml \
+#        --matrix tests/enforcement/bpfcompat-matrix.yaml --out report.json
+# See docs/KERNEL_COMPAT_MATRIX.md.
+name: aegis-lts-matrix
+profiles:
+  - id: ubuntu-22.04-5.15
+    required: true
+  - id: debian-12-6.1
+    required: true
+  - id: ubuntu-24.04-6.8
+    required: true
+  - id: oracle-linux-10-uek8-6.12
+    required: true
+  - id: ubuntu-25.10-6.17
+    required: true

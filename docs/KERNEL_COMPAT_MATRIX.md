@@ -63,18 +63,40 @@ stale relative to the source of truth.
 
 ## Backend integration (bpfcompat)
 
-The matrix is executed by a kernel-compatibility backend. The
-[bpfcompat](https://bpfcompat-se24-8008b8.swedencentral.cloudapp.azure.com/)
-service is the intended consumer; integration is phased:
+The matrix is executed by [bpfcompat](https://github.com/ErenAri/adaptive-bpf-runtime-program),
+which boots each profile as a QEMU/KVM guest and runs an in-VM libbpf validator
+(real load/verify/attach in guest kernel context).
 
-- **Phase 1 — Layer A.** Submit `aegis.bpf.o` + the manifest; gate on a clean
-  load/verify/attach across the `bpf_lsm: true` kernels. Closes the cross-version
-  CO-RE / BTF / verifier / hook-availability risk that single-kernel CI cannot.
-- **Phase 2 — Layer B.** If the backend can run an arbitrary root workload on a
-  per-kernel VM, run `enforcement_proof.sh` there and gate on exit 0 (and exit 77
-  on the `no-lsm` kernel). This is the real behavioral matrix.
+**Adapter (done).** `scripts/gen_bpfcompat_manifest.py` generates
+`tests/enforcement/bpfcompat-manifest.yaml` (bpfcompat's manifest schema) from the
+BPF `SEC()` declarations — so it cannot drift from the object. All programs are
+`required: false`; the authoritative per-kernel signal is each
+`validator-result.json`'s per-program `load_status` (added to the validator).
+`tests/enforcement/bpfcompat-matrix.yaml` pins the LTS profile set. CI runs
+`gen_bpfcompat_manifest.py --check` (in `enforcement-proof-contract`) to keep the
+committed manifest in sync. Run it:
 
-A thin adapter maps this canonical manifest to the backend's submission format;
-backend credentials live in CI secrets, never in the repo. Until the backend's
-Phase-2 workload capability and exact API are confirmed, Layer B continues to run
-on self-hosted / VM runners via `enforcement_proof.sh` directly.
+```sh
+bpfcompat test --artifact build/aegis.bpf.o \
+  --manifest tests/enforcement/bpfcompat-manifest.yaml \
+  --matrix   tests/enforcement/bpfcompat-matrix.yaml \
+  --out report.json
+```
+
+This already produced the per-hook × per-kernel matrix that found the
+`handle_execve` (≤ 6.8) and `handle_exit` (5.15) load bugs.
+
+**Phase 1 — Layer A (object compat).** The above, gated in CI. Closes the
+cross-version CO-RE / BTF / verifier / hook-availability risk single-kernel CI
+cannot. **Blocked only on the runner decision** (see below).
+
+**Phase 2 — Layer B (behavioral).** If the backend can run an arbitrary root
+workload per kernel, run `enforcement_proof.sh` there and gate on exit 0 (exit 77
+on the `no-lsm` profile). Until then, Layer B runs on self-hosted / VM runners via
+`enforcement_proof.sh` directly.
+
+**CI submission job (the remaining piece).** Needs an execution path + secrets:
+either (a) a self-hosted runner with KVM + the cached images, invoking the CLI
+above, or (b) the bpfcompat HTTP API (`bpfcompat serve`) with `BPFCOMPAT_API_*`
+tokens in GitHub Actions secrets. The manifest/matrix/object are all ready; this
+is a thin wrapper once the runner/API path is chosen.

@@ -307,6 +307,9 @@ jobs:
       - name: Validate kernel-compat manifest is in sync with the source of truth
         run: python3 scripts/gen_kernel_compat_manifest.py --check
 
+      - name: Validate bpfcompat manifest is in sync with the BPF source
+        run: python3 scripts/gen_bpfcompat_manifest.py --check
+
   helm-posture-contract:
     runs-on: ubuntu-24.04
     steps:
