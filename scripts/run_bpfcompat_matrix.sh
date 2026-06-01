@@ -70,7 +70,7 @@ RUN_DIR="$(ls -td "$WORKDIR"/runs/*/ 2>/dev/null | head -1)"
 
 # Evaluate per-program load_status per profile; gate on the REQUIRED hooks.
 AEGIS_REQUIRED_PROGS="$REQUIRED_PROGS" AEGIS_RUN_DIR="$RUN_DIR" AEGIS_SUMMARY="$SUMMARY" python3 - <<'PY'
-import json, glob, os, sys
+import json, glob, os, re, sys
 run = os.environ["AEGIS_RUN_DIR"]
 required = set(os.environ["AEGIS_REQUIRED_PROGS"].split())
 summary = {"profiles": [], "required_hooks": sorted(required), "ok": True}
@@ -85,7 +85,11 @@ for f in results:
     profile = os.path.basename(os.path.dirname(f))
     host = d.get("host") or {}
     prof = d.get("profile") or {}
-    kernel = host.get("kernel") or host.get("kernel_family") or prof.get("kernel_family") or "?"
+    kernel = host.get("kernel") or host.get("kernel_family") or prof.get("kernel_family")
+    if not kernel:
+        # Profile IDs always encode the kernel (e.g. oracle-linux-10-uek8-6.12).
+        vers = re.findall(r"\d+\.\d+", profile)
+        kernel = vers[-1] if vers else "?"
     progs = (d.get("discovery") or {}).get("programs", [])
     ok_set = {p["name"] for p in progs if p.get("load_status") == "ok"}
     total = len(progs)
