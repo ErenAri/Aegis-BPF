@@ -229,6 +229,48 @@ else
   skip "ptrace/bpf/network: no C compiler to build syscall probes"
 fi
 
+# ---------------------------------------------------------------- bypass probes
+# Behavioral regressions for docs/BYPASS_CATALOG.md. [deny_path] resolves to the
+# target INODE, so inode-aliasing bypasses (symlink / hardlink / rename to the
+# same inode) must STILL be denied. A `bypass SUCCEEDED` result means enforcement
+# was circumvented. Each probe name here is the regression anchor the bypass
+# catalog binds to (validate_bypass_catalog.py greps for `assert_bypass <name>`).
+assert_bypass() {  # $1=name  $2=0 if STILL blocked (bypass failed)  $3=detail
+  if [ "$2" -eq 0 ]; then ok   "bypass '$1' BLOCKED ($3)";
+  else                    fail "bypass '$1' SUCCEEDED — enforcement circumvented ($3)"; RESULT=1; fi
+}
+BSL="$WORK/byp_symlink"; BHL="$WORK/byp_hardlink"; BRN="$WORK/byp_renamed"
+
+ln -s "$DENIED_FILE" "$BSL" 2>/dev/null
+scope --pipe cat "$BSL" >/dev/null 2>&1
+assert_bypass symlink "$(( $? == 0 ? 1 : 0 ))" "read denied inode via symlink"
+
+if ln "$DENIED_FILE" "$BHL" 2>/dev/null; then
+  scope --pipe cat "$BHL" >/dev/null 2>&1
+  assert_bypass hardlink "$(( $? == 0 ? 1 : 0 ))" "read denied inode via hardlink"
+else
+  skip "bypass 'hardlink': cannot hardlink across this filesystem"
+fi
+
+BBM="$WORK/byp_bindmount"; : > "$BBM"
+if mount --bind "$DENIED_FILE" "$BBM" 2>/dev/null; then
+  scope --pipe cat "$BBM" >/dev/null 2>&1
+  assert_bypass bindmount "$(( $? == 0 ? 1 : 0 ))" "read denied inode via bind mount"
+  umount "$BBM" 2>/dev/null || true
+else
+  skip "bypass 'bindmount': cannot bind mount target"
+fi
+
+# rename the denied file itself: inode is unchanged, so the deny must follow it.
+# Done last (it moves $DENIED_FILE); restored best-effort afterwards.
+if mv "$DENIED_FILE" "$BRN" 2>/dev/null; then
+  scope --pipe cat "$BRN" >/dev/null 2>&1
+  assert_bypass rename "$(( $? == 0 ? 1 : 0 ))" "read denied inode after rename"
+  mv "$BRN" "$DENIED_FILE" 2>/dev/null || true
+else
+  skip "bypass 'rename': cannot rename target"
+fi
+
 # ---------------------------------------------------------------- no silent downgrade
 STATE2="$(read_state)"
 if [ "$STATE2" != "ENFORCE" ]; then

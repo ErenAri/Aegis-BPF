@@ -1,52 +1,109 @@
 # AegisBPF Bypass Catalog
 
-Version: 1.0 (2026-02-05)
+Version: 2.0 (2026-06-01)
 Status: Canonical bypass catalog for the v1 contract.
 
-This catalog records known bypass surfaces and their disposition. Each entry is
-classified as accepted, mitigated, or roadmap to keep claims defensible.
+This catalog records known bypass surfaces and their disposition, classified as
+**accepted**, **mitigated**, or **roadmap** to keep claims defensible.
+
+Per the enforcement-semantics whitepaper (§5): *no bypass is considered
+mitigated unless it is backed by a reproducible regression test.* That rule is
+machine-enforced — `scripts/validate_enforcement_proof_contract.py` (the
+`enforcement-proof-contract` CI job) fails the build if any **mitigated** entry
+below lacks a `Regression:` anchor that resolves to a real test. Recognized
+anchor forms:
+
+- `enforcement_proof.sh:<name>` — a behavioral probe in
+  `tests/enforcement/enforcement_proof.sh` (`assert_bypass <name>` /
+  `assert_blocked <name>`), run against a live enforcing daemon on the kernel
+  matrix.
+- `test_bypasses.cpp::<TestName>` — a gtest in `tests/e2e/test_bypasses.cpp`.
+- `kernel-matrix.yml:<step name>` — a step in `.github/workflows/kernel-matrix.yml`.
+
+---
 
 ## Accepted (out of scope for v1)
 
-- **Root compromise / kernel compromise**
-  - Out of scope by threat model. Kernel modules or root can bypass policy.
-- **Non-LSM enforcement paths when BPF LSM is unavailable**
-  - Tracepoint fallback is audit-only; syscall deny is not possible.
-- **Privileged container escape with host-level capabilities**
-  - Treated as root-equivalent in scope definition.
+### BYP-A1 Root / kernel compromise
+- **Status:** accepted
+- Out of scope by threat model. Kernel modules or root can bypass policy.
 
-## Mitigated (explicitly handled)
+### BYP-A2 Non-LSM enforcement paths when BPF-LSM is unavailable
+- **Status:** accepted
+- Tracepoint fallback is audit-only; synchronous syscall deny is not possible.
+  The daemon refuses to claim enforce in this state (No-Pretend invariant).
 
-- **Symlink swaps**
-  - Canonical path resolution + inode-based enforcement.
-  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (symlink swap scenarios).
-- **Rename / hardlink path drift**
-  - Inode-based deny persists across renames and hardlinks.
-  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (rename + hardlink scenarios).
-- **Bind-mount aliases**
-  - Enforcement is inode-driven; path telemetry can differ by namespace.
-  - Evidence: `docs/EDGE_CASE_COMPLIANCE_SUITE.md` (bind‑mount alias scenarios).
-- **OverlayFS copy-up bypass of inode deny**
-  - The `lsm/inode_copy_up` LSM hook (`handle_inode_copy_up`) inspects the
-    source (lower-layer) inode in the same kernel-locked invocation that
-    authorises the copy-up. Rules carrying `RULE_FLAG_DENY_ALWAYS` cause
-    the hook to return `-EPERM` synchronously, so the upper-layer inode
-    is never allocated and the bypass class is closed without a userspace
-    TOCTOU window. Rules carrying only `RULE_FLAG_PROTECT_VERIFIED_EXEC`
-    fall back to the existing event-driven userspace propagation path.
-  - Evidence: `bpf/aegis_overlay.bpf.h`, `docs/THREAT_MODEL.md` §6.2,
-    `docs/GUARANTEES.md` (Known bypass classes table).
-- **Outbound message sends (`sendmsg`)**
-  - Covered by the same remote endpoint deny semantics as `connect()` when the
-    kernel exposes `socket_sendmsg`.
-  - Evidence: `docs/NETWORK_LAYER_DESIGN.md`, `docs/POLICY_SEMANTICS.md`.
+### BYP-A3 Privileged container escape with host-level capabilities
+- **Status:** accepted
+- Treated as root-equivalent in the scope definition.
 
-## Roadmap (planned mitigation or coverage expansion)
+---
 
-- **Pre-accept inbound policy coverage**
-  - Add earlier inbound filtering or richer hook coverage before `accept()`
-    returns the socket to user space.
-- **Broader filesystem matrix**
-  - Extend validation beyond ext4/xfs to additional FS types.
-- **Namespace-specific path views**
-  - Improve operator tooling to reconcile path differences across namespaces.
+## Mitigated (behavioral regression test required)
+
+Enforcement is **inode-based** (`[deny_path]` resolves to the target inode at
+apply time and populates the inode map), so inode-aliasing bypasses must still
+be denied. Each entry below is proven by a behavioral probe that, against a live
+enforcing daemon, performs the bypass from a non-exempt cgroup and asserts the
+access is still denied.
+
+### BYP-M1 Symlink swap
+- **Status:** mitigated
+- **Class:** file
+- **PoC:** create a symlink to a denied file and `open()` it via the link.
+- **Mitigation:** inode-based deny — the symlink resolves to the same inode.
+- **Regression:** `enforcement_proof.sh:symlink`, `test_bypasses.cpp::SymlinkBypass`
+
+### BYP-M2 Hardlink alias
+- **Status:** mitigated
+- **Class:** file
+- **PoC:** hardlink a denied file to a new path and `open()` the new path.
+- **Mitigation:** inode-based deny — the hardlink shares the inode.
+- **Regression:** `enforcement_proof.sh:hardlink`, `test_bypasses.cpp::HardlinkBypass`
+
+### BYP-M3 Rename / path drift
+- **Status:** mitigated
+- **Class:** file
+- **PoC:** rename a denied file and `open()` it at the new path.
+- **Mitigation:** inode-based deny persists across rename (inode unchanged).
+- **Regression:** `enforcement_proof.sh:rename`, `test_bypasses.cpp::RenameBypass`
+
+### BYP-M4 Bind-mount alias
+- **Status:** mitigated
+- **Class:** file
+- **PoC:** `mount --bind` a denied file onto a new path and `open()` it there.
+- **Mitigation:** inode-based deny — the bind alias shares the inode.
+- **Regression:** `enforcement_proof.sh:bindmount`
+
+---
+
+## Roadmap (mechanism present or planned; behavioral regression pending)
+
+These have either a designed mechanism without a behavioral regression yet, or
+planned coverage expansion. They are deliberately **not** labeled mitigated
+until a reproducible test exists.
+
+### BYP-R1 OverlayFS copy-up of a denied lower inode
+- **Status:** roadmap
+- **Mechanism:** `lsm/inode_copy_up` (`handle_inode_copy_up`) returns `-EPERM`
+  synchronously for `RULE_FLAG_DENY_ALWAYS` rules (see `bpf/aegis_overlay.bpf.h`),
+  so no userspace TOCTOU window. **Pending:** a behavioral copy-up regression in
+  the proof harness (kernel-matrix currently has only a structural overlay step).
+
+### BYP-R2 Outbound datagram (`sendmsg`) endpoint evasion
+- **Status:** roadmap
+- **Mechanism:** `lsm/socket_sendmsg` applies the same remote-endpoint deny as
+  `connect()` where the hook is available. **Pending:** a `sendmsg`-specific
+  behavioral probe (the harness currently proves the `connect()` path).
+
+### BYP-R3 Pre-accept inbound policy coverage
+- **Status:** roadmap
+- Add earlier inbound filtering / richer hook coverage before `accept()` returns.
+
+### BYP-R4 Broader filesystem matrix
+- **Status:** roadmap
+- Extend validation beyond ext4/xfs to additional filesystem types.
+
+### BYP-R5 Namespace-specific path views
+- **Status:** roadmap
+- Improve operator tooling to reconcile path differences across namespaces.
