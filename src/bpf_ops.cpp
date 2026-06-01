@@ -631,6 +631,22 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                     logger().log(SLOG_INFO("IMA hash verification disabled; requires kernel 6.1+"));
                 }
             }
+
+            /* The process-exit tracepoint (handle_exit) is rejected by the kernel
+             * verifier on <= 5.15 (confirmed via the bpfcompat kernel matrix). It
+             * is best-effort telemetry (dead-process correlation) — enforcement does
+             * not depend on it — so gate it off there rather than fail the whole
+             * load. Conservative 6.1 boundary matches the tested fail(5.15)/ok(6.1)
+             * data; the attach loop skips any program left disabled here. */
+            {
+                bpf_program* exit_prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
+                if (exit_prog && !kernel_version_at_least(6, 1, 0)) {
+                    bpf_program__set_autoload(exit_prog, false);
+                    logger().log(SLOG_INFO(
+                        "Process-exit tracepoint disabled; requires kernel 6.1+ (telemetry only, "
+                        "enforcement unaffected)"));
+                }
+            }
         }
     }
 
@@ -768,6 +784,11 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 Error error(ErrorCode::BpfLoadFailed, std::string("BPF program not found: ") + prog_name);
                 span.fail(error.to_string());
                 return fail(error);
+            }
+            /* Skip programs gated off above (e.g. handle_exit on kernels < 6.1):
+             * they were never loaded, so there is nothing to attach. Best-effort. */
+            if (!bpf_program__autoload(prog)) {
+                continue;
             }
             auto result = attach_prog(prog, state);
             if (!result) {
