@@ -18,6 +18,9 @@ artifacts on each run.
 | Kernel portability | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | Includes kernel + OS details and ctest log. |
 | Edge‑case compliance | `Kernel Matrix` + `E2E (BPF LSM)` | `kernel-matrix-<runner>`, `e2e-evidence` | File‑enforcement matrix and edge‑case behaviors. |
 | BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info, soak summary, and chaos ringbuf overflow result. |
+| **Behavioral enforcement proof** | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | `tests/enforcement/enforcement_proof.sh` boots the real `apply→run` flow and asserts `-EPERM` per ENFORCED class + bypass regressions, with `runtime_state==ENFORCE` (No-Pretend). See `docs/ENFORCEMENT_WEDGE_STRATEGY.md`. |
+| **Proof/label/bypass contract** | `CI` → `enforcement-proof-contract` | (status only) | `scripts/validate_enforcement_proof_contract.py` fails the build if any ENFORCED claim, mitigated bypass, or capability hook lacks a backing test (`tests/enforcement/enforcement_classes.tsv`, `docs/BYPASS_CATALOG.md`, `src/hook_capabilities.cpp`), and if `kernel_compat_manifest.json` is stale. |
+| **Enforcement determinism** | (reproducible demo) | `docs/DETERMINISM_BENCHMARK.md` | `tests/enforcement/determinism_demo.sh` — synchronous in-kernel `-EPERM` vs post-hoc signal; measured AegisBPF-side, Tetragon contrast cited from their docs. |
 | Perf regression (self-hosted) | `Perf Regression` (`.github/workflows/perf.yml`) | `perf-evidence` | Includes canonical perf baseline (`perf-baseline-canonical.json/.md`), SLO report, and workload/profile JSON. |
 | Release perf gate (strict) | `Release` (`.github/workflows/release.yml`) | `release-perf-evidence` | Tag releases are blocked when perf SLO or canonical evidence validation fails. |
 | Soak reliability (self-hosted) | `Soak Reliability` (`.github/workflows/soak.yml`) | `soak-evidence` | Includes soak summary JSON with drop/RSS thresholds. |
@@ -49,7 +52,20 @@ artifacts on each run.
 
 ## Kernel matrix coverage
 
-Target runners for portability evidence (self-hosted):
+The **canonical target matrix** is defined in
+`tests/enforcement/kernel_compat_manifest.json` (generated from the source of
+truth; CI fails if it drifts). It distinguishes two layers — see
+`docs/KERNEL_COMPAT_MATRIX.md`:
+
+- **Layer A (object compat):** `aegis.bpf.o` loads/verifies/attaches on the kernel.
+- **Layer B (behavioral):** `enforcement_proof.sh` asserts `-EPERM` per class on the kernel.
+
+Target kernels: **5.15, 6.1, 6.6, 6.8, 6.12** (BPF-LSM on) **+ one no-LSM** kernel
+(proves the No-Pretend invariant — the daemon refuses enforce rather than pretend).
+A green Layer-A result means *compatible*, not *enforcement-proven*; only Layer B
+earns the latter.
+
+Current self-hosted runners for portability evidence:
 
 | Runner label | Kernel target | Evidence artifact |
 |-------------|---------------|-------------------|
