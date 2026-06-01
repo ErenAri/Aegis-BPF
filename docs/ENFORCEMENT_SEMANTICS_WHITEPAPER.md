@@ -12,6 +12,18 @@ and add/refresh evidence in the compliance suite.
 ## 1) Scope and guarantees (contract)
 
 ### In-scope (ENFORCED)
+
+Each ENFORCED class below is bound to a behavioral proof: every class returns a
+synchronous `-EPERM` from its BPF-LSM hook, asserted from a non-exempt cgroup by
+`tests/enforcement/enforcement_proof.sh` (the proof harness) on the kernel
+matrix. The class↔hook↔proof binding is the manifest
+`tests/enforcement/enforcement_classes.tsv`, and
+`scripts/validate_enforcement_proof_contract.py` fails CI if any ENFORCED claim
+here lacks a manifest entry and a harness probe (and vice versa). "When the LSM
+hook is available" applies throughout: where an optional hook is absent the
+posture contract degrades per `docs/CAPABILITY_POSTURE_CONTRACT.md` (it does not
+silently claim enforce — see §1 "No Pretend Enforce").
+
 - **File deny** via BPF LSM (`file_open` / `inode_permission`) for configured
   rules (path/inode), as documented in `docs/POLICY_SEMANTICS.md`.
 - **Network deny** for configured outbound exact IP, CIDR, port, and exact
@@ -19,6 +31,12 @@ and add/refresh evidence in the compliance suite.
   `listen()` coverage and accepted-peer `accept()` coverage when the
   corresponding LSM hooks are available (see
   `docs/NETWORK_LAYER_DESIGN.md`).
+- **Module-load deny** via BPF LSM (`kernel_read_file` for `finit_module(2)` and
+  `kernel_load_data` for `init_module(2)`) when `deny_module_load` is set.
+- **Exec deny (comm)** via BPF LSM (`bprm_check_security`) for configured
+  `deny_comm` process names.
+- **ptrace deny** via BPF LSM (`ptrace_access_check`) when `deny_ptrace` is set.
+- **BPF program-load deny** via BPF LSM (`bpf`) when `deny_bpf` is set.
 
 ### Audited (AUDITED)
 - Tracepoint-based audit fallback for environments without enforce-capable LSM.

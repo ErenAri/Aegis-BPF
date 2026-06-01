@@ -296,6 +296,14 @@ jobs:
       - name: Validate capability posture contract
         run: python3 scripts/validate_capability_posture_contract.py
 
+  enforcement-proof-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate enforcement proof contract
+        run: python3 scripts/validate_enforcement_proof_contract.py
+
   helm-posture-contract:
     runs-on: ubuntu-24.04
     steps:

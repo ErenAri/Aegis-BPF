@@ -8,6 +8,7 @@ lint
 policy-tags
 label-contract
 capability-contract
+enforcement-proof-contract
 helm-posture-contract
 ops-observability-contract
 k8s-rollout-contract
