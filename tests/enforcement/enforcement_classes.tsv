@@ -1,0 +1,21 @@
+# Enforcement-class proof manifest — single source of truth binding each
+# enforcement class to (a) its capability label, (b) the BPF-LSM hook(s) that
+# implement it, and (c) the whitepaper claim phrase that must appear in
+# docs/ENFORCEMENT_SEMANTICS_WHITEPAPER.md under the matching label section.
+#
+# scripts/validate_enforcement_proof_contract.py enforces, in normal (kernel-free)
+# CI, that this manifest, the harness probes in enforcement_proof.sh, and the
+# whitepaper labels are mutually consistent. The behavioral proof that each
+# class actually returns -EPERM is the harness itself, run on the kernel matrix.
+#
+# A class may NOT be labeled ENFORCED unless it has both a harness probe here and
+# a claim in the whitepaper. This makes "every ENFORCED claim points to a green
+# per-class test" structural, not editorial. See docs/ENFORCEMENT_WEDGE_STRATEGY.md.
+#
+# columns (tab-separated): class	label	hooks	whitepaper_claim
+module	ENFORCED	lsm/kernel_read_file,lsm/kernel_load_data	Module-load deny
+file	ENFORCED	lsm/file_open,lsm/inode_permission	File deny
+exec	ENFORCED	lsm/bprm_check_security	Exec deny (comm)
+ptrace	ENFORCED	lsm/ptrace_access_check	ptrace deny
+bpf	ENFORCED	lsm/bpf	BPF program-load deny
+network	ENFORCED	lsm/socket_connect,lsm/socket_sendmsg,lsm/socket_bind,lsm/socket_listen,lsm/socket_accept,lsm/socket_recvmsg	Network deny
