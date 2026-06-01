@@ -164,6 +164,10 @@ enum class EventLogSink { Stdout, Journald, StdoutAndJournald };
 enum class EventFormat { Aegis, Ocsf, Cef };
 
 inline constexpr size_t kMaxArgvSize = 256;
+inline constexpr size_t kMaxArgvEntries = 8;
+/* Fixed per-argument slot; mirrors ARGV_SLOT in bpf/aegis_common.h. handle_execve
+ * writes argument i at argv[i * kArgvSlot], NUL-terminated within its slot. */
+inline constexpr size_t kArgvSlot = kMaxArgvSize / kMaxArgvEntries;
 inline constexpr size_t kAncestorMaxDepth = 8;
 
 // New map pin paths for quality improvements
@@ -190,7 +194,7 @@ struct ExecArgvEvent {
     uint16_t argc;
     uint16_t total_len;
     uint32_t _pad2;
-    char argv[kMaxArgvSize]; /* null-separated argument strings */
+    char argv[kMaxArgvSize]; /* fixed kArgvSlot-byte slots: arg i at argv[i*kArgvSlot] */
 };
 
 struct DiagEvent {

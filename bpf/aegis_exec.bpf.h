@@ -124,40 +124,35 @@ int handle_execve(struct trace_event_raw_sys_enter *ctx)
     ae->exec_argv._pad2 = 0;
     __builtin_memset(ae->exec_argv.argv, 0, sizeof(ae->exec_argv.argv));
 
-    int offset = 0;
     int argc = 0;
 
     /*
-     * Per-argv read size is a compile-time constant so the verifier can
-     * prove the destination write is in-bounds without correlating
-     * `offset` and `remaining` across a loop iteration. Newer kernel
-     * verifiers (6.17+) reject the previous variable-size form because
-     * they lose the (offset + remaining == MAX_ARGV_SIZE) invariant.
+     * Fixed-slot argv capture: argument i is written at the COMPILE-TIME
+     * constant offset i * ARGV_SLOT. A constant destination offset with a
+     * constant read length is provably in-bounds for every kernel verifier,
+     * old and new. The previous form wrote at a variable accumulating offset
+     * into the ring-buffer reservation, which kernels <= 6.8 reject (they lose
+     * the offset bound across iterations) — so handle_execve, a required
+     * program, failed to load there and the whole agent failed to start.
+     * Each slot holds one NUL-terminated argument; the buffer is
+     * zero-initialized above, so unused slots stay empty.
      */
-#define PER_ARG_READ_MAX 64
     if (argv) {
 #pragma unroll
         for (int i = 0; i < MAX_ARGV_ENTRIES; i++) {
-            /* Mask offset to a power-of-2 bound so verifier trusts it */
-            __u32 off = (__u32)offset & (MAX_ARGV_SIZE - 1);
-            if (off > MAX_ARGV_SIZE - PER_ARG_READ_MAX)
-                break;
             const char *arg = NULL;
             bpf_probe_read_user(&arg, sizeof(arg), &argv[i]);
             if (!arg)
                 break;
-            long len = bpf_probe_read_user_str(
-                &ae->exec_argv.argv[off], PER_ARG_READ_MAX, arg);
+            long len = bpf_probe_read_user_str(&ae->exec_argv.argv[i * ARGV_SLOT], ARGV_SLOT, arg);
             if (len <= 0)
                 break;
-            offset = (int)off + (int)len;
             argc++;
         }
     }
-#undef PER_ARG_READ_MAX
 
     ae->exec_argv.argc = (__u16)argc;
-    ae->exec_argv.total_len = (__u16)offset;
+    ae->exec_argv.total_len = (__u16)(argc * ARGV_SLOT);
     bpf_ringbuf_submit(ae, 0);
 
     record_hook_latency(HOOK_EXECVE, _start_ns);
