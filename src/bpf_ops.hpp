@@ -88,6 +88,7 @@ class BpfState {
             other.pin_heal_failures = 0;
             inode_reused = other.inode_reused;
             deny_path_reused = other.deny_path_reused;
+            deny_comm_reused = other.deny_comm_reused;
             cgroup_reused = other.cgroup_reused;
             allow_exec_inode_reused = other.allow_exec_inode_reused;
             exec_identity_mode_reused = other.exec_identity_mode_reused;
@@ -190,6 +191,7 @@ class BpfState {
             // Reset reuse flags
             other.inode_reused = false;
             other.deny_path_reused = false;
+            other.deny_comm_reused = false;
             other.cgroup_reused = false;
             other.allow_exec_inode_reused = false;
             other.exec_identity_mode_reused = false;
@@ -289,6 +291,7 @@ class BpfState {
     // Reuse flags
     bool inode_reused = false;
     bool deny_path_reused = false;
+    bool deny_comm_reused = false;
     bool cgroup_reused = false;
     bool allow_exec_inode_reused = false;
     bool exec_identity_mode_reused = false;
