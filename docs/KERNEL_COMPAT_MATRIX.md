@@ -95,8 +95,20 @@ workload per kernel, run `enforcement_proof.sh` there and gate on exit 0 (exit 7
 on the `no-lsm` profile). Until then, Layer B runs on self-hosted / VM runners via
 `enforcement_proof.sh` directly.
 
-**CI submission job (the remaining piece).** Needs an execution path + secrets:
-either (a) a self-hosted runner with KVM + the cached images, invoking the CLI
-above, or (b) the bpfcompat HTTP API (`bpfcompat serve`) with `BPFCOMPAT_API_*`
-tokens in GitHub Actions secrets. The manifest/matrix/object are all ready; this
-is a thin wrapper once the runner/API path is chosen.
+**CI submission job.** The runner-agnostic core exists:
+`scripts/run_bpfcompat_matrix.sh` builds the object, regenerates+checks the
+manifest, runs the bpfcompat matrix, and gates on the **required** enforcement
+hooks (`file_open` + `inode_permission`, the `required=true` entries in
+`hook_capabilities.cpp`) loading on every profile — optional/gated programs may
+be absent without failing the gate. It writes the full per-hook × per-kernel
+summary as an artifact. Verified locally on 6.17.
+
+`.github/workflows/bpfcompat-matrix.yml` is the reference integration:
+`workflow_dispatch`, `runs-on: [self-hosted, kvm, bpfcompat]`, calling the
+wrapper. It is inert until you **provision a runner** (register a self-hosted
+runner with that label + KVM + the bpfcompat checkout, and set the
+`BPFCOMPAT_DIR` repo variable). Alternative (no self-hosted runner): submit the
+artifact + manifest to the bpfcompat HTTP API (`bpfcompat serve`) with
+`BPFCOMPAT_API_*` secrets — wire that into the workflow instead. Either way the
+manifest, matrix, wrapper, and verdict logic are all ready; only the execution
+environment is a deployment decision.

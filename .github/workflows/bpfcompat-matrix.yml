@@ -1,0 +1,48 @@
+# bpfcompat Layer-A kernel matrix (object load/verify/attach across real kernels).
+#
+# Manual / opt-in: runs only on a self-hosted runner that has KVM, the bpfcompat
+# checkout (path in the BPFCOMPAT_DIR repo variable), and its cached VM images.
+# Until such a runner is registered this workflow simply never picks up a job, so
+# it cannot affect required CI. The verdict logic lives in the tested wrapper
+# scripts/run_bpfcompat_matrix.sh. See docs/KERNEL_COMPAT_MATRIX.md.
+#
+# Alternative (no self-hosted runner): submit aegis.bpf.o + the manifest to the
+# bpfcompat HTTP API with BPFCOMPAT_API_* secrets — wire that here instead.
+name: bpfcompat Kernel Matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      matrix:
+        description: "Matrix file (profiles to validate)"
+        default: tests/enforcement/bpfcompat-matrix.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  layer-a:
+    runs-on: [self-hosted, kvm, bpfcompat]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build BPF object
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target bpf_obj
+
+      - name: Run Layer-A kernel matrix
+        env:
+          AEGIS_BPFCOMPAT_DIR: ${{ vars.BPFCOMPAT_DIR }}
+          AEGIS_BPF_OBJ: build/aegis.bpf.o
+          AEGIS_BPFCOMPAT_MATRIX: ${{ inputs.matrix }}
+          AEGIS_MATRIX_OUT: bpfcompat-matrix-summary.json
+        run: bash scripts/run_bpfcompat_matrix.sh
+
+      - name: Upload matrix summary
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: bpfcompat-matrix-summary
+          path: bpfcompat-matrix-summary.json
+          if-no-files-found: ignore
