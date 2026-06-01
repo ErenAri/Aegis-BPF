@@ -34,216 +34,18 @@ struct PinnedHook {
 };
 
 /**
- * RAII wrapper for BPF state
+ * Trivially-copyable BPF load state: every borrowed `bpf_map*` handle plus the
+ * reuse-flag, attach-status, and pin-heal counters that travel with them.
  *
- * Automatically cleans up BPF resources (links, object) when destroyed.
- * Non-copyable but movable.
+ * These are all **borrowed** (the maps are owned by `BpfState::obj`) or plain
+ * value state, so they move by a single plain copy. Grouping them in this base
+ * is deliberate: `BpfState`'s move only has to copy this base wholesale, so a
+ * newly-added map or flag is moved automatically and can never be silently
+ * dropped from the move path — the footgun behind the `policy_generation` and
+ * `deny_comm` unpinned-map regressions. **Add new maps/flags here.**
  */
-class BpfState {
-  public:
-    BpfState() = default;
-    ~BpfState() { cleanup(); }
-
-    // Non-copyable
-    BpfState(const BpfState&) = delete;
-    BpfState& operator=(const BpfState&) = delete;
-
-    // Movable
-    BpfState(BpfState&& other) noexcept { *this = std::move(other); }
-    BpfState& operator=(BpfState&& other) noexcept
-    {
-        if (this != &other) {
-            cleanup();
-            obj = other.obj;
-            events = other.events;
-            deny_inode = other.deny_inode;
-            deny_path = other.deny_path;
-            deny_comm = other.deny_comm;
-            allow_cgroup = other.allow_cgroup;
-            allow_exec_inode = other.allow_exec_inode;
-            exec_identity_mode = other.exec_identity_mode;
-            block_stats = other.block_stats;
-            deny_cgroup_stats = other.deny_cgroup_stats;
-            deny_inode_stats = other.deny_inode_stats;
-            deny_path_stats = other.deny_path_stats;
-            agent_meta = other.agent_meta;
-            config_map = other.config_map;
-            survival_allowlist = other.survival_allowlist;
-            policy_generation_map = other.policy_generation_map;
-            deny_cgroup_inode = other.deny_cgroup_inode;
-            deny_cgroup_ipv4 = other.deny_cgroup_ipv4;
-            deny_cgroup_port = other.deny_cgroup_port;
-            links = std::move(other.links);
-            enforce_pin_links = other.enforce_pin_links;
-            pin_root = std::move(other.pin_root);
-            pinned_hooks = std::move(other.pinned_hooks);
-            enable_pin_heal = other.enable_pin_heal;
-            pin_heal_attempts = other.pin_heal_attempts;
-            pin_heal_successes = other.pin_heal_successes;
-            pin_heal_failures = other.pin_heal_failures;
-            other.enforce_pin_links = false;
-            other.enable_pin_heal = false;
-            other.pin_heal_attempts = 0;
-            other.pin_heal_successes = 0;
-            other.pin_heal_failures = 0;
-            inode_reused = other.inode_reused;
-            deny_path_reused = other.deny_path_reused;
-            deny_comm_reused = other.deny_comm_reused;
-            cgroup_reused = other.cgroup_reused;
-            allow_exec_inode_reused = other.allow_exec_inode_reused;
-            exec_identity_mode_reused = other.exec_identity_mode_reused;
-            block_stats_reused = other.block_stats_reused;
-            deny_cgroup_stats_reused = other.deny_cgroup_stats_reused;
-            deny_inode_stats_reused = other.deny_inode_stats_reused;
-            deny_path_stats_reused = other.deny_path_stats_reused;
-            agent_meta_reused = other.agent_meta_reused;
-            config_map_reused = other.config_map_reused;
-            policy_generation_reused = other.policy_generation_reused;
-            survival_allowlist_reused = other.survival_allowlist_reused;
-
-            // Diagnostics and process cache
-            diagnostics = other.diagnostics;
-            dead_processes = other.dead_processes;
-
-            // Quality improvement maps
-            hook_latency = other.hook_latency;
-            event_approver_inode = other.event_approver_inode;
-            event_approver_path = other.event_approver_path;
-            priority_events = other.priority_events;
-
-            // Network maps
-            deny_ipv4 = other.deny_ipv4;
-            deny_ipv6 = other.deny_ipv6;
-            deny_port = other.deny_port;
-            deny_ip_port_v4 = other.deny_ip_port_v4;
-            deny_ip_port_v6 = other.deny_ip_port_v6;
-            deny_cidr_v4 = other.deny_cidr_v4;
-            deny_cidr_v6 = other.deny_cidr_v6;
-            net_block_stats = other.net_block_stats;
-            net_ip_stats = other.net_ip_stats;
-            net_port_stats = other.net_port_stats;
-            backpressure = other.backpressure;
-            deny_ipv4_reused = other.deny_ipv4_reused;
-            deny_ipv6_reused = other.deny_ipv6_reused;
-            deny_port_reused = other.deny_port_reused;
-            deny_ip_port_v4_reused = other.deny_ip_port_v4_reused;
-            deny_ip_port_v6_reused = other.deny_ip_port_v6_reused;
-            deny_cidr_v4_reused = other.deny_cidr_v4_reused;
-            deny_cidr_v6_reused = other.deny_cidr_v6_reused;
-            net_block_stats_reused = other.net_block_stats_reused;
-            net_ip_stats_reused = other.net_ip_stats_reused;
-            net_port_stats_reused = other.net_port_stats_reused;
-            attach_contract_valid = other.attach_contract_valid;
-            file_hooks_expected = other.file_hooks_expected;
-            file_hooks_attached = other.file_hooks_attached;
-            exec_identity_hook_attached = other.exec_identity_hook_attached;
-            exec_identity_runtime_deps_hook_attached = other.exec_identity_runtime_deps_hook_attached;
-            socket_connect_hook_attached = other.socket_connect_hook_attached;
-            socket_bind_hook_attached = other.socket_bind_hook_attached;
-            socket_listen_hook_attached = other.socket_listen_hook_attached;
-            socket_accept_hook_attached = other.socket_accept_hook_attached;
-            socket_sendmsg_hook_attached = other.socket_sendmsg_hook_attached;
-            socket_recvmsg_hook_attached = other.socket_recvmsg_hook_attached;
-            ptrace_hook_attached = other.ptrace_hook_attached;
-            module_load_hook_attached = other.module_load_hook_attached;
-            bpf_hook_attached = other.bpf_hook_attached;
-            overlay_copy_up_hook_attached = other.overlay_copy_up_hook_attached;
-            ima_hook_attached = other.ima_hook_attached;
-
-            // Reset other to prevent double-free
-            other.obj = nullptr;
-            other.events = nullptr;
-            other.deny_inode = nullptr;
-            other.deny_path = nullptr;
-            other.deny_comm = nullptr;
-            other.allow_cgroup = nullptr;
-            other.allow_exec_inode = nullptr;
-            other.exec_identity_mode = nullptr;
-            other.block_stats = nullptr;
-            other.deny_cgroup_stats = nullptr;
-            other.deny_inode_stats = nullptr;
-            other.deny_path_stats = nullptr;
-            other.agent_meta = nullptr;
-            other.config_map = nullptr;
-            other.survival_allowlist = nullptr;
-            other.policy_generation_map = nullptr;
-            other.deny_cgroup_inode = nullptr;
-            other.deny_cgroup_ipv4 = nullptr;
-            other.deny_cgroup_port = nullptr;
-            other.diagnostics = nullptr;
-            other.dead_processes = nullptr;
-            other.hook_latency = nullptr;
-            other.event_approver_inode = nullptr;
-            other.event_approver_path = nullptr;
-            other.priority_events = nullptr;
-            other.deny_ipv4 = nullptr;
-            other.deny_ipv6 = nullptr;
-            other.deny_port = nullptr;
-            other.deny_ip_port_v4 = nullptr;
-            other.deny_ip_port_v6 = nullptr;
-            other.deny_cidr_v4 = nullptr;
-            other.deny_cidr_v6 = nullptr;
-            other.net_block_stats = nullptr;
-            other.net_ip_stats = nullptr;
-            other.net_port_stats = nullptr;
-            other.backpressure = nullptr;
-
-            // Reset reuse flags
-            other.inode_reused = false;
-            other.deny_path_reused = false;
-            other.deny_comm_reused = false;
-            other.cgroup_reused = false;
-            other.allow_exec_inode_reused = false;
-            other.exec_identity_mode_reused = false;
-            other.block_stats_reused = false;
-            other.deny_cgroup_stats_reused = false;
-            other.deny_inode_stats_reused = false;
-            other.deny_path_stats_reused = false;
-            other.agent_meta_reused = false;
-            other.config_map_reused = false;
-            other.policy_generation_reused = false;
-            other.survival_allowlist_reused = false;
-            other.deny_ipv4_reused = false;
-            other.deny_ipv6_reused = false;
-            other.deny_port_reused = false;
-            other.deny_ip_port_v4_reused = false;
-            other.deny_ip_port_v6_reused = false;
-            other.deny_cidr_v4_reused = false;
-            other.deny_cidr_v6_reused = false;
-            other.net_block_stats_reused = false;
-            other.net_ip_stats_reused = false;
-            other.net_port_stats_reused = false;
-
-            other.attach_contract_valid = false;
-            other.file_hooks_expected = 0;
-            other.file_hooks_attached = 0;
-            other.exec_identity_hook_attached = false;
-            other.exec_identity_runtime_deps_hook_attached = false;
-            other.socket_connect_hook_attached = false;
-            other.socket_bind_hook_attached = false;
-            other.socket_listen_hook_attached = false;
-            other.socket_accept_hook_attached = false;
-            other.socket_sendmsg_hook_attached = false;
-            other.socket_recvmsg_hook_attached = false;
-            other.ptrace_hook_attached = false;
-            other.module_load_hook_attached = false;
-            other.bpf_hook_attached = false;
-            other.overlay_copy_up_hook_attached = false;
-            other.ima_hook_attached = false;
-            other.links.clear();
-        }
-        return *this;
-    }
-
-    // Check if loaded successfully
-    [[nodiscard]] bool is_loaded() const { return obj != nullptr; }
-    [[nodiscard]] explicit operator bool() const { return is_loaded(); }
-
-    // Cleanup resources
-    void cleanup();
-
-    // BPF object and maps
-    bpf_object* obj = nullptr;
+struct BpfMapState {
+    // BPF maps (borrowed; owned by BpfState::obj)
     bpf_map* events = nullptr;
     bpf_map* deny_inode = nullptr;
     bpf_map* deny_path = nullptr;
@@ -257,38 +59,39 @@ class BpfState {
     bpf_map* deny_path_stats = nullptr;
     bpf_map* agent_meta = nullptr;
     bpf_map* config_map = nullptr;
-    std::vector<bpf_link*> links;
+    bpf_map* survival_allowlist = nullptr;
+    bpf_map* policy_generation_map = nullptr;
+    bpf_map* deny_cgroup_inode = nullptr;
+    bpf_map* deny_cgroup_ipv4 = nullptr;
+    bpf_map* deny_cgroup_port = nullptr;
+    bpf_map* diagnostics = nullptr;
+    bpf_map* dead_processes = nullptr;
+    bpf_map* hook_latency = nullptr;
+    bpf_map* event_approver_inode = nullptr;
+    bpf_map* event_approver_path = nullptr;
+    bpf_map* priority_events = nullptr;
+    bpf_map* deny_ipv4 = nullptr;
+    bpf_map* deny_ipv6 = nullptr;
+    bpf_map* deny_port = nullptr;
+    bpf_map* deny_ip_port_v4 = nullptr;
+    bpf_map* deny_ip_port_v6 = nullptr;
+    bpf_map* deny_cidr_v4 = nullptr;
+    bpf_map* deny_cidr_v6 = nullptr;
+    bpf_map* net_block_stats = nullptr;
+    bpf_map* net_ip_stats = nullptr;
+    bpf_map* net_port_stats = nullptr;
+    bpf_map* backpressure = nullptr;
 
-    // ------------------------------------------------------------------
-    // Pinned-link fail-safe (gated by `enforce_pin_links`, default OFF)
-    // ------------------------------------------------------------------
-    // When `enforce_pin_links` is true, each successful attach in
-    // `attach_prog()` is immediately pinned at
-    // `<pin_root>/<program_name>` inside bpffs. This keeps LSM hooks
-    // active even if `aegisbpfd` segfaults / is OOM-killed, so a hostile
-    // process cannot disable enforcement just by killing the daemon.
-    //
-    // `pinned_hooks` records each pin so the heartbeat thread can
-    // periodically verify the pin still exists (auto re-attach is
-    // deferred to a follow-up PR — this PR is warn-only on missing pin).
+    // Pinned-link fail-safe config + heal counters (trivial value state; the
+    // owning `pin_root`/`pinned_hooks` live in BpfState). See BpfState docs.
     bool enforce_pin_links = false;
-    std::string pin_root; // populated only when enforce_pin_links is true
-    std::vector<PinnedHook> pinned_hooks;
-
-    // When true (default when enforce_pin_links is enabled), the heartbeat
-    // thread re-pins any link whose bpffs entry disappears. The userspace
-    // bpf_link* stays alive in `links`, so heal is just a fresh
-    // bpf_link__pin() call — no kernel attach syscall is invoked.
-    // Set to false via `AEGIS_PIN_HEAL=0` to fall back to warn-only verify.
     bool enable_pin_heal = false;
-
-    // Heartbeat-visible counters for the heal watchdog. Aggregated across
-    // the daemon's lifetime; surfaced via diagnostics for SIEMs.
     uint64_t pin_heal_attempts = 0;
     uint64_t pin_heal_successes = 0;
     uint64_t pin_heal_failures = 0;
 
-    // Reuse flags
+    // Reuse flags: set when the corresponding map was reused from a bpffs pin
+    // (vs freshly created). Drives the need_pins decision in load_bpf.
     bool inode_reused = false;
     bool deny_path_reused = false;
     bool deny_comm_reused = false;
@@ -303,42 +106,6 @@ class BpfState {
     bool config_map_reused = false;
     bool policy_generation_reused = false;
     bool survival_allowlist_reused = false;
-
-    // Survival allowlist map
-    bpf_map* survival_allowlist = nullptr;
-
-    // Policy generation commit marker map
-    bpf_map* policy_generation_map = nullptr;
-
-    // Cgroup-scoped deny maps
-    bpf_map* deny_cgroup_inode = nullptr;
-    bpf_map* deny_cgroup_ipv4 = nullptr;
-    bpf_map* deny_cgroup_port = nullptr;
-
-    // Diagnostics and process cache maps
-    bpf_map* diagnostics = nullptr;
-    bpf_map* dead_processes = nullptr;
-
-    // Quality improvement maps (latency, filtering, priority pipeline)
-    bpf_map* hook_latency = nullptr;
-    bpf_map* event_approver_inode = nullptr;
-    bpf_map* event_approver_path = nullptr;
-    bpf_map* priority_events = nullptr;
-
-    // Network maps
-    bpf_map* deny_ipv4 = nullptr;
-    bpf_map* deny_ipv6 = nullptr;
-    bpf_map* deny_port = nullptr;
-    bpf_map* deny_ip_port_v4 = nullptr;
-    bpf_map* deny_ip_port_v6 = nullptr;
-    bpf_map* deny_cidr_v4 = nullptr;
-    bpf_map* deny_cidr_v6 = nullptr;
-    bpf_map* net_block_stats = nullptr;
-    bpf_map* net_ip_stats = nullptr;
-    bpf_map* net_port_stats = nullptr;
-    bpf_map* backpressure = nullptr;
-
-    // Network reuse flags
     bool deny_ipv4_reused = false;
     bool deny_ipv6_reused = false;
     bool deny_port_reused = false;
@@ -367,6 +134,80 @@ class BpfState {
     bool bpf_hook_attached = false;
     bool overlay_copy_up_hook_attached = false;
     bool ima_hook_attached = false;
+};
+
+/**
+ * RAII wrapper for BPF state
+ *
+ * Automatically cleans up BPF resources (links, object) when destroyed.
+ * Non-copyable but movable. The borrowed map handles and trivially-copyable
+ * flags live in the `BpfMapState` base; only the *owning* members (`obj`,
+ * `links`, `pin_root`, `pinned_hooks`) need explicit move handling here.
+ */
+class BpfState : public BpfMapState {
+  public:
+    BpfState() = default;
+    ~BpfState() { cleanup(); }
+
+    // Non-copyable
+    BpfState(const BpfState&) = delete;
+    BpfState& operator=(const BpfState&) = delete;
+
+    // Movable
+    BpfState(BpfState&& other) noexcept { *this = std::move(other); }
+    BpfState& operator=(BpfState&& other) noexcept
+    {
+        if (this != &other) {
+            cleanup();
+            // All borrowed map handles + reuse/attach flags + counters are in
+            // the BpfMapState base and are trivially copyable: one assignment
+            // moves every one of them, so a newly-added map/flag is a single
+            // edit to BpfMapState and can never be silently dropped from the
+            // move path. Owning members are moved explicitly below.
+            static_cast<BpfMapState&>(*this) = static_cast<const BpfMapState&>(other);
+            obj = other.obj;
+            links = std::move(other.links);
+            pin_root = std::move(other.pin_root);
+            pinned_hooks = std::move(other.pinned_hooks);
+
+            // Reset the source so its destructor/cleanup is a no-op.
+            static_cast<BpfMapState&>(other) = BpfMapState{};
+            other.obj = nullptr;
+            other.links.clear();
+            other.pinned_hooks.clear();
+        }
+        return *this;
+    }
+
+    // Check if loaded successfully
+    [[nodiscard]] bool is_loaded() const { return obj != nullptr; }
+    [[nodiscard]] explicit operator bool() const { return is_loaded(); }
+
+    // Cleanup resources
+    void cleanup();
+
+    // ------------------------------------------------------------------
+    // Owning members (everything that holds a resource and needs explicit
+    // move/cleanup). Borrowed maps + value flags are in the BpfMapState base.
+    // ------------------------------------------------------------------
+    bpf_object* obj = nullptr;
+    std::vector<bpf_link*> links;
+
+    // ------------------------------------------------------------------
+    // Pinned-link fail-safe (gated by `enforce_pin_links`, default OFF)
+    // ------------------------------------------------------------------
+    // When `enforce_pin_links` is true, each successful attach in
+    // `attach_prog()` is immediately pinned at
+    // `<pin_root>/<program_name>` inside bpffs. This keeps LSM hooks
+    // active even if `aegisbpfd` segfaults / is OOM-killed, so a hostile
+    // process cannot disable enforcement just by killing the daemon.
+    //
+    // `pinned_hooks` records each pin so the heartbeat thread can
+    // periodically verify the pin still exists. The `enforce_pin_links`,
+    // `enable_pin_heal`, and `pin_heal_*` flags/counters live in the
+    // BpfMapState base (trivial value state).
+    std::string pin_root; // populated only when enforce_pin_links is true
+    std::vector<PinnedHook> pinned_hooks;
 };
 
 // BPF loading and lifecycle

@@ -642,9 +642,8 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 bpf_program* exit_prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
                 if (exit_prog && !kernel_version_at_least(6, 1, 0)) {
                     bpf_program__set_autoload(exit_prog, false);
-                    logger().log(SLOG_INFO(
-                        "Process-exit tracepoint disabled; requires kernel 6.1+ (telemetry only, "
-                        "enforcement unaffected)"));
+                    logger().log(SLOG_INFO("Process-exit tracepoint disabled; requires kernel 6.1+ (telemetry only, "
+                                           "enforcement unaffected)"));
                 }
             }
         }
