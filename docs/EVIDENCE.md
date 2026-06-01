@@ -39,6 +39,8 @@ artifacts on each run.
 - Perf Regression (self-hosted): 2026-02-15
   - Run: https://github.com/ErenAri/Aegis-BPF-CO-RE-Enforcement-Prototype/actions/runs/22043845474
   - Artifact: `perf-evidence` (includes canonical SLO report + canonical baseline + perf profiles)
+- Kernel matrix (Layer A, real kernels via bpfcompat): **published** 2026-06-01 — required
+  enforcement hooks load on 5.15/6.1/6.8/6.12/6.17 (see `docs/KERNEL_MATRIX_RESULTS.md`)
 - Perf baseline: **published** (see `docs/PERF_BASELINE.md`)
 - Edge-case compliance results: **published** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 - External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
