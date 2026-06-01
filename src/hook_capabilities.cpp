@@ -28,7 +28,7 @@ struct HookSpec {
 // the upstream LSM dispatcher's call site, but most of those are inlined
 // or static and aren't reliably present as standalone BTF FUNC entries
 // across kernels.
-constexpr std::array<HookSpec, 16> kHookCatalog = {{
+constexpr std::array<HookSpec, 17> kHookCatalog = {{
     {"lsm_file_open", "bpf_lsm_file_open", true, "File open authorization (required)."},
     {"lsm_inode_permission", "bpf_lsm_inode_permission", true, "Inode access authorization (required)."},
     {"lsm_bprm_check_security", "bpf_lsm_bprm_check_security", false, "Exec identity / allowlist enforcement."},
@@ -44,6 +44,7 @@ constexpr std::array<HookSpec, 16> kHookCatalog = {{
     {"lsm_locked_down", "bpf_lsm_locked_down", false, "Kernel lockdown integration."},
     {"lsm_kernel_read_file", "bpf_lsm_kernel_read_file", false, "Module-load blocking via finit_module(2)."},
     {"lsm_kernel_load_data", "bpf_lsm_kernel_load_data", false, "Module-load blocking via init_module(2)."},
+    {"lsm_bpf", "bpf_lsm_bpf", false, "BPF program-load authorization (deny_bpf)."},
     {"lsm_inode_copy_up", "bpf_lsm_inode_copy_up", false, "Overlayfs copy-up propagation."},
 }};
 
