@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780315814654,
+  "lastUpdate": 1780316085384,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -40134,6 +40134,102 @@ window.BENCHMARK_DATA = {
             "value": 54.44277438379914,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.43839117872599 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a3d5b8a918a2fee46ce97dc9219a9c60ae8829b",
+          "message": "Merge pull request #193 from ErenAri/feat/bypass-probes-overlay-sendmsg\n\nharden: behavioral sendmsg + overlay-copyup bypass probes (promote BYP-R1/R2)",
+          "timestamp": "2026-06-01T15:03:20+03:00",
+          "tree_id": "d813798ed7eaf5ee15d76d8dd4d4cb72b652dffd",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/9a3d5b8a918a2fee46ce97dc9219a9c60ae8829b"
+        },
+        "date": 1780316084181,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1523.2323164148468,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1522.9571922162231 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3760.589343213322,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3760.309122211185 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21890.798995079847,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21889.293822774303 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166616.74171701574,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166589.7573056113 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1321420.8666036006,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1321325.1683222936 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5306252.916040101,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5305904.671365901 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4775.5917819752,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4787.794655321957 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33316.115392842046,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33319.27053283077 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 270627.5235386658,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 270612.86534475914 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809758.2277742587,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 809838.1707467721 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.06075111386515,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.05521145282857 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.78680452176523,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.78211212104306 ns\nthreads: 1"
           }
         ]
       }
