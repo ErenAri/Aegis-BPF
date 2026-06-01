@@ -72,6 +72,21 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure --timeout 120
 
+      # Behavioral enforcement proof: boot the REAL artifact via the shipped
+      # `policy apply` -> `run` flow and assert every enforcement class returns
+      # -EPERM from a non-exempt cgroup, with no silent downgrade to audit.
+      # See docs/ENFORCEMENT_WEDGE_STRATEGY.md (Step 1). Exit 77 = honestly
+      # skipped (no BPF-LSM / not root) and must not fail the job.
+      - name: Enforcement proof harness
+        if: success()
+        env:
+          AEGIS_BIN: build/aegisbpf
+          AEGIS_BPF_OBJ: build/aegis.bpf.o
+        run: |
+          sudo -E bash tests/enforcement/enforcement_proof.sh; rc=$?
+          if [ "$rc" -eq 77 ]; then echo "::notice::enforcement proof skipped (rc=77)"; exit 0; fi
+          exit "$rc"
+
       - name: Test overlayfs deny path
         if: success()
         run: |
