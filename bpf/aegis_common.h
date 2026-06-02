@@ -1488,6 +1488,52 @@ static __always_inline void fill_net_block_event_process_info(
     }
 }
 
+/* Compute the enforce signal for a network deny in enforce mode, applying
+ * SIGKILL escalation when SIGKILL is configured. Shared by the socket_* LSM
+ * hooks so the escalation policy cannot drift between them. */
+static __always_inline __u8 compute_net_enforce_signal(__u32 pid, __u64 start_time)
+{
+    __u8 configured_signal = get_effective_enforce_signal();
+    if (configured_signal != SIGKILL)
+        return configured_signal;
+    return runtime_enforce_signal(configured_signal, pid, start_time, get_sigkill_escalation_threshold(),
+                                  get_sigkill_escalation_window_ns());
+}
+
+/* Reserve, populate, and submit a net_block_event on the main ring buffer (or
+ * record a drop). Centralizes the event shape shared by every network hook so
+ * the per-hook call sites cannot drift -- the historical source of per-hook
+ * divergence bugs. `remote_ipv6` may be NULL (recorded as all-zero); `rule_type`
+ * must point at a 16-byte buffer (net_block_event.rule_type width). */
+static __always_inline void emit_net_block_event(__u32 event_type, __u32 pid, struct task_struct *task, __u64 cgid,
+                                                 __u16 family, __u8 protocol, __u16 local_port, __u16 remote_port,
+                                                 __u8 direction, __be32 remote_ipv4, const __u8 *remote_ipv6,
+                                                 __u8 audit, __u8 enforce_signal, const char *rule_type)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) {
+        increment_net_ringbuf_drops();
+        return;
+    }
+    e->type = event_type;
+    fill_net_block_event_process_info(&e->net_block, pid, task);
+    e->net_block.cgid = cgid;
+    bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
+    e->net_block.family = (__u8)family;
+    e->net_block.protocol = protocol;
+    e->net_block.local_port = local_port;
+    e->net_block.remote_port = remote_port;
+    e->net_block.direction = direction;
+    e->net_block.remote_ipv4 = remote_ipv4;
+    if (remote_ipv6)
+        __builtin_memcpy(e->net_block.remote_ipv6, remote_ipv6, sizeof(e->net_block.remote_ipv6));
+    else
+        __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
+    set_action_string(e->net_block.action, audit, enforce_signal);
+    __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(e->net_block.rule_type));
+    bpf_ringbuf_submit(e, 0);
+}
+
 /* Walk the task_struct->real_parent chain to capture process ancestry.
  * Populates pids[] starting from the grandparent (skipping the direct parent
  * which is already in ppid).  Returns the number of ancestors captured.

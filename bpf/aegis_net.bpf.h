@@ -177,104 +177,30 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         return 0;
     }
 
-    /* Rule matched - process denial */
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        /* Update global network block stats */
-        increment_net_connect_stats();
-        increment_cgroup_stat(cgid);
-
-        /* Emit event */
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_CONNECT_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = 0;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 0;  /* egress */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     /* Update global network block stats */
     increment_net_connect_stats();
     increment_cgroup_stat(cgid);
 
     /* Optional signal in enforce mode (always deny with -EPERM). */
-    maybe_send_enforce_signal(enforce_signal);
-
-    /* Emit event */
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_CONNECT_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = 0;
-        e->net_block.remote_port = remote_port;
-        e->net_block.direction = 0;  /* egress */
-        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-        if (family == AF_INET6)
-            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-        else
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_CONNECT_BLOCK, pid, task, cgid, family, protocol, 0 /*local_port*/,
+                             remote_port, 0 /*egress*/, (family == AF_INET) ? remote_ip_v4 : 0,
+                             (family == AF_INET6) ? remote_ip_v6.addr : NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 SEC("lsm/socket_bind")
@@ -340,63 +266,13 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
         return 0;
     }
 
-    /* Rule matched - process denial */
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
+    char rule_type[16] = "port";
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        /* Update statistics */
-        increment_net_bind_stats();
-        increment_cgroup_stat(cgid);
-        increment_net_port_stat(bind_port);
-
-        /* Emit event */
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_BIND_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = bind_port;
-            e->net_block.remote_port = 0;
-            e->net_block.direction = 1;  /* bind */
-            e->net_block.remote_ipv4 = 0;
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, "port", 5);
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     /* Update statistics */
     increment_net_bind_stats();
@@ -404,36 +280,17 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     increment_net_port_stat(bind_port);
 
     /* Optional signal in enforce mode (always deny with -EPERM). */
-    maybe_send_enforce_signal(enforce_signal);
-
-    /* Emit event */
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_BIND_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = bind_port;
-        e->net_block.remote_port = 0;
-        e->net_block.direction = 1;  /* bind */
-        e->net_block.remote_ipv4 = 0;
-        __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, "port", 5);
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_BIND_BLOCK, pid, task, cgid, family, protocol, bind_port, 0 /*remote_port*/,
+                             1 /*bind*/, 0, NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 SEC("lsm/socket_listen")
@@ -484,95 +341,29 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
         return 0;
     }
 
-    /* Rule matched - process denial */
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
+    char rule_type[16] = "port";
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        increment_net_listen_stats();
-        increment_cgroup_stat(cgid);
-        increment_net_port_stat(listen_port);
-
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_LISTEN_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = listen_port;
-            e->net_block.remote_port = 0;
-            e->net_block.direction = 2;  /* listen */
-            e->net_block.remote_ipv4 = 0;
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, "port", 5);
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     increment_net_listen_stats();
     increment_cgroup_stat(cgid);
     increment_net_port_stat(listen_port);
 
-    maybe_send_enforce_signal(enforce_signal);
-
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_LISTEN_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = listen_port;
-        e->net_block.remote_port = 0;
-        e->net_block.direction = 2;  /* listen */
-        e->net_block.remote_ipv4 = 0;
-        __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, "port", 5);
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_LISTEN_BLOCK, pid, task, cgid, family, protocol, listen_port, 0 /*remote_port*/,
+                             2 /*listen*/, 0, NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 SEC("lsm/socket_accept")
@@ -716,99 +507,28 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
         return 0;
     }
 
-    /* Rule matched - process denial */
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        increment_net_accept_stats();
-        increment_cgroup_stat(cgid);
-
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_ACCEPT_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = accept_port;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 3;  /* accept */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     increment_net_accept_stats();
     increment_cgroup_stat(cgid);
 
-    maybe_send_enforce_signal(enforce_signal);
-
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_ACCEPT_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = accept_port;
-        e->net_block.remote_port = remote_port;
-        e->net_block.direction = 3;  /* accept */
-        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-        if (family == AF_INET6)
-            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-        else
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_ACCEPT_BLOCK, pid, task, cgid, family, protocol, accept_port, remote_port,
+                             3 /*accept*/, (family == AF_INET) ? remote_ip_v4 : 0,
+                             (family == AF_INET6) ? remote_ip_v6.addr : NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 SEC("lsm/socket_sendmsg")
@@ -986,98 +706,28 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
         return 0;
     }
 
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        increment_net_sendmsg_stats();
-        increment_cgroup_stat(cgid);
-
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_SENDMSG_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = local_port;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 4;  /* send */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     increment_net_sendmsg_stats();
     increment_cgroup_stat(cgid);
 
-    maybe_send_enforce_signal(enforce_signal);
-
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_SENDMSG_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = local_port;
-        e->net_block.remote_port = remote_port;
-        e->net_block.direction = 4;  /* send */
-        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-        if (family == AF_INET6)
-            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-        else
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_SENDMSG_BLOCK, pid, task, cgid, family, protocol, local_port, remote_port,
+                             4 /*send*/, (family == AF_INET) ? remote_ip_v4 : 0,
+                             (family == AF_INET6) ? remote_ip_v6.addr : NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 /* ============================================================================
@@ -1212,98 +862,28 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
         return 0;
     }
 
+    /* Rule matched - process denial (audit logs + allows; enforce denies). */
     __u8 audit = get_effective_audit_mode();
-    if (audit) {
-        __u32 pid = bpf_get_current_pid_tgid() >> 32;
-        __u8 enforce_signal = 0;
-        struct task_struct *task = bpf_get_current_task_btf();
-        __u32 sample_rate = get_event_sample_rate();
-
-        increment_net_recvmsg_stats();
-        increment_cgroup_stat(cgid);
-
-        if (!should_emit_event(sample_rate)) {
-            record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
-            return 0;
-        }
-
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_RECVMSG_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = local_port;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 5;  /* recv */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
-
-        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
-        return 0;
-    }
-
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     struct task_struct *task = bpf_get_current_task_btf();
     __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
-
-    __u8 enforce_signal = 0;
-    __u8 configured_signal = get_effective_enforce_signal();
-    if (configured_signal == SIGKILL) {
-        __u32 kill_threshold = get_sigkill_escalation_threshold();
-        __u64 kill_window_ns = get_sigkill_escalation_window_ns();
-        enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time, kill_threshold, kill_window_ns);
-    } else {
-        enforce_signal = configured_signal;
-    }
-    __u32 sample_rate = get_event_sample_rate();
+    __u8 enforce_signal = audit ? 0 : compute_net_enforce_signal(pid, start_time);
 
     increment_net_recvmsg_stats();
     increment_cgroup_stat(cgid);
 
-    maybe_send_enforce_signal(enforce_signal);
-
-    if (!should_emit_event(sample_rate)) {
-        record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
-        return -EPERM;
+    if (!audit) {
+        maybe_send_enforce_signal(enforce_signal);
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_RECVMSG_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = local_port;
-        e->net_block.remote_port = remote_port;
-        e->net_block.direction = 5;  /* recv */
-        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-        if (family == AF_INET6)
-            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-        else
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
+    if (should_emit_event(get_event_sample_rate())) {
+        emit_net_block_event(EVENT_NET_RECVMSG_BLOCK, pid, task, cgid, family, protocol, local_port, remote_port,
+                             5 /*recv*/, (family == AF_INET) ? remote_ip_v4 : 0,
+                             (family == AF_INET6) ? remote_ip_v6.addr : NULL, audit, enforce_signal, rule_type);
     }
 
     record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
-    return -EPERM;
+    return audit ? 0 : -EPERM;
 }
 
 /* ============================================================================
@@ -1455,28 +1035,9 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
 
     __u32 sample_rate = get_event_sample_rate();
     if (should_emit_event(sample_rate)) {
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_CONNECT_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = 0;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 0; /* egress (connect) */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, audit, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
+        emit_net_block_event(EVENT_NET_CONNECT_BLOCK, pid, task, cgid, family, protocol, 0 /*local_port*/, remote_port,
+                             0 /*egress (connect)*/, (family == AF_INET) ? remote_ip_v4 : 0,
+                             (family == AF_INET6) ? remote_ip_v6.addr : NULL, audit, enforce_signal, rule_type);
     }
 
     return 0;
