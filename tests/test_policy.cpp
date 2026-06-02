@@ -1016,5 +1016,83 @@ cgid:1 259:100
     EXPECT_EQ(result->cgroup.deny_inodes.size(), 1u);
 }
 
+// ---- IMA-backed trusted exec (v5+) ----------------------------------------
+
+TEST_F(PolicyTest, ParseTrustedExecHash)
+{
+    std::string content = R"(
+version=5
+
+[trusted_exec_hash]
+sha256:1111111111111111111111111111111111111111111111111111111111111111
+sha256:ABCDEF0000000000000000000000000000000000000000000000000000000000
+)";
+    PolicyIssues issues;
+    auto result = parse_policy_file(CreateTestPolicy(content), issues);
+    ASSERT_TRUE(result) << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_FALSE(issues.has_errors());
+    ASSERT_EQ(result->trusted_exec_hashes.size(), 2u);
+    // Stored lower-cased.
+    EXPECT_EQ(result->trusted_exec_hashes[0], "1111111111111111111111111111111111111111111111111111111111111111");
+    EXPECT_EQ(result->trusted_exec_hashes[1], "abcdef0000000000000000000000000000000000000000000000000000000000");
+}
+
+TEST_F(PolicyTest, TrustedExecHashRequiresV5)
+{
+    std::string content = R"(
+version=4
+
+[trusted_exec_hash]
+sha256:1111111111111111111111111111111111111111111111111111111111111111
+)";
+    PolicyIssues issues;
+    parse_policy_file(CreateTestPolicy(content), issues);
+    EXPECT_TRUE(issues.has_errors());
+}
+
+TEST_F(PolicyTest, TrustedExecHashRejectsBadDigest)
+{
+    std::string content = R"(
+version=5
+
+[trusted_exec_hash]
+sha256:nothex
+)";
+    PolicyIssues issues;
+    parse_policy_file(CreateTestPolicy(content), issues);
+    EXPECT_TRUE(issues.has_errors());
+}
+
+TEST_F(PolicyTest, ImaFailClosedRequiresAllowlist)
+{
+    // [ima_fail_closed] with no [trusted_exec_hash] is meaningless -> error.
+    std::string content = R"(
+version=5
+
+[ima_fail_closed]
+)";
+    PolicyIssues issues;
+    parse_policy_file(CreateTestPolicy(content), issues);
+    EXPECT_TRUE(issues.has_errors());
+}
+
+TEST_F(PolicyTest, ImaFailClosedWithAllowlist)
+{
+    std::string content = R"(
+version=5
+
+[trusted_exec_hash]
+sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+[ima_fail_closed]
+)";
+    PolicyIssues issues;
+    auto result = parse_policy_file(CreateTestPolicy(content), issues);
+    ASSERT_TRUE(result) << (issues.has_errors() ? issues.errors[0] : "unknown");
+    EXPECT_FALSE(issues.has_errors());
+    EXPECT_TRUE(result->ima_fail_closed);
+    EXPECT_EQ(result->trusted_exec_hashes.size(), 1u);
+}
+
 } // namespace
 } // namespace aegis

@@ -334,6 +334,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         state.deny_comm = bpf_object__find_map_by_name(state.obj, "deny_comm_map");
         state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
         state.allow_exec_inode = bpf_object__find_map_by_name(state.obj, "allow_exec_inode_map");
+        state.trusted_exec_hash = bpf_object__find_map_by_name(state.obj, "trusted_exec_hash");
         state.exec_identity_mode = bpf_object__find_map_by_name(state.obj, "exec_identity_mode_map");
         state.block_stats = bpf_object__find_map_by_name(state.obj, "block_stats");
         state.deny_cgroup_stats = bpf_object__find_map_by_name(state.obj, "deny_cgroup_stats");
@@ -527,6 +528,7 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         TRY(check(try_reuse_optional(state.deny_comm, kDenyCommPin, state.deny_comm_reused)));
         TRY(check(try_reuse(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
         TRY(check(try_reuse(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
+        TRY(check(try_reuse_optional(state.trusted_exec_hash, kTrustedExecHashPin, state.trusted_exec_hash_reused)));
         TRY(check(try_reuse(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));
         TRY(check(try_reuse(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
         TRY(check(try_reuse(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));
@@ -687,9 +689,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         !state.deny_inode_stats_reused || !state.deny_path_stats_reused || !state.agent_meta_reused ||
         (state.config_map && !state.config_map_reused) || !state.survival_allowlist_reused ||
         (state.policy_generation_map && !state.policy_generation_reused) ||
-        (state.deny_comm && !state.deny_comm_reused) || (state.deny_ipv4 && !state.deny_ipv4_reused) ||
-        (state.deny_ipv6 && !state.deny_ipv6_reused) || (state.deny_port && !state.deny_port_reused) ||
-        (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
+        (state.deny_comm && !state.deny_comm_reused) || (state.trusted_exec_hash && !state.trusted_exec_hash_reused) ||
+        (state.deny_ipv4 && !state.deny_ipv4_reused) || (state.deny_ipv6 && !state.deny_ipv6_reused) ||
+        (state.deny_port && !state.deny_port_reused) || (state.deny_ip_port_v4 && !state.deny_ip_port_v4_reused) ||
         (state.deny_ip_port_v6 && !state.deny_ip_port_v6_reused) ||
         (state.deny_cidr_v4 && !state.deny_cidr_v4_reused) || (state.deny_cidr_v6 && !state.deny_cidr_v6_reused) ||
         (state.net_block_stats && !state.net_block_stats_reused) ||
@@ -731,6 +733,9 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         }
         TRY(check(try_pin(state.allow_cgroup, kAllowCgroupPin, state.cgroup_reused)));
         TRY(check(try_pin(state.allow_exec_inode, kAllowExecInodePin, state.allow_exec_inode_reused)));
+        if (state.trusted_exec_hash) {
+            TRY(check(try_pin(state.trusted_exec_hash, kTrustedExecHashPin, state.trusted_exec_hash_reused)));
+        }
         TRY(check(try_pin(state.exec_identity_mode, kExecIdentityModePin, state.exec_identity_mode_reused)));
         TRY(check(try_pin(state.block_stats, kBlockStatsPin, state.block_stats_reused)));
         TRY(check(try_pin(state.deny_cgroup_stats, kDenyCgroupStatsPin, state.deny_cgroup_stats_reused)));

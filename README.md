@@ -101,7 +101,7 @@ Where it fits on the runtime-security map:
 - **Process cache reconciliation** - Scans /proc at startup to populate process tree for pre-existing processes
 - **BPF object integrity** - SHA-256 hash verification before loading, with explicit break-glass override
 - **Binary hash verification** - Integrity checks for allow-listed binaries
-- **IMA-backed exec trust (kernel 6.1+)** - Optional `bpf_ima_file_hash()` integration verifies executables against a SHA-256 trust map (`trusted_exec_hash`) inside `bprm_check_security`
+- **IMA-backed exec trust (kernel 6.1+)** - Activated by a `[trusted_exec_hash]` policy allowlist (version 5+): `bpf_ima_file_hash()` hashes each `execve` inside `bprm_check_security` and allows it only if the SHA-256 is in the `trusted_exec_hash` map; `[ima_fail_closed]` additionally denies binaries IMA cannot appraise. Requires `CONFIG_IMA`; see [docs/POLICY.md](docs/POLICY.md)
 - **Deep process lineage** - Process tree records ancestor PIDs for richer rule matching and post-mortem correlation, with retained metadata for recently exited processes
 - **UID-to-username identity resolution** - Forensic events resolve uid/gid into username/groupname for SIEM-friendly alerts
 - **Validating admission webhook** - Operator-side validating webhook + selector-based filtering and merged policy reconciler for safer Kubernetes rollouts

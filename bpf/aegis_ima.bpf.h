@@ -64,22 +64,24 @@ int BPF_PROG(handle_bprm_ima_check, struct linux_binprm *bprm)
      * policy (SHA-256 by default on most distributions). */
     struct exec_hash_key hash_key = {};
     long ret = bpf_ima_file_hash(file, hash_key.sha256, sizeof(hash_key.sha256));
-    if (ret < 0) {
-        /* IMA hash unavailable for this file (e.g., not yet appraised).
-         * Fail-open: let the existing fs-verity path handle it. */
+    if (ret >= 0) {
+        /* Hash computed: allow if it is in the trusted allowlist. */
+        __u8 *trusted = bpf_map_lookup_elem(&trusted_exec_hash, &hash_key);
+        if (trusted) {
+            record_hook_latency(HOOK_BPRM_IMA_CHECK, _start_ns);
+            return 0;
+        }
+        /* Computed but not trusted -> fall through to untrusted handling. */
+    } else if (!(flags & EXEC_IDENTITY_FLAG_IMA_FAIL_CLOSED)) {
+        /* IMA hash unavailable for this file (e.g., not yet appraised) and
+         * fail-closed not requested. Fail-open: let the existing fs-verity
+         * path handle it. */
         record_hook_latency(HOOK_BPRM_IMA_CHECK, _start_ns);
         return 0;
     }
 
-    /* Look up the computed hash in the trusted exec hash map */
-    __u8 *trusted = bpf_map_lookup_elem(&trusted_exec_hash, &hash_key);
-    if (trusted) {
-        /* Hash found in trusted allowlist — allow execution */
-        record_hook_latency(HOOK_BPRM_IMA_CHECK, _start_ns);
-        return 0;
-    }
-
-    /* Hash NOT in trusted allowlist.
+    /* Untrusted binary: either a computed hash absent from the allowlist, or
+     * (under EXEC_IDENTITY_FLAG_IMA_FAIL_CLOSED) a binary IMA cannot appraise.
      * In audit mode: log but allow.
      * In enforce mode: deny with -EPERM. */
     __u8 audit = get_effective_audit_mode();

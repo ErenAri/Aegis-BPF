@@ -122,6 +122,9 @@ Result<void> reset_policy_maps(BpfState& state)
     TRY(clear_map_entries(state.deny_path));
     TRY(clear_map_entries(state.allow_cgroup));
     TRY(clear_map_entries(state.allow_exec_inode));
+    if (state.trusted_exec_hash) {
+        TRY(clear_map_entries(state.trusted_exec_hash));
+    }
     TRY(clear_map_entries(state.deny_cgroup_stats));
     TRY(clear_map_entries(state.deny_inode_stats));
     TRY(clear_map_entries(state.deny_path_stats));
@@ -551,6 +554,54 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 return fail(clear_allow_exec.error());
             }
 
+            // IMA-backed trusted exec: refresh the SHA-256 allowlist that the
+            // bpf_ima_file_hash hook checks. The hook is activated via
+            // exec_identity_flags (EXEC_IDENTITY_FLAG_USE_IMA_HASH) below when
+            // this allowlist is non-empty. Entries are parser-validated 64-hex
+            // SHA-256 digests of the file contents (matching IMA's file hash).
+            if (state.trusted_exec_hash) {
+                auto clear_ima = clear_map_entries(state.trusted_exec_hash);
+                if (!clear_ima) {
+                    span.fail(clear_ima.error().to_string());
+                    return fail(clear_ima.error());
+                }
+                const int tfd = bpf_map__fd(state.trusted_exec_hash);
+                auto nibble = [](char c) -> int {
+                    if (c >= '0' && c <= '9')
+                        return c - '0';
+                    if (c >= 'a' && c <= 'f')
+                        return 10 + (c - 'a');
+                    if (c >= 'A' && c <= 'F')
+                        return 10 + (c - 'A');
+                    return -1;
+                };
+                for (const auto& hex : policy.trusted_exec_hashes) {
+                    if (hex.size() != 64) {
+                        continue; // parser-validated; defensive
+                    }
+                    uint8_t key[32] = {};
+                    bool ok = true;
+                    for (size_t i = 0; i < 32; ++i) {
+                        int hi = nibble(hex[2 * i]);
+                        int lo = nibble(hex[2 * i + 1]);
+                        if (hi < 0 || lo < 0) {
+                            ok = false;
+                            break;
+                        }
+                        key[i] = static_cast<uint8_t>((hi << 4) | lo);
+                    }
+                    if (!ok) {
+                        continue;
+                    }
+                    uint8_t one = 1;
+                    if (bpf_map_update_elem(tfd, key, &one, BPF_ANY) != 0) {
+                        auto err = Error::system(errno, "Failed to add trusted exec hash");
+                        span.fail(err.to_string());
+                        return fail(err);
+                    }
+                }
+            }
+
             for (const auto& deny_path : policy.deny_paths) {
                 auto result = add_deny_path(state, deny_path, entries);
                 if (!result) {
@@ -897,6 +948,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         }
         if (policy.protect_runtime_deps) {
             exec_flags |= kExecIdentityFlagTrustRuntimeDeps;
+        }
+        if (!policy.trusted_exec_hashes.empty()) {
+            // Activate the in-kernel IMA-hash exec verifier (handle_bprm_ima_check).
+            exec_flags |= kExecIdentityFlagUseImaHash;
+        }
+        if (policy.ima_fail_closed) {
+            // Deny binaries IMA cannot appraise instead of failing open.
+            exec_flags |= kExecIdentityFlagImaFailClosed;
         }
         auto flags_result = set_exec_identity_flags(state, exec_flags);
         if (!flags_result) {

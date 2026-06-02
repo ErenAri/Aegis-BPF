@@ -52,6 +52,7 @@ struct BpfMapState {
     bpf_map* deny_comm = nullptr;
     bpf_map* allow_cgroup = nullptr;
     bpf_map* allow_exec_inode = nullptr;
+    bpf_map* trusted_exec_hash = nullptr;
     bpf_map* exec_identity_mode = nullptr;
     bpf_map* block_stats = nullptr;
     bpf_map* deny_cgroup_stats = nullptr;
@@ -97,6 +98,7 @@ struct BpfMapState {
     bool deny_comm_reused = false;
     bool cgroup_reused = false;
     bool allow_exec_inode_reused = false;
+    bool trusted_exec_hash_reused = false;
     bool exec_identity_mode_reused = false;
     bool block_stats_reused = false;
     bool deny_cgroup_stats_reused = false;

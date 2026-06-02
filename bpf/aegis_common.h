@@ -46,6 +46,7 @@
 #define EXEC_IDENTITY_FLAG_ALLOW_OVERLAYFS (1U << 4) /* treat overlayfs as verifiable (containers) */
 #define EXEC_IDENTITY_FLAG_SKIP_VERITY (1U << 5)     /* don't require FS_VERITY_FL (dev/testing) */
 #define EXEC_IDENTITY_FLAG_USE_IMA_HASH (1U << 6)    /* enable IMA-based hash verification (kernel 6.1+) */
+#define EXEC_IDENTITY_FLAG_IMA_FAIL_CLOSED (1U << 7)  /* deny binaries IMA cannot appraise (vs fail-open) */
 
 #ifndef FS_VERITY_FL
 #define FS_VERITY_FL 0x00100000

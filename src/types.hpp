@@ -99,6 +99,7 @@ inline constexpr uint8_t kExecIdentityFlagTrustRuntimeDeps = 1u << 3;
 inline constexpr uint8_t kExecIdentityFlagAllowOverlayfs = 1u << 4;
 inline constexpr uint8_t kExecIdentityFlagSkipVerity = 1u << 5;
 inline constexpr uint8_t kExecIdentityFlagUseImaHash = 1u << 6;
+inline constexpr uint8_t kExecIdentityFlagImaFailClosed = 1u << 7;
 
 enum EventType : uint32_t {
     EVENT_EXEC = 1,
@@ -536,6 +537,12 @@ struct Policy {
     bool protect_connect = false;       // when true, all connect() attempts are protected
     bool protect_runtime_deps = false;  // when true, executable mmaps must remain VERIFIED_EXEC
     bool require_ima_appraisal = false; // when true, enforce only if IMA appraisal is active on node
+    // IMA-backed trusted exec (v5+): 64-hex SHA-256 digests of binaries allowed
+    // to execute; non-empty activates the in-kernel bpf_ima_file_hash hook
+    // (trusted_exec_hash map). ima_fail_closed denies binaries IMA cannot
+    // appraise (vs the default fail-open that defers to fs-verity).
+    std::vector<std::string> trusted_exec_hashes;
+    bool ima_fail_closed = false;
     std::vector<std::string> allow_cgroup_paths;
     std::vector<uint64_t> allow_cgroup_ids;
     NetworkPolicy network;
