@@ -16,6 +16,22 @@ on:
       matrix:
         description: "Matrix file (profiles to validate)"
         default: tests/enforcement/bpfcompat-matrix.yaml
+  # Cross-kernel load gate: any change that can alter the compiled BPF object (or
+  # the matrix/gate itself) is validated on every target kernel BEFORE merge.
+  # A verifier rejection that only shows up on an older LTS kernel (the failure
+  # mode single-kernel CI cannot see) fails this check. Runs on the self-hosted
+  # KVM runner; if that runner is offline the check stays pending (does not
+  # silently pass), so treat it as required for bpf/ changes.
+  pull_request:
+    paths:
+      - 'bpf/**'
+      - 'CMakeLists.txt'
+      - 'tests/enforcement/bpfcompat-matrix.yaml'
+      - 'tests/enforcement/bpfcompat-manifest.yaml'
+      - 'tests/enforcement/bpfcompat_load_baseline.json'
+      - 'scripts/run_bpfcompat_matrix.sh'
+      - 'scripts/gen_bpfcompat_manifest.py'
+      - '.github/workflows/bpfcompat-matrix.yml'
 
 permissions:
   contents: read

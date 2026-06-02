@@ -97,17 +97,36 @@ on the `no-lsm` profile). Until then, Layer B runs on self-hosted / VM runners v
 
 **CI submission job.** The runner-agnostic core exists:
 `scripts/run_bpfcompat_matrix.sh` builds the object, regenerates+checks the
-manifest, runs the bpfcompat matrix, and gates on the **required** enforcement
-hooks (`file_open` + `inode_permission`, the `required=true` entries in
-`hook_capabilities.cpp`) loading on every profile — optional/gated programs may
-be absent without failing the gate. It writes the full per-hook × per-kernel
-summary as an artifact. Verified locally on 6.17.
+manifest, runs the bpfcompat matrix, and gates on two conditions per profile:
 
-`.github/workflows/bpfcompat-matrix.yml` is the reference integration:
-`workflow_dispatch`, `runs-on: [self-hosted, kvm, bpfcompat]`, calling the
-wrapper. It is inert until you **provision a runner** (register a self-hosted
-runner with that label + KVM + the bpfcompat checkout, and set the
-`BPFCOMPAT_DIR` repo variable). Alternative (no self-hosted runner): submit the
+1. the **required** enforcement hooks (`file_open` + `inode_permission`, the
+   `required=true` entries in `hook_capabilities.cpp`) load; and
+2. **no per-program load regression** vs the committed baseline
+   `tests/enforcement/bpfcompat_load_baseline.json` — i.e. no program that
+   previously loaded on a profile now fails to load.
+
+Condition (2) is the important one: it catches a BPF change the verifier
+rejects **only on some kernels** (the failure mode single-kernel CI cannot
+see — e.g. a change that loads on 5.15/6.1/6.17 but `-EINVAL`s on 6.8/6.12).
+Optional programs that have *never* loaded on a profile may stay absent.
+
+**Updating the baseline.** After an *intentional* change to which programs load
+on a kernel, regenerate the baseline and commit it in the same PR:
+
+```sh
+AEGIS_BPFCOMPAT_DIR=~/bpfcompat AEGIS_BPF_OBJ=/path/to/build/aegis.bpf.o \
+  AEGIS_UPDATE_BASELINE=1 bash scripts/run_bpfcompat_matrix.sh
+git add tests/enforcement/bpfcompat_load_baseline.json
+```
+
+`.github/workflows/bpfcompat-matrix.yml` runs this on **`workflow_dispatch`**
+*and automatically on every `pull_request` that touches `bpf/**`, the matrix /
+manifest / baseline, the wrapper, or the BPF build* (`runs-on:
+[self-hosted, kvm, bpfcompat]`). If the self-hosted runner is offline the check
+stays *pending* rather than silently passing, so it functions as a required
+pre-merge gate for BPF changes. It is inert until you **provision a runner**
+(register a self-hosted runner with that label + KVM + the bpfcompat checkout,
+and set the `BPFCOMPAT_DIR` repo variable). Alternative (no self-hosted runner): submit the
 artifact + manifest to the bpfcompat HTTP API (`bpfcompat serve`) with
 `BPFCOMPAT_API_*` secrets — wire that into the workflow instead. Either way the
 manifest, matrix, wrapper, and verdict logic are all ready; only the execution
