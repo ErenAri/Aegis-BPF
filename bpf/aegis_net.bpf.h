@@ -11,6 +11,28 @@
  *   - handle_socket_recvmsg (LSM)
  */
 
+/* ----------------------------------------------------------------------------
+ * INTENTIONAL DUPLICATION — do not "de-dup" the per-hook deny tails.
+ *
+ * The six socket_* hooks below carry a near-identical address-parse + rule-match
+ * + deny tail (reserve/fill/submit a net_block event, compute the enforce
+ * signal). Centralizing that tail is tempting but REGRESSES kernel compat:
+ * collapsing it into a single shared definition (whether an __always_inline
+ * helper, as in reverted PR #207, or a function-like macro) changes the unified
+ * tail's instruction layout enough that the 6.8 and 6.12 BPF verifiers reject
+ * ALL six programs at load time (bpf_prog_load -EINVAL, func_info/line_info BTF
+ * validation, no verifier-log output) — while 5.15/6.1/6.17 accept it. Verifier
+ * acceptance is non-monotonic across versions; the hand-written per-hook tails
+ * are the layout that loads everywhere. A real __noinline BPF-to-BPF subprogram
+ * is not an option either (the emit helper needs 14 args > BPF's 5-register call
+ * limit). Reproduced across three implementations on the cross-kernel bpfcompat
+ * matrix; the de-dup buys only line count, with zero behavioral change.
+ * See docs/KERNEL_COMPAT_MATRIX.md and the bpfcompat load-baseline gate
+ * (tests/enforcement/bpfcompat_load_baseline.json). Keep the tails in sync BY
+ * HAND when editing; the matrix gate catches a load regression pre-merge.
+ * ----------------------------------------------------------------------------
+ */
+
 /* ============================================================================
  * Network LSM Hooks
  * ============================================================================ */
