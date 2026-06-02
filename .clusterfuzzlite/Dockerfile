@@ -10,9 +10,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         zlib1g-dev \
         libelf-dev \
+        libzstd-dev \
+        liblzma-dev \
         git \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# zlib1g-dev/libzstd-dev/liblzma-dev ship the *.a archives that build.sh links
+# statically into the fuzzers (libelf.a -- elfutils -- needs zstd/lzma; libbpf
+# needs z). Without the static archives the fuzzers would link against shared
+# objects absent from the OSS-Fuzz base-runner and crash at startup with
+# "error while loading shared libraries: libelf.so.1".
 
 # The base image's system libbpf-dev is too old: its <bpf/bpf.h> uses a forward
 # enum reference that clang++ rejects under -std=gnu++20 ("ISO C++ forbids
