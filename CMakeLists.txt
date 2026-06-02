@@ -72,6 +72,28 @@ if(STATIC_LIBBPF)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBELF REQUIRED libelf)
 
+    # Fuzz targets run in the minimal OSS-Fuzz / ClusterFuzzLite base-runner
+    # image, which ships no libelf.so / libz.so. A dynamically-linked fuzzer
+    # therefore dies at startup with
+    #   "error while loading shared libraries: libelf.so.1".
+    # Link libelf -- and its own static deps (elfutils' libelf.a may pull in
+    # zstd/lzma/bz2) -- as archives for fuzz builds so the binaries are
+    # self-contained. Production builds keep the system's shared libelf.
+    if(ENABLE_FUZZING)
+        find_library(AEGIS_LIBELF_A NAMES libelf.a)
+        if(AEGIS_LIBELF_A)
+            set(LIBELF_LIBRARIES ${AEGIS_LIBELF_A})
+            foreach(_dep zstd lzma bz2)
+                find_library(AEGIS_LIB_${_dep}_A NAMES lib${_dep}.a)
+                if(AEGIS_LIB_${_dep}_A)
+                    list(APPEND LIBELF_LIBRARIES ${AEGIS_LIB_${_dep}_A})
+                endif()
+            endforeach()
+        else()
+            set(LIBELF_LIBRARIES -l:libelf.a)
+        endif()
+    endif()
+
     # Pass the glibc compat header to libbpf's Makefile so its object
     # files also avoid __isoc23_* symbols (e.g. __isoc23_strtoull).
     set(LIBBPF_EXTRA_CFLAGS "")
@@ -441,7 +463,19 @@ target_include_directories(aegisbpf PRIVATE
 )
 target_link_directories(aegisbpf PRIVATE ${LIBBPF_LIBRARY_DIRS})
 find_package(ZLIB REQUIRED)
-target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
+# Same self-contained-fuzzer rationale as libelf above: link zlib statically for
+# fuzz builds (libbpf and libelf both need it); production keeps shared zlib.
+if(ENABLE_FUZZING)
+    find_library(AEGIS_LIBZ_A NAMES libz.a)
+    if(AEGIS_LIBZ_A)
+        set(AEGIS_ZLIB_LIB ${AEGIS_LIBZ_A})
+    else()
+        set(AEGIS_ZLIB_LIB -l:libz.a)
+    endif()
+else()
+    set(AEGIS_ZLIB_LIB ZLIB::ZLIB)
+endif()
+target_link_libraries(aegisbpf PRIVATE ${LIBBPF_LIBRARIES} ${AEGIS_ZLIB_LIB})
 
 # Static libstdc++/libgcc for portable binary packages.
 # Eliminates GLIBCXX version dependencies so the binary runs on
@@ -541,7 +575,7 @@ target_include_directories(aegisbpf_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_directories(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARY_DIRS})
-target_link_libraries(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARIES} ZLIB::ZLIB)
+target_link_libraries(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARIES} ${AEGIS_ZLIB_LIB})
 target_compile_definitions(aegisbpf_lib PRIVATE AEGIS_BPF_OBJ_PATH="${AEGIS_BPF_OBJ_DEFINE_PATH}")
 target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_ENABLE_SIGKILL_ENFORCEMENT=${AEGIS_SIGKILL_ENFORCEMENT_DEFINE})
 target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_VERSION_STRING="${PROJECT_VERSION}")
