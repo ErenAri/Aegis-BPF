@@ -113,6 +113,7 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
     size_t line_no = 0;
 
     std::unordered_set<std::string> deny_hash_seen;
+    std::unordered_set<std::string> trusted_exec_hash_seen;
     std::unordered_set<std::string> allow_hash_seen;
     std::unordered_set<std::string> deny_comm_seen;
     std::unordered_set<std::string> cgroup_deny_inode_seen;
@@ -125,6 +126,8 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
                                                                    "protect_connect",
                                                                    "protect_runtime_deps",
                                                                    "require_ima_appraisal",
+                                                                   "trusted_exec_hash",
+                                                                   "ima_fail_closed",
                                                                    "allow_cgroup",
                                                                    "deny_ip",
                                                                    "deny_cidr",
@@ -171,6 +174,9 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             }
             if (section == "deny_bpf") {
                 policy.deny_bpf = true;
+            }
+            if (section == "ima_fail_closed") {
+                policy.ima_fail_closed = true;
             }
             continue;
         }
@@ -248,6 +254,12 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
         if (section == "require_ima_appraisal") {
             issues.warnings.push_back("line " + std::to_string(line_no) +
                                       ": [require_ima_appraisal] does not take entries; ignoring '" + trimmed + "'");
+            continue;
+        }
+
+        if (section == "ima_fail_closed") {
+            issues.warnings.push_back("line " + std::to_string(line_no) +
+                                      ": [ima_fail_closed] does not take entries; ignoring '" + trimmed + "'");
             continue;
         }
 
@@ -423,6 +435,37 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
             continue;
         }
 
+        if (section == "trusted_exec_hash") {
+            if (trimmed.rfind("sha256:", 0) != 0) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": trusted_exec_hash entry must start with 'sha256:'");
+                continue;
+            }
+            std::string hash = trimmed.substr(7);
+            if (hash.size() != 64) {
+                issues.errors.push_back("line " + std::to_string(line_no) + ": sha256 hash must be 64 hex characters");
+                continue;
+            }
+            bool valid_hex = true;
+            for (char c : hash) {
+                if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                    valid_hex = false;
+                    break;
+                }
+            }
+            if (!valid_hex) {
+                issues.errors.push_back("line " + std::to_string(line_no) +
+                                        ": sha256 hash contains non-hex characters");
+                continue;
+            }
+            std::transform(hash.begin(), hash.end(), hash.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (trusted_exec_hash_seen.insert(hash).second) {
+                policy.trusted_exec_hashes.push_back(hash);
+            }
+            continue;
+        }
+
         if (section == "deny_comm") {
             if (trimmed.size() > 15) {
                 issues.errors.push_back("line " + std::to_string(line_no) +
@@ -536,6 +579,12 @@ Result<Policy> parse_policy_file(const std::string& path, PolicyIssues& issues)
 
     if (policy.require_ima_appraisal && policy.version < 5) {
         issues.errors.push_back("[require_ima_appraisal] requires version=5 or higher");
+    }
+    if (!policy.trusted_exec_hashes.empty() && policy.version < 5) {
+        issues.errors.push_back("[trusted_exec_hash] requires version=5 or higher");
+    }
+    if (policy.ima_fail_closed && policy.trusted_exec_hashes.empty()) {
+        issues.errors.push_back("[ima_fail_closed] requires a non-empty [trusted_exec_hash] allowlist");
     }
 
     if (policy.protect_runtime_deps && !policy.protect_connect && policy.protect_paths.empty()) {

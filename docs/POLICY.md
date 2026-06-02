@@ -131,6 +131,33 @@ Behavior:
 This section does not change exec behavior directly; it hardens protected-resource
 policy posture by requiring kernel integrity appraisal capability.
 
+### [trusted_exec_hash] (version 5+)
+One `sha256:<64-hex>` digest per line — the SHA-256 of a binary's file contents
+(matching the node's IMA file hash; SHA-256 is the IMA default). A non-empty
+allowlist activates the in-kernel IMA-hash exec verifier
+(`bpf_ima_file_hash()` in `bprm_check_security`, kernel 6.1+ with `CONFIG_IMA`):
+each `execve` is hashed in-kernel and allowed only if the digest is present.
+
+Behavior:
+- In enforce mode, a binary whose IMA hash is **not** in the allowlist is denied
+  (`-EPERM`); in audit mode it is logged and allowed.
+- A binary that IMA cannot appraise (no hash available) **fails open** by default
+  (the fs-verity exec-identity path still applies) — unless `[ima_fail_closed]`
+  is set (below).
+- Requires kernel 6.1+ and `CONFIG_IMA`; on older kernels the hook is not
+  attached and this section has no effect.
+
+```
+[trusted_exec_hash]
+sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+```
+
+### [ima_fail_closed] (version 5+)
+A flag section (no entries). When set, a binary that IMA cannot appraise is
+treated as untrusted and **denied** in enforce mode instead of failing open.
+Requires a non-empty `[trusted_exec_hash]` allowlist (otherwise rejected at parse
+time). Use on hosts where every executable is expected to be IMA-measured.
+
 ### [deny_comm]
 One executable basename per line, with a maximum of 15 bytes
 (`TASK_COMM_LEN - 1`). Runtime matching is performed in `bprm_check_security`
