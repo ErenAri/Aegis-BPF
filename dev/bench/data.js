@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780418900612,
+  "lastUpdate": 1780440979673,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -41808,6 +41808,96 @@ window.BENCHMARK_DATA = {
             "value": 55.099373590904264,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.092190497499104 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "beb2aa429b062ea931523a5457eebfd435672feb",
+          "message": "Merge pull request #210 from ErenAri/feat/net-hook-dedup-v2\n\ndocs(bpf/net): document why the socket-hook deny tails are intentionally not de-duped",
+          "timestamp": "2026-06-03T01:45:16+03:00",
+          "tree_id": "639e41647ad9c9080a30572994246476e184b029",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/beb2aa429b062ea931523a5457eebfd435672feb"
+        },
+        "date": 1780440978184,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1514.6290917643325,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1514.5396504545997 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4295.9386560972225,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4295.691883633816 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26611.70815436348,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26608.46897173228 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 204457.2880562078,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 204446.60117827906 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1629214.037790743,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1629122.6939922485 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6510735.916279112,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6510261.404263557 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4026.92040219563,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4033.863133216541 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29598.714016293812,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29595.24770460377 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 239628.77875758274,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 239601.65408889693 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 722178.5257301512,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 722119.6273195882 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.308501363649,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.30003422007307 ns\nthreads: 1"
           }
         ]
       }
