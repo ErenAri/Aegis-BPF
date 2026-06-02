@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780402869433,
+  "lastUpdate": 1780416830116,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -41508,6 +41508,102 @@ window.BENCHMARK_DATA = {
             "value": 55.6088258400029,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.60320551818995 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a43a88c2d2806e08365cd9ff13fd56c781bf84d3",
+          "message": "Merge pull request #207 from ErenAri/refactor/net-hook-dedup\n\nrefactor(bpf/net): centralize net_block event + enforce-signal across the 6 socket hooks",
+          "timestamp": "2026-06-02T19:02:24+03:00",
+          "tree_id": "a235988421e9b6b3a5be5f27b58d7438e3808e32",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/a43a88c2d2806e08365cd9ff13fd56c781bf84d3"
+        },
+        "date": 1780416828779,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1516.2528336983298,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1516.1257996052657 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3632.695598352929,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3632.432785816633 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20834.36376031543,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20830.795676873575 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 157677.80827759145,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 157666.34371980684 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1252135.3559448926,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1252031.0187181805 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5018351.493452382,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5018001.3553571375 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4548.373793145505,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4550.322580678771 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33560.16618624073,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33558.349293067266 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 270259.8726398559,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 270248.6655634377 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 819938.4001258537,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 819926.7918122304 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.71754382941126,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.70628652769649 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.15962539746942,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.156058916132686 ns\nthreads: 1"
           }
         ]
       }
