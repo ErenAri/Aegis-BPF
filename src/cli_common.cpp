@@ -35,6 +35,7 @@ int usage(const char* prog)
         << " | policy {lint|validate|apply|export} <file> [--fix] [--out <path>] [--reset] [--sha256 "
            "<hex>|--sha256-file <path>] [--no-rollback] [--require-signature] [--verbose]"
         << " | policy sign <policy.conf> --key <private.key> --output <policy.signed>" << " | policy {show|rollback}"
+        << " | bpf keygen --out <prefix>" << " | bpf sign --key <private.key> [--obj <aegis.bpf.o>] [--signer <name>]"
         << " | keys {list|add <pubkey.pub>}" << " | stats [--detailed]" << " | metrics [--out <path>] [--detailed]"
         << " | capabilities [--json]" << " | health [--json] [--require-enforce]" << " | doctor [--json]"
         << " | emergency-disable --reason <text> [--reason-pattern <regex>] [--json] [--log=stdout|journald|both]"

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 
+#include "cli_bpf.hpp"
 #include "cli_cgroup.hpp"
 #include "cli_common.hpp"
 #include "cli_network.hpp"
@@ -327,6 +328,8 @@ int dispatch_cli(int argc, char** argv)
         return dispatch_cgroup_command(argc, argv, argv[0]);
     if (cmd == "policy")
         return dispatch_policy_command(argc, argv, argv[0]);
+    if (cmd == "bpf")
+        return dispatch_bpf_command(argc, argv, argv[0]);
     if (cmd == "keys")
         return dispatch_keys_command(argc, argv, argv[0]);
     if (cmd == "survival")

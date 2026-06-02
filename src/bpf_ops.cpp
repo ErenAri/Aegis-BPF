@@ -22,6 +22,7 @@
 
 #include "bpf_attach.hpp"
 #include "bpf_integrity.hpp"
+#include "bpf_signing.hpp"
 #include "btf_loader.hpp"
 #include "kernel_features.hpp"
 #include "logging.hpp"
@@ -223,6 +224,23 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
         if (!verify_result) {
             span.fail(verify_result.error().to_string());
             return fail(verify_result.error());
+        }
+    }
+
+    {
+        // Authenticity gate (complements the integrity hash above): the SHA-256
+        // sidecar only detects corruption -- an attacker who can replace
+        // aegis.bpf.o can replace aegis.bpf.sha256 too. A detached Ed25519
+        // signature (the `.sig` sidecar) verified against the trusted keystore
+        // makes the load path tamper-evident. This is a no-op for deployments
+        // without a `.sig` and without AEGIS_REQUIRE_BPF_SIGNATURE; it fails
+        // closed only when an operator opts in by provisioning a trusted key
+        // and requiring signatures (break-glass: AEGIS_ALLOW_UNSIGNED_BPF=1).
+        ScopedSpan span("bpf.verify_signature", trace_id, root_span.span_id());
+        auto sig_result = verify_bpf_signature(obj_path);
+        if (!sig_result) {
+            span.fail(sig_result.error().to_string());
+            return fail(sig_result.error());
         }
     }
 

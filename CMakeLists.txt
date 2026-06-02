@@ -289,6 +289,7 @@ endif()
 set(AEGIS_SOURCES
     src/main.cpp
     src/binary_scan.cpp
+    src/cli_bpf.cpp
     src/cli_cgroup.cpp
     src/cli_common.cpp
     src/cli_dispatch.cpp
@@ -352,6 +353,7 @@ set(AEGIS_SOURCES
 
 set(AEGIS_HEADERS
     src/binary_scan.hpp
+    src/cli_bpf.hpp
     src/cli_cgroup.hpp
     src/cli_common.hpp
     src/cli_dispatch.hpp
@@ -595,6 +597,7 @@ if(BUILD_TESTING)
         tests/test_json_scan.cpp
         tests/test_metrics.cpp
         tests/test_bpf_integrity.cpp
+        tests/test_bpf_signing.cpp
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp

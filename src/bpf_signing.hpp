@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 
+#include "crypto.hpp"
 #include "result.hpp"
 
 namespace aegis {
@@ -33,5 +34,10 @@ Result<void> write_bpf_signature(const std::string& obj_path, const BpfSignature
 
 // Read and parse signature file
 Result<BpfSignature> read_bpf_signature(const std::string& obj_path);
+
+// Sign a BPF object with an Ed25519 secret key: computes the object's SHA-256,
+// signs the digest, and writes the `.sig` sidecar that verify_bpf_signature()
+// consumes (the `sha256:` + `signature:` fields). Used by `aegisbpf bpf sign`.
+Result<void> sign_bpf_object(const std::string& obj_path, const SecretKey& secret_key, const std::string& signer_name);
 
 } // namespace aegis
