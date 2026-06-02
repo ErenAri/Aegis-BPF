@@ -1,9 +1,11 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_signing.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -255,6 +257,36 @@ Result<BpfSignature> read_bpf_signature(const std::string& obj_path)
     }
 
     return sig;
+}
+
+Result<void> sign_bpf_object(const std::string& obj_path, const SecretKey& secret_key, const std::string& signer_name)
+{
+    auto hash_result = compute_file_sha256(obj_path);
+    if (!hash_result) {
+        return hash_result.error();
+    }
+
+    // Sign the SHA-256 digest bytes -- exactly what verify_bpf_signature()
+    // checks via verify_bytes(hash, sig, key).
+    auto sig_result = sign_bytes(hash_result->data(), hash_result->size(), secret_key);
+    if (!sig_result) {
+        return Error(ErrorCode::CryptoError, "Failed to sign BPF object hash", sig_result.error().message());
+    }
+
+    BpfSignature sig;
+    sig.format_version = 1;
+    sig.sha256_hash = *hash_result;
+    sig.signature = *sig_result;
+    sig.timestamp = static_cast<uint64_t>(std::time(nullptr));
+    sig.signer_name = signer_name;
+    // The Ed25519 secret key's trailing 32 bytes are its public half; record it
+    // as the signer key id so operators can identify the signer in the sidecar.
+    if (secret_key.size() >= sig.signer_key_id.size()) {
+        std::copy(secret_key.end() - static_cast<std::ptrdiff_t>(sig.signer_key_id.size()), secret_key.end(),
+                  sig.signer_key_id.begin());
+    }
+
+    return write_bpf_signature(obj_path, sig);
 }
 
 } // namespace aegis
