@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780493270453,
+  "lastUpdate": 1780493830123,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -41982,6 +41982,108 @@ window.BENCHMARK_DATA = {
             "value": 423166.97803205554,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 423209.8418143456 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa8c314ef98add0093b850f89b7f4c71ce1d3095",
+          "message": "feat(bpf/file): Tier-3 signal-fallback enforcement for the file class (#212)\n\nCloses the file-class arm of Tier-3 signal-fallback, the symmetric twin\nof the already-shipped network arm (handle_tp_connect). On kernels\nwithout BPF-LSM, lsm/file_open cannot attach and open() cannot be denied\nwith -EPERM; previously the sys_enter_openat tracepoint was pure audit.\n\nIt now mirrors handle_tp_connect exactly: when --enforce-fallback=signal\nis set (agent_cfg.signal_fallback_enforce) AND the agent is in enforce\nmode, an open of a denied path is met with bpf_send_signal() (default\nSIGKILL, with the same \"default to SIGKILL when no escalation configured\"\nrule since a tracepoint cannot return -EPERM). Inert by default, so\nLSM-capable hosts behave exactly as before (audit-only).\n\nHonesty: this tier is detection+signal, not synchronous denial, and is\nPATH-based (the inode is not resolvable at syscall entry) — so it does\nNOT carry the inode-alias guarantee proved for lsm/file_open in\nproofs/inode_alias_resistance.py. GUARANTEES.md is updated to state the\nmechanism now covers both connect() and open(), and to keep the gate\npromotion (accepting signal-fallback as PRIMARY enforcement on genuinely\nno-LSM hosts) honestly flagged as the remaining follow-up — that step\nrelaxes the No-Pretend gate and must be validated on a no-LSM kernel.\n\nReuses the existing --enforce-fallback=signal flag (no new wiring). No\nnew program/section, so the bpfcompat + kernel-compat manifests are\nunchanged; object builds and loads clean on 6.17. Cross-kernel\nverifier-safety is gated by the bpfcompat matrix on this PR.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T16:25:33+03:00",
+          "tree_id": "3b40516d92461a4c235bc0160d23b968023fddf7",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/aa8c314ef98add0093b850f89b7f4c71ce1d3095"
+        },
+        "date": 1780493829003,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1511.5733232396667,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1511.2656325149826 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3653.721026133578,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3653.270272462874 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20875.918377299815,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20873.455127918034 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 158860.2535190909,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 158840.4199071208 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1262388.3778930015,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1262123.186804931 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5055383.904376526,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5054697.516486815 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4741.852658163704,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4757.254555409965 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34248.68489989678,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34245.87133415964 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 279444.8652499833,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 279471.6280833502 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 868379.8093089786,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 868616.3544521611 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 50.85948099672908,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 50.854036281407076 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.16145255433294,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.15334811195123 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.20634024341615,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.20022137709884 ns\nthreads: 1"
           }
         ]
       }
