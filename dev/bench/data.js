@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780493830123,
+  "lastUpdate": 1780495187554,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42084,6 +42084,96 @@ window.BENCHMARK_DATA = {
             "value": 55.20634024341615,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.20022137709884 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "279c3192a45e787a34f99ac0ec30c5a5dda09154",
+          "message": "feat(rust): memory-safe policy parser + differential parity gate (#213)\n\nFlesh out rust/aegis-parser from a 46-LOC stub into a faithful Rust port\nof the C++ policy parser (src/policy_parse.cpp + detect_policy_conflicts):\nall 23 sections, boolean flags, header/version handling, per-section\nfield validation, de-duplication, post-parse version gating, and lint\nconflict warnings — reproducing the C++ errors/warnings verbatim\n(text + line numbers).\n\nThis is the flagship Rust-oxidation increment of the enforcement wedge\n(memory-safe parsing of the untrusted-input boundary). It is intentionally\nNOT yet wired into the production load path: swapping a load-bearing,\nsecurity-critical parser is gated on proof + review, not done blind.\n\nProof — differential parity (scripts/rust_policy_parity.sh):\n  runs every policy in the corpus + examples + fixtures, plus 2000\n  generated adversarial inputs (edge IPs, ports, CIDRs, hashes, junk\n  bytes), through BOTH the C++ `aegisbpf policy lint`/`validate` and this\n  crate, failing on any divergence.\n  Result: 2026/2026 inputs agree. The harness is verified to FAIL on an\n  injected one-character divergence (real gate, not decoration).\n\nAlso:\n  - 28 unit + adversarial tests (cargo test); must-not-panic fuzz cases.\n  - unsafe-free parser; ffi module is the staged C ABI seam for the swap.\n  - .github/workflows/rust-parser.yml: fmt + clippy(-D warnings) + test +\n    release build + the parity gate (builds aegisbpf host + runs --fuzz).\n  - README documents the staged-swap plan and honest fidelity caveats.\n\nThe C++ parser remains authoritative until the parity gate is green AND\nthe swap PR is reviewed.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T16:48:25+03:00",
+          "tree_id": "dc53746e773543cec7a1856158cd6eb4425feb38",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/279c3192a45e787a34f99ac0ec30c5a5dda09154"
+        },
+        "date": 1780495185531,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1525.600609890838,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1525.5157565848576 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4302.026317540752,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4301.829643707288 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26680.554600929052,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26677.49264593885 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 205360.65697475625,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 205349.6676798009 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1634850.5322831636,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1634767.8572539883 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6539965.213006222,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6539131.600856711 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4059.877628502696,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4066.9437624904954 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29498.348708417736,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29500.460325816854 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 240252.82823442612,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 240233.38959395268 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 722126.5252704886,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 722162.5275917226 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.33536792913502,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.32782508105848 ns\nthreads: 1"
           }
         ]
       }
