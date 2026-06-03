@@ -305,6 +305,9 @@ jobs:
       - name: Validate enforcement proof contract
         run: python3 scripts/validate_enforcement_proof_contract.py
 
+      - name: Machine-checked enforcement proofs (Z3) + model-fidelity guard
+        run: proofs/run.sh
+
       - name: Validate kernel-compat manifest is in sync with the source of truth
         run: python3 scripts/gen_kernel_compat_manifest.py --check
 
