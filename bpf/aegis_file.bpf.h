@@ -289,6 +289,23 @@ int BPF_PROG(handle_inode_permission, struct inode *inode, int mask)
     return ret;
 }
 
+/* ============================================================================
+ * File open tracepoint.
+ *
+ * Always-on AUDIT for the path-based deny list. Additionally provides the
+ * file-class arm of Tier-3 signal-fallback enforcement (the symmetric twin of
+ * handle_tp_connect in aegis_net.bpf.h): on kernels without BPF-LSM, where
+ * lsm/file_open cannot attach and open() cannot be denied with -EPERM, an open
+ * of a denied path is met with bpf_send_signal() when signal-fallback is enabled
+ * AND the agent is in enforce mode.
+ *
+ * This is detection + signal, NOT synchronous denial, and it is PATH-based (the
+ * inode is not resolvable at syscall entry), so it is strictly weaker than the
+ * inode-based lsm/file_open deny — in particular it does NOT carry the
+ * inode-alias guarantee proved in proofs/inode_alias_resistance.py. Inert unless
+ * agent_cfg.signal_fallback_enforce is set (default off), so on LSM-capable
+ * hosts running normally it behaves exactly as before (audit-only).
+ * ============================================================================ */
 SEC("tracepoint/syscalls/sys_enter_openat")
 int handle_openat(struct trace_event_raw_sys_enter *ctx)
 {
@@ -323,7 +340,26 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     increment_cgroup_stat(cgid);
     increment_path_stat(&key);
 
-    /* Send block event (audit only - tracepoints can't block) */
+    /* Tier-3 signal-fallback enforcement (see header comment). A tracepoint
+     * cannot return -EPERM, so when no SIGKILL escalation is configured we
+     * default the fallback to SIGKILL to make the tier meaningful — mirroring
+     * handle_tp_connect. */
+    __u8 audit = get_effective_audit_mode();
+    __u8 enforce_signal = 0;
+    if (agent_cfg.signal_fallback_enforce && !audit) {
+        __u64 start_time = task ? BPF_CORE_READ(task, start_time) : 0;
+        __u8 configured_signal = get_effective_enforce_signal();
+        if (configured_signal == SIGKILL) {
+            enforce_signal = runtime_enforce_signal(configured_signal, pid, start_time,
+                                                    get_sigkill_escalation_threshold(),
+                                                    get_sigkill_escalation_window_ns());
+        } else {
+            enforce_signal = configured_signal ? configured_signal : SIGKILL;
+        }
+        maybe_send_enforce_signal(enforce_signal);
+    }
+
+    /* Send block event */
     if (!should_emit_event(sample_rate))
         return 0;
     struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
@@ -335,7 +371,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
         e->block.ino = 0;
         e->block.dev = 0;
         __builtin_memcpy(e->block.path, key.path, sizeof(e->block.path));
-        __builtin_memcpy(e->block.action, "AUDIT", sizeof("AUDIT"));
+        set_action_string(e->block.action, audit ? 1 : 0, enforce_signal);
         bpf_ringbuf_submit(e, 0);
     } else {
         increment_ringbuf_drops();
