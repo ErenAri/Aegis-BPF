@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780495187554,
+  "lastUpdate": 1780496631114,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42174,6 +42174,108 @@ window.BENCHMARK_DATA = {
             "value": 66.33536792913502,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.32782508105848 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0202a3b29da9b89c53b1bc8e6e2154116b5985e3",
+          "message": "feat(daemon): Tier-3 enforce-gate promotion (ENFORCE_SIGNAL posture) (#214)\n\n* feat(daemon): Tier-3 enforce-gate promotion (ENFORCE_SIGNAL posture)\n\nCompletes the gate half of Tier-3 signal-fallback. Previously, on a host\nwithout BPF-LSM the enforce-gate always degraded to audit-only (or\nfail-closed) even when the operator opted into --enforce-fallback=signal\nand the shipped tracepoint kill mechanism (PRs #212 net+file arms) was\navailable. The mechanism could fire but the gate never chose it as the\nprimary posture.\n\nNow: when (capability == AuditOnly) AND enforce was requested AND\n--enforce-fallback=signal AND the kernel can deliver the signal\n(tracepoints + bpf syscall), the daemon runs in a new, distinct\nRuntimeState::EnforceSignal posture instead of degrading.\n\nNo-Pretend is preserved and made unit-testable:\n  - ENFORCE_SIGNAL is a SEPARATE state from ENFORCE (asynchronous kill,\n    not synchronous -EPERM); the daemon never reports ENFORCE here.\n  - enforce_capable stays false (the BPF_LSM_DISABLED blocker is still\n    reported in the capability report).\n  - signal_fallback_enforce_eligible() is a pure predicate; the\n    PostureGate.NeverEligibleOnFullEnforcementHost test exhausts the\n    truth table to prove promotion can ONLY happen where synchronous\n    ENFORCE is genuinely impossible.\n  - Without the opt-in (or without signal capability) the gate behaves\n    exactly as before — default deployments are unchanged.\n\nContract surfaces updated consistently (all gates pass locally):\n  - RuntimeState enum + runtime_state_name (EnforceSignal not counted as\n    a degradation).\n  - commands_metrics.cpp runtime_state gauge label set.\n  - CAPABILITY_POSTURE_CONTRACT.md valid-state list + semantics.\n  - evaluate_capability_posture.py runtime_ok set (ENFORCE_SIGNAL healthy).\n  - GUARANTEES.md gate-status note (promotion implemented; live no-LSM\n    kernel behavioral test is the one remaining follow-up).\n  - 6 new PostureGate unit tests.\n\nThe in-kernel kill on a real no-LSM host remains validated by design +\nthe cross-kernel matrix load gate; a live no-LSM-kernel behavioral test\nis the remaining follow-up (noted honestly in GUARANTEES.md).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci(lint): suppress cppcheck gtest syntaxError for test_posture_gate.cpp\n\ncppcheck does not parse gtest's TEST() macro and emits a false-positive\nsyntaxError, exactly as for every other gtest file already listed in the\nlint step. Add the matching per-file suppression.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* test(posture): fix bugprone-argument-comment in posture-gate test\n\nThe inline argument comment must match the parameter name\n(enforce_fallback_signal), not 'opt_in', or clang-tidy fails the build.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T17:12:02+03:00",
+          "tree_id": "d69a837986e0db6f19d2a49071058bcbefd388d9",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/0202a3b29da9b89c53b1bc8e6e2154116b5985e3"
+        },
+        "date": 1780496629164,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1503.2511915633552,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1503.117413151305 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3636.131699225201,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3635.8370777141677 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21118.938129033013,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21115.275181216166 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159593.7186438778,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159578.34635121885 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1264005.6630695378,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1263902.5206085134 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5057742.644705166,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5057301.303549931 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4695.034817705814,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4717.931562720126 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33951.194111584904,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33956.87779786306 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 276511.18807666743,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 276592.1185522024 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 868794.0661626832,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 869027.339347914 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.28423176510842,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.28015340378736 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.80028332961322,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.78577321572949 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 53.81173911049023,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.80710090102762 ns\nthreads: 1"
           }
         ]
       }
