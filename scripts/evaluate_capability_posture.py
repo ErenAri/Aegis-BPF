@@ -71,7 +71,10 @@ def evaluate(report: dict[str, Any], source_path: str) -> dict[str, Any]:
     policy_parse_ok = _as_bool(policy.get("parse_ok"))
     _check(checks, "policy_parse", policy_parse_ok, f"policy.parse_ok={policy_parse_ok}")
 
-    runtime_ok = runtime_state in {"ENFORCE", "AUDIT_FALLBACK"}
+    # ENFORCE_SIGNAL is the Tier-3 signal-fallback enforcement posture (an
+    # intended operating state on no-BPF-LSM hosts), so it is healthy like
+    # ENFORCE/AUDIT_FALLBACK — not a degradation.
+    runtime_ok = runtime_state in {"ENFORCE", "ENFORCE_SIGNAL", "AUDIT_FALLBACK"}
     _check(
         checks,
         "runtime_state",

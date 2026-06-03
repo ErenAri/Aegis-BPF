@@ -165,6 +165,8 @@ const char* runtime_state_name(RuntimeState state)
     switch (state) {
         case RuntimeState::Enforce:
             return "ENFORCE";
+        case RuntimeState::EnforceSignal:
+            return "ENFORCE_SIGNAL";
         case RuntimeState::AuditFallback:
             return "AUDIT_FALLBACK";
         case RuntimeState::Degraded:

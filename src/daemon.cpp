@@ -35,6 +35,7 @@
 #include "landlock.hpp"
 #include "logging.hpp"
 #include "map_monitor.hpp"
+#include "posture_gate.hpp"
 #include "proc_scan.hpp"
 #include "seccomp.hpp"
 #include "selftest.hpp"
@@ -541,19 +542,36 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     if (cap == EnforcementCapability::AuditOnly) {
         if (!audit_only) {
             const std::string explanation = capability_explanation(features, cap);
-            if (enforce_gate_mode == EnforceGateMode::FailClosed) {
+            if (signal_fallback_enforce_eligible(/*capability_audit_only=*/true, /*enforce_requested=*/true,
+                                                 enforce_fallback_signal, features.tracepoints, features.bpf_syscall)) {
+                // Tier-3 gate promotion: no BPF-LSM, but the operator opted into
+                // signal-fallback (--enforce-fallback=signal) and the kernel can
+                // deliver it. Run in the honest, strictly-weaker ENFORCE_SIGNAL
+                // posture instead of degrading to audit. No-Pretend is preserved:
+                // we never claim ENFORCE here (synchronous -EPERM is impossible
+                // without BPF-LSM); enforcement is asynchronous bpf_send_signal
+                // via the openat/connect tracepoints. enforce_capable stays false
+                // in the capability report (BPF_LSM_DISABLED blocker remains).
+                logger().log(SLOG_WARN("BPF-LSM unavailable; running signal-fallback enforcement "
+                                       "(asynchronous kill, NOT synchronous deny)")
+                                 .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                 .field("explanation", explanation));
+                emit_runtime_state_change(RuntimeState::EnforceSignal, "ENFORCE_SIGNAL_FALLBACK", explanation);
+                startup_state_emitted = true;
+            } else if (enforce_gate_mode == EnforceGateMode::FailClosed) {
                 emit_runtime_state_change(RuntimeState::Degraded, "CAPABILITY_AUDIT_ONLY", explanation);
                 logger().log(SLOG_ERROR("Full enforcement requested but kernel is audit-only")
                                  .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
                                  .field("explanation", explanation));
                 return fail("Full enforcement requested but kernel capability is audit-only");
+            } else {
+                logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
+                                 .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
+                                 .field("explanation", explanation));
+                audit_only = true;
+                emit_runtime_state_change(RuntimeState::AuditFallback, "CAPABILITY_AUDIT_ONLY", explanation);
+                startup_state_emitted = true;
             }
-            logger().log(SLOG_WARN("Full enforcement not available; falling back to audit-only mode")
-                             .field("enforce_gate_mode", enforce_gate_mode_name(enforce_gate_mode))
-                             .field("explanation", explanation));
-            audit_only = true;
-            emit_runtime_state_change(RuntimeState::AuditFallback, "CAPABILITY_AUDIT_ONLY", explanation);
-            startup_state_emitted = true;
         } else {
             logger().log(
                 SLOG_INFO("Running in audit-only mode").field("explanation", capability_explanation(features, cap)));

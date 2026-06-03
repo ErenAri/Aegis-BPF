@@ -644,6 +644,7 @@ if(BUILD_TESTING)
         tests/test_commands_simulate.cpp
         tests/test_event_dedup.cpp
         tests/test_net_block_event_dedup.cpp
+        tests/test_posture_gate.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

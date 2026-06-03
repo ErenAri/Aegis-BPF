@@ -241,6 +241,7 @@ jobs:
             --suppress=syntaxError:tests/test_ocsf_formatter.cpp \
             --suppress=syntaxError:tests/test_cef_formatter.cpp \
             --suppress=syntaxError:tests/test_bpf_link_pin.cpp \
+            --suppress=syntaxError:tests/test_posture_gate.cpp \
             --suppress=syntaxError:tests/bpf/test_bpf_prog_run.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \

@@ -9,7 +9,12 @@ namespace aegis {
 
 class BpfState;
 
-enum class RuntimeState { Enforce, AuditFallback, Degraded };
+// EnforceSignal: Tier-3 signal-fallback enforcement on a host without BPF-LSM.
+// Strictly weaker than Enforce (asynchronous bpf_send_signal kill, not
+// synchronous -EPERM). It is a distinct, honest state so the No-Pretend
+// invariant holds: the daemon never reports Enforce when it cannot synchronously
+// deny. See docs/CAPABILITY_POSTURE_CONTRACT.md and docs/GUARANTEES.md.
+enum class RuntimeState { Enforce, EnforceSignal, AuditFallback, Degraded };
 
 struct RuntimeStateTracker {
     RuntimeState current = RuntimeState::Enforce;
