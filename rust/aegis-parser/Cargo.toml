@@ -1,0 +1,14 @@
+[package]
+name = "aegis-parser"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Memory-safe parsers for the AegisBPF untrusted-input boundary (policy files, events)."
+
+[lib]
+name = "aegis_parser"
+crate-type = ["staticlib", "rlib"]
+
+[profile.release]
+opt-level = 2
