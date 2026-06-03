@@ -10,9 +10,10 @@ namespace aegis {
 int cmd_policy_lint(const std::string& path);
 int cmd_policy_lint_fix(const std::string& path, const std::string& out_path);
 int cmd_policy_validate(const std::string& path, bool verbose);
-// Hidden diagnostic seam for the Rust differential-parity harness: emit a
-// complete canonical dump of the parsed policy (see implementation).
+// Hidden diagnostic seams for the Rust differential-parity harnesses: emit a
+// complete canonical dump of the parsed policy / signed bundle (see impls).
 int cmd_policy_canonical(const std::string& path);
+int cmd_policy_bundle_canonical(const std::string& path);
 int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
                      bool rollback_on_failure);
 int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signature);

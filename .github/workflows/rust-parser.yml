@@ -1,21 +1,25 @@
 name: Rust Parser
 
-# Builds + tests the Rust policy-parser oxidation and proves it stays behavior-
-# equivalent to the C++ parser via the differential parity harness (the gate that
-# must be green before the production parser is swapped to Rust).
+# Builds + tests the Rust oxidation crate (policy parser + signed-bundle decoder)
+# and proves each stays behavior-equivalent to its C++ original via differential
+# parity harnesses (the gates that must be green before a production swap).
 on:
   pull_request:
     paths:
       - 'rust/aegis-parser/**'
       - 'scripts/rust_policy_parity.sh'
+      - 'scripts/rust_bundle_parity.sh'
       - 'src/policy_parse.cpp'
       - 'src/network_ops.cpp'
       - 'src/utils.cpp'
+      - 'src/crypto.cpp'
       - 'src/types.hpp'
-      # the C++ side of the parity gate: the `policy canonical` emitter + dispatch
+      # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`
+      # emitters + dispatch
       - 'src/commands_policy.cpp'
       - 'src/cli_policy.cpp'
       - 'tests/fixtures/parity/**'
+      - 'tests/fixtures/bundle_parity/**'
       - '.github/workflows/rust-parser.yml'
   workflow_dispatch:
 
@@ -66,3 +70,6 @@ jobs:
 
       - name: Differential parity (corpus + 2000 fuzzed policies)
         run: scripts/rust_policy_parity.sh --fuzz 2000
+
+      - name: Differential bundle parity (fixtures + real + 2000 fuzzed bundles)
+        run: scripts/rust_bundle_parity.sh --fuzz 2000
