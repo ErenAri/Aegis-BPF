@@ -156,10 +156,14 @@ see `docs/THREAT_MODEL.md`.
   `-EPERM`), `enforce_capable` stays `false` (the `BPF_LSM_DISABLED` blocker is
   still reported), and the daemon never claims `ENFORCE`. Without the opt-in (or
   without signal capability) the gate behaves as before (fail-closed / audit
-  fallback). The promotion *decision* is unit-tested (No-Pretend truth table);
-  the in-kernel kill on a real no-LSM host remains validated by design + the
-  matrix load gate, with a live no-LSM-kernel behavioral test as the one open
-  follow-up.
+  fallback). The promotion *decision* is unit-tested (No-Pretend truth table,
+  `tests/test_posture_gate.cpp`), and the end-to-end behavior is proven by
+  `tests/enforcement/signal_fallback_proof.sh` on every kernel in the matrix:
+  it forces the agent's no-BPF-LSM code path via the `AEGIS_LSM_PATH` test seam
+  and asserts the gate promotes to `ENFORCE_SIGNAL`, `enforce_capable`/`audit_only`
+  stay honest, and a denied `open()` from a non-exempt cgroup is killed by a
+  signal (the open would otherwise succeed — there is no LSM `-EPERM` on this
+  path — so the kill is unambiguous proof).
 
 ## Known bypass classes
 
