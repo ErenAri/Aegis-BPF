@@ -1,0 +1,12 @@
+AEGIS-POLICY-BUNDLE-V1
+format_version: 1
+policy_version: 9
+timestamp: 1780000000
+expires: 0
+signer_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+signature: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+policy_sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+---
+version=1
+[deny_path]
+/etc/shadow

@@ -265,6 +265,72 @@ int cmd_policy_canonical(const std::string& path)
     return issues.has_errors() ? 1 : 0;
 }
 
+// Emit a canonical, machine-comparable dump of a parsed signed-policy-bundle for
+// the Rust differential-parity harness (scripts/rust_bundle_parity.sh). Hidden
+// diagnostic/test seam mirroring rust/aegis-parser's bundle::canonical_report
+// byte-for-byte over the UTF-8 input domain, so the two bundle decoders can be
+// proven structurally equivalent. On success: `ok` + every parsed field (byte
+// arrays as lowercase hex, policy body as length + FNV-1a). On failure:
+// `err <primary message>` (Error::message(), matching the Rust error strings).
+int cmd_policy_bundle_canonical(const std::string& path)
+{
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        // The harness only feeds existing files; this mirrors the Rust bin's
+        // read-failure path (exit 2, nothing on stdout) and is just defensive.
+        std::cerr << "error: cannot read " << path << "\n";
+        return 2;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string content = ss.str();
+
+    auto result = parse_signed_bundle(content);
+    std::string out;
+    if (!result) {
+        out += "err " + result.error().message() + "\n";
+        std::cout << out;
+        return 1;
+    }
+
+    auto to_hex = [](const uint8_t* data, size_t len) {
+        static const char* digits = "0123456789abcdef";
+        std::string s;
+        s.reserve(len * 2);
+        for (size_t i = 0; i < len; ++i) {
+            s += digits[(data[i] >> 4) & 0xf];
+            s += digits[data[i] & 0xf];
+        }
+        return s;
+    };
+    auto fnv1a64 = [](const std::string& data) {
+        uint64_t hash = 0xcbf29ce484222325ULL;
+        for (unsigned char c : data) {
+            hash ^= static_cast<uint64_t>(c);
+            hash *= 0x100000001b3ULL;
+        }
+        return hash;
+    };
+
+    const SignedPolicyBundle& b = *result;
+    char fnvbuf[24];
+    std::snprintf(fnvbuf, sizeof(fnvbuf), "%016llx", static_cast<unsigned long long>(fnv1a64(b.policy_content)));
+
+    out += "ok\n";
+    out += "format_version " + std::to_string(b.format_version) + "\n";
+    out += "policy_version " + std::to_string(b.policy_version) + "\n";
+    out += "timestamp " + std::to_string(b.timestamp) + "\n";
+    out += "expires " + std::to_string(b.expires) + "\n";
+    out += "signer_key " + to_hex(b.signer_key.data(), b.signer_key.size()) + "\n";
+    out += "signature " + to_hex(b.signature.data(), b.signature.size()) + "\n";
+    out += "policy_sha256 " + b.policy_sha256 + "\n";
+    out += "policy_content_len " + std::to_string(b.policy_content.size()) + "\n";
+    out += "policy_content_fnv1a64 " + std::string(fnvbuf) + "\n";
+
+    std::cout << out;
+    return 0;
+}
+
 int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
                      bool rollback_on_failure)
 {

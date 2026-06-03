@@ -1,8 +1,12 @@
 # aegis-parser
 
-Memory-safe Rust parsers for the AegisBPF **untrusted-input boundary**, starting
-with the policy file. This crate is part of the Rust-oxidation track of the
-enforcement wedge (memory-safe parsing of attacker/CI-influenced input).
+Memory-safe Rust parsers for the AegisBPF **untrusted-input boundary**. This
+crate is part of the Rust-oxidation track of the enforcement wedge (memory-safe
+parsing of attacker/CI-influenced input). Two targets are ported and proven:
+
+- `policy` — the policy-file parser (`src/policy_parse.cpp`).
+- `bundle` — the signed-policy-bundle decoder (`parse_signed_bundle`,
+  `src/crypto.cpp`), the input to signature verification.
 
 ## Status: proven, staged — NOT yet in the production path
 
@@ -12,10 +16,19 @@ observable behavior — per-line errors/warnings (verbatim text + line numbers),
 section/flag/version handling, de-duplication, post-parse version gating, and
 lint conflicts.
 
-It is **not** wired into the live `policy apply`/`run` path yet. Swapping the
+`bundle::parse_signed_bundle` is a faithful port of `parse_signed_bundle`: the
+same separator rule (first `"---"` substring anywhere), header/field handling,
+recognized keys, first-error-wins ordering and error classes, and — crucially —
+the same *lenient* integer parsing as C++ `std::stoul`/`std::stoull` (skip
+leading whitespace, accept a leading sign with `-` wrapping for unsigned, ignore
+trailing non-digits, treat overflow as an error; `format_version` truncates to
+`u32` like the C++ `static_cast`).
+
+Neither is wired into the live `policy apply`/`run` path yet. Swapping a
 production parser is a load-bearing, security-critical change (a silent parse
-divergence = a policy that enforces differently than the operator expects), so
-the swap is gated on two things:
+divergence = a policy that enforces differently than the operator expects, or a
+different byte range treated as the signed body), so each swap is gated on two
+things:
 
 1. **Differential parity** — `scripts/rust_policy_parity.sh` compares the
    **full canonical dump** of *both* parsers (the C++ `aegisbpf policy canonical`
@@ -27,7 +40,11 @@ the swap is gated on two things:
    that the two agree on counts. It runs over the corpus + examples + fixtures
    plus two deterministic generated families (adversarial junk for the reject/
    error surface, and always-valid v6 policies for the stored-entry surface),
-   and fails on any divergence. This is the merge gate
+   and fails on any divergence. The signed bundle has its own harness,
+   `scripts/rust_bundle_parity.sh`, comparing the C++ `aegisbpf policy
+   bundle-canonical` dump against the crate's `bundle::canonical_report` over
+   committed fixtures, **real** `keygen`+`sign` bundles, and two generated
+   families (valid synthetic + adversarial). Both are merge gates
    (`.github/workflows/rust-parser.yml`).
 2. **Human review** of the swap PR.
 
@@ -40,9 +57,12 @@ so promotion is a wiring change rather than a rewrite.
 The policy parser is the most operator-facing untrusted-input surface. The C++
 implementation is already `std::string`-based (bounds-safe), so the immediate win
 is *defense-in-depth* and a single, `unsafe`-free, exhaustively-fuzzable parser —
-not a fix for a known memory bug. The next oxidation targets (the signed-bundle
-and event binary decoders, which walk raw byte buffers with manual offsets) carry
-more raw memory-safety value and reuse this crate's FFI + parity pattern.
+not a fix for a known memory bug. The signed-bundle decoder (now ported in
+`bundle`) is the second target: it sits on the same untrusted boundary and its
+split point decides which bytes are treated as the signed policy body. The
+remaining target — the event binary decoder, which walks raw ringbuf buffers with
+manual offsets — carries the most raw memory-safety value and reuses this crate's
+FFI + parity pattern.
 
 ## Develop
 
@@ -52,8 +72,9 @@ cargo test                 # unit + adversarial tests
 cargo clippy -- -D warnings
 cargo fmt --check
 
-# differential parity vs the C++ parser (needs build/aegisbpf):
+# differential parity vs the C++ originals (needs build/aegisbpf):
 ../../scripts/rust_policy_parity.sh --fuzz 2000
+../../scripts/rust_bundle_parity.sh --fuzz 2000
 ```
 
 ## Fidelity caveats (honest scope)
@@ -68,6 +89,10 @@ cargo fmt --check
   value or message would render cosmetically differently from C++ (the parse
   decision and de-dup are unaffected). Realistic operator/CI policies are
   UTF-8/ASCII; the corpus's only non-ASCII bytes are in comment lines.
+- The bundle harness compares the extracted policy body by length + FNV-1a 64
+  (computed identically on both sides) rather than dumping raw bytes; this pins
+  the separator split exactly without emitting large/binary bodies. It validates
+  *parsing*, not signature cryptography (`verify_bundle` is unchanged C++).
 - The proof is "structurally equivalent over the tested corpus + fixtures +
   fuzzing," not an exhaustive equivalence proof — which is exactly why the
   production swap also requires review.
