@@ -661,7 +661,8 @@ int cmd_metrics(const std::string& out_path, bool detailed)
                          (capability_sample.parse_ok && capability_sample.enforce_capable) ? 1 : 0);
     append_metric_header(oss, "aegisbpf_runtime_state", "gauge",
                          "Runtime posture state from capability report (1 for active state label)");
-    const std::array<const char*, 4> runtime_states = {"ENFORCE", "AUDIT_FALLBACK", "DEGRADED", "UNKNOWN"};
+    const std::array<const char*, 5> runtime_states = {"ENFORCE", "ENFORCE_SIGNAL", "AUDIT_FALLBACK", "DEGRADED",
+                                                       "UNKNOWN"};
     for (const char* state_name : runtime_states) {
         const bool active = capability_sample.parse_ok ? (capability_sample.runtime_state == state_name)
                                                        : (std::string(state_name) == "UNKNOWN");

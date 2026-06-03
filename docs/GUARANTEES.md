@@ -147,12 +147,18 @@ see `docs/THREAT_MODEL.md`.
 - The network arm is verified to fire (`SIGKILL`, `net_connect_block`
   action=`KILL`) on a connect to a denied IP; the file arm mirrors it on an open
   of a denied path.
-- **Gate status (honest):** when BPF-LSM is genuinely absent the enforce-gate
-  still treats the missing LSM hook as a degradation (fail-closed exit or audit
-  fallback) — it does not yet *promote* signal-fallback to primary enforcement on
-  no-LSM hosts, because doing so safely requires validating the relaxed
-  No-Pretend gate on a no-LSM kernel. Today both arms are verified as
-  defense-in-depth alongside LSM enforcement; gate promotion is the remaining
+- **Gate status:** when BPF-LSM is genuinely absent **and** the operator opts in
+  with `--enforce-fallback=signal` **and** the kernel can deliver the signal
+  (tracepoints + bpf syscall), the enforce-gate now *promotes* signal-fallback to
+  the primary posture: the daemon runs in the distinct `ENFORCE_SIGNAL`
+  runtime-state instead of degrading to audit-only. No-Pretend is preserved — it
+  is a separate, strictly-weaker state (asynchronous kill, not synchronous
+  `-EPERM`), `enforce_capable` stays `false` (the `BPF_LSM_DISABLED` blocker is
+  still reported), and the daemon never claims `ENFORCE`. Without the opt-in (or
+  without signal capability) the gate behaves as before (fail-closed / audit
+  fallback). The promotion *decision* is unit-tested (No-Pretend truth table);
+  the in-kernel kill on a real no-LSM host remains validated by design + the
+  matrix load gate, with a live no-LSM-kernel behavioral test as the one open
   follow-up.
 
 ## Known bypass classes

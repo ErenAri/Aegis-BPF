@@ -63,8 +63,19 @@ Known blocker codes:
 Valid `runtime_state` values:
 
 - `ENFORCE`
+- `ENFORCE_SIGNAL`
 - `AUDIT_FALLBACK`
 - `DEGRADED`
+
+`ENFORCE_SIGNAL` is the Tier-3 signal-fallback posture: on a host without
+BPF-LSM, when the operator opts in with `--enforce-fallback=signal` and the
+kernel can deliver `bpf_send_signal` (tracepoints + bpf syscall), the daemon
+enforces by **asynchronously killing** a process that performs a denied
+`open()`/`connect()` rather than degrading to audit-only. It is strictly weaker
+than `ENFORCE` (no synchronous `-EPERM`) and is **distinct from it** so the
+No-Pretend invariant holds: `enforce_capable` remains `false` (the
+`BPF_LSM_DISABLED` blocker is still reported) and the daemon never claims
+`ENFORCE` while it cannot synchronously deny.
 
 `requirements_met` is mandatory and must include:
 
