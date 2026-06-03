@@ -132,19 +132,28 @@ see `docs/THREAT_MODEL.md`.
 
 ### Signal-fallback enforcement is opt-in and signal-based
 
-- On kernels without BPF-LSM, `connect()` cannot be denied with `-EPERM`. The
-  opt-in `--enforce-fallback=signal` flag attaches a `sys_enter_connect`
-  tracepoint that, in enforce mode, terminates a process connecting to a denied
-  endpoint via `bpf_send_signal()` (default `SIGKILL`).
-- This is signal-based termination, not synchronous denial: the `connect()` may
-  partially proceed before the signal is delivered on syscall return. Protocol is
-  not resolvable at syscall entry, so only protocol-agnostic rules are evaluated.
-- Verified to fire (`SIGKILL`, `net_connect_block` action=`KILL`) on a connect to
-  a denied IP. NOTE: when BPF-LSM is genuinely absent the enforce-gate currently
-  treats the missing LSM hook as a degradation (fail-closed exit or audit
-  fallback); teaching the gate to accept signal-fallback as primary connect
-  enforcement on no-LSM hosts is a follow-up. Today the tier is verified as
-  defense-in-depth alongside LSM enforcement.
+- On kernels without BPF-LSM, `connect()` and `open()` cannot be denied with
+  `-EPERM`. The opt-in `--enforce-fallback=signal` flag arms two symmetric
+  syscall tracepoints — `sys_enter_connect` (network) and `sys_enter_openat`
+  (file) — that, in enforce mode, terminate a process reaching a denied endpoint
+  or opening a denied path via `bpf_send_signal()` (default `SIGKILL`).
+- This is signal-based termination, not synchronous denial: the syscall may
+  partially proceed before the signal is delivered on syscall return. It is also
+  evaluated on the *syscall-entry* view — protocol is not resolvable for
+  `connect()` (protocol-agnostic rules only), and the file path is matched
+  by-path rather than by-inode, so the file arm does **not** carry the
+  inode-alias guarantee that the `lsm/file_open` deny does (proved in
+  `proofs/inode_alias_resistance.py`). Signal-fallback is a strictly weaker tier.
+- The network arm is verified to fire (`SIGKILL`, `net_connect_block`
+  action=`KILL`) on a connect to a denied IP; the file arm mirrors it on an open
+  of a denied path.
+- **Gate status (honest):** when BPF-LSM is genuinely absent the enforce-gate
+  still treats the missing LSM hook as a degradation (fail-closed exit or audit
+  fallback) — it does not yet *promote* signal-fallback to primary enforcement on
+  no-LSM hosts, because doing so safely requires validating the relaxed
+  No-Pretend gate on a no-LSM kernel. Today both arms are verified as
+  defense-in-depth alongside LSM enforcement; gate promotion is the remaining
+  follow-up.
 
 ## Known bypass classes
 
