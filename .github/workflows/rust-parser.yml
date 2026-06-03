@@ -11,6 +11,11 @@ on:
       - 'src/policy_parse.cpp'
       - 'src/network_ops.cpp'
       - 'src/utils.cpp'
+      - 'src/types.hpp'
+      # the C++ side of the parity gate: the `policy canonical` emitter + dispatch
+      - 'src/commands_policy.cpp'
+      - 'src/cli_policy.cpp'
+      - 'tests/fixtures/parity/**'
       - '.github/workflows/rust-parser.yml'
   workflow_dispatch:
 

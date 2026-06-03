@@ -17,10 +17,17 @@ production parser is a load-bearing, security-critical change (a silent parse
 divergence = a policy that enforces differently than the operator expects), so
 the swap is gated on two things:
 
-1. **Differential parity** — `scripts/rust_policy_parity.sh` runs every policy in
-   the corpus + examples + fixtures, plus thousands of generated adversarial
-   inputs, through *both* the C++ `aegisbpf policy lint`/`validate` and this
-   crate, and fails on any divergence. This is the merge gate
+1. **Differential parity** — `scripts/rust_policy_parity.sh` compares the
+   **full canonical dump** of *both* parsers (the C++ `aegisbpf policy canonical`
+   subcommand and this crate's `canonical_report`): `version`, the set flags,
+   **every stored entry in every category** (in insertion order, with ports and
+   ip:port rules normalized to their parsed/canonical forms), and the sorted
+   error/warning strings. This proves *structural* equivalence — same accept/
+   reject, same de-dup, same canonicalization, same stored result — not merely
+   that the two agree on counts. It runs over the corpus + examples + fixtures
+   plus two deterministic generated families (adversarial junk for the reject/
+   error surface, and always-valid v6 policies for the stored-entry surface),
+   and fails on any divergence. This is the merge gate
    (`.github/workflows/rust-parser.yml`).
 2. **Human review** of the swap PR.
 
@@ -52,11 +59,15 @@ cargo fmt --check
 ## Fidelity caveats (honest scope)
 
 - IP / CIDR validation uses Rust's `std::net::{Ipv4Addr, Ipv6Addr}`, which closely
-  track `inet_pton`/`inet_ntop`. The parity harness quantifies any residual
-  divergence; none is observed over the corpus + 2000 fuzzed inputs.
-- Error/warning *messages* embed values via `from_utf8_lossy`, so a non-UTF-8 byte
-  in a value renders cosmetically differently from C++ in the message text only
-  (the parse decision is unaffected). Realistic policies are UTF-8/ASCII.
-- The proof is "equivalent over the tested corpus + fuzzing," not an exhaustive
-  equivalence proof — which is exactly why the production swap also requires
-  review.
+  track `inet_pton`/`inet_ntop`. The full-structured harness now also compares the
+  *canonicalized* `deny_ip_port` keys (e.g. `2001:db8:0:0:0:0:0:1` →
+  `2001:db8::1`), so any `inet_ntop`-vs-Rust formatting divergence would fail the
+  gate; none is observed over the corpus + fixtures + 4000 generated inputs.
+- Entry text and error/warning *messages* are compared over the UTF-8 input
+  domain: values render via `from_utf8_lossy`, so a non-UTF-8 byte in a stored
+  value or message would render cosmetically differently from C++ (the parse
+  decision and de-dup are unaffected). Realistic operator/CI policies are
+  UTF-8/ASCII; the corpus's only non-ASCII bytes are in comment lines.
+- The proof is "structurally equivalent over the tested corpus + fixtures +
+  fuzzing," not an exhaustive equivalence proof — which is exactly why the
+  production swap also requires review.

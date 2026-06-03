@@ -59,16 +59,16 @@ pub struct Policy {
     pub allow_cgroup_paths: Vec<Vec<u8>>,
     pub deny_ips: Vec<Vec<u8>>,
     pub deny_cidrs: Vec<Vec<u8>>,
-    pub deny_ports: Vec<Vec<u8>>,        // dedup by raw text
-    pub deny_ip_ports: Vec<String>,      // dedup by canonical key
+    pub deny_ports: Vec<(u16, u8, u8)>, // parsed (port, proto, dir); dedup by raw text
+    pub deny_ip_ports: Vec<String>,     // dedup by canonical key
     pub deny_binary_hashes: Vec<String>, // lowercased hex
     pub allow_binary_hashes: Vec<String>,
     pub trusted_exec_hashes: Vec<String>,
     pub deny_comm: Vec<Vec<u8>>,
     pub scan_paths: Vec<Vec<u8>>,
     pub cgroup_deny_inodes: Vec<String>, // dedup key "cgroup|dev:ino"
-    pub cgroup_deny_ips: Vec<String>,
-    pub cgroup_deny_ports: Vec<String>,
+    pub cgroup_deny_ips: Vec<String>,    // dedup key "cgroup|ip"
+    pub cgroup_deny_ports: Vec<(Vec<u8>, (u16, u8, u8))>, // (cgroup, parsed port); dedup key "cgroup|raw"
     pub network_enabled: bool,
     pub cgroup_enabled: bool,
 }
@@ -255,26 +255,38 @@ fn valid_cidr(s: &[u8]) -> bool {
     false
 }
 
-/// Faithful `parse_port_rule`: `port[:proto[:dir]]`.
-fn valid_port_rule(s: &[u8]) -> bool {
+/// Faithful `parse_port_rule`: `port[:proto[:dir]]` -> (port, protocol, direction).
+/// Mirrors C++ `parse_port_rule` exactly, including its defaults (protocol 0 =
+/// any, direction 2 = both) and its tolerance of extra `:`-separated trailing
+/// fields. Returns `None` on any invalid field — same accept/reject set as C++.
+fn parse_port_rule(s: &[u8]) -> Option<(u16, u8, u8)> {
     let parts: Vec<&[u8]> = s.split(|&b| b == b':').collect();
     if parts[0].is_empty() {
-        return false;
+        return None;
     }
-    match parse_uint64(parts[0]) {
-        Some(p) if (1..=65535).contains(&p) => {}
-        _ => return false,
+    let port = match parse_uint64(parts[0]) {
+        Some(p) if (1..=65535).contains(&p) => p as u16,
+        _ => return None,
+    };
+    let mut protocol: u8 = 0; // default "any" (C++ zero-inits the rule)
+    if parts.len() > 1 && !parts[1].is_empty() {
+        protocol = match parts[1] {
+            b"tcp" => 6,
+            b"udp" => 17,
+            b"any" => 0,
+            _ => return None,
+        };
     }
-    if parts.len() > 1 && !parts[1].is_empty() && !matches!(parts[1], b"tcp" | b"udp" | b"any") {
-        return false;
+    let mut direction: u8 = 2; // default "both" (C++ sets rule.direction = 2)
+    if parts.len() > 2 && !parts[2].is_empty() {
+        direction = match parts[2] {
+            b"egress" | b"connect" => 0,
+            b"bind" => 1,
+            b"both" => 2,
+            _ => return None,
+        };
     }
-    if parts.len() > 2
-        && !parts[2].is_empty()
-        && !matches!(parts[2], b"egress" | b"connect" | b"bind" | b"both")
-    {
-        return false;
-    }
-    true
+    Some((port, protocol, direction))
 }
 
 /// Faithful `parse_ip_port_rule` + `canonical_ip_port_rule_key`. Returns the
@@ -534,18 +546,20 @@ pub fn parse_policy(bytes: &[u8], with_conflicts: bool) -> (Policy, PolicyIssues
                     p.network_enabled = true;
                 }
             }
-            b"deny_port" => {
-                if !valid_port_rule(t) {
-                    err(
-                        &mut issues,
-                        line_no,
-                        format!("invalid port rule '{}'", show(t)),
-                    );
-                } else if seen_deny_port.insert(t.to_vec()) {
-                    p.deny_ports.push(t.to_vec());
-                    p.network_enabled = true;
+            b"deny_port" => match parse_port_rule(t) {
+                None => err(
+                    &mut issues,
+                    line_no,
+                    format!("invalid port rule '{}'", show(t)),
+                ),
+                // dedup by raw text (matches C++ deny_port_seen), store parsed tuple
+                Some(rule) => {
+                    if seen_deny_port.insert(t.to_vec()) {
+                        p.deny_ports.push(rule);
+                        p.network_enabled = true;
+                    }
                 }
-            }
+            },
             b"deny_ip_port" => match parse_ip_port_canonical(t) {
                 None => err(
                     &mut issues,
@@ -674,17 +688,19 @@ pub fn parse_policy(bytes: &[u8], with_conflicts: bool) -> (Policy, PolicyIssues
                 Some(sep) => {
                     let cgroup = trim(&t[..sep]);
                     let port = trim(&t[sep + 1..]);
-                    if !valid_port_rule(port) {
-                        err(
+                    match parse_port_rule(port) {
+                        None => err(
                             &mut issues,
                             line_no,
                             format!("invalid port rule '{}'", show(port)),
-                        );
-                    } else {
-                        let key = format!("{}|{}", show(cgroup), show(port));
-                        if seen_cg_port.insert(key.clone()) {
-                            p.cgroup_deny_ports.push(key);
-                            p.cgroup_enabled = true;
+                        ),
+                        // dedup by "cgroup|raw" (matches C++), store (cgroup, parsed)
+                        Some(rule) => {
+                            let key = format!("{}|{}", show(cgroup), show(port));
+                            if seen_cg_port.insert(key) {
+                                p.cgroup_deny_ports.push((cgroup.to_vec(), rule));
+                                p.cgroup_enabled = true;
+                            }
                         }
                     }
                 }
@@ -813,36 +829,80 @@ fn detect_conflicts(p: &Policy, issues: &mut PolicyIssues) {
     }
 }
 
-/// Canonical, machine-comparable report for the differential parity harness.
-/// Errors/warnings are sorted (ordering differences are not flagged); counts
-/// capture de-dup behavior.
+/// Complete, canonical, machine-comparable dump of the parse result, for the
+/// differential parity harness (`scripts/rust_policy_parity.sh`). The C++
+/// `aegisbpf policy canonical` subcommand emits this byte-for-byte over the
+/// UTF-8 input domain, so the two parsers can be proven *structurally*
+/// equivalent — every stored entry, not just counts and issues.
+///
+/// Layout (fixed section order; entries in stored insertion order):
+///   * no errors: `version`, `flag` lines, then every entry in every category,
+///     then sorted `WARN` lines.
+///   * `>= 1` error: the C++ parser discards its partial policy on error, so we
+///     emit no policy lines — only sorted `ERROR` then sorted `WARN` lines.
+///
+/// Flags iterate in `Flag`-enum declaration order (`BTreeSet<Flag>` order); the
+/// C++ side mirrors that exact order. Ports render as the parsed numeric tuple
+/// `port:proto:dir`; `deny_ip_port` / `cgroup_deny_inode` / `cgroup_deny_ip`
+/// render as their canonical dedup keys.
 pub fn canonical_report(p: &Policy, issues: &PolicyIssues) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "version {}", p.version);
-    for f in &p.flags {
-        let _ = writeln!(out, "flag {}", f.as_str());
-    }
-    let counts = [
-        ("deny_path", p.deny_paths.len()),
-        ("protect_path", p.protect_paths.len()),
-        ("deny_inode", p.deny_inodes.len()),
-        ("allow_cgroup_id", p.allow_cgroup_ids.len()),
-        ("allow_cgroup_path", p.allow_cgroup_paths.len()),
-        ("deny_ip", p.deny_ips.len()),
-        ("deny_cidr", p.deny_cidrs.len()),
-        ("deny_port", p.deny_ports.len()),
-        ("deny_ip_port", p.deny_ip_ports.len()),
-        ("deny_binary_hash", p.deny_binary_hashes.len()),
-        ("allow_binary_hash", p.allow_binary_hashes.len()),
-        ("trusted_exec_hash", p.trusted_exec_hashes.len()),
-        ("deny_comm", p.deny_comm.len()),
-        ("scan_paths", p.scan_paths.len()),
-        ("cgroup_deny_inode", p.cgroup_deny_inodes.len()),
-        ("cgroup_deny_ip", p.cgroup_deny_ips.len()),
-        ("cgroup_deny_port", p.cgroup_deny_ports.len()),
-    ];
-    for (name, n) in counts {
-        let _ = writeln!(out, "count {name} {n}");
+    if !issues.has_errors() {
+        let _ = writeln!(out, "version {}", p.version);
+        for f in &p.flags {
+            let _ = writeln!(out, "flag {}", f.as_str());
+        }
+        for v in &p.deny_paths {
+            let _ = writeln!(out, "deny_path {}", show(v));
+        }
+        for v in &p.protect_paths {
+            let _ = writeln!(out, "protect_path {}", show(v));
+        }
+        for v in &p.deny_inodes {
+            let _ = writeln!(out, "deny_inode {v}");
+        }
+        for id in &p.allow_cgroup_ids {
+            let _ = writeln!(out, "allow_cgroup_id {id}");
+        }
+        for v in &p.allow_cgroup_paths {
+            let _ = writeln!(out, "allow_cgroup_path {}", show(v));
+        }
+        for v in &p.deny_ips {
+            let _ = writeln!(out, "deny_ip {}", show(v));
+        }
+        for v in &p.deny_cidrs {
+            let _ = writeln!(out, "deny_cidr {}", show(v));
+        }
+        for &(port, proto, dir) in &p.deny_ports {
+            let _ = writeln!(out, "deny_port {port}:{proto}:{dir}");
+        }
+        for v in &p.deny_ip_ports {
+            let _ = writeln!(out, "deny_ip_port {v}");
+        }
+        for v in &p.deny_binary_hashes {
+            let _ = writeln!(out, "deny_binary_hash {v}");
+        }
+        for v in &p.allow_binary_hashes {
+            let _ = writeln!(out, "allow_binary_hash {v}");
+        }
+        for v in &p.trusted_exec_hashes {
+            let _ = writeln!(out, "trusted_exec_hash {v}");
+        }
+        for v in &p.deny_comm {
+            let _ = writeln!(out, "deny_comm {}", show(v));
+        }
+        for v in &p.scan_paths {
+            let _ = writeln!(out, "scan_paths {}", show(v));
+        }
+        for v in &p.cgroup_deny_inodes {
+            let _ = writeln!(out, "cgroup_deny_inode {v}");
+        }
+        for v in &p.cgroup_deny_ips {
+            let _ = writeln!(out, "cgroup_deny_ip {v}");
+        }
+        for (cg, (port, proto, dir)) in &p.cgroup_deny_ports {
+            let _ = writeln!(out, "cgroup_deny_port {}|{port}:{proto}:{dir}", show(cg));
+        }
     }
     let mut errs: Vec<&String> = issues.errors.iter().collect();
     let mut warns: Vec<&String> = issues.warnings.iter().collect();

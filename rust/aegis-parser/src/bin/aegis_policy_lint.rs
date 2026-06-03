@@ -1,6 +1,7 @@
-//! Differential-harness driver: parse a policy file and print the canonical
-//! report (counts + sorted errors/warnings) the parity harness compares against
-//! the C++ `aegisbpf policy lint`/`validate` output.
+//! Differential-harness driver: parse a policy file and print the full canonical
+//! dump (version, flags, every stored entry, sorted errors/warnings) the parity
+//! harness compares byte-for-byte against the C++ `aegisbpf policy canonical`
+//! output.
 //!
 //! Usage: aegis_policy_lint <policy-file>
 use std::process::ExitCode;
