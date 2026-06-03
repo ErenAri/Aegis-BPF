@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780515124820,
+  "lastUpdate": 1780516977780,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42474,6 +42474,108 @@ window.BENCHMARK_DATA = {
             "value": 55.347589874926236,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.33533420060556 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35bd26825460f1e0b7b443c4ae5a5efab1cec43d",
+          "message": "feat(rust): signed-bundle decoder oxidation + differential parity gate (#217)\n\nSecond target on the Rust untrusted-input-boundary oxidation track (after the\npolicy parser): a faithful, memory-safe Rust port of the signed-policy-bundle\ndecoder (`parse_signed_bundle`, src/crypto.cpp), proven byte-for-byte equivalent\nto C++ by a new differential parity harness. Staged, NOT wired to production —\nswap stays gated on parity-green + human review.\n\nWhy this one: a signed bundle is operator/CI-supplied and is the input to\nsignature verification; its decoder walks attacker-influenceable bytes and its\nseparator split decides which bytes are treated as the signed policy body.\n\nRust (rust/aegis-parser):\n- new `bundle` module: parse_signed_bundle(&[u8]) -> Result<Bundle, String>,\n  faithfully reproducing the C++ observable behavior — separator = first \"---\"\n  substring anywhere, header/field handling, recognized keys, first-error-wins\n  ordering + verbatim primary error strings, and crucially the LENIENT integer\n  parsing of std::stoul/std::stoull (skip ws, leading sign with `-` wrapping for\n  unsigned, trailing junk ignored, overflow -> error; format_version truncates to\n  u32 like the C++ static_cast). 16 unit + adversarial tests (44 crate total).\n- `bundle::canonical_report` + `aegis_bundle_lint` bin emit a canonical dump:\n  `ok` + every field (byte arrays as hex, policy body as length + FNV-1a 64) on\n  success, or `err <message>` on first failure.\n\nC++:\n- hidden diagnostic `aegisbpf policy bundle-canonical <file>` (commands_policy.cpp\n  /cli_policy.cpp) emits the identical dump from parse_signed_bundle, using\n  Error::message() for the primary error (matches the Rust strings).\n\nHarness + CI:\n- scripts/rust_bundle_parity.sh diffs the full dump over committed fixtures +\n  REAL keygen+sign bundles + two deterministic generated families (valid\n  synthetic + adversarial), --fuzz N -> 2N generated. Green 4010/4010.\n- 6 readable fixtures tests/fixtures/bundle_parity/ (valid-full, missing-sep,\n  bad-header, header-not-found, separator-in-value, lenient-ints+unknown-keys).\n- rust-parser.yml runs the bundle gate and triggers on crypto.cpp + fixtures.\n\nNegative control: dropping strtoull's unsigned negative-wrap in the Rust port\n(a lenient-int fidelity bug invisible to a counts-only check) is caught by both a\ncommitted fixture and adversarial fuzz; reverted -> green.\n\nLocal gates: cargo fmt/clippy/test, clang-format, cppcheck, clang-tidy,\nshellcheck, 408 C++ ctests. The policy parity harness is unchanged (4029/4029).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T22:51:32+03:00",
+          "tree_id": "21682b31363a6c07ac37834f76c4f7369e2b0760",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/35bd26825460f1e0b7b443c4ae5a5efab1cec43d"
+        },
+        "date": 1780516976585,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1517.7186163391386,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1517.4036944854363 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3680.149824276156,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3679.7350507778033 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21053.343669765763,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21050.952823494572 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160772.9498589992,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160754.83708700127 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1278088.8718532026,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1277534.0457233833 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5097079.23479317,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5096371.925486607 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4748.811502944495,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4762.071441007634 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34087.29641475729,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34092.287747313334 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 280248.62699354946,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 280316.74676652224 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 881436.8389138599,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 881729.5396471921 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.095413214830636,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.08975010908497 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.68512178755459,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.67700991436435 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.39719166850972,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.39103789049975 ns\nthreads: 1"
           }
         ]
       }
