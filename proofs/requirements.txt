@@ -1,0 +1,2 @@
+# Pinned solver for the machine-checked enforcement proofs.
+z3-solver==4.16.0

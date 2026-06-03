@@ -14,6 +14,8 @@ Fails (exit 1) if:
     whitepaper's "In-scope (ENFORCED)" section,
   * a 'mitigated' entry in docs/BYPASS_CATALOG.md cites no Regression anchor, or
     an anchor that does not resolve to a real test/probe/step,
+  * a bypass entry cites a `**Proof:**` anchor that does not resolve to a real
+    theorem in the machine-checked proofs (proofs/),
   * a hook a manifest class enforces with (lsm/X) is missing from the capability
     catalog src/hook_capabilities.cpp (as bpf_lsm_X).
 
@@ -38,11 +40,13 @@ BYPASS_CATALOG = REPO / "docs/BYPASS_CATALOG.md"
 BYPASS_TESTS = REPO / "tests/e2e/test_bypasses.cpp"
 KERNEL_MATRIX = REPO / ".github/workflows/kernel-matrix.yml"
 HOOK_CATALOG = REPO / "src/hook_capabilities.cpp"
+PROOFS_DIR = REPO / "proofs"
 
 ASSERT_RE = re.compile(r"assert_blocked\s+([A-Za-z_]\w*)")
 ENTRY_RE = re.compile(r"\n### (BYP-\S+)[^\n]*\n")
 STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)")
 REGRESSION_RE = re.compile(r"\*\*Regression:\*\*\s*(.+)")
+PROOF_RE = re.compile(r"\*\*Proof:\*\*\s*(.+)")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
 
 
@@ -92,9 +96,16 @@ def parse_catalog_entries(text: str) -> list[dict]:
         body = parts[i + 1] if i + 1 < len(parts) else ""
         status_m = STATUS_RE.search(body)
         reg_m = REGRESSION_RE.search(body)
+        proof_m = PROOF_RE.search(body)
         anchors = BACKTICK_RE.findall(reg_m.group(1)) if reg_m else []
+        proof_anchors = BACKTICK_RE.findall(proof_m.group(1)) if proof_m else []
         entries.append(
-            {"id": byp_id, "status": status_m.group(1) if status_m else None, "anchors": anchors}
+            {
+                "id": byp_id,
+                "status": status_m.group(1) if status_m else None,
+                "anchors": anchors,
+                "proof_anchors": proof_anchors,
+            }
         )
     return entries
 
@@ -111,6 +122,24 @@ def resolve_regression_anchor(anchor: str, src: dict[str, str]) -> bool:
         step = anchor.split(":", 1)[1]
         return f"name: {step}" in src["kernel_matrix"]
     return False
+
+
+def resolve_proof_anchor(anchor: str) -> bool:
+    """True if a `**Proof:**` anchor resolves to a real theorem in proofs/.
+
+    Anchor form: `<script.py>::<TheoremId>`, e.g.
+    `inode_alias_resistance.py::T2`. Resolves when the script exists in proofs/
+    and contains a discharged obligation whose label starts with that id.
+    """
+    if "::" not in anchor:
+        return False
+    script, theorem = anchor.split("::", 1)
+    path = PROOFS_DIR / script
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8")
+    # Theorem labels appear as check("Tn ...", ...) strings in the proof script.
+    return re.search(rf'"{re.escape(theorem)}\b', text) is not None
 
 
 def main() -> int:
@@ -198,6 +227,23 @@ def main() -> int:
     except FileNotFoundError as exc:
         errors.append(f"bypass catalog check: {exc}")
 
+    # Any entry citing a machine-checked Proof anchor must resolve to a real
+    # theorem (entries may cite a proof regardless of status; the proof binds the
+    # *logic*, the regression binds the *behavior*).
+    proven = 0
+    try:
+        for entry in parse_catalog_entries(read(BYPASS_CATALOG)):
+            for anchor in entry["proof_anchors"]:
+                if resolve_proof_anchor(anchor):
+                    proven += 1
+                else:
+                    errors.append(
+                        f"bypass {entry['id']} Proof anchor {anchor!r} does not resolve "
+                        "to a real theorem in proofs/"
+                    )
+    except FileNotFoundError as exc:
+        errors.append(f"bypass catalog proof check: {exc}")
+
     if errors:
         print("Enforcement proof contract FAILED:", file=sys.stderr)
         for e in errors:
@@ -207,7 +253,8 @@ def main() -> int:
     print(
         f"Enforcement proof contract validated: {len(manifest)} classes "
         f"({', '.join(sorted(manifest_classes))}) bound to harness probes and whitepaper claims; "
-        f"{mitigated} mitigated bypass entries each backed by a regression."
+        f"{mitigated} mitigated bypass entries each backed by a regression; "
+        f"{proven} bypass entries additionally backed by a machine-checked proof."
     )
     return 0
 
