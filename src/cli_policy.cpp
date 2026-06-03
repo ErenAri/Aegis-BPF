@@ -56,6 +56,14 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
         return cmd_policy_validate(argv[3], verbose);
     }
 
+    // Hidden diagnostic seam (not in usage): emit a canonical full-structured
+    // dump of the parsed policy for the Rust differential-parity harness.
+    if (sub == "canonical") {
+        if (argc != 4)
+            return usage(prog);
+        return cmd_policy_canonical(argv[3]);
+    }
+
     if (sub == "apply") {
         if (argc < 4)
             return usage(prog);

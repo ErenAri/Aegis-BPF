@@ -7,12 +7,14 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #include "bpf_ops.hpp"
 #include "crypto.hpp"
@@ -162,6 +164,105 @@ int cmd_policy_validate(const std::string& path, bool verbose)
     }
 
     return 0;
+}
+
+// Emit a complete, canonical, machine-comparable dump of the parsed policy for
+// the Rust differential-parity harness (scripts/rust_policy_parity.sh). This is
+// a hidden diagnostic/test seam, not part of the public CLI: it mirrors, byte
+// for byte over the UTF-8 input domain, what rust/aegis-parser's
+// canonical_report() produces, so the two parsers can be proven *structurally*
+// equivalent (every stored entry, not just counts and issues).
+//
+// Layout (fixed section order; entries in stored insertion order):
+//   * no errors: `version`, `flag` lines, then every entry in every category,
+//     then sorted `WARN` lines.
+//   * >=1 error: the parser discards the partial policy on error, so only sorted
+//     `ERROR` then sorted `WARN` lines are emitted.
+// Ports render as the parsed numeric tuple `port:proto:dir`; deny_ip_port and
+// cgroup_deny_inode/ip render as their canonical dedup keys. Only the canonical
+// dump goes to stdout (the harness reads stdout; logs go to stderr).
+int cmd_policy_canonical(const std::string& path)
+{
+    PolicyIssues issues;
+    auto result = parse_policy_file(path, issues);
+    if (result) {
+        detect_policy_conflicts(*result, issues);
+    }
+
+    auto port_tuple = [](const PortRule& pr) {
+        return std::to_string(pr.port) + ":" + std::to_string(static_cast<unsigned>(pr.protocol)) + ":" +
+               std::to_string(static_cast<unsigned>(pr.direction));
+    };
+
+    std::string out;
+    if (!issues.has_errors()) {
+        const Policy& policy = *result;
+        out += "version " + std::to_string(policy.version) + "\n";
+        // Flag order MUST match the rust/aegis-parser `Flag` enum declaration
+        // order (its BTreeSet<Flag> iterates in that order), NOT alphabetical.
+        if (policy.protect_connect)
+            out += "flag protect_connect\n";
+        if (policy.protect_runtime_deps)
+            out += "flag protect_runtime_deps\n";
+        if (policy.require_ima_appraisal)
+            out += "flag require_ima_appraisal\n";
+        if (policy.ima_fail_closed)
+            out += "flag ima_fail_closed\n";
+        if (policy.deny_ptrace)
+            out += "flag deny_ptrace\n";
+        if (policy.deny_module_load)
+            out += "flag deny_module_load\n";
+        if (policy.deny_bpf)
+            out += "flag deny_bpf\n";
+
+        for (const auto& v : policy.deny_paths)
+            out += "deny_path " + v + "\n";
+        for (const auto& v : policy.protect_paths)
+            out += "protect_path " + v + "\n";
+        for (const auto& id : policy.deny_inodes)
+            out += "deny_inode " + inode_to_string(id) + "\n";
+        for (uint64_t id : policy.allow_cgroup_ids)
+            out += "allow_cgroup_id " + std::to_string(id) + "\n";
+        for (const auto& v : policy.allow_cgroup_paths)
+            out += "allow_cgroup_path " + v + "\n";
+        for (const auto& v : policy.network.deny_ips)
+            out += "deny_ip " + v + "\n";
+        for (const auto& v : policy.network.deny_cidrs)
+            out += "deny_cidr " + v + "\n";
+        for (const auto& pr : policy.network.deny_ports)
+            out += "deny_port " + port_tuple(pr) + "\n";
+        for (const auto& r : policy.network.deny_ip_ports)
+            out += "deny_ip_port " + r.ip + "|" + std::to_string(r.port) + "|" +
+                   std::to_string(static_cast<unsigned>(r.protocol)) + "\n";
+        for (const auto& v : policy.deny_binary_hashes)
+            out += "deny_binary_hash " + v + "\n";
+        for (const auto& v : policy.allow_binary_hashes)
+            out += "allow_binary_hash " + v + "\n";
+        for (const auto& v : policy.trusted_exec_hashes)
+            out += "trusted_exec_hash " + v + "\n";
+        for (const auto& v : policy.deny_comm)
+            out += "deny_comm " + v + "\n";
+        for (const auto& v : policy.scan_paths)
+            out += "scan_paths " + v + "\n";
+        for (const auto& r : policy.cgroup.deny_inodes)
+            out += "cgroup_deny_inode " + r.cgroup + "|" + inode_to_string(r.inode) + "\n";
+        for (const auto& r : policy.cgroup.deny_ips)
+            out += "cgroup_deny_ip " + r.cgroup + "|" + r.ip + "\n";
+        for (const auto& r : policy.cgroup.deny_ports)
+            out += "cgroup_deny_port " + r.cgroup + "|" + port_tuple(r.port) + "\n";
+    }
+
+    std::vector<std::string> errs = issues.errors;
+    std::vector<std::string> warns = issues.warnings;
+    std::sort(errs.begin(), errs.end());
+    std::sort(warns.begin(), warns.end());
+    for (const auto& e : errs)
+        out += "ERROR " + e + "\n";
+    for (const auto& w : warns)
+        out += "WARN " + w + "\n";
+
+    std::cout << out;
+    return issues.has_errors() ? 1 : 0;
 }
 
 int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
