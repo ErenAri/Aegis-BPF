@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780497206701,
+  "lastUpdate": 1780515124820,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42372,6 +42372,108 @@ window.BENCHMARK_DATA = {
             "value": 55.79698148612385,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.7873874169915 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c40e3d69852fd80a0de813aab2d4c0a7d07f891",
+          "message": "test(parser): full-structured differential parity (canonical dump + valid fuzzer) (#216)\n\nUpgrade the Rust<->C++ policy-parser parity proof from counts+issues to\ncomplete structured-output equivalence, so the gate proves the two parsers\nstore the SAME result, not merely that they agree on how many entries survived.\n\nWhat changed (test/proof-only; the production parser is unchanged and the Rust\nswap remains gated on this harness + human review):\n\n- New hidden diagnostic subcommand `aegisbpf policy canonical <file>` emits a\n  complete canonical dump: version, set flags (in Flag-enum order), every stored\n  entry in every category (insertion order), and sorted error/warning strings.\n  Ports render as the parsed numeric tuple `port:proto:dir`; deny_ip_port and\n  cgroup_deny_inode/ip as their canonical dedup keys. On parse error it emits\n  only sorted ERROR/WARN (the C++ parser discards its partial policy), matching\n  Rust.\n- Rust `canonical_report` rewritten to the same format; `parse_port_rule` now\n  returns the parsed (port,proto,dir) tuple (faithful to C++ defaults: proto=0,\n  dir=2) and Policy stores parsed port tuples for deny_port / cgroup_deny_port\n  (de-dup keys unchanged: by raw text / \"cgroup|raw\").\n- Harness `scripts/rust_policy_parity.sh` now diffs the full canonical dump.\n  Because the structural surface only bites on error-free policies (the dump\n  suppresses entry lines on error) and the old adversarial fuzzer produced only\n  ~9% error-free inputs with ~0 stored ports, it gained a second deterministic\n  family: always-valid v6 policies built from valid entries (respecting cross-\n  field flag constraints), exercising every category + port/ip:port tuple\n  normalization + de-dup. --fuzz N now generates N adversarial + N valid.\n- Added readable regression fixtures under tests/fixtures/parity/ pinning the\n  tricky cases: all-categories/all-flags, port-tuple defaults + egress/connect\n  de-dup, and ip:port canonicalization (incl. non-canonical/uppercase IPv6 ->\n  identical inet_ntop/Rust output, and omitted-proto == :any de-dup).\n\nValidation: green at 4029/4029 (corpus + fixtures + 4000 generated). Negative\ncontrol: injecting a port-tuple fault (default dir 2->1) that leaves\naccept/reject and counts unchanged — which the OLD counts+issues harness missed\n(stayed green) — is now caught by both the fixtures and the valid fuzzer.\n\nAlso: rust-parser.yml `paths:` now includes the C++ side of the gate\n(commands_policy.cpp, cli_policy.cpp, types.hpp, tests/fixtures/parity) so\nemitter changes re-run the gate.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T22:20:18+03:00",
+          "tree_id": "cf8b428390041304793a5e74cdcd1a8af87be5f9",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/9c40e3d69852fd80a0de813aab2d4c0a7d07f891"
+        },
+        "date": 1780515123583,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1528.023582264126,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1527.8144338709888 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3659.866216876344,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3658.9052048720678 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20962.364131676393,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20959.62651235212 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159044.08099335697,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159023.63105751856 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1269352.018526854,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1269178.198994899 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5053641.323741019,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5052267.553357311 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4726.084011003767,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4742.394428299205 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34060.829195089376,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34065.3628249091 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 280880.97207162675,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 280926.2246516054 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 865273.2063983302,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 865525.852734872 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.20464069024487,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.192740953896326 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.46039148965356,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.45111057789279 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.347589874926236,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.33533420060556 ns\nthreads: 1"
           }
         ]
       }
