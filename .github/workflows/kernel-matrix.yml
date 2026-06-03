@@ -87,6 +87,20 @@ jobs:
           if [ "$rc" -eq 77 ]; then echo "::notice::enforcement proof skipped (rc=77)"; exit 0; fi
           exit "$rc"
 
+      # Tier-3 signal-fallback + ENFORCE_SIGNAL gate promotion. Forces the
+      # no-BPF-LSM code path via the AEGIS_LSM_PATH seam, so it runs on every
+      # matrix kernel regardless of whether that kernel has BPF-LSM. Exit 77 =
+      # honestly skipped (not root / no systemd-run).
+      - name: Signal-fallback enforcement proof
+        if: success()
+        env:
+          AEGIS_BIN: build/aegisbpf
+          AEGIS_BPF_OBJ: build/aegis.bpf.o
+        run: |
+          sudo -E bash tests/enforcement/signal_fallback_proof.sh; rc=$?
+          if [ "$rc" -eq 77 ]; then echo "::notice::signal-fallback proof skipped (rc=77)"; exit 0; fi
+          exit "$rc"
+
       - name: Test overlayfs deny path
         if: success()
         run: |
