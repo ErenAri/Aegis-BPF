@@ -1,0 +1,63 @@
+name: Rust Parser
+
+# Builds + tests the Rust policy-parser oxidation and proves it stays behavior-
+# equivalent to the C++ parser via the differential parity harness (the gate that
+# must be green before the production parser is swapped to Rust).
+on:
+  pull_request:
+    paths:
+      - 'rust/aegis-parser/**'
+      - 'scripts/rust_policy_parity.sh'
+      - 'src/policy_parse.cpp'
+      - 'src/network_ops.cpp'
+      - 'src/utils.cpp'
+      - '.github/workflows/rust-parser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-parser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Toolchain
+        working-directory: rust/aegis-parser
+        run: |
+          rustup show active-toolchain || rustup default stable
+          rustup component add clippy rustfmt
+
+      - name: Format
+        working-directory: rust/aegis-parser
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: rust/aegis-parser
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit + adversarial tests
+        working-directory: rust/aegis-parser
+        run: cargo test
+
+      - name: Release build
+        working-directory: rust/aegis-parser
+        run: cargo build --release
+
+      # --- differential parity gate (Rust <-> C++) ---
+      - name: Install C++ build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build libgtest-dev
+
+      - name: Build aegisbpf (host, no BPF object)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
+          cmake --build build --target aegisbpf
+
+      - name: Differential parity (corpus + 2000 fuzzed policies)
+        run: scripts/rust_policy_parity.sh --fuzz 2000
