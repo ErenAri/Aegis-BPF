@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780496631114,
+  "lastUpdate": 1780497206701,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42276,6 +42276,102 @@ window.BENCHMARK_DATA = {
             "value": 53.81173911049023,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.80710090102762 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d6ad5706fe09cd57a696fe9a7b8df1be2d5e588f",
+          "message": "test(enforcement): behavioral proof for ENFORCE_SIGNAL gate promotion (#215)\n\nCloses the one remaining Tier-3 validation gap. The gate promotion (#214)\nand the file/net signal-fallback arms (#212) were unit- and load-tested,\nbut the end-to-end no-BPF-LSM enforcement behavior had no behavioral test\n(it nominally needed a no-BPF-LSM kernel).\n\ntests/enforcement/signal_fallback_proof.sh exercises the agent's REAL\nno-BPF-LSM code path on any kernel via the AEGIS_LSM_PATH test seam\n(kernel_features.cpp reads it instead of /sys/kernel/security/lsm). The\nagent then believes BPF-LSM is absent and attaches ONLY the tracepoints\n— exactly what happens on a genuinely no-BPF-LSM kernel; the\ntracepoint+bpf_send_signal mechanism is kernel-version-independent.\n\nAsserts end-to-end:\n  - gate promotes: runtime_state == ENFORCE_SIGNAL, audit_only == false\n  - No-Pretend: enforce_capable == false (BPF_LSM_DISABLED still reported)\n  - enforcement fires: a denied open() from a non-exempt cgroup is killed\n    by a signal (exit > 128). Without the signal the open would SUCCEED\n    (no LSM -EPERM on this path), so a signal-kill is unambiguous proof.\n\nVerified locally on 6.17: all 4 assertions PASS (ENFORCE_SIGNAL posture,\nhonest capability report, denied open killed exit=143). Wired into\nkernel-matrix.yml so it runs on every matrix kernel (exit 77 = skipped\nwhen not root / no systemd-run). GUARANTEES.md updated: the gate-promotion\nbehavior is now behaviorally proven, not a follow-up.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T17:21:52+03:00",
+          "tree_id": "280af66c425b610eb7872b3e53a3ea046c97e8e0",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/d6ad5706fe09cd57a696fe9a7b8df1be2d5e588f"
+        },
+        "date": 1780497204622,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1525.6972369723599,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1525.5545811643124 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3748.8790363680055,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3748.063807211341 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21771.90446569119,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21769.894769167262 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166452.20227606484,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166435.5769635276 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1320130.6282354824,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1319803.339804293 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5299932.390151525,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5299426.207702025 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4783.03359583592,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4785.355560438299 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33275.10948582051,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33275.84912597312 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 271440.6124506336,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 271399.9400965785 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 814885.9279438191,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 814968.4218902917 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.6440736906612,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.63775615399037 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.79698148612385,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.7873874169915 ns\nthreads: 1"
           }
         ]
       }
