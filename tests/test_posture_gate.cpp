@@ -19,7 +19,7 @@ TEST(PostureGate, EligibleWhenOptedInOnNoLsmSignalCapableHost)
 
 TEST(PostureGate, NotEligibleWithoutOptIn)
 {
-    EXPECT_FALSE(signal_fallback_enforce_eligible(true, true, /*opt_in=*/false, true, true));
+    EXPECT_FALSE(signal_fallback_enforce_eligible(true, true, /*enforce_fallback_signal=*/false, true, true));
 }
 
 TEST(PostureGate, NotEligibleInAuditMode)
