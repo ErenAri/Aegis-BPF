@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780440979673,
+  "lastUpdate": 1780493270453,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -41898,6 +41898,90 @@ window.BENCHMARK_DATA = {
             "value": 66.308501363649,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 66.30003422007307 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63ad98f6149ea18145fd623085aa7238df0376ba",
+          "message": "feat(proofs): machine-checked inode-alias bypass-resistance (Z3) (#211)\n\nUpgrade the BYP-M1..M4,M6 path-aliasing bypass family from behavioral\nprobes (\"we created an alias and observed -EPERM\") to a machine-checked\nproperty of the enforcement decision itself.\n\nproofs/inode_alias_resistance.py models handle_file_open /\nhandle_inode_permission_impl (bpf/aegis_file.bpf.h) line-for-line and\ndischarges 8 obligations under Z3: the LSM verdict is a pure function of\n(inode identity, cgroup, rule flags, config) and never of the path, so\nno symlink/hardlink/rename/bind-mount/overlay alias can change it (T1,\nT2, T3); inode-keying does not over-block (T4); a cgroup-scoped deny\nsurvives the global allowlist (T5, locks the `!cg_rule` guard);\ndeterminism (T6); + anti-vacuity witnesses.\n\nHonesty guard: proofs/check_model_fidelity.py hashes the brace-balanced\nhook bodies and fails the build if they drift from the verified model,\nso the proof cannot silently go stale (MODEL_FIDELITY.lock). Both guards\nhave negative tests confirming they fail on tampering.\n\nWiring:\n- proofs/run.sh: self-contained venv runner (pinned z3-solver==4.16.0)\n- ci.yml enforcement-proof-contract job runs the proofs + fidelity guard\n- validate_enforcement_proof_contract.py recognizes `**Proof:**` anchors\n  (`<script>::<TheoremId>`) and machine-validates they resolve\n- docs/BYPASS_CATALOG.md cites the theorems alongside the regressions\n\nThis is the \"machine-checked guarantees\" half of the enforcement wedge.\nScope is stated honestly in proofs/README.md: it proves properties of a\nmodel of the C logic (guarded by digest), not the compiled bytecode;\ncomplementary to the behavioral kernel-matrix probes.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-03T16:16:55+03:00",
+          "tree_id": "c8910d6db89897bde02c49196771b0f6e26d1348",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/63ad98f6149ea18145fd623085aa7238df0376ba"
+        },
+        "date": 1780493268535,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 911.5780033473899,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 911.5545281200149 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2343.365959966279,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2343.30875221239 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 14138.27884787454,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 14137.070163273269 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 109770.65088688383,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 109768.10081816296 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 855926.7778115487,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 855907.4118034425 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3445564.134020621,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3445458.6125429613 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 2701.933564368473,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2704.7108563202514 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 17338.417262677463,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 17340.87907113405 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 138545.06002535872,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 138545.65719385011 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 423166.97803205554,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 423209.8418143456 ns\nthreads: 1"
           }
         ]
       }
