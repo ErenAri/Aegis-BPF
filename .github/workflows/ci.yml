@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Binary-hardening contract
+        run: bash scripts/check_hardening.sh build/aegisbpf
+
   test:
     runs-on: ubuntu-24.04
     steps:

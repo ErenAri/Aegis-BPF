@@ -11,8 +11,11 @@ The userspace agent is **hardened C++**, not memory-safe-by-construction. The
 mitigations in place today:
 
 - **Compiler hardening:** `_FORTIFY_SOURCE`, stack-protector-strong, PIE,
-  full RELRO, and the standard warning/`-Werror` surface (see `CMakeLists.txt`
-  and the binary-hardening contract test).
+  full RELRO, a non-executable stack, Intel CET (IBT + shadow stack on x86_64),
+  and the standard warning/`-Werror` surface (set in `CMakeLists.txt`). These are
+  enforced against the linked ELF by `scripts/check_hardening.sh`, run in CI's
+  `build` job, so a future build-system change that silently drops a mitigation
+  fails the build.
 - **Sanitizer CI:** AddressSanitizer, ThreadSanitizer, and
   UndefinedBehaviorSanitizer builds run in CI (`build-asan*`, `build-tsan*`,
   `build-ubsan*`).
