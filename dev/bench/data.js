@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780516977780,
+  "lastUpdate": 1780584796589,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42576,6 +42576,108 @@ window.BENCHMARK_DATA = {
             "value": 54.39719166850972,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.39103789049975 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec38d5cfb1152484abde548f8960b086b9e92596",
+          "message": "fix(rust): repair clippy 1.95 collapsible_match in bundle decoder (#228)\n\nPR #217 was squash-merged at a commit whose rust-parser check was red:\nclippy 1.95.0 (the CI toolchain) flags the `if !hex_to_bytes(...)`\narm bodies in parse_signed_bundle as collapsible_match, so the gate\nfails on main and would block the next PR touching the crate.\n\nReplace the boolean hex_to_bytes(&mut out) helper with a generic\nhex_decode::<N>() -> Option<[u8; N]> and match on the Option in the\nsigner_key/signature arms. The const-generic form is also harder to\nmisuse (the expected length is encoded in the type). No behavior\nchange: bundle differential parity remains 4010/4010.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-04T17:41:48+03:00",
+          "tree_id": "1e72ce3ca070de00f0995ea3e9dcd6f493c98f96",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/ec38d5cfb1152484abde548f8960b086b9e92596"
+        },
+        "date": 1780584794618,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1527.4732665227764,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1527.31871494043 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3690.637061977932,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3689.7856235570366 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21083.622641035763,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21081.47951881644 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160114.15832284413,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160098.23882404543 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1274598.8562878745,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1274461.155681818 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5090521.883515813,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5089280.45072994 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4742.624810308364,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4752.960670943159 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34154.50540205491,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34168.06840525706 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 276483.45533979015,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 276495.30910690414 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 860498.3614360522,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 860797.5198458461 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.54267864715596,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.53277791578437 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.05941844675797,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.0517088569567 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.85178362864446,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.841306368256966 ns\nthreads: 1"
           }
         ]
       }
