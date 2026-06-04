@@ -30,6 +30,10 @@ The highest-risk code is the **untrusted-input boundary** — anything that
 parses bytes an attacker can influence:
 
 - the policy file parser (`src/policy_parse.cpp`),
+- the signed-policy-bundle decoder (`parse_signed_bundle`, `src/crypto.cpp`),
+- the BPF ring-buffer event decoder (`handle_event` + `print_*_event`,
+  `src/events.cpp`), which `static_cast`s a raw kernel record and walks
+  fixed-offset fields,
 - the event / JSON decoders (`src/json_scan.cpp`, the `explain <event.json>`
   path).
 
@@ -41,11 +45,19 @@ touches trusted, agent-generated data.
 1. **Harden further (cheap, in progress):** `_FORTIFY_SOURCE=3`,
    `-D_GLIBCXX_ASSERTIONS`, `-fstack-clash-protection`, and CFI
    (`-fsanitize=cfi` with LTO); evaluate a hardened allocator.
-2. **Oxidize the untrusted-input boundary (planned):** migrate the policy
-   parser and event decoders to Rust behind a C ABI shim, and wire those Rust
-   targets into continuous fuzzing (OSS-Fuzz). This puts memory-safe code
-   exactly where attacker-influenced bytes are parsed, without rewriting the
-   working, test-covered remainder.
+2. **Oxidize the untrusted-input boundary (in progress):** memory-safe Rust
+   ports of the three highest-risk decoders now live in `rust/aegis-parser`
+   (`policy`, `bundle`, `event`), each proven behavior-equivalent to its C++
+   original by a differential-parity merge gate
+   (`scripts/rust_*_parity.sh`, `.github/workflows/rust-parser.yml`) over a
+   corpus + fixtures + deterministic fuzzing. They are **staged, not yet
+   swapped**: the C++ implementations remain authoritative until each swap
+   passes its parity gate *and* human review (and the crate is linked into the
+   build — an architectural step deliberately kept separate). The next steps are
+   wiring the Rust targets in behind their C ABI shim and into continuous
+   fuzzing (OSS-Fuzz). This puts memory-safe code exactly where
+   attacker-influenced bytes are parsed, without rewriting the working,
+   test-covered remainder.
 3. **Full Rust/Aya rewrite is explicitly deferred.** It is the right greenfield
    answer, but it would discard a verified, test-covered asset for a property
    that hardening + privilege-separation + targeted Rust + fuzzing already
@@ -56,4 +68,6 @@ touches trusted, agent-generated data.
 This is not a claim that the agent is memory-safe. It is a claim that the
 memory-safety risk is **identified, bounded, mitigated, and on a path to
 reduction** — and that the most dangerous 10% (untrusted parsers) is the first
-thing being moved to a memory-safe language.
+thing being moved to a memory-safe language: the three highest-risk decoders
+already have proven-equivalent Rust ports staged behind parity gates, awaiting
+the human-reviewed production swap.

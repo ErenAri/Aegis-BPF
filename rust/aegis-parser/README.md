@@ -2,11 +2,14 @@
 
 Memory-safe Rust parsers for the AegisBPF **untrusted-input boundary**. This
 crate is part of the Rust-oxidation track of the enforcement wedge (memory-safe
-parsing of attacker/CI-influenced input). Two targets are ported and proven:
+parsing of attacker/CI-influenced input). Three targets are ported and proven:
 
 - `policy` — the policy-file parser (`src/policy_parse.cpp`).
 - `bundle` — the signed-policy-bundle decoder (`parse_signed_bundle`,
   `src/crypto.cpp`), the input to signature verification.
+- `event` — the BPF ring-buffer event decoder (`handle_event` + the
+  `print_*_event` field extraction, `src/events.cpp`), which walks raw kernel
+  records with manual offsets.
 
 ## Status: proven, staged — NOT yet in the production path
 
@@ -24,7 +27,21 @@ leading whitespace, accept a leading sign with `-` wrapping for unsigned, ignore
 trailing non-digits, treat overflow as an error; `format_version` truncates to
 `u32` like the C++ `static_cast`).
 
-Neither is wired into the live `policy apply`/`run` path yet. Swapping a
+`event::canonical_report` is a faithful, bounds-checked port of the C++ event
+consumer `handle_event`: dispatch on the `u32` `type` at record offset 0, read
+every typed payload through the `Event` union (payload at offset 8, verified by a
+layout probe against `src/types.hpp`), extract `char[]` fields like C++
+`to_string` (`string(buf, strnlen(buf, n))`), and derive the net-block label from
+`direction` / the kernel-block label from the `rule_type` string exactly as
+`print_net_block_event` / `print_kernel_block_event` do. Where the C++ consumer
+does `static_cast<const Event*>(data)` and **discards the record size**, the Rust
+decoder bounds-checks every read — a short record yields `err short_buffer <len>`
+instead of an out-of-bounds read. (It faithfully preserves one latent C++ quirk —
+the offset-8 forensic union read against a BPF-emitted bare `forensic_event` — so
+the swap stays behavior-preserving; the producer/consumer size mismatch is a
+separate, human-reviewed concern. See the module docs.)
+
+None is wired into the live `policy apply`/`run` (or event-consumer) path yet. Swapping a
 production parser is a load-bearing, security-critical change (a silent parse
 divergence = a policy that enforces differently than the operator expects, or a
 different byte range treated as the signed body), so each swap is gated on two
@@ -45,24 +62,35 @@ things:
    bundle-canonical` dump against the crate's `bundle::canonical_report` over
    committed fixtures, **real** `keygen`+`sign` bundles, and two generated
    families (valid synthetic + adversarial). Both are merge gates
-   (`.github/workflows/rust-parser.yml`).
+   (`.github/workflows/rust-parser.yml`). The BPF-event decoder has a third
+   harness, `scripts/rust_event_parity.sh`, comparing the C++ `aegisbpf policy
+   event-canonical` dump against the crate's `event::canonical_report` over
+   committed binary fixtures and two generated families (valid Event-shaped
+   records across every event type, and adversarial random-length/random-byte
+   records). It is also a merge gate.
 2. **Human review** of the swap PR.
 
 Until both are satisfied, the C++ parser remains authoritative. The `ffi` module
-(`aegis_policy_parse` + `AegisPolicySink`) is the C ABI seam the swap will use,
-so promotion is a wiring change rather than a rewrite.
+(`aegis_policy_parse` + `AegisPolicySink`) is the C ABI seam for the **policy**
+swap specifically; it is the template each swap follows — the `bundle` and
+`event` decoders still need their own analogous C ABI exports wired before they
+can be promoted. So promotion is a (still-pending) wiring change against an
+established pattern rather than a rewrite.
 
-## Why oxidize this first
+## Why these three
 
 The policy parser is the most operator-facing untrusted-input surface. The C++
 implementation is already `std::string`-based (bounds-safe), so the immediate win
 is *defense-in-depth* and a single, `unsafe`-free, exhaustively-fuzzable parser —
-not a fix for a known memory bug. The signed-bundle decoder (now ported in
-`bundle`) is the second target: it sits on the same untrusted boundary and its
-split point decides which bytes are treated as the signed policy body. The
-remaining target — the event binary decoder, which walks raw ringbuf buffers with
-manual offsets — carries the most raw memory-safety value and reuses this crate's
-FFI + parity pattern.
+not a fix for a known memory bug. The signed-bundle decoder (`bundle`) is the
+second target: it sits on the same untrusted boundary and its split point decides
+which bytes are treated as the signed policy body. The event binary decoder
+(`event`) is the third and carries the most raw memory-safety value: the C++
+`handle_event` does `static_cast<const Event*>(data)` over a raw ring-buffer
+record, reads fixed-offset fields and walks fixed-size `char` arrays, and
+**discards the record size** — so a producer/consumer struct-layout drift or a
+short record becomes a silent out-of-bounds read. The Rust port bounds-checks
+every read and reuses this crate's parity pattern.
 
 ## Develop
 
@@ -75,6 +103,7 @@ cargo fmt --check
 # differential parity vs the C++ originals (needs build/aegisbpf):
 ../../scripts/rust_policy_parity.sh --fuzz 2000
 ../../scripts/rust_bundle_parity.sh --fuzz 2000
+../../scripts/rust_event_parity.sh  --fuzz 2000
 ```
 
 ## Fidelity caveats (honest scope)
@@ -93,6 +122,18 @@ cargo fmt --check
   (computed identically on both sides) rather than dumping raw bytes; this pins
   the separator split exactly without emitting large/binary bodies. It validates
   *parsing*, not signature cryptography (`verify_bundle` is unchanged C++).
+- The event harness pins the *decode* (field offsets, integer endianness,
+  NUL-terminated `char[]` extraction via length-exact hex, and the
+  direction/`rule_type` → label derivation), not address *text* formatting:
+  remote addresses are compared as raw hex bytes, so the `inet_ntop`-vs-Rust
+  formatting question (already a documented caveat above) is deliberately out of
+  this gate's scope — the bytes are pinned, the presentation is not. It also
+  faithfully preserves `handle_event`'s offset-8 forensic union read; the
+  separate observation that the BPF side emits a *bare* `forensic_event` (so that
+  read shifts/over-reads a real wire record) is filed for human review, not fixed
+  here, because a fidelity-preserving oxidation must not silently change behavior.
+  Multi-byte integers are read little-endian (native order on the x86-64/aarch64
+  hosts that run the daemon); a big-endian consumer host is out of scope.
 - The proof is "structurally equivalent over the tested corpus + fixtures +
   fuzzing," not an exhaustive equivalence proof — which is exactly why the
   production swap also requires review.

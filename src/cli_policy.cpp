@@ -70,6 +70,12 @@ int dispatch_policy_command(int argc, char** argv, const char* prog)
         return cmd_policy_bundle_canonical(argv[3]);
     }
 
+    if (sub == "event-canonical") {
+        if (argc != 4)
+            return usage(prog);
+        return cmd_policy_event_canonical(argv[3]);
+    }
+
     if (sub == "apply") {
         if (argc < 4)
             return usage(prog);

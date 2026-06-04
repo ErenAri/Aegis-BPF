@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -23,6 +25,7 @@
 #include "policy.hpp"
 #include "sha256.hpp"
 #include "tracing.hpp"
+#include "types.hpp"
 #include "utils.hpp"
 
 namespace aegis {
@@ -326,6 +329,237 @@ int cmd_policy_bundle_canonical(const std::string& path)
     out += "policy_sha256 " + b.policy_sha256 + "\n";
     out += "policy_content_len " + std::to_string(b.policy_content.size()) + "\n";
     out += "policy_content_fnv1a64 " + std::string(fnvbuf) + "\n";
+
+    std::cout << out;
+    return 0;
+}
+
+// Emit a canonical, machine-comparable dump of a decoded BPF ring-buffer event
+// record for the Rust differential-parity harness (scripts/rust_event_parity.sh).
+// Hidden diagnostic/test seam mirroring rust/aegis-parser's event::canonical_report
+// byte-for-byte. The decode walks the record through the SAME `Event` union access
+// that the production consumer `handle_event` uses (src/events.cpp), so the
+// compiler's own struct layout is the ground truth the Rust port's fixed offsets
+// are proven against. The dump pins the memory-unsafe decode surface (field
+// offsets, integer endianness, NUL-terminated char[] extraction, direction/
+// rule_type -> label derivation): ints as decimal, char[]/address bytes as
+// length-exact lowercase hex. A short record -> `err short_buffer <len>` (the
+// bounds check handle_event lacks); an unrecognized type -> `unknown_type <n>`
+// (handle_event prints nothing). Address text formatting (inet_ntop) is
+// presentation, not decode, and is intentionally out of scope.
+// Wire-layout contract for the event decoder. The Rust port
+// (rust/aegis-parser/src/event.rs) mirrors these exact offsets as hard-coded
+// `PAYLOAD + k` reads; the differential-parity harness proves the two agree at
+// runtime, and these compile-time guards make a future struct-layout change a
+// hard *build* failure here (a loud signal that the Rust offsets must be updated
+// in lockstep) rather than a silent parity-gate red.
+static_assert(sizeof(Event) == 344, "Event size changed — update rust event decoder offsets");
+static_assert(offsetof(Event, exec) == 8, "Event union payload offset changed");
+static_assert(offsetof(Event, exec_argv) == 8 && offsetof(Event, block) == 8 && offsetof(Event, net_block) == 8 &&
+                  offsetof(Event, forensic) == 8 && offsetof(Event, kernel_block) == 8 &&
+                  offsetof(Event, overlay_copy_up) == 8,
+              "Event union payload offset changed");
+static_assert(offsetof(ExecEvent, comm) == 24 && offsetof(ExecEvent, ancestor_pids) == 40 &&
+                  offsetof(ExecEvent, ancestor_count) == 72,
+              "ExecEvent layout changed — update rust event decoder");
+static_assert(offsetof(ExecArgvEvent, argc) == 16 && offsetof(ExecArgvEvent, total_len) == 18 &&
+                  offsetof(ExecArgvEvent, argv) == 24,
+              "ExecArgvEvent layout changed — update rust event decoder");
+static_assert(offsetof(BlockEvent, pid) == 24 && offsetof(BlockEvent, comm) == 40 && offsetof(BlockEvent, ino) == 56 &&
+                  offsetof(BlockEvent, dev) == 64 && offsetof(BlockEvent, path) == 68 &&
+                  offsetof(BlockEvent, action) == 324,
+              "BlockEvent layout changed — update rust event decoder");
+static_assert(offsetof(NetBlockEvent, comm) == 32 && offsetof(NetBlockEvent, family) == 48 &&
+                  offsetof(NetBlockEvent, protocol) == 49 && offsetof(NetBlockEvent, local_port) == 50 &&
+                  offsetof(NetBlockEvent, remote_port) == 52 && offsetof(NetBlockEvent, direction) == 54 &&
+                  offsetof(NetBlockEvent, remote_ipv4) == 56 && offsetof(NetBlockEvent, remote_ipv6) == 60 &&
+                  offsetof(NetBlockEvent, action) == 76 && offsetof(NetBlockEvent, rule_type) == 84,
+              "NetBlockEvent layout changed — update rust event decoder");
+static_assert(offsetof(ForensicEvent, pid) == 4 && offsetof(ForensicEvent, ppid) == 8 &&
+                  offsetof(ForensicEvent, comm) == 40 && offsetof(ForensicEvent, uid) == 68 &&
+                  offsetof(ForensicEvent, gid) == 72 && offsetof(ForensicEvent, exec_ino) == 80 &&
+                  offsetof(ForensicEvent, exec_dev) == 88 && offsetof(ForensicEvent, exec_stage) == 92 &&
+                  offsetof(ForensicEvent, action) == 96,
+              "ForensicEvent layout changed — update rust event decoder");
+static_assert(offsetof(KernelBlockEvent, comm) == 32 && offsetof(KernelBlockEvent, target_pid) == 48 &&
+                  offsetof(KernelBlockEvent, action) == 56 && offsetof(KernelBlockEvent, rule_type) == 64,
+              "KernelBlockEvent layout changed — update rust event decoder");
+static_assert(offsetof(OverlayCopyUpEvent, cgid) == 8 && offsetof(OverlayCopyUpEvent, src_ino) == 16 &&
+                  offsetof(OverlayCopyUpEvent, src_dev) == 24 && offsetof(OverlayCopyUpEvent, deny_flags) == 32,
+              "OverlayCopyUpEvent layout changed — update rust event decoder");
+
+int cmd_policy_event_canonical(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) {
+        std::cerr << "error: cannot read " << path << "\n";
+        return 2;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string content = ss.str();
+
+    if (content.size() < sizeof(Event)) {
+        std::cout << "err short_buffer " << content.size() << "\n";
+        return 0;
+    }
+
+    // Copy into a properly-aligned Event (handle_event reinterpret_casts an
+    // already-aligned ringbuf record; an aligned local makes the field reads
+    // well-defined here too). Trailing bytes beyond sizeof(Event) are ignored,
+    // exactly as handle_event ignores its size argument.
+    Event ev{};
+    std::memcpy(&ev, content.data(), sizeof(Event));
+
+    auto hex = [](const uint8_t* data, size_t len) {
+        static const char* digits = "0123456789abcdef";
+        std::string s;
+        s.reserve(len * 2);
+        for (size_t i = 0; i < len; ++i) {
+            s += digits[(data[i] >> 4) & 0xf];
+            s += digits[data[i] & 0xf];
+        }
+        return s;
+    };
+    // Hex of to_string(buf, n) == string(buf, strnlen(buf, n)): the bytes up to
+    // the first NUL within the fixed width.
+    auto cstr_hex = [&hex](const char* buf, size_t n) {
+        std::string s = to_string(buf, n);
+        return hex(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+    };
+
+    std::string out;
+    auto kv = [&out](const char* k, const std::string& v) {
+        out += k;
+        out += ' ';
+        out += v;
+        out += '\n';
+    };
+    auto kvu = [&out](const char* k, unsigned long long v) {
+        out += k;
+        out += ' ';
+        out += std::to_string(v);
+        out += '\n';
+    };
+
+    const uint32_t type = ev.type;
+    if (type == EVENT_EXEC) {
+        const ExecEvent& e = ev.exec;
+        kv("type", "exec");
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kvu("ancestor_count", e.ancestor_count);
+        std::string ancestors;
+        for (uint8_t i = 0; i < e.ancestor_count && i < kAncestorMaxDepth; ++i) {
+            if (i > 0)
+                ancestors += ',';
+            ancestors += std::to_string(e.ancestor_pids[i]);
+        }
+        kv("ancestors", ancestors);
+    } else if (type == EVENT_BLOCK) {
+        const BlockEvent& e = ev.block;
+        kv("type", "block");
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("parent_start_time", e.parent_start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kvu("ino", e.ino);
+        kvu("dev", e.dev);
+        kv("path_hex", cstr_hex(e.path, sizeof(e.path)));
+        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
+    } else if (type == EVENT_EXEC_ARGV) {
+        const ExecArgvEvent& e = ev.exec_argv;
+        kv("type", "exec_argv");
+        kvu("pid", e.pid);
+        kvu("start_time", e.start_time);
+        kvu("argc", e.argc);
+        kvu("total_len", e.total_len);
+        const size_t used = (e.argc < kMaxArgvEntries) ? e.argc : kMaxArgvEntries;
+        kvu("argv_count", used);
+        for (size_t i = 0; i < used; ++i) {
+            kv(("arg" + std::to_string(i) + "_hex").c_str(), cstr_hex(&e.argv[i * kArgvSlot], kArgvSlot));
+        }
+    } else if (type == EVENT_FORENSIC_BLOCK) {
+        const ForensicEvent& e = ev.forensic;
+        kv("type", "forensic_block");
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("parent_start_time", e.parent_start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kvu("ino", e.ino);
+        kvu("dev", e.dev);
+        kvu("uid", e.uid);
+        kvu("gid", e.gid);
+        kvu("exec_ino", e.exec_ino);
+        kvu("exec_dev", e.exec_dev);
+        kvu("exec_stage", e.exec_stage);
+        kvu("verified_exec", e.verified_exec);
+        kvu("exec_identity_known", e.exec_identity_known);
+        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
+    } else if (type == EVENT_NET_CONNECT_BLOCK || type == EVENT_NET_BIND_BLOCK || type == EVENT_NET_LISTEN_BLOCK ||
+               type == EVENT_NET_ACCEPT_BLOCK || type == EVENT_NET_SENDMSG_BLOCK || type == EVENT_NET_RECVMSG_BLOCK) {
+        const NetBlockEvent& e = ev.net_block;
+        const char* label = (e.direction == 0)   ? "net_connect_block"
+                            : (e.direction == 1) ? "net_bind_block"
+                            : (e.direction == 2) ? "net_listen_block"
+                            : (e.direction == 3) ? "net_accept_block"
+                            : (e.direction == 4) ? "net_sendmsg_block"
+                                                 : "net_recvmsg_block";
+        kv("type", label);
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("parent_start_time", e.parent_start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kv("family", e.family == kFamilyIPv4 ? "ipv4" : "ipv6");
+        kvu("family_raw", e.family);
+        std::string proto = (e.protocol == kProtoTCP)   ? "tcp"
+                            : (e.protocol == kProtoUDP) ? "udp"
+                                                        : std::to_string(e.protocol);
+        kv("protocol", proto);
+        kvu("local_port", e.local_port);
+        kvu("remote_port", e.remote_port);
+        kvu("direction", e.direction);
+        kv("remote_ipv4_hex", hex(reinterpret_cast<const uint8_t*>(&e.remote_ipv4), sizeof(e.remote_ipv4)));
+        kv("remote_ipv6_hex", hex(e.remote_ipv6, sizeof(e.remote_ipv6)));
+        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
+        kv("rule_type_hex", cstr_hex(e.rule_type, sizeof(e.rule_type)));
+    } else if (type == EVENT_KERNEL_PTRACE_BLOCK || type == EVENT_KERNEL_MODULE_BLOCK ||
+               type == EVENT_KERNEL_BPF_BLOCK) {
+        const KernelBlockEvent& e = ev.kernel_block;
+        kv("type", "kernel_block");
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("parent_start_time", e.parent_start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kvu("target_pid", e.target_pid);
+        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
+        kv("rule_type_hex", cstr_hex(e.rule_type, sizeof(e.rule_type)));
+        // print_kernel_block_event derives event_type = "kernel_" + rule_type +
+        // "_block"; emit the derived label as hex so the derivation is pinned.
+        const std::string derived = "kernel_" + to_string(e.rule_type, sizeof(e.rule_type)) + "_block";
+        kv("event_type_hex", hex(reinterpret_cast<const uint8_t*>(derived.data()), derived.size()));
+    } else if (type == EVENT_OVERLAY_COPY_UP) {
+        const OverlayCopyUpEvent& e = ev.overlay_copy_up;
+        kv("type", "overlay_copy_up");
+        kvu("pid", e.pid);
+        kvu("cgid", e.cgid);
+        kvu("src_ino", e.src_ino);
+        kvu("src_dev", e.src_dev);
+        kvu("deny_flags", e.deny_flags);
+    } else {
+        out = "unknown_type " + std::to_string(type) + "\n";
+    }
 
     std::cout << out;
     return 0;
