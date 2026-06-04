@@ -24,10 +24,17 @@
 //! This reproduces the observable behavior of `handle_event` **as written**:
 //!
 //! * Dispatch on the `u32` `type` at byte offset 0 of the record.
-//! * Every typed payload is read through the C++ `Event` union, whose members
-//!   begin at byte offset 8 (4-byte `type` + 4 bytes of alignment padding;
+//! * Each non-forensic payload is read through the C++ `Event` union, whose
+//!   members begin at byte offset 8 (4-byte `type` + 4 bytes of alignment padding;
 //!   verified by a layout probe against `src/types.hpp`). So a payload field at
 //!   struct-offset `k` lives at record offset `8 + k`.
+//! * **Forensic** events are the exception: the BPF side emits them as a *bare*
+//!   `forensic_event` (its own `type` at offset 0, `sizeof == 104`), reserved
+//!   directly on the ring buffer rather than wrapped in `Event` — so they are
+//!   decoded at the **record base** (`forensic_event` field at struct-offset `k`
+//!   lives at record offset `k`), and a forensic record is only `FORENSIC_SIZE`
+//!   bytes, not `EVENT_SIZE`. This mirrors `handle_event`, which decodes a
+//!   forensic record as `*static_cast<const ForensicEvent*>(data)`.
 //! * `char[]` fields decode like C++ `to_string(buf, n)` = `string(buf,
 //!   strnlen(buf, n))` — bytes up to the first NUL within the fixed width.
 //! * Multi-byte integers are little-endian (native order on the x86-64 / aarch64
@@ -36,17 +43,15 @@
 //!   label from the `rule_type` string, exactly as `print_net_block_event` /
 //!   `print_kernel_block_event` compute them.
 //!
-//! ## Faithful to a latent C++ quirk (documented, not fixed here)
+//! ## Forensic decode is offset-0 (a fixed C++ bug)
 //!
-//! `handle_event` reads forensic events through `e->forensic` at offset 8, but
-//! the BPF side emits a *bare* `forensic_event` (its own `type` at offset 0,
-//! `sizeof == 104`). For a real bare wire record that is an 8-byte field shift
-//! and an 8-byte over-read. This port faithfully mirrors the offset-8 read
-//! because a drop-in replacement must preserve `handle_event`'s behavior; the
-//! parity harness feeds `Event`-shaped (offset-8 payload) records, for which the
-//! read is well-formed and meaningful. The producer/consumer size mismatch is a
-//! separate, human-reviewed concern, not something a fidelity-preserving
-//! oxidation should silently change.
+//! An earlier `handle_event` read forensic events through `e->forensic` at offset
+//! 8 (a stale `Event`-union member) against a bare offset-0 record — an 8-byte
+//! field shift plus an 8-byte over-read of the 104-byte record. That was a genuine
+//! latent bug, surfaced by this oxidation's layout probe and fixed in the same
+//! change: the `ForensicEvent` union member was removed and `handle_event` now
+//! decodes the bare record at offset 0. This port models the corrected behavior,
+//! and the parity harness feeds bare 104-byte forensic records.
 //!
 //! # Honest scope
 //!
@@ -64,10 +69,17 @@ use std::fmt::Write as _;
 /// Wire size of a C++ `Event` record (`sizeof(aegis::Event)`), verified by a
 /// layout probe against `src/types.hpp`. The union payload begins at
 /// [`PAYLOAD`]; the largest payload (`BlockEvent`, 336 B) ends exactly here.
+/// Every event type EXCEPT forensic is emitted in this `Event` envelope.
 pub const EVENT_SIZE: usize = 344;
 
 /// Byte offset of the union payload within an `Event` (4-byte `type` + 4 pad).
 const PAYLOAD: usize = 8;
+
+/// Wire size of a bare `forensic_event` (`sizeof(aegis::ForensicEvent)`). Forensic
+/// events are emitted *not* in the `Event` envelope but as a self-describing bare
+/// record — its own `type` at offset 0, fields at their struct offsets — so it is
+/// decoded at the record base, not at [`PAYLOAD`]. See the module docs.
+const FORENSIC_SIZE: usize = 104;
 
 // Event type discriminants (`enum EventType`, src/types.hpp).
 const TYPE_EXEC: u32 = 1;
@@ -155,15 +167,50 @@ fn cstr_hex(buf: &[u8], off: usize, max: usize) -> String {
 /// * otherwise `type <label>` + every decoded field (ints decimal, `char[]` and
 ///   address bytes as length-exact lowercase hex).
 pub fn canonical_report(buf: &[u8]) -> String {
-    if buf.len() < EVENT_SIZE {
+    // The discriminant is at offset 0 for every record, including the bare
+    // forensic record. Read it first; the required size then depends on the type.
+    if buf.len() < 4 {
         return format!("err short_buffer {}\n", buf.len());
     }
     let ty = rd_u32(buf, 0);
+
+    // Forensic is a bare `forensic_event` (type@0, sizeof 104) — decoded at the
+    // record base, not the Event payload offset.
+    if ty == TYPE_FORENSIC_BLOCK {
+        if buf.len() < FORENSIC_SIZE {
+            return format!("err short_buffer {}\n", buf.len());
+        }
+        return dump_forensic(buf);
+    }
+
+    let known = matches!(
+        ty,
+        TYPE_EXEC
+            | TYPE_BLOCK
+            | TYPE_EXEC_ARGV
+            | TYPE_NET_CONNECT_BLOCK
+            | TYPE_NET_BIND_BLOCK
+            | TYPE_NET_LISTEN_BLOCK
+            | TYPE_NET_ACCEPT_BLOCK
+            | TYPE_NET_SENDMSG_BLOCK
+            | TYPE_NET_RECVMSG_BLOCK
+            | TYPE_KERNEL_PTRACE_BLOCK
+            | TYPE_KERNEL_MODULE_BLOCK
+            | TYPE_KERNEL_BPF_BLOCK
+            | TYPE_OVERLAY_COPY_UP
+    );
+    if !known {
+        return format!("unknown_type {ty}\n");
+    }
+
+    // All non-forensic types are wrapped in a full `Event` (payload at offset 8).
+    if buf.len() < EVENT_SIZE {
+        return format!("err short_buffer {}\n", buf.len());
+    }
     match ty {
         TYPE_EXEC => dump_exec_event(buf),
         TYPE_BLOCK => dump_block(buf),
         TYPE_EXEC_ARGV => dump_exec_argv(buf),
-        TYPE_FORENSIC_BLOCK => dump_forensic(buf),
         TYPE_NET_CONNECT_BLOCK
         | TYPE_NET_BIND_BLOCK
         | TYPE_NET_LISTEN_BLOCK
@@ -173,8 +220,8 @@ pub fn canonical_report(buf: &[u8]) -> String {
         TYPE_KERNEL_PTRACE_BLOCK | TYPE_KERNEL_MODULE_BLOCK | TYPE_KERNEL_BPF_BLOCK => {
             dump_kernel_block(buf)
         }
-        TYPE_OVERLAY_COPY_UP => dump_overlay(buf),
-        other => format!("unknown_type {other}\n"),
+        // `known` (checked above) guarantees the only remaining arm.
+        _ => dump_overlay(buf),
     }
 }
 
@@ -242,29 +289,29 @@ fn dump_exec_argv(buf: &[u8]) -> String {
     o
 }
 
-// ForensicEvent @ PAYLOAD (faithful to handle_event's offset-8 union read):
+// Bare ForensicEvent @ offset 0 (record base — NOT the Event payload offset):
 //   type@0 pid@4 ppid@8 start_time@16 parent_start_time@24 cgid@32 comm@40[16]
 //   ino@56 dev@64 uid@68 gid@72 exec_ino@80 exec_dev@88 exec_stage@92
 //   verified_exec@93 exec_identity_known@94 action@96[8]
 fn dump_forensic(buf: &[u8]) -> String {
     let mut o = String::new();
     let _ = writeln!(o, "type forensic_block");
-    let _ = writeln!(o, "pid {}", rd_u32(buf, PAYLOAD + 4));
-    let _ = writeln!(o, "ppid {}", rd_u32(buf, PAYLOAD + 8));
-    let _ = writeln!(o, "start_time {}", rd_u64(buf, PAYLOAD + 16));
-    let _ = writeln!(o, "parent_start_time {}", rd_u64(buf, PAYLOAD + 24));
-    let _ = writeln!(o, "cgid {}", rd_u64(buf, PAYLOAD + 32));
-    let _ = writeln!(o, "comm_hex {}", cstr_hex(buf, PAYLOAD + 40, COMM_LEN));
-    let _ = writeln!(o, "ino {}", rd_u64(buf, PAYLOAD + 56));
-    let _ = writeln!(o, "dev {}", rd_u32(buf, PAYLOAD + 64));
-    let _ = writeln!(o, "uid {}", rd_u32(buf, PAYLOAD + 68));
-    let _ = writeln!(o, "gid {}", rd_u32(buf, PAYLOAD + 72));
-    let _ = writeln!(o, "exec_ino {}", rd_u64(buf, PAYLOAD + 80));
-    let _ = writeln!(o, "exec_dev {}", rd_u32(buf, PAYLOAD + 88));
-    let _ = writeln!(o, "exec_stage {}", rd_u8(buf, PAYLOAD + 92));
-    let _ = writeln!(o, "verified_exec {}", rd_u8(buf, PAYLOAD + 93));
-    let _ = writeln!(o, "exec_identity_known {}", rd_u8(buf, PAYLOAD + 94));
-    let _ = writeln!(o, "action_hex {}", cstr_hex(buf, PAYLOAD + 96, ACTION_LEN));
+    let _ = writeln!(o, "pid {}", rd_u32(buf, 4));
+    let _ = writeln!(o, "ppid {}", rd_u32(buf, 8));
+    let _ = writeln!(o, "start_time {}", rd_u64(buf, 16));
+    let _ = writeln!(o, "parent_start_time {}", rd_u64(buf, 24));
+    let _ = writeln!(o, "cgid {}", rd_u64(buf, 32));
+    let _ = writeln!(o, "comm_hex {}", cstr_hex(buf, 40, COMM_LEN));
+    let _ = writeln!(o, "ino {}", rd_u64(buf, 56));
+    let _ = writeln!(o, "dev {}", rd_u32(buf, 64));
+    let _ = writeln!(o, "uid {}", rd_u32(buf, 68));
+    let _ = writeln!(o, "gid {}", rd_u32(buf, 72));
+    let _ = writeln!(o, "exec_ino {}", rd_u64(buf, 80));
+    let _ = writeln!(o, "exec_dev {}", rd_u32(buf, 88));
+    let _ = writeln!(o, "exec_stage {}", rd_u8(buf, 92));
+    let _ = writeln!(o, "verified_exec {}", rd_u8(buf, 93));
+    let _ = writeln!(o, "exec_identity_known {}", rd_u8(buf, 94));
+    let _ = writeln!(o, "action_hex {}", cstr_hex(buf, 96, ACTION_LEN));
     o
 }
 

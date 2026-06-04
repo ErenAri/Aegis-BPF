@@ -356,9 +356,11 @@ int cmd_policy_bundle_canonical(const std::string& path)
 static_assert(sizeof(Event) == 344, "Event size changed — update rust event decoder offsets");
 static_assert(offsetof(Event, exec) == 8, "Event union payload offset changed");
 static_assert(offsetof(Event, exec_argv) == 8 && offsetof(Event, block) == 8 && offsetof(Event, net_block) == 8 &&
-                  offsetof(Event, forensic) == 8 && offsetof(Event, kernel_block) == 8 &&
-                  offsetof(Event, overlay_copy_up) == 8,
+                  offsetof(Event, kernel_block) == 8 && offsetof(Event, overlay_copy_up) == 8,
               "Event union payload offset changed");
+// ForensicEvent is decoded as a *bare* record (its own type at offset 0, NOT a
+// union member) — sizeof 104 is its wire size; field offsets are asserted below.
+static_assert(sizeof(ForensicEvent) == 104, "ForensicEvent size changed — update rust event decoder");
 static_assert(offsetof(ExecEvent, comm) == 24 && offsetof(ExecEvent, ancestor_pids) == 40 &&
                   offsetof(ExecEvent, ancestor_count) == 72,
               "ExecEvent layout changed — update rust event decoder");
@@ -399,17 +401,16 @@ int cmd_policy_event_canonical(const std::string& path)
     ss << in.rdbuf();
     const std::string content = ss.str();
 
-    if (content.size() < sizeof(Event)) {
+    if (content.size() < sizeof(uint32_t)) {
         std::cout << "err short_buffer " << content.size() << "\n";
         return 0;
     }
-
-    // Copy into a properly-aligned Event (handle_event reinterpret_casts an
-    // already-aligned ringbuf record; an aligned local makes the field reads
-    // well-defined here too). Trailing bytes beyond sizeof(Event) are ignored,
-    // exactly as handle_event ignores its size argument.
-    Event ev{};
-    std::memcpy(&ev, content.data(), sizeof(Event));
+    // The discriminant (`type`) lives at record offset 0 for every event,
+    // including the bare forensic record. Read it first; the required record size
+    // then depends on the type (forensic == sizeof(ForensicEvent), all others ==
+    // sizeof(Event)).
+    uint32_t type = 0;
+    std::memcpy(&type, content.data(), sizeof(type));
 
     auto hex = [](const uint8_t* data, size_t len) {
         static const char* digits = "0123456789abcdef";
@@ -442,7 +443,56 @@ int cmd_policy_event_canonical(const std::string& path)
         out += '\n';
     };
 
-    const uint32_t type = ev.type;
+    if (type == EVENT_FORENSIC_BLOCK) {
+        // Forensic events are a *bare* forensic_event (type at offset 0, sizeof
+        // 104), decoded at the record base — mirroring the fixed handle_event.
+        if (content.size() < sizeof(ForensicEvent)) {
+            std::cout << "err short_buffer " << content.size() << "\n";
+            return 0;
+        }
+        ForensicEvent e{};
+        std::memcpy(&e, content.data(), sizeof(ForensicEvent));
+        kv("type", "forensic_block");
+        kvu("pid", e.pid);
+        kvu("ppid", e.ppid);
+        kvu("start_time", e.start_time);
+        kvu("parent_start_time", e.parent_start_time);
+        kvu("cgid", e.cgid);
+        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
+        kvu("ino", e.ino);
+        kvu("dev", e.dev);
+        kvu("uid", e.uid);
+        kvu("gid", e.gid);
+        kvu("exec_ino", e.exec_ino);
+        kvu("exec_dev", e.exec_dev);
+        kvu("exec_stage", e.exec_stage);
+        kvu("verified_exec", e.verified_exec);
+        kvu("exec_identity_known", e.exec_identity_known);
+        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
+        std::cout << out;
+        return 0;
+    }
+
+    const bool known =
+        (type == EVENT_EXEC || type == EVENT_BLOCK || type == EVENT_EXEC_ARGV || type == EVENT_NET_CONNECT_BLOCK ||
+         type == EVENT_NET_BIND_BLOCK || type == EVENT_NET_LISTEN_BLOCK || type == EVENT_NET_ACCEPT_BLOCK ||
+         type == EVENT_NET_SENDMSG_BLOCK || type == EVENT_NET_RECVMSG_BLOCK || type == EVENT_KERNEL_PTRACE_BLOCK ||
+         type == EVENT_KERNEL_MODULE_BLOCK || type == EVENT_KERNEL_BPF_BLOCK || type == EVENT_OVERLAY_COPY_UP);
+    if (!known) {
+        std::cout << "unknown_type " << type << "\n";
+        return 0;
+    }
+
+    // All non-forensic event types are wrapped in a full Event (type at offset 0,
+    // union payload at offset 8). Copy into a properly-aligned Event; trailing
+    // bytes are ignored, exactly as handle_event ignores its size argument.
+    if (content.size() < sizeof(Event)) {
+        std::cout << "err short_buffer " << content.size() << "\n";
+        return 0;
+    }
+    Event ev{};
+    std::memcpy(&ev, content.data(), sizeof(Event));
+
     if (type == EVENT_EXEC) {
         const ExecEvent& e = ev.exec;
         kv("type", "exec");
@@ -484,25 +534,6 @@ int cmd_policy_event_canonical(const std::string& path)
         for (size_t i = 0; i < used; ++i) {
             kv(("arg" + std::to_string(i) + "_hex").c_str(), cstr_hex(&e.argv[i * kArgvSlot], kArgvSlot));
         }
-    } else if (type == EVENT_FORENSIC_BLOCK) {
-        const ForensicEvent& e = ev.forensic;
-        kv("type", "forensic_block");
-        kvu("pid", e.pid);
-        kvu("ppid", e.ppid);
-        kvu("start_time", e.start_time);
-        kvu("parent_start_time", e.parent_start_time);
-        kvu("cgid", e.cgid);
-        kv("comm_hex", cstr_hex(e.comm, sizeof(e.comm)));
-        kvu("ino", e.ino);
-        kvu("dev", e.dev);
-        kvu("uid", e.uid);
-        kvu("gid", e.gid);
-        kvu("exec_ino", e.exec_ino);
-        kvu("exec_dev", e.exec_dev);
-        kvu("exec_stage", e.exec_stage);
-        kvu("verified_exec", e.verified_exec);
-        kvu("exec_identity_known", e.exec_identity_known);
-        kv("action_hex", cstr_hex(e.action, sizeof(e.action)));
     } else if (type == EVENT_NET_CONNECT_BLOCK || type == EVENT_NET_BIND_BLOCK || type == EVENT_NET_LISTEN_BLOCK ||
                type == EVENT_NET_ACCEPT_BLOCK || type == EVENT_NET_SENDMSG_BLOCK || type == EVENT_NET_RECVMSG_BLOCK) {
         const NetBlockEvent& e = ev.net_block;
@@ -557,8 +588,6 @@ int cmd_policy_event_canonical(const std::string& path)
         kvu("src_ino", e.src_ino);
         kvu("src_dev", e.src_dev);
         kvu("deny_flags", e.deny_flags);
-    } else {
-        out = "unknown_type " + std::to_string(type) + "\n";
     }
 
     std::cout << out;
