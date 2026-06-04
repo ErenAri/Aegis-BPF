@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780604416391,
+  "lastUpdate": 1780607591795,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42768,6 +42768,90 @@ window.BENCHMARK_DATA = {
             "value": 58.978416220522824,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 58.97308811250292 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9228b5d4ae07cfb436360c0f143f548ba1fc26e6",
+          "message": "fix(events): decode forensic events at offset 0 (bare record), not the Event union (#230)\n\nOxidizing the BPF event decoder surfaced a genuine latent bug in the C++ event\nconsumer, which this change fixes.\n\nThe bug: the BPF side emits forensic events as a *bare* `forensic_event` — its\nown `type` at offset 0, `sizeof == 104` — reserved directly on the ring buffer\n(see `emit_forensic_block`, `bpf/aegis_ima.bpf.h`; the BPF `struct event` union\ndeliberately omits forensic). But the userspace `Event` union wrongly carried a\n`ForensicEvent forensic;` member at offset 8, and `handle_event` decoded forensic\nrecords through it — shifting every field by 8 bytes AND over-reading the\n104-byte record by 8 bytes. (All other event types reserve a full 344-byte\n`struct event` with the payload at offset 8 and were unaffected.)\n\nThe fix (userspace-only, no BPF/wire change):\n* Remove `ForensicEvent` from the `Event` union (`src/types.hpp`). Zero layout\n  impact — forensic's 104 B is below BlockEvent's 336 B, so `sizeof(Event)`\n  stays 344 — and it can no longer be misused for an offset-8 read.\n* `handle_event` decodes a forensic record as `*static_cast<const\n  ForensicEvent*>(data)` at offset 0.\n* Regression test `tests/test_event_decode.cpp` drives the real `handle_event`\n  on a tightly-allocated 104-byte bare record: asserts correct pid/ppid/comm/\n  action AND, under the ASan/UBSan CI builds, turns the prior 8-byte over-read\n  into a hard failure. Proven to have teeth — re-introducing the offset-8 read\n  trips an ASan heap-buffer-overflow in strnlen.\n\nThe event-decoder oxidation is updated in lockstep to model the corrected\nbehavior: the Rust `event` decoder and the C++ `policy event-canonical` emitter\nnow decode forensic as a bare 104-byte record at offset 0 (every other type\nstays the 344-byte Event envelope at offset 8), with type-aware bounds checks\n(`< FORENSIC_SIZE`/`< EVENT_SIZE` -> `short_buffer`). The differential parity\nharness feeds bare forensic records; it stays green (parity-only fuzz families\nupdated for the new shape). Compile-time `static_assert`s and the harness keep\nthe Rust offsets and the C++ layout locked together.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T00:02:23+03:00",
+          "tree_id": "1551e088b227c64ae510b15b25fba5fcc13d5cd7",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/9228b5d4ae07cfb436360c0f143f548ba1fc26e6"
+        },
+        "date": 1780607590036,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 950.9967432989991,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 950.9346478469471 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2486.5805190575925,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2486.4070995186053 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 14840.69543695581,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 14839.700656598232 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 113193.53642516478,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 113178.70777162076 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 907253.3134844593,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 907175.3308854814 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3599450.6434948817,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3599079.1488095275 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 2829.724558602047,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2829.9440709049236 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 18185.549534235328,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 18187.264841332337 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 144762.02052790023,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 144756.43507812556 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 460734.77125046117,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 460823.55376884487 ns\nthreads: 1"
           }
         ]
       }
