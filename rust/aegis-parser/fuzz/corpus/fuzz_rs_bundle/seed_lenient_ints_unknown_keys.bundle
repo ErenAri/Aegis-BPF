@@ -1,0 +1,9 @@
+AEGIS-POLICY-BUNDLE-V1
+format_version: 2abc
+policy_version: -1
+timestamp:    1780000000
+unknown_key: whatever
+this line has no colon
+expires: +5
+---
+policy body content

@@ -1,0 +1,47 @@
+# cargo-fuzz sub-crate for the memory-safe decoders. It is a SEPARATE package
+# (not a member of any workspace), so the stable `rust-parser.yml` merge gate —
+# which runs cargo fmt/clippy/test/build in the parent crate — never builds it.
+# These targets need a nightly toolchain + libFuzzer and run in `nightly-fuzz.yml`.
+[package]
+name = "aegis-parser-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Exclude from any parent workspace (the parent crate is standalone today; this
+# keeps it that way explicitly).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.aegis-parser]
+path = ".."
+
+# Keep debug info for readable crash backtraces; opt for speed otherwise.
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_rs_policy"
+path = "fuzz_targets/fuzz_rs_policy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rs_bundle"
+path = "fuzz_targets/fuzz_rs_bundle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_rs_event"
+path = "fuzz_targets/fuzz_rs_event.rs"
+test = false
+doc = false
+bench = false

@@ -106,6 +106,9 @@ cargo fmt --check
 ../../scripts/rust_policy_parity.sh --fuzz 2000
 ../../scripts/rust_bundle_parity.sh --fuzz 2000
 ../../scripts/rust_event_parity.sh  --fuzz 2000
+
+# continuous fuzzing of the decoders (nightly in CI; see fuzz/README.md):
+cargo +nightly fuzz run fuzz_rs_event -- -max_total_time=60
 ```
 
 ## Fidelity caveats (honest scope)
