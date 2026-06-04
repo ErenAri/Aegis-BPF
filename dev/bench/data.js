@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780610727633,
+  "lastUpdate": 1780611163797,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42948,6 +42948,108 @@ window.BENCHMARK_DATA = {
             "value": 56.1397931154369,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.13518858767424 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0dd6c5121257c00434bc8b95d777d833fde3d136",
+          "message": "chore(ci): enforce binary-hardening mitigations with a contract gate (#232)\n\nAegisBPF compiles the privileged agent with a set of exploit mitigations\n(CMakeLists.txt: full RELRO, PIE, stack-protector-strong, non-exec stack, and —\non x86_64 — Intel CET/IBT+SHSTK). They were present but UNGUARDED: nothing\nasserted they survive a future build-system refactor, and docs/MEMORY_SAFETY.md\nalready referenced a \"binary-hardening contract test\" that did not exist as a\ngate (verify_trustworthiness.sh is a broad evidence script, not wired into CI).\n\nAdds scripts/check_hardening.sh — a readelf-based, dependency-free,\narchitecture-aware check that asserts, against the actual linked ELF: PIE,\nfull RELRO (GNU_RELRO + BIND_NOW), the stack protector (__stack_chk_fail),\na non-executable GNU_STACK, and (x86_64 only) Intel CET. It is wired as a step\nafter the Release build in CI's `build` job.\n\nThe current binary already ships every mitigation, so the gate passes\nimmediately and only catches REGRESSIONS. Verified locally: passes on the\nRelease build (all five PASS), and proven to have teeth — a deliberately\nunhardened binary (-no-pie -z execstack -z norelro -fno-stack-protector\n-fcf-protection=none) fails all five and exits non-zero. Confirmed the CI\ncompiler (GCC 13.3.0 on ubuntu-24.04) defaults to CET so the x86_64 check\npasses on the runners.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T01:01:17+03:00",
+          "tree_id": "2752e9b7329bdbc75e219847692f094bb0e43750",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/0dd6c5121257c00434bc8b95d777d833fde3d136"
+        },
+        "date": 1780611162838,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1521.0862485235275,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1520.9081749403103 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3675.454090179081,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3674.5207925159034 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21024.12541108932,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21021.785941494945 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160398.25585960018,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160379.68055074496 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1273231.4387477327,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1272918.9499395064 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5093581.606363636,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5092912.91878787 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4748.076443428098,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4769.695817629902 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34151.86757407355,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34163.32296706749 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 279703.9411422069,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 279747.4425908287 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 864654.3476276976,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 864940.702817714 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.10602133783467,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.10038775844895 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.67316423261524,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.66461275349344 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.591882447311995,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.578116299895434 ns\nthreads: 1"
           }
         ]
       }
