@@ -1,25 +1,29 @@
 name: Rust Parser
 
-# Builds + tests the Rust oxidation crate (policy parser + signed-bundle decoder)
-# and proves each stays behavior-equivalent to its C++ original via differential
-# parity harnesses (the gates that must be green before a production swap).
+# Builds + tests the Rust oxidation crate (policy parser + signed-bundle decoder
+# + BPF-event decoder) and proves each stays behavior-equivalent to its C++
+# original via differential parity harnesses (the gates that must be green before
+# a production swap).
 on:
   pull_request:
     paths:
       - 'rust/aegis-parser/**'
       - 'scripts/rust_policy_parity.sh'
       - 'scripts/rust_bundle_parity.sh'
+      - 'scripts/rust_event_parity.sh'
       - 'src/policy_parse.cpp'
       - 'src/network_ops.cpp'
       - 'src/utils.cpp'
       - 'src/crypto.cpp'
+      - 'src/events.cpp'
       - 'src/types.hpp'
-      # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`
-      # emitters + dispatch
+      # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`/
+      # `event-canonical` emitters + dispatch
       - 'src/commands_policy.cpp'
       - 'src/cli_policy.cpp'
       - 'tests/fixtures/parity/**'
       - 'tests/fixtures/bundle_parity/**'
+      - 'tests/fixtures/event_parity/**'
       - '.github/workflows/rust-parser.yml'
   workflow_dispatch:
 
@@ -73,3 +77,6 @@ jobs:
 
       - name: Differential bundle parity (fixtures + real + 2000 fuzzed bundles)
         run: scripts/rust_bundle_parity.sh --fuzz 2000
+
+      - name: Differential event parity (fixtures + 2000 fuzzed event records)
+        run: scripts/rust_event_parity.sh --fuzz 2000

@@ -14,6 +14,9 @@ int cmd_policy_validate(const std::string& path, bool verbose);
 // complete canonical dump of the parsed policy / signed bundle (see impls).
 int cmd_policy_canonical(const std::string& path);
 int cmd_policy_bundle_canonical(const std::string& path);
+// Canonical dump of a decoded BPF ring-buffer event record; the test seam for
+// scripts/rust_event_parity.sh (mirrors rust/aegis-parser event::canonical_report).
+int cmd_policy_event_canonical(const std::string& path);
 int cmd_policy_apply(const std::string& path, bool reset, const std::string& sha256, const std::string& sha256_file,
                      bool rollback_on_failure);
 int cmd_policy_apply_signed(const std::string& bundle_path, bool require_signature);
