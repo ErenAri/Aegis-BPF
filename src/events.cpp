@@ -793,7 +793,12 @@ int handle_event(void* ctx, void* data, size_t)
                e->type == EVENT_NET_SENDMSG_BLOCK || e->type == EVENT_NET_RECVMSG_BLOCK) {
         print_net_block_event(e->net_block);
     } else if (e->type == EVENT_FORENSIC_BLOCK) {
-        print_forensic_event(e->forensic);
+        // Forensic events arrive as a *bare* forensic_event (its `type` at offset
+        // 0, sizeof 104), not wrapped in the Event union — so decode the record
+        // base directly as a ForensicEvent. (Reading the old `e->forensic` union
+        // member at offset 8 shifted every field by 8 bytes and over-read the
+        // 104-byte record; ForensicEvent is no longer a union member.)
+        print_forensic_event(*static_cast<const ForensicEvent*>(data));
     } else if (e->type == EVENT_KERNEL_PTRACE_BLOCK || e->type == EVENT_KERNEL_MODULE_BLOCK ||
                e->type == EVENT_KERNEL_BPF_BLOCK) {
         print_kernel_block_event(e->kernel_block);

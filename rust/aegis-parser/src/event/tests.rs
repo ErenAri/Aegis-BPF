@@ -38,9 +38,11 @@ fn line<'a>(report: &'a str, key: &str) -> &'a str {
 
 #[test]
 fn event_size_matches_cpp_probe() {
-    // sizeof(aegis::Event) per the layout probe against src/types.hpp.
+    // sizeof(aegis::Event) / sizeof(aegis::ForensicEvent) per the layout probe
+    // against src/types.hpp.
     assert_eq!(EVENT_SIZE, 344);
     assert_eq!(PAYLOAD, 8);
+    assert_eq!(FORENSIC_SIZE, 104);
 }
 
 #[test]
@@ -209,28 +211,60 @@ fn kernel_event_type_label_derivation_empty_rule_type() {
     );
 }
 
+/// A zeroed *bare* forensic record: `forensic_event` at offset 0 (its own `type`
+/// at offset 0), `FORENSIC_SIZE` bytes — NOT the 344-byte `Event` envelope.
+fn forensic_rec() -> Vec<u8> {
+    let mut b = vec![0u8; FORENSIC_SIZE];
+    b[0..4].copy_from_slice(&TYPE_FORENSIC_BLOCK.to_le_bytes());
+    b
+}
+
 #[test]
-fn forensic_fields_offset8() {
-    let mut b = rec(TYPE_FORENSIC_BLOCK);
-    // ForensicEvent read at PAYLOAD: type@0 pid@4 ppid@8 ...
-    put_u32(&mut b, PB + 4, 777); // pid
-    put_u32(&mut b, PB + 8, 778); // ppid
-    put_u64(&mut b, PB + 16, 1000); // start_time
-    put_u32(&mut b, PB + 68, 1001); // uid
-    put_u32(&mut b, PB + 72, 1002); // gid
-    b[PB + 92] = 2; // exec_stage
-    b[PB + 93] = 1; // verified_exec
-    b[PB + 94] = 1; // exec_identity_known
-    put_bytes(&mut b, PB + 96, b"DENY\0"); // action
+fn forensic_fields_bare_offset0() {
+    // Bare forensic_event: fields at struct offsets from the RECORD BASE (offset 0),
+    // not the Event payload offset. This is the fixed offset-0 decode.
+    let mut b = forensic_rec();
+    put_u32(&mut b, 4, 777); // pid
+    put_u32(&mut b, 8, 778); // ppid
+    put_u64(&mut b, 16, 1000); // start_time
+    put_bytes(&mut b, 40, b"sshd\0"); // comm
+    put_u32(&mut b, 68, 1001); // uid
+    put_u32(&mut b, 72, 1002); // gid
+    b[92] = 2; // exec_stage
+    b[93] = 1; // verified_exec
+    b[94] = 1; // exec_identity_known
+    put_bytes(&mut b, 96, b"DENY\0"); // action
     let r = canonical_report(&b);
     assert_eq!(line(&r, "type"), "type forensic_block");
     assert_eq!(line(&r, "pid"), "pid 777");
     assert_eq!(line(&r, "ppid"), "ppid 778");
+    assert_eq!(line(&r, "start_time"), "start_time 1000");
+    assert_eq!(line(&r, "comm_hex"), "comm_hex 73736864"); // sshd
     assert_eq!(line(&r, "uid"), "uid 1001");
     assert_eq!(line(&r, "gid"), "gid 1002");
     assert_eq!(line(&r, "exec_stage"), "exec_stage 2");
     assert_eq!(line(&r, "verified_exec"), "verified_exec 1");
     assert_eq!(line(&r, "action_hex"), "action_hex 44454e59"); // DENY
+}
+
+#[test]
+fn forensic_short_record_rejected() {
+    // A forensic record shorter than FORENSIC_SIZE is rejected (bounds-checked),
+    // where the old code would have over-read it.
+    for len in [4usize, 50, FORENSIC_SIZE - 1] {
+        let mut b = vec![0u8; len];
+        b[0..4].copy_from_slice(&TYPE_FORENSIC_BLOCK.to_le_bytes());
+        assert_eq!(canonical_report(&b), format!("err short_buffer {len}\n"));
+    }
+    // exactly FORENSIC_SIZE decodes; a non-forensic type would need EVENT_SIZE.
+    assert!(canonical_report(&forensic_rec()).starts_with("type forensic_block\n"));
+    // a 104-byte buffer with a NON-forensic known type is still too short.
+    let mut block = vec![0u8; FORENSIC_SIZE];
+    block[0..4].copy_from_slice(&TYPE_BLOCK.to_le_bytes());
+    assert_eq!(
+        canonical_report(&block),
+        format!("err short_buffer {FORENSIC_SIZE}\n")
+    );
 }
 
 #[test]
@@ -303,12 +337,23 @@ fn comm_embedded_nul_truncates() {
 
 #[test]
 fn short_buffer_reports_length() {
-    for len in [0usize, 1, 7, 8, EVENT_SIZE - 1] {
+    // Below 4 bytes the type discriminant can't even be read.
+    for len in [0usize, 1, 2, 3] {
         let b = vec![0u8; len];
         assert_eq!(canonical_report(&b), format!("err short_buffer {len}\n"));
     }
-    // exactly EVENT_SIZE is accepted (type 0 -> unknown)
+    // A known non-forensic type needs a full Event (344); shorter -> short_buffer.
+    for len in [4usize, 8, 100, EVENT_SIZE - 1] {
+        let mut b = vec![0u8; len];
+        b[0..4].copy_from_slice(&TYPE_BLOCK.to_le_bytes());
+        assert_eq!(canonical_report(&b), format!("err short_buffer {len}\n"));
+    }
+    // exactly EVENT_SIZE with an unknown type (0) -> unknown marker, not short.
     assert_eq!(canonical_report(&vec![0u8; EVENT_SIZE]), "unknown_type 0\n");
+    // an unknown type only needs the 4-byte discriminant — never short above it.
+    let mut u = vec![0u8; 10];
+    u[0..4].copy_from_slice(&999u32.to_le_bytes());
+    assert_eq!(canonical_report(&u), "unknown_type 999\n");
 }
 
 #[test]

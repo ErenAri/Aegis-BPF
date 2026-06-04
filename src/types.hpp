@@ -303,10 +303,18 @@ struct Event {
         ExecArgvEvent exec_argv;
         BlockEvent block;
         NetBlockEvent net_block;
-        ForensicEvent forensic;
         KernelBlockEvent kernel_block;
         OverlayCopyUpEvent overlay_copy_up;
     };
+    // NOTE: ForensicEvent is intentionally NOT a member of this union. Forensic
+    // events are emitted by the BPF side as a *bare* `forensic_event` (its own
+    // `type` field at offset 0, sizeof == 104) reserved directly on the ring
+    // buffer — see `emit_forensic_block` / `aegis_ima.bpf.h` and the matching
+    // `struct event` in `bpf/aegis_common.h`, which likewise omits it. The
+    // consumer (`handle_event`) decodes a forensic record by reinterpreting the
+    // record base as `ForensicEvent*` (offset 0), NOT through this union's
+    // offset-8 payload. (A prior `ForensicEvent forensic;` member here caused an
+    // 8-byte field-shift + over-read; do not re-add it.)
 };
 
 struct BlockStats {

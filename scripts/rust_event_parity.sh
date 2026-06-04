@@ -107,11 +107,22 @@ def maybe_cstr(rng, width):
     tok = bytes(rng.choice(b"abcdef0123456789/_-.") for _ in range(rng.randrange(0, width)))
     return tok + b"\x00" * (width - len(tok))
 
-# ---- valid-structure family (v*.bin): well-formed Event-shaped records ----
+# ---- valid-structure family (v*.bin): well-formed records -----------------
+# Forensic (type 4) is a BARE forensic_event (104 bytes, fields at offset 0);
+# every other type is wrapped in the 344-byte Event envelope (payload at offset 8).
+FORENSIC_SIZE = 104
 rng = random.Random(0xE7E7)
 for i in range(n):
+    ty = rng.choice(TYPES + [7, 99])     # a (mostly) recognized type
+    if ty == 4:
+        b = bytearray(randbytes(rng, FORENSIC_SIZE))  # bare forensic_event
+        struct.pack_into('<I', b, 0, ty)
+        b[40:56] = maybe_cstr(rng, 16)   # comm
+        b[96:104] = maybe_cstr(rng, 8)   # action
+        with open(os.path.join(out, f"v{i}.bin"), "wb") as fh:
+            fh.write(b)
+        continue
     b = bytearray(randbytes(rng, SIZE))  # random padding everywhere...
-    ty = rng.choice(TYPES + [7, 99])     # ...with a (mostly) recognized type
     struct.pack_into('<I', b, 0, ty)
     # Stamp type-relevant fields with structured-but-random values so the decode
     # surface (offsets, label derivation, clamping) is exercised meaningfully.
@@ -146,9 +157,10 @@ for i in range(n):
 # ---- adversarial family (f*.bin): random length + random bytes ------------
 rng = random.Random(2027)
 for i in range(n):
-    # Boundary lengths (incl. every edge of the short_buffer check: 0, 4, 5, 7,
-    # the exact size 344, and just over) plus a random length across the range.
-    length = rng.choice([0, 1, 4, 5, 7, 8, 100, 343, SIZE, SIZE + 1] + [rng.randrange(0, SIZE + 80)])
+    # Boundary lengths (every edge of both short_buffer checks: the 4-byte type
+    # floor, the forensic 103/104 boundary, and the Event 343/344 boundary, plus
+    # just over) and a random length across the range.
+    length = rng.choice([0, 1, 4, 5, 7, 8, 100, 103, 104, 105, 343, SIZE, SIZE + 1] + [rng.randrange(0, SIZE + 80)])
     b = bytearray(randbytes(rng, length))
     if length >= 4:
         # Bias the type toward recognized values to drive every decode arm.

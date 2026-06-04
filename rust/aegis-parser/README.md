@@ -36,10 +36,12 @@ layout probe against `src/types.hpp`), extract `char[]` fields like C++
 `print_net_block_event` / `print_kernel_block_event` do. Where the C++ consumer
 does `static_cast<const Event*>(data)` and **discards the record size**, the Rust
 decoder bounds-checks every read — a short record yields `err short_buffer <len>`
-instead of an out-of-bounds read. (It faithfully preserves one latent C++ quirk —
-the offset-8 forensic union read against a BPF-emitted bare `forensic_event` — so
-the swap stays behavior-preserving; the producer/consumer size mismatch is a
-separate, human-reviewed concern. See the module docs.)
+instead of an out-of-bounds read. (Oxidizing this surfaced — and the same change
+fixed — a real latent bug: `handle_event` had been decoding forensic events through
+a stale `Event::forensic` union member at offset 8 against a BPF-emitted *bare*
+`forensic_event` (offset 0, 104 B), an 8-byte field shift plus an 8-byte over-read;
+both the C++ consumer and this port now decode the bare record at offset 0, guarded
+by an ASan regression test. See the module docs.)
 
 None is wired into the live `policy apply`/`run` (or event-consumer) path yet. Swapping a
 production parser is a load-bearing, security-critical change (a silent parse
@@ -127,11 +129,11 @@ cargo fmt --check
   direction/`rule_type` → label derivation), not address *text* formatting:
   remote addresses are compared as raw hex bytes, so the `inet_ntop`-vs-Rust
   formatting question (already a documented caveat above) is deliberately out of
-  this gate's scope — the bytes are pinned, the presentation is not. It also
-  faithfully preserves `handle_event`'s offset-8 forensic union read; the
-  separate observation that the BPF side emits a *bare* `forensic_event` (so that
-  read shifts/over-reads a real wire record) is filed for human review, not fixed
-  here, because a fidelity-preserving oxidation must not silently change behavior.
+  this gate's scope — the bytes are pinned, the presentation is not. Forensic
+  records are decoded at offset 0 as a *bare* `forensic_event` (104 B), matching
+  the BPF producer and the now-corrected `handle_event` (this change fixed the
+  prior offset-8 union read; a host-side ASan test guards the over-read). All
+  other event types are decoded from the 344-byte `Event` envelope at offset 8.
   Multi-byte integers are read little-endian (native order on the x86-64/aarch64
   hosts that run the daemon); a big-endian consumer host is out of scope.
 - The proof is "structurally equivalent over the tested corpus + fixtures +
