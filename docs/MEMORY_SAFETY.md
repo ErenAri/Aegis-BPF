@@ -50,14 +50,18 @@ touches trusted, agent-generated data.
    (`policy`, `bundle`, `event`), each proven behavior-equivalent to its C++
    original by a differential-parity merge gate
    (`scripts/rust_*_parity.sh`, `.github/workflows/rust-parser.yml`) over a
-   corpus + fixtures + deterministic fuzzing. They are **staged, not yet
+   corpus + fixtures + deterministic fuzzing. They are also **continuously
+   fuzzed**: `rust/aegis-parser/fuzz` holds cargo-fuzz/libFuzzer targets for all
+   three decoders, run nightly (`.github/workflows/nightly-fuzz.yml`, the
+   `rust-fuzz` job) seeded from the parity fixtures. They are **staged, not yet
    swapped**: the C++ implementations remain authoritative until each swap
    passes its parity gate *and* human review (and the crate is linked into the
-   build — an architectural step deliberately kept separate). The next steps are
-   wiring the Rust targets in behind their C ABI shim and into continuous
-   fuzzing (OSS-Fuzz). This puts memory-safe code exactly where
-   attacker-influenced bytes are parsed, without rewriting the working,
-   test-covered remainder.
+   build — an architectural step deliberately kept separate). The remaining next
+   step is wiring the Rust targets in behind their C ABI shim (an in-process
+   shadow comparison, then promotion); a hosted OSS-Fuzz/ClusterFuzzLite-Rust
+   integration is a further option beyond the nightly job. This puts memory-safe
+   code exactly where attacker-influenced bytes are parsed, without rewriting the
+   working, test-covered remainder.
 3. **Full Rust/Aya rewrite is explicitly deferred.** It is the right greenfield
    answer, but it would discard a verified, test-covered asset for a property
    that hardening + privilege-separation + targeted Rust + fuzzing already
