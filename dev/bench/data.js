@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780607591795,
+  "lastUpdate": 1780610727633,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42852,6 +42852,102 @@ window.BENCHMARK_DATA = {
             "value": 460734.77125046117,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 460823.55376884487 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a202b44d3d9646f34fbc00686f23235b3c75768",
+          "message": "feat(rust): continuous fuzzing for the memory-safe decoders (cargo-fuzz, nightly) (#231)\n\nWires the three Rust oxidation targets into continuous fuzzing — the next step\nnamed in docs/MEMORY_SAFETY.md — so the memory-safe decoders are exercised on\narbitrary bytes every night, not just at merge time.\n\nAdds a cargo-fuzz/libFuzzer sub-crate `rust/aegis-parser/fuzz` with one target\nper decoder:\n* fuzz_rs_policy  -> parse_policy(data, true) + canonical_report\n* fuzz_rs_bundle  -> parse_signed_bundle + bundle_canonical_report\n* fuzz_rs_event   -> event_canonical_report (raw ring-buffer records)\n\nEach asserts the decoder terminates without panicking on any input — the same\nproperty the in-tree `adversarial_inputs_never_panic` unit tests check, now\nexercised continuously. The decoders are `#![forbid(unsafe_op_in_unsafe_fn)]`\nand contain no `unsafe`, so a crash would be a logic panic, not memory\ncorruption. Corpora are seeded from the differential-parity fixtures.\n\nCI: a new `rust-fuzz` job in `.github/workflows/nightly-fuzz.yml` (nightly +\nworkflow_dispatch) installs a nightly toolchain + cargo-fuzz, builds the\ntargets, runs each for a bounded time, and caches the grown corpus across runs\n(mirroring the existing C++ fuzz job). The fuzz crate is a SEPARATE package\n(its own `[workspace]`), so the stable `rust-parser.yml` merge gate — which runs\ncargo fmt/clippy/test/build in the parent crate — never builds it and stays\nstable-only.\n\nPurely additive: no production-path, C++, or CMake changes. Validated locally on\na nightly toolchain — all three targets build and run clean: ~10M total\nexecutions (policy 993K, bundle 3.5M, event 5.6M) with zero crashes.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T00:54:01+03:00",
+          "tree_id": "e263b01f299360aebab483f0bedfb4738dfa14cc",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/5a202b44d3d9646f34fbc00686f23235b3c75768"
+        },
+        "date": 1780610726358,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1533.9721505400964,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1533.632178068932 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3738.3928075713143,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3737.9842217984583 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21623.314032268976,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21621.094049791736 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165088.46180759912,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165071.4929926692 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1317320.2093096003,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1317047.1679162753 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5297620.63439848,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5297126.481829578 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4973.3081653618065,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4971.014659069805 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33730.32095867089,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33706.24993190592 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 273900.71845776995,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 273846.04469819984 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 817620.5772727943,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 817696.8802051991 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.65872383212876,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.65236065141174 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.1397931154369,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.13518858767424 ns\nthreads: 1"
           }
         ]
       }
