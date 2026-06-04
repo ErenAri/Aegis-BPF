@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780584796589,
+  "lastUpdate": 1780604416391,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -42678,6 +42678,96 @@ window.BENCHMARK_DATA = {
             "value": 54.85178362864446,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.841306368256966 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e38d2bf5c03a2534816e7d484514fc15db899ac1",
+          "message": "feat(rust): memory-safe BPF-event decoder oxidation + differential parity gate (#229)\n\nThird oxidation target on the untrusted-input boundary, after the policy\nparser (#213/#216) and the signed-bundle decoder (#217/#228): a memory-safe\nRust port of the C++ ring-buffer event consumer (`handle_event` + the\n`print_*_event` field extraction, src/events.cpp). Of the three it carries the\nmost raw memory-safety value — the C++ consumer does\n`static_cast<const Event*>(data)` over a raw kernel record and **discards the\nsize argument**, so a short or layout-drifted record is read out of bounds.\n\nWhat this adds (all test-only; the crate is NOT linked into production, the C++\nimplementation stays authoritative):\n\n* rust/aegis-parser/src/event.rs — `canonical_report(&[u8]) -> String`, a\n  bounds-checked decoder. Dispatch on the u32 type at offset 0; read each typed\n  payload through the `Event` union (payload at offset 8, verified by a layout\n  probe against src/types.hpp); extract char[] like C++\n  `to_string`=`string(buf, strnlen(buf,n))`; derive the net-block label from\n  `direction` and the kernel-block label from `rule_type` exactly as the print\n  functions do. A short record yields `err short_buffer <len>` (the bounds check\n  handle_event lacks); an unrecognized type yields `unknown_type <n>`.\n* aegis_event_lint bin + `aegisbpf policy event-canonical` (cmd_policy_event_\n  canonical) emitting a byte-identical canonical decode dump. The C++ emitter\n  reads fields through the SAME union access handle_event uses, so the\n  compiler's own layout is the ground truth the Rust offsets are proven against;\n  a `static_assert` block pins that layout so a future struct change is a build\n  failure, not a silent parity-gate red.\n* scripts/rust_event_parity.sh — differential harness comparing both decoders\n  over committed binary fixtures + a valid Event-shaped family (every event\n  type, randomized fields, deterministically-stamped argv slots) + an\n  adversarial family (boundary lengths incl. the short_buffer edges, random\n  bytes, biased type). Added as a merge gate in rust-parser.yml. Green at\n  40016/40016 over a 20k-each fuzz run.\n* 20 unit/adversarial tests incl. a 20k-iteration no-panic sweep; docs updated\n  (crate README + docs/MEMORY_SAFETY.md) to list three proven/staged targets.\n\nThe decode pins what is memory-unsafe in C++ (offsets, endianness, NUL-bounded\nchar[] extraction, label derivation, clamping); address *text* formatting\n(inet_ntop) is presentation and is out of scope (addresses compared as raw hex).\nIt faithfully preserves handle_event's offset-8 forensic union read so the swap\nstays behavior-preserving — a separately-reported latent producer/consumer\nmismatch (BPF emits a bare 104-byte forensic_event) is left for human review,\nnot changed here.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-04T23:08:44+03:00",
+          "tree_id": "647fc672ae6a70cc3b5f83bcc10fbb76ebf999fc",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/e38d2bf5c03a2534816e7d484514fc15db899ac1"
+        },
+        "date": 1780604414803,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1172.4135090229431,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1172.3027188755864 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2840.476262106806,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2840.0266030211956 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 16234.241291596438,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16232.555721393024 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 123976.17134169686,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 123964.41865447484 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 982357.4549929695,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 982260.0247304257 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3923573.8272642363,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3922892.06442578 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 3680.8460836694844,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3697.8537961712864 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 26245.875898319176,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26251.54428557745 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 217395.64404370985,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 217435.31129742146 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 668225.1266571868,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 668466.2196934704 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 58.978416220522824,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 58.97308811250292 ns\nthreads: 1"
           }
         ]
       }
