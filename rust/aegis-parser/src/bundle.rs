@@ -116,18 +116,19 @@ fn hex_digit_value(c: u8) -> Option<u8> {
     }
 }
 
-/// Faithful `hex_to_bytes`: requires exactly `out.len() * 2` hex chars.
-fn hex_to_bytes(hex: &[u8], out: &mut [u8]) -> bool {
-    if hex.len() != out.len() * 2 {
-        return false;
+/// Faithful `hex_to_bytes`: decode exactly `N` bytes, requiring `N * 2` hex
+/// chars (else `None`) — same accept/reject as the C++ helper.
+fn hex_decode<const N: usize>(hex: &[u8]) -> Option<[u8; N]> {
+    if hex.len() != N * 2 {
+        return None;
     }
+    let mut out = [0u8; N];
     for (i, slot) in out.iter_mut().enumerate() {
-        match (hex_digit_value(hex[2 * i]), hex_digit_value(hex[2 * i + 1])) {
-            (Some(hi), Some(lo)) => *slot = (hi << 4) | lo,
-            _ => return false,
-        }
+        let hi = hex_digit_value(hex[2 * i])?;
+        let lo = hex_digit_value(hex[2 * i + 1])?;
+        *slot = (hi << 4) | lo;
     }
-    true
+    Some(out)
 }
 
 /// Faithful `parse_header_line`: split on the FIRST ':', trim both sides, require
@@ -203,17 +204,15 @@ pub fn parse_signed_bundle(content: &[u8]) -> Result<Bundle, String> {
                 Some(v) => bundle.expires = v,
                 None => return Err("Invalid expires".to_string()),
             },
-            b"signer_key" => {
+            b"signer_key" => match hex_decode::<32>(trim(value)) {
                 // decode_public_key trims again, then requires exactly 64 hex.
-                if !hex_to_bytes(trim(value), &mut bundle.signer_key) {
-                    return Err("Invalid signer_key".to_string());
-                }
-            }
-            b"signature" => {
-                if !hex_to_bytes(trim(value), &mut bundle.signature) {
-                    return Err("Invalid signature".to_string());
-                }
-            }
+                Some(k) => bundle.signer_key = k,
+                None => return Err("Invalid signer_key".to_string()),
+            },
+            b"signature" => match hex_decode::<64>(trim(value)) {
+                Some(s) => bundle.signature = s,
+                None => return Err("Invalid signature".to_string()),
+            },
             b"policy_sha256" => {
                 bundle.policy_sha256 = String::from_utf8_lossy(value).to_string();
             }
