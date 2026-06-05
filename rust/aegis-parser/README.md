@@ -73,11 +73,18 @@ things:
 2. **Human review** of the swap PR.
 
 Until both are satisfied, the C++ parser remains authoritative. The `ffi` module
-(`aegis_policy_parse` + `AegisPolicySink`) is the C ABI seam for the **policy**
-swap specifically; it is the template each swap follows — the `bundle` and
-`event` decoders still need their own analogous C ABI exports wired before they
-can be promoted. So promotion is a (still-pending) wiring change against an
-established pattern rather than a rewrite.
+(`aegis_policy_parse` + `AegisPolicySink`, declared for C in
+`src/aegis_parser_ffi.h`) is the C ABI seam for the **policy** swap specifically.
+That seam is now **linked and exercised in-process**: building with
+`-DENABLE_RUST_PARSER_LINK=ON` (default OFF) compiles the crate as a staticlib,
+links it into a C++ binary, and runs `tests/test_rust_ffi_parity.cpp`, which
+drives `aegis_policy_parse` and checks it agrees with the C++ parser on the same
+bytes — proving the real link + ABI + sink path, not just the out-of-process CLI
+parity. It is the template each swap follows; the `bundle` and `event` decoders
+still need their own analogous C ABI exports. What remains for an actual swap is
+(a) a runtime shadow at the production call site and (b) human review — so
+promotion is a (still-pending) wiring change against an established, now-linked
+pattern rather than a rewrite. The default build needs no Rust toolchain.
 
 ## Why these three
 
