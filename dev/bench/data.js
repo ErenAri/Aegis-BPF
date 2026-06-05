@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780676979736,
+  "lastUpdate": 1780679395440,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43536,6 +43536,108 @@ window.BENCHMARK_DATA = {
             "value": 50.25377767885745,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 50.249669635466496 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2d9f2acbb7e15a0b8c8945a5b0c31506ac21cf4",
+          "message": "feat(ffi): whole-Policy transport + structured reconstruction (full-flip mechanism) (#239)\n\nThe final code prerequisite for making the memory-safe Rust parser the sole\nparser of untrusted policy input: a FFI that transports the ENTIRE parsed policy\n(not just errors/warnings or a canonical string) and rebuilds the structured C++\nPolicy the kernel maps are populated from. Staged default-OFF and NOT wired into\nthe apply path; the actual flip is the remaining human-gated step.\n\n* ffi.rs: `aegis_policy_build` + `AegisPolicyBuilder` — on a clean parse, walks the\n  Rust Policy and calls back per field (version, flags, the string/int/tuple\n  categories). Compound fields (inodes, ip:ports, cgroup keys) ship their canonical\n  string form. Category/flag ids are the ABI contract with the C header.\n* src/aegis_parser_ffi.h: the builder struct + the AEGIS_PCAT_* / AEGIS_PFLAG_*\n  id enums (documented canonical formats), kept in lockstep with ffi.rs.\n* src/rust_policy_build.{hpp,cpp}: `rust_build_policy(bytes, Policy&)` reconstructs\n  the structured Policy from the callbacks, parsing the canonical compound strings\n  (\"dev:ino\", \"ip|port|proto\", \"cgroup|...\") back into structs. No-op unless built\n  with -DENABLE_RUST_PARSER_LINK=ON.\n* commands_policy.cpp: extract `policy_entries_canonical(const Policy&)` (content\n  only, no errors/warnings) from cmd_policy_canonical — behavior-preserving\n  (policy parity 3029/3029) — so the test can compare two Policy objects.\n* tests: `RustFfiParity.RustBuiltPolicyMatchesCpp` proves the reconstructed Rust\n  Policy is byte-identical (by canonical content) to the C++-parsed one over\n  inline cases (every category) + the committed corpus, and that a rejected parse\n  builds nothing.\n\nSafety: default build (option OFF) is byte-identical — rust_policy_build.cpp\ncompiles to a no-op, no cargo/Rust needed; the apply path is untouched. With the\noption ON: aegisbpf + the test link clean, all 10 FFI/shadow/build tests pass,\nthe 371-test default suite is unaffected, and clang-format/clang-tidy + crate\nclippy/fmt are clean.\n\nWhat remains for the flip: wire rust_build_policy into the apply path behind a\nnew mode, then the reviewed promotion + rollout. Everything up to that is built\nand proven.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T19:58:31+03:00",
+          "tree_id": "7a680a2dd5379c11a301017a901ef18c6d0d2d77",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/d2d9f2acbb7e15a0b8c8945a5b0c31506ac21cf4"
+        },
+        "date": 1780679393446,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1511.785234061241,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1511.6415052810573 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3669.81420924687,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3669.4587450724516 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20954.758565241093,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20952.894304227008 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159193.69845993936,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159158.42243953122 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1266517.1809309379,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1266415.0903153166 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5079293.155836335,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5078831.861612512 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4716.896998579065,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4738.489685959052 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34233.692958883745,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34239.52441804027 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 285058.2555772138,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 285144.5038783399 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 889961.212449164,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 890318.9544828417 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.85056684954686,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.845696432777196 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.54273522630513,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.52716938854543 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.12234352793461,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.117682825104396 ns\nthreads: 1"
           }
         ]
       }
