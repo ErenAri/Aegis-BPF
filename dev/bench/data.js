@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780659256984,
+  "lastUpdate": 1780673701841,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43338,6 +43338,108 @@ window.BENCHMARK_DATA = {
             "value": 54.00537596413326,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 53.99510845842332 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8a2864c468c6bdd269a18ba8efa18423ec5692e",
+          "message": "feat(policy): Rust consensus/enforce mode — fail-closed parser veto (A3) (#236)\n\nBuilds on the A2 shadow: the memory-safe Rust parser can now gain authoritative\nVETO over policy application, fail-closed. At the production apply call site the\nRust parser re-parses each policy and compares its FULL canonical dump (version,\nflags, every stored entry, sorted errors/warnings — the proven parity surface)\nagainst the authoritative C++ canonical. Runtime mode via AEGIS_RUST_SHADOW:\n\n  unset        -> Off     (no-op; production default)\n  shadow | 1   -> Shadow  (log divergence; A2)\n  enforce      -> Enforce (a divergence REJECTS the apply, fail-closed; A3)\n\nC++ stays authoritative for policy CONTENT; enforce only ever rejects (the safe\ndirection for a security tool), and since the two parsers are proven equivalent\n(scripts/rust_policy_parity.sh) it never rejects a valid policy.\n\n* ffi.rs/aegis_parser_ffi.h: new `aegis_policy_canonical` seam (full canonical\n  dump), the structural-equivalence surface — stronger than the errors/warnings\n  `aegis_policy_parse` reported.\n* commands_policy.cpp: extract `policy_canonical_dump_from_path()` from\n  cmd_policy_canonical (behavior-preserving; the policy parity harness validates\n  it) so the consensus builds the C++ canonical in-process.\n* rust_parse_shadow.{hpp,cpp}: full-canonical comparison + the three modes; a\n  testable `rust_parse_shadow_decide()` seam for the fail-closed logic.\n* policy_runtime.cpp: on `ran && diverged && enforce`, reject the apply with\n  ErrorCode::PolicyParseFailed (guarded by AEGIS_RUST_SHADOW).\n* tests: the decide logic (incl. fail-closed), the aegis_policy_canonical seam vs\n  cmd_policy_canonical, and the integration happy path (enforce must NOT reject a\n  valid policy) + gating.\n\nStill default-OFF and self-contained: compiled out without\n-DENABLE_RUST_PARSER_LINK=ON, byte-identical build, no Rust toolchain needed.\nThis is the consensus intermediate — it protects the APPLIED policy; the full\n\"C++ never parses untrusted input\" flip needs a richer whole-Policy FFI and is a\ndocumented, human-gated follow-up.\n\nVerified locally: option-ON links aegisbpf + the test, all 9 FFI/shadow/consensus\ntests pass; policy parity 3029/3029 (refactor behavior-preserving); default-OFF\nbuild + 371-test suite unaffected; crate clippy/fmt + clang-format/tidy clean.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T18:23:42+03:00",
+          "tree_id": "40754f032bc2470d8a2eb488d9b2c422fb7239e4",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/d8a2864c468c6bdd269a18ba8efa18423ec5692e"
+        },
+        "date": 1780673700828,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1519.9576802771069,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1519.7086070878593 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3691.5578998593896,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3691.241904828117 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21033.516950087742,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21032.058660647097 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160059.81371595364,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160032.09621766987 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1273602.0744697016,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1273502.3791666676 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5082517.53303031,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5082024.147878788 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4728.303511073583,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4739.083475629181 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33968.627349945265,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33971.47200911867 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 278753.3146868308,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 278807.35770575114 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 861585.4889745453,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 861902.5584615888 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.81267120269021,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.80909790613176 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.83031692489868,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.8244241020568 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.88050518371403,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.8769813282779 ns\nthreads: 1"
           }
         ]
       }
