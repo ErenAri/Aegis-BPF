@@ -422,8 +422,11 @@ TEST(RustFfiParity, RustBuiltPolicyMatchesCpp)
     expect_policy_build_matches("version = 6\n", "minimal");
     expect_policy_build_matches("version = 6\n[deny_path]\n/etc/shadow\n/root\n", "deny_paths");
     expect_policy_build_matches("version = 6\n[deny_ip]\n10.0.0.1\n[deny_cidr]\n10.0.0.0/8\n", "ip_cidr");
-    expect_policy_build_matches("version = 6\n[deny_port]\n80/tcp\n443\n22/udp:bind\n", "ports");
-    expect_policy_build_matches("version = 6\n[deny_ip_port]\n1.2.3.4:443/tcp\n", "ip_port");
+    expect_policy_build_matches("version = 6\n[deny_port]\n80:tcp\n443\n22:udp:bind\n", "ports");
+    expect_policy_build_matches("version = 6\n[deny_ip_port]\n1.2.3.4:443:tcp\n", "ip_port");
+    expect_policy_build_matches("version = 6\n[cgroup_deny_inode]\n/sys/fs/cgroup/x 10:20\n", "cgroup_inode");
+    expect_policy_build_matches("version = 6\n[cgroup_deny_port]\n/sys/fs/cgroup/y 22:tcp:bind\n", "cgroup_port");
+    expect_policy_build_matches("version = 6\n[deny_ptrace]\n[deny_bpf]\n", "flags");
     expect_policy_build_matches("version = 999999\n", "bad_version_rejected");
     expect_policy_build_matches("", "empty");
 
@@ -447,6 +450,65 @@ TEST(RustFfiParity, RustBuiltPolicyMatchesCpp)
     }
 #    endif
     EXPECT_GT(checked, 0u) << "no corpus policies found for the build-equivalence test";
+#else
+    GTEST_SKIP() << "built without AEGIS_RUST_SHADOW";
+#endif
+}
+
+// The flip (opt-in, default-off): `authoritative` mode sources the applied policy
+// from the Rust parser — but only when the canonical compare AGREES, so it can
+// never enforce content differing from C++. The apply-path integration needs
+// root/BPF, so here we test its components: the decision logic + that the policy
+// the apply path would source (rust_build_policy_from_path) equals the C++ one.
+TEST(RustFfiParity, AuthoritativeFlipSourcesEquivalentPolicy)
+{
+#ifdef AEGIS_RUST_SHADOW
+    using aegis::rust_parse_shadow_decide;
+    using aegis::RustShadowMode;
+
+    // Agreement: fail-closed armed AND authoritative set (the apply path would
+    // then source content from Rust).
+    {
+        const auto o = rust_parse_shadow_decide(RustShadowMode::Authoritative, "x", "x");
+        EXPECT_TRUE(o.ran);
+        EXPECT_FALSE(o.diverged);
+        EXPECT_TRUE(o.enforce);
+        EXPECT_TRUE(o.authoritative);
+    }
+    // Divergence under authoritative: fail-closed (the apply path rejects; it
+    // NEVER sources differing content).
+    {
+        const auto o = rust_parse_shadow_decide(RustShadowMode::Authoritative, "a", "b");
+        EXPECT_TRUE(o.diverged);
+        EXPECT_TRUE(o.enforce);
+        EXPECT_TRUE(o.authoritative);
+    }
+
+    // Integration on a real clean policy: the compare agrees + flags authoritative,
+    // and the policy the apply path would source equals the C++-parsed one.
+    const std::string policy = "version = 6\n[deny_path]\n/etc/shadow\n[deny_port]\n443:tcp\n[deny_ip]\n10.0.0.1\n";
+    std::filesystem::path tmp = std::filesystem::temp_directory_path() / "aegis_authoritative.conf";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out.write(policy.data(), static_cast<std::streamsize>(policy.size()));
+    }
+    ::setenv("AEGIS_RUST_SHADOW", "authoritative", 1);
+    const auto outcome = aegis::rust_parse_shadow_compare(tmp.string());
+    EXPECT_TRUE(outcome.ran);
+    EXPECT_FALSE(outcome.diverged) << "authoritative must agree with C++ on a clean policy";
+    EXPECT_TRUE(outcome.authoritative);
+
+    aegis::Policy rust_policy;
+    ASSERT_TRUE(aegis::rust_build_policy_from_path(tmp.string(), rust_policy));
+    aegis::PolicyIssues issues;
+    auto cpp = aegis::parse_policy_file(tmp.string(), issues);
+    ASSERT_TRUE(cpp);
+    EXPECT_EQ(aegis::policy_entries_canonical(*cpp), aegis::policy_entries_canonical(rust_policy))
+        << "the Rust-sourced policy the apply path would enforce must equal the C++ one";
+
+    ::unsetenv("AEGIS_RUST_SHADOW");
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
 #else
     GTEST_SKIP() << "built without AEGIS_RUST_SHADOW";
 #endif

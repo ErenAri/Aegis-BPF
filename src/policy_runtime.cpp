@@ -13,6 +13,7 @@
 #include "network_ops.hpp"
 #include "policy.hpp"
 #include "rust_parse_shadow.hpp"
+#include "rust_policy_build.hpp"
 #include "sha256.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
@@ -193,19 +194,18 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         report_policy_issues(issues);
 #ifdef AEGIS_RUST_SHADOW
         // Cross-check the parse with the memory-safe Rust parser (gated by the
-        // AEGIS_RUST_SHADOW env var). `shadow` mode logs any divergence; `enforce`
-        // mode REJECTS the apply (fail-closed) on divergence — the memory-safe
-        // parser gains authoritative veto power. The C++ parse stays authoritative
-        // for the policy content. Compiled out (and the binary needs no Rust
-        // toolchain) unless built with -DENABLE_RUST_PARSER_LINK=ON.
-        {
-            const RustShadowOutcome shadow = rust_parse_shadow_compare(path);
-            if (shadow.ran && shadow.diverged && shadow.enforce) {
-                Error err(ErrorCode::PolicyParseFailed,
-                          "Rust/C++ parser canonical divergence; rejecting policy (fail-closed)");
-                span.fail(err.to_string());
-                return fail(err);
-            }
+        // AEGIS_RUST_SHADOW env var): `shadow` logs divergence; `enforce` rejects
+        // the apply (fail-closed) on divergence; `authoritative` additionally
+        // sources the applied policy CONTENT from Rust on agreement (the flip).
+        // The C++ parse remains authoritative by default. Compiled out (and the
+        // binary needs no Rust toolchain) unless built with
+        // -DENABLE_RUST_PARSER_LINK=ON.
+        const RustShadowOutcome rust_shadow = rust_parse_shadow_compare(path);
+        if (rust_shadow.ran && rust_shadow.diverged && rust_shadow.enforce) {
+            Error err(ErrorCode::PolicyParseFailed,
+                      "Rust/C++ parser canonical divergence; rejecting policy (fail-closed)");
+            span.fail(err.to_string());
+            return fail(err);
         }
 #endif
         if (!policy_result) {
@@ -213,6 +213,21 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             return fail(policy_result.error());
         }
         policy = *policy_result;
+#ifdef AEGIS_RUST_SHADOW
+        // The flip (opt-in, default-off): in `authoritative` mode, and ONLY when
+        // the canonical comparison above AGREED (so the Rust policy is proven equal
+        // to the C++ one for this file), source the applied content from the
+        // memory-safe parser. By construction it can never enforce a policy that
+        // differs from what the C++ parser produced.
+        if (rust_shadow.ran && rust_shadow.authoritative && !rust_shadow.diverged) {
+            Policy rust_policy;
+            if (rust_build_policy_from_path(path, rust_policy)) {
+                policy = std::move(rust_policy);
+                logger().log(SLOG_INFO("policy content sourced from the memory-safe Rust parser (authoritative mode)")
+                                 .field("path", path));
+            }
+        }
+#endif
     }
 
     {

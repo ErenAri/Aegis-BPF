@@ -54,11 +54,18 @@ the shadow code compiles to a no-op.
 The mode is read from the `AEGIS_RUST_SHADOW` environment variable at apply time.
 Even a shadow-enabled binary is inert until you set it.
 
-| value          | mode    | behavior                                                        |
-|----------------|---------|-----------------------------------------------------------------|
-| *(unset/other)*| Off     | no-op (default)                                                 |
-| `shadow` / `1` | Shadow  | re-parse + **log** any canonical divergence; apply proceeds     |
-| `enforce`      | Enforce | a divergence **rejects** the apply, fail-closed                 |
+| value            | mode          | behavior                                                              |
+|------------------|---------------|-----------------------------------------------------------------------|
+| *(unset/other)*  | Off           | no-op (default)                                                       |
+| `shadow` / `1`   | Shadow        | re-parse + **log** any canonical divergence; apply proceeds           |
+| `enforce`        | Enforce       | a divergence **rejects** the apply, fail-closed                       |
+| `authoritative`  | Authoritative | the **flip**: fail-closed on divergence AND, on agreement, the applied policy **content** is sourced from the Rust parser |
+
+`authoritative` is the safest possible flip: it only ever uses the Rust-parsed
+policy *after* the canonical comparison confirms it is byte-identical to the C++
+parse for that file, so it can never enforce content that differs from what C++
+would have produced (and on any divergence it fails closed instead). Adopt it only
+after `enforce` has been clean on your policy mix.
 
 Set it on the daemon's environment (systemd drop-in, k8s env, etc.), e.g.:
 
@@ -100,9 +107,15 @@ file and open an issue.
    policy mix, switch a canary to `AEGIS_RUST_SHADOW=enforce`. Now a (still
    not-expected) divergence rejects the apply rather than logging — the safe
    direction. Confirm legitimate policies still apply.
-3. **Full swap (future, human-gated).** Making Rust the *sole* parser (so C++ no
-   longer touches untrusted input) is a separate change — a richer FFI + a canary'd
-   flip — and a decision to make only after enforce has been clean in production.
+3. **Authoritative (the flip).** Once `enforce` has been clean in production, a
+   canary on `AEGIS_RUST_SHADOW=authoritative` makes the memory-safe Rust parser
+   the source of the applied policy content (still fail-closed on any divergence,
+   so it never enforces something C++ wouldn't have). This is the wiring that
+   removes the parse-time exposure for the *applied* policy; it is built and
+   proven (`RustFfiParity.AuthoritativeFlipSourcesEquivalentPolicy`) but enabling
+   it in production is your decision. The final step — having C++ not parse the
+   untrusted file at all (vs. parse-and-discard for the cross-check) — is a
+   further optimization once authoritative has soaked.
 
 ## Rollback
 

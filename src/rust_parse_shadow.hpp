@@ -7,20 +7,27 @@ namespace aegis {
 
 // Runtime mode for the Rust-parser cross-check, read from the AEGIS_RUST_SHADOW
 // environment variable:
-//   unset / anything else -> Off     (no-op; production default)
-//   "1" or "shadow"       -> Shadow  (re-parse + log divergence; A2)
-//   "enforce"             -> Enforce (consensus: a divergence fails the apply
-//                                     CLOSED — the policy is rejected; A3)
-enum class RustShadowMode { Off, Shadow, Enforce };
+//   unset / anything else -> Off          (no-op; production default)
+//   "1" or "shadow"       -> Shadow        (re-parse + log divergence; A2)
+//   "enforce"             -> Enforce       (consensus: a divergence fails the
+//                                           apply CLOSED — the policy is rejected; A3)
+//   "authoritative"       -> Authoritative (the flip: like Enforce, AND — when the
+//                                           canonical comparison agrees — the
+//                                           memory-safe Rust parser becomes the
+//                                           source of the APPLIED policy content)
+enum class RustShadowMode { Off, Shadow, Enforce, Authoritative };
 
 // Outcome of a Rust-parser cross-check. `ran` is false when the shadow is
-// compiled out (no AEGIS_RUST_SHADOW) or the mode is Off; `diverged`/`enforce`
-// are only meaningful when `ran` is true. When `ran && diverged && enforce`, the
-// caller MUST fail the apply closed.
+// compiled out (no AEGIS_RUST_SHADOW) or the mode is Off; the other fields are
+// only meaningful when `ran` is true.
+//   * `ran && diverged && enforce`        -> the caller MUST fail the apply closed.
+//   * `ran && authoritative && !diverged` -> the caller MAY source the applied
+//     policy from the Rust parser (proven equal to C++ by the agreeing compare).
 struct RustShadowOutcome {
     bool ran = false;
     bool diverged = false;
     bool enforce = false;
+    bool authoritative = false;
 };
 
 // Re-parse `policy_path` with the memory-safe Rust parser through its C ABI seam

@@ -43,6 +43,9 @@ RustShadowMode parse_mode()
         return RustShadowMode::Off;
     }
     const std::string s(v);
+    if (s == "authoritative") {
+        return RustShadowMode::Authoritative;
+    }
     if (s == "enforce") {
         return RustShadowMode::Enforce;
     }
@@ -73,17 +76,21 @@ RustShadowOutcome rust_parse_shadow_decide(RustShadowMode mode, const std::strin
     if (mode == RustShadowMode::Off) {
         return {};
     }
-    const bool enforce = (mode == RustShadowMode::Enforce);
+    // Both Enforce and Authoritative fail the apply closed on divergence;
+    // Authoritative additionally sources the applied content from Rust on agreement.
+    const bool enforce = (mode == RustShadowMode::Enforce || mode == RustShadowMode::Authoritative);
+    const bool authoritative = (mode == RustShadowMode::Authoritative);
     const bool diverged = (cpp_canonical != rust_canonical);
     if (diverged) {
         logger().log(SLOG_WARN("rust parse shadow: canonical divergence vs authoritative C++ parser")
                          .field("enforce", enforce)
+                         .field("authoritative", authoritative)
                          .field("cpp_canonical_len", static_cast<uint64_t>(cpp_canonical.size()))
                          .field("rust_canonical_len", static_cast<uint64_t>(rust_canonical.size())));
     } else {
         logger().log(SLOG_DEBUG("rust parse shadow: canonical agrees with C++ parser"));
     }
-    return {true, diverged, enforce};
+    return {true, diverged, enforce, authoritative};
 }
 
 RustShadowOutcome rust_parse_shadow_compare(const std::string& policy_path)
@@ -107,7 +114,9 @@ RustShadowOutcome rust_parse_shadow_compare(const std::string& policy_path)
         logger().log(SLOG_WARN("rust parse shadow: FFI returned a negative code")
                          .field("path", policy_path)
                          .field("rc", static_cast<int64_t>(rc)));
-        return {true, true, mode == RustShadowMode::Enforce};
+        const bool enforce = (mode == RustShadowMode::Enforce || mode == RustShadowMode::Authoritative);
+        // An FFI failure is a divergence; never source content from it.
+        return {true, true, enforce, false};
     }
     return rust_parse_shadow_decide(mode, cpp_canonical, rust_canonical);
 }

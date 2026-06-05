@@ -94,16 +94,18 @@ Rust `aegis_policy_canonical` dump from the authoritative C++ canonical
 **veto** — a divergence rejects the apply, fail-closed. The C++ parser stays
 authoritative for policy *content*, and both modes are off by default.
 
-The **content** transport for the full swap also exists now: `aegis_policy_build`
-walks the Rust-parsed policy and rebuilds the structured C++ `Policy`
-(`src/rust_policy_build.cpp`), proven byte-identical to the C++-parsed policy
-in-process (`RustFfiParity.RustBuiltPolicyMatchesCpp`). So the memory-safe parser
-*can* be the sole content source — what remains for the full swap (C++ no longer
-parsing untrusted input at all) is to **wire** `rust_build_policy` into the apply
-path, the reviewed **promotion** once the shadow shows no divergence on real
-traffic, and the decision to ship the shadow-enabled build (which adds `cargo` to
-the production build — x86-only first). The default build needs no Rust toolchain
-and is byte-identical.
+The **flip itself is now wired** behind a fourth, default-off mode
+(`AEGIS_RUST_SHADOW=authoritative`): `aegis_policy_build` walks the Rust-parsed
+policy and rebuilds the structured C++ `Policy` (`src/rust_policy_build.cpp`),
+proven byte-identical to the C++-parsed policy in-process
+(`RustFfiParity.RustBuiltPolicyMatchesCpp`), and in `authoritative` mode the apply
+path sources the applied content from it — but ONLY when the canonical comparison
+agrees (else fail-closed), so it can never enforce content that differs from C++.
+So every code step of the swap is built and proven. What remains is **operational
+and your call**: soak `shadow` → `enforce` → `authoritative` on real traffic
+(`docs/RUST_PARSER_SHADOW.md`), and the decision to ship the shadow-enabled build
+(which adds `cargo` to the production build — x86-only first). The default build
+needs no Rust toolchain and is byte-identical.
 
 ## Why these three
 
