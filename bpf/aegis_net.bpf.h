@@ -37,6 +37,58 @@
  * Network LSM Hooks
  * ============================================================================ */
 
+/* DRAFT / under evaluation on the bpfcompat matrix — see the prohibition note
+ * above. The per-hook deny tails were duplicated because the inline-helper and
+ * macro forms (reverted PR #207) change the unified tail's instruction layout
+ * and the 6.8/6.12 verifiers then reject all six programs. This is the one form
+ * the note flags as untried-because-blocked: a `__noinline` BPF-to-BPF subprogram
+ * that takes a SINGLE context-struct pointer (1 register), which sidesteps the
+ * "emit helper needs 14 args > 5-register call limit" blocker. Whether THIS form
+ * loads on 6.8/6.12 is the open question the cross-kernel matrix must answer; do
+ * not merge until it passes the bpfcompat load baseline on every kernel. */
+struct net_emit_ctx {
+    __u32 event_type;
+    __u32 pid;
+    __u64 cgid;
+    __u32 remote_ipv4; /* network byte order; 0 unless egress/remote-bearing */
+    struct task_struct *task;
+    __u16 local_port;
+    __u16 remote_port;
+    __u8 family;
+    __u8 protocol;
+    __u8 direction;       /* 0=egress 1=bind 2=listen 3=accept 4=send 5=recv */
+    __u8 audit;           /* set_action_string() audit flag */
+    __u8 enforce_signal;  /* runtime-resolved enforce signal */
+    __u8 remote_ipv6[16]; /* zero unless family == AF_INET6 */
+    char rule_type[16];
+};
+
+/* Reserve/fill/submit a net_block event from `c`. Centralizes the previously
+ * hand-duplicated deny tail; the call sites populate `c` (zero-initialized, so
+ * absent address fields stay 0) and call this. */
+static __noinline void emit_net_block(struct net_emit_ctx *c)
+{
+    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) {
+        increment_net_ringbuf_drops();
+        return;
+    }
+    e->type = c->event_type;
+    fill_net_block_event_process_info(&e->net_block, c->pid, c->task);
+    e->net_block.cgid = c->cgid;
+    bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
+    e->net_block.family = c->family;
+    e->net_block.protocol = c->protocol;
+    e->net_block.local_port = c->local_port;
+    e->net_block.remote_port = c->remote_port;
+    e->net_block.direction = c->direction;
+    e->net_block.remote_ipv4 = c->remote_ipv4;
+    __builtin_memcpy(e->net_block.remote_ipv6, c->remote_ipv6, sizeof(e->net_block.remote_ipv6));
+    set_action_string(e->net_block.action, c->audit, c->enforce_signal);
+    __builtin_memcpy(e->net_block.rule_type, c->rule_type, sizeof(e->net_block.rule_type));
+    bpf_ringbuf_submit(e, 0);
+}
+
 SEC("lsm/socket_connect")
 int BPF_PROG(handle_socket_connect, struct socket *sock,
              struct sockaddr *address, int addrlen)
@@ -217,28 +269,23 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
             return 0;
         }
 
-        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-        if (e) {
-            e->type = EVENT_NET_CONNECT_BLOCK;
-            fill_net_block_event_process_info(&e->net_block, pid, task);
-            e->net_block.cgid = cgid;
-            bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-            e->net_block.family = family;
-            e->net_block.protocol = protocol;
-            e->net_block.local_port = 0;
-            e->net_block.remote_port = remote_port;
-            e->net_block.direction = 0;  /* egress */
-            e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-            if (family == AF_INET6)
-                __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-            else
-                __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-            set_action_string(e->net_block.action, 1, enforce_signal);
-            __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-            bpf_ringbuf_submit(e, 0);
-        } else {
-            increment_net_ringbuf_drops();
-        }
+        struct net_emit_ctx _c = {};
+        _c.event_type = EVENT_NET_CONNECT_BLOCK;
+        _c.pid = pid;
+        _c.task = task;
+        _c.cgid = cgid;
+        _c.family = family;
+        _c.protocol = protocol;
+        _c.local_port = 0;
+        _c.remote_port = remote_port;
+        _c.direction = 0; /* egress */
+        _c.audit = 1;
+        _c.enforce_signal = enforce_signal;
+        _c.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
+        if (family == AF_INET6)
+            __builtin_memcpy(_c.remote_ipv6, remote_ip_v6.addr, sizeof(_c.remote_ipv6));
+        __builtin_memcpy(_c.rule_type, rule_type, sizeof(_c.rule_type));
+        emit_net_block(&_c);
 
         record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
         return 0;
@@ -272,28 +319,23 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         return -EPERM;
     }
 
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (e) {
-        e->type = EVENT_NET_CONNECT_BLOCK;
-        fill_net_block_event_process_info(&e->net_block, pid, task);
-        e->net_block.cgid = cgid;
-        bpf_get_current_comm(e->net_block.comm, sizeof(e->net_block.comm));
-        e->net_block.family = family;
-        e->net_block.protocol = protocol;
-        e->net_block.local_port = 0;
-        e->net_block.remote_port = remote_port;
-        e->net_block.direction = 0;  /* egress */
-        e->net_block.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
-        if (family == AF_INET6)
-            __builtin_memcpy(e->net_block.remote_ipv6, remote_ip_v6.addr, sizeof(e->net_block.remote_ipv6));
-        else
-            __builtin_memset(e->net_block.remote_ipv6, 0, sizeof(e->net_block.remote_ipv6));
-        set_action_string(e->net_block.action, 0, enforce_signal);
-        __builtin_memcpy(e->net_block.rule_type, rule_type, sizeof(rule_type));
-        bpf_ringbuf_submit(e, 0);
-    } else {
-        increment_net_ringbuf_drops();
-    }
+    struct net_emit_ctx _c = {};
+    _c.event_type = EVENT_NET_CONNECT_BLOCK;
+    _c.pid = pid;
+    _c.task = task;
+    _c.cgid = cgid;
+    _c.family = family;
+    _c.protocol = protocol;
+    _c.local_port = 0;
+    _c.remote_port = remote_port;
+    _c.direction = 0; /* egress */
+    _c.audit = 0;
+    _c.enforce_signal = enforce_signal;
+    _c.remote_ipv4 = (family == AF_INET) ? remote_ip_v4 : 0;
+    if (family == AF_INET6)
+        __builtin_memcpy(_c.remote_ipv6, remote_ip_v6.addr, sizeof(_c.remote_ipv6));
+    __builtin_memcpy(_c.rule_type, rule_type, sizeof(_c.rule_type));
+    emit_net_block(&_c);
 
     record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
     return -EPERM;
