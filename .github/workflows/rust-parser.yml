@@ -17,6 +17,8 @@ on:
       - 'src/crypto.cpp'
       - 'src/events.cpp'
       - 'src/types.hpp'
+      - 'src/aegis_parser_ffi.h'
+      - 'tests/test_rust_ffi_parity.cpp'
       # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`/
       # `event-canonical` emitters + dispatch
       - 'src/commands_policy.cpp'
@@ -80,3 +82,18 @@ jobs:
 
       - name: Differential event parity (fixtures + 2000 fuzzed event records)
         run: scripts/rust_event_parity.sh --fuzz 2000
+
+      # In-process FFI parity: link the Rust parser staticlib into a C++ binary
+      # (-DENABLE_RUST_PARSER_LINK=ON) and check the C ABI seam agrees with the
+      # C++ parser in the same process — stronger evidence than the out-of-process
+      # parity above. Validated only here (this runner has cargo); the main build
+      # jobs never set the option, so they need no Rust toolchain.
+      - name: In-process Rust FFI parity (link the crate + run the seam)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-ffi -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON -DENABLE_RUST_PARSER_LINK=ON
+          cmake --build build-ffi --target aegis_ffi_parity_test
+          ./build-ffi/aegis_ffi_parity_test

@@ -40,6 +40,11 @@ endif()
 find_package(PkgConfig REQUIRED)
 option(STATIC_LIBBPF "Build and statically link libbpf from source" OFF)
 option(PORTABLE_GLIBC "Suppress glibc 2.38+ C23 redirections for older distro compat" OFF)
+# Build + link the memory-safe Rust parser staticlib (rust/aegis-parser) and its
+# in-process FFI parity test. DEFAULT OFF and fully self-contained: when off, the
+# build needs no Rust toolchain and is byte-identical to today. The C++ parser
+# stays authoritative; this only proves the C ABI seam links + agrees in-process.
+option(ENABLE_RUST_PARSER_LINK "Build+link the Rust parser staticlib and the in-process FFI parity test" OFF)
 
 if(PORTABLE_GLIBC)
     set(GLIBC_COMPAT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/cmake/glibc_compat.h")
@@ -658,6 +663,39 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(aegisbpf_test DISCOVERY_MODE PRE_TEST)
+
+    # In-process FFI parity test: link the memory-safe Rust parser staticlib and
+    # check its C ABI seam (aegis_policy_parse) agrees with the C++ parser in the
+    # same process. Default-OFF: needs a Rust toolchain, so it is opt-in and never
+    # affects the normal build/test.
+    if(ENABLE_RUST_PARSER_LINK)
+        find_program(CARGO_EXECUTABLE cargo REQUIRED)
+        set(RUST_PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust/aegis-parser)
+        set(RUST_PARSER_LIB ${RUST_PARSER_DIR}/target/release/libaegis_parser.a)
+        # The crate is std-only (Cargo.lock = 1 package); build the staticlib.
+        add_custom_command(
+            OUTPUT ${RUST_PARSER_LIB}
+            COMMAND ${CARGO_EXECUTABLE} build --release --lib
+            WORKING_DIRECTORY ${RUST_PARSER_DIR}
+            COMMENT "Building Rust aegis-parser staticlib (libaegis_parser.a)"
+            VERBATIM
+        )
+        add_custom_target(aegis_parser_rs_build DEPENDS ${RUST_PARSER_LIB})
+        add_library(aegis_parser_rs STATIC IMPORTED GLOBAL)
+        set_target_properties(aegis_parser_rs PROPERTIES IMPORTED_LOCATION ${RUST_PARSER_LIB})
+        add_dependencies(aegis_parser_rs aegis_parser_rs_build)
+
+        add_executable(aegis_ffi_parity_test tests/test_rust_ffi_parity.cpp)
+        target_link_libraries(aegis_ffi_parity_test PRIVATE
+            aegisbpf_lib
+            aegis_parser_rs
+            GTest::gtest
+            GTest::gtest_main
+        )
+        target_include_directories(aegis_ffi_parity_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_definitions(aegis_ffi_parity_test PRIVATE AEGIS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        gtest_discover_tests(aegis_ffi_parity_test DISCOVERY_MODE PRE_TEST)
+    endif()
 
     # BPF_PROG_RUN kernel-side tests (require BPF object + root/CAP_BPF)
     if(NOT SKIP_BPF_BUILD)
