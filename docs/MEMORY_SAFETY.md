@@ -67,7 +67,8 @@ touches trusted, agent-generated data.
    `shadow` mode it logs any canonical divergence (diagnostic), and in `enforce`
    mode it gains authoritative **veto** — a divergence from the C++ canonical
    rejects the apply, fail-closed. The C++ parser stays authoritative for policy
-   *content*, and both modes are off by default. The remaining step toward the
+   *content*, and both modes are off by default. Operators: see
+   `docs/RUST_PARSER_SHADOW.md` for how to build, enable, observe, and roll out. The remaining step toward the
    full swap (C++ no longer parsing untrusted input at all) is the reviewed
    **promotion** once the shadow shows no divergence on real traffic — a rollout
    decision plus a richer FFI that transports the whole parsed policy — and the
