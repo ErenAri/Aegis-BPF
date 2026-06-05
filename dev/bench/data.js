@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780679395440,
+  "lastUpdate": 1780680176882,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43638,6 +43638,108 @@ window.BENCHMARK_DATA = {
             "value": 55.12234352793461,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.117682825104396 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a0d0a7273315dabe3f5c3113632d64ae8bca642c",
+          "message": "feat(policy): wire the flip behind a default-off `authoritative` mode (#240)\n\nWires the memory-safe Rust parser as the source of APPLIED policy content, behind\na new fourth mode — gated, default-off, never auto-on. This is the swap's final\ncode step; enabling it in production stays an operator decision (see\ndocs/RUST_PARSER_SHADOW.md).\n\n`AEGIS_RUST_SHADOW=authoritative` (RustShadowMode::Authoritative): like `enforce`\n(fail-closed on canonical divergence) AND, when the comparison AGREES, the apply\npath replaces the C++-parsed policy with `rust_build_policy_from_path(path)`. By\nconstruction it can only ever enforce a policy the canonical compare just proved\nbyte-identical to the C++ parse — and on ANY divergence it fails closed instead.\nSo it can never enforce content that differs from what C++ would have produced.\n\n* rust_parse_shadow.{hpp,cpp}: add the Authoritative mode + `authoritative` flag\n  on the outcome (enforce armed for both Enforce and Authoritative).\n* rust_policy_build.{hpp,cpp}: `rust_build_policy_from_path(path, Policy&)`.\n* policy_runtime.cpp: after the authoritative C++ parse, guarded by\n  AEGIS_RUST_SHADOW, source the content from Rust when authoritative && !diverged\n  (logs an INFO). All other modes and the default build are unchanged.\n* tests: `AuthoritativeFlipSourcesEquivalentPolicy` (decide flags + the sourced\n  policy equals C++). Also fixed the build-equivalence inline cases to valid\n  port/ip_port syntax (`:` not `/`) so they exercise the SUCCESS transport, and\n  added cgroup/flag cases.\n\nSafety: the default build (option OFF) is byte-identical — the whole block\ncompiles out, no Rust toolchain needed; verified aegisbpf links and the 371-test\nsuite is unaffected. With the option ON: aegisbpf + the test link clean, all 11\nFFI/shadow/build/flip tests pass; clang-format/clang-tidy + crate clippy/fmt\nclean.\n\nRemaining is purely operational (your call): soak shadow -> enforce ->\nauthoritative on real traffic, then ship the shadow-enabled build (cargo in the\nprod pipeline, x86-only first).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T20:11:31+03:00",
+          "tree_id": "39be2f67e3a8a214886ce77f88d0226dfc208dfe",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/a0d0a7273315dabe3f5c3113632d64ae8bca642c"
+        },
+        "date": 1780680175853,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1508.4778660433576,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1508.292310905522 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3673.8462016661438,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3673.3876729258286 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21065.46155515414,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21060.80959082811 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160054.9412677559,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160034.7355573326 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1278075.2951515154,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1277915.6087121184 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5108114.329075425,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5107398.56021898 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4723.257576991123,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4739.37002040527 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 51918.7288465981,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51931.88920841463 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 329797.25396193104,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 329856.20869961637 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 1016368.0634427959,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1016509.5809050986 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 50.94538977361736,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 50.93879790144086 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 74.6821760339097,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 74.66224033069166 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.59481395763209,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.58827415205667 ns\nthreads: 1"
           }
         ]
       }
