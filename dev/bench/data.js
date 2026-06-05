@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780673701841,
+  "lastUpdate": 1780676979736,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43440,6 +43440,102 @@ window.BENCHMARK_DATA = {
             "value": 54.88050518371403,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.8769813282779 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1727907a214238c0f681a8aae9e9474b90421ca1",
+          "message": "docs: operator runbook for the Rust-parser shadow / consensus (#238)\n\nAdds docs/RUST_PARSER_SHADOW.md — how to build (-DENABLE_RUST_PARSER_LINK=ON,\nx86-only), the AEGIS_RUST_SHADOW runtime modes (off / shadow / enforce), what the\ndivergence logs look like, the recommended shadow -> enforce -> (future) full-swap\nrollout, and instant rollback. This is the operational companion to the A2/A3\nwork: it's how the shadow earns real-world divergence evidence before any flip.\nLinked from docs/MEMORY_SAFETY.md.\n\nDocs-only; no code change.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T19:18:32+03:00",
+          "tree_id": "c8360b485747b06710b5c11e235e35b6e2bad0a0",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/1727907a214238c0f681a8aae9e9474b90421ca1"
+        },
+        "date": 1780676978300,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1521.5875321839255,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1521.3460211644585 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4293.928813770824,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4293.504851886289 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26574.936196161736,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26572.38479084804 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 204360.87338246693,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 204328.14326717277 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1627244.3039728634,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1627098.6887596908 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6514691.615116265,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6513976.111240306 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4037.03186652028,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4043.803115892621 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29448.955121593288,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29446.273788576145 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 239952.48917597506,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 239914.81610328986 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 724292.7391155724,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 724418.446868077 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.31420212374198,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.30826324965007 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 50.25377767885745,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 50.249669635466496 ns\nthreads: 1"
           }
         ]
       }
