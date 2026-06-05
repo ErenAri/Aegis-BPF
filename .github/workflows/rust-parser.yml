@@ -18,6 +18,8 @@ on:
       - 'src/events.cpp'
       - 'src/types.hpp'
       - 'src/aegis_parser_ffi.h'
+      - 'src/rust_parse_shadow.cpp'
+      - 'src/rust_parse_shadow.hpp'
       - 'tests/test_rust_ffi_parity.cpp'
       # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`/
       # `event-canonical` emitters + dispatch
@@ -88,12 +90,14 @@ jobs:
       # C++ parser in the same process — stronger evidence than the out-of-process
       # parity above. Validated only here (this runner has cargo); the main build
       # jobs never set the option, so they need no Rust toolchain.
-      - name: In-process Rust FFI parity (link the crate + run the seam)
+      - name: In-process Rust FFI parity + shadow (link the crate, run the seams)
         env:
           CC: clang
           CXX: clang++
         run: |
           cmake -S . -B build-ffi -G Ninja -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_TESTING=ON -DSKIP_BPF_BUILD=ON -DENABLE_RUST_PARSER_LINK=ON
-          cmake --build build-ffi --target aegis_ffi_parity_test
+          # Build the daemon too: proves the production binary links the Rust
+          # staticlib + shadow, not just the test binary.
+          cmake --build build-ffi --target aegisbpf aegis_ffi_parity_test
           ./build-ffi/aegis_ffi_parity_test

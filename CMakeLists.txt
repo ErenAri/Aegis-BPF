@@ -571,7 +571,31 @@ set(AEGIS_LIB_SOURCES
     src/k8s_identity.cpp
     src/ocsf_formatter.cpp
     src/cef_formatter.cpp
+    src/rust_parse_shadow.cpp
 )
+
+# Memory-safe Rust parser staticlib (rust/aegis-parser). When ENABLE_RUST_PARSER_LINK
+# is ON it is built via cargo and linked into aegisbpf_lib (PUBLIC, so every
+# consumer — the daemon and the tests — picks it up) with AEGIS_RUST_SHADOW
+# defined, enabling the diagnostic runtime Rust-parser shadow. Default OFF: no
+# cargo, no Rust, no shadow — a byte-identical build that needs no Rust toolchain.
+if(ENABLE_RUST_PARSER_LINK)
+    find_program(CARGO_EXECUTABLE cargo REQUIRED)
+    set(RUST_PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust/aegis-parser)
+    set(RUST_PARSER_LIB ${RUST_PARSER_DIR}/target/release/libaegis_parser.a)
+    # The crate is std-only (Cargo.lock = 1 package); build the staticlib.
+    add_custom_command(
+        OUTPUT ${RUST_PARSER_LIB}
+        COMMAND ${CARGO_EXECUTABLE} build --release --lib
+        WORKING_DIRECTORY ${RUST_PARSER_DIR}
+        COMMENT "Building Rust aegis-parser staticlib (libaegis_parser.a)"
+        VERBATIM
+    )
+    add_custom_target(aegis_parser_rs_build DEPENDS ${RUST_PARSER_LIB})
+    add_library(aegis_parser_rs STATIC IMPORTED GLOBAL)
+    set_target_properties(aegis_parser_rs PROPERTIES IMPORTED_LOCATION ${RUST_PARSER_LIB})
+    add_dependencies(aegis_parser_rs aegis_parser_rs_build)
+endif()
 
 add_library(aegisbpf_lib STATIC ${AEGIS_LIB_SOURCES} ${AEGIS_HEADERS})
 target_include_directories(aegisbpf_lib PUBLIC
@@ -584,6 +608,14 @@ target_link_libraries(aegisbpf_lib PUBLIC ${LIBBPF_LIBRARIES} ${AEGIS_ZLIB_LIB})
 target_compile_definitions(aegisbpf_lib PRIVATE AEGIS_BPF_OBJ_PATH="${AEGIS_BPF_OBJ_DEFINE_PATH}")
 target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_ENABLE_SIGKILL_ENFORCEMENT=${AEGIS_SIGKILL_ENFORCEMENT_DEFINE})
 target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_VERSION_STRING="${PROJECT_VERSION}")
+
+# Opt-in Rust-parser shadow: link the staticlib (PUBLIC, so the daemon + all
+# tests get it) and define AEGIS_RUST_SHADOW, which lights up the diagnostic
+# shadow in src/rust_parse_shadow.cpp and its call site in policy_runtime.cpp.
+if(ENABLE_RUST_PARSER_LINK)
+    target_link_libraries(aegisbpf_lib PUBLIC aegis_parser_rs)
+    target_compile_definitions(aegisbpf_lib PUBLIC AEGIS_RUST_SHADOW)
+endif()
 
 if (SYSTEMD_FOUND)
     target_compile_definitions(aegisbpf_lib PRIVATE HAVE_SYSTEMD)
@@ -664,27 +696,12 @@ if(BUILD_TESTING)
     include(GoogleTest)
     gtest_discover_tests(aegisbpf_test DISCOVERY_MODE PRE_TEST)
 
-    # In-process FFI parity test: link the memory-safe Rust parser staticlib and
-    # check its C ABI seam (aegis_policy_parse) agrees with the C++ parser in the
-    # same process. Default-OFF: needs a Rust toolchain, so it is opt-in and never
-    # affects the normal build/test.
+    # In-process FFI parity test: drives the C ABI seams (aegis_policy_parse +
+    # the bundle/event canonical seams) and the runtime Rust-parser shadow through
+    # the real link, checking each agrees with the C++ side. The staticlib is built
+    # + linked above (into aegisbpf_lib) when ENABLE_RUST_PARSER_LINK is ON; this
+    # is opt-in (needs a Rust toolchain) and never affects the normal build/test.
     if(ENABLE_RUST_PARSER_LINK)
-        find_program(CARGO_EXECUTABLE cargo REQUIRED)
-        set(RUST_PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust/aegis-parser)
-        set(RUST_PARSER_LIB ${RUST_PARSER_DIR}/target/release/libaegis_parser.a)
-        # The crate is std-only (Cargo.lock = 1 package); build the staticlib.
-        add_custom_command(
-            OUTPUT ${RUST_PARSER_LIB}
-            COMMAND ${CARGO_EXECUTABLE} build --release --lib
-            WORKING_DIRECTORY ${RUST_PARSER_DIR}
-            COMMENT "Building Rust aegis-parser staticlib (libaegis_parser.a)"
-            VERBATIM
-        )
-        add_custom_target(aegis_parser_rs_build DEPENDS ${RUST_PARSER_LIB})
-        add_library(aegis_parser_rs STATIC IMPORTED GLOBAL)
-        set_target_properties(aegis_parser_rs PROPERTIES IMPORTED_LOCATION ${RUST_PARSER_LIB})
-        add_dependencies(aegis_parser_rs aegis_parser_rs_build)
-
         add_executable(aegis_ffi_parity_test tests/test_rust_ffi_parity.cpp)
         target_link_libraries(aegis_ffi_parity_test PRIVATE
             aegisbpf_lib

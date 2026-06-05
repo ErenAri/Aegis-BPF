@@ -12,6 +12,7 @@
 #include "logging.hpp"
 #include "network_ops.hpp"
 #include "policy.hpp"
+#include "rust_parse_shadow.hpp"
 #include "sha256.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
@@ -190,6 +191,13 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         PolicyIssues issues;
         auto policy_result = parse_policy_file(path, issues);
         report_policy_issues(issues);
+#ifdef AEGIS_RUST_SHADOW
+        // Diagnostic-only: re-parse with the memory-safe Rust parser and log any
+        // divergence. C++ stays authoritative; this never changes control flow.
+        // Compiled out (and the binary needs no Rust toolchain) unless the build
+        // opts in with -DENABLE_RUST_PARSER_LINK=ON.
+        rust_parse_shadow_compare(path, issues);
+#endif
         if (!policy_result) {
             span.fail(policy_result.error().to_string());
             return fail(policy_result.error());

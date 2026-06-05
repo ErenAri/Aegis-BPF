@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -32,6 +33,7 @@
 
 #include "commands_policy.hpp"
 #include "policy_parse.hpp"
+#include "rust_parse_shadow.hpp"
 #include "types.hpp"
 
 namespace {
@@ -285,4 +287,49 @@ TEST(RustFfiParity, EventSeamAgreesWithCpp)
     expect_seam_matches(aegis_event_canonical, aegis::cmd_policy_event_canonical, std::string(344, '\0'), "all_zero");
     const size_t checked = check_fixture_dir("event_parity", aegis_event_canonical, aegis::cmd_policy_event_canonical);
     EXPECT_GT(checked, 0u) << "no event fixtures found";
+}
+
+// --- the runtime Rust-parser shadow (A2) --------------------------------------
+// rust_parse_shadow_compare() is the diagnostic shadow inserted at the production
+// policy-apply call site. Here we drive it directly: gated on it must agree with
+// the C++ parser on a clean policy, flag an injected divergence, and be a no-op
+// when the runtime gate is off. (Exercises the same link + seam, off the real
+// enforcement path.)
+
+TEST(RustFfiParity, ShadowComparesAndGates)
+{
+#ifdef AEGIS_RUST_SHADOW
+    // A clean policy: write it, get the authoritative C++ issues the apply path
+    // would have (parse + conflicts), then run the shadow against them.
+    const std::string policy = "version = 6\n[deny_path]\n/etc/shadow\n[deny_ip]\n10.0.0.1\n";
+    std::filesystem::path tmp = std::filesystem::temp_directory_path() / "aegis_shadow_test.conf";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out.write(policy.data(), static_cast<std::streamsize>(policy.size()));
+    }
+    const aegis::PolicyIssues authoritative = run_cpp(tmp.string());
+
+    // Gated ON: the Rust seam must AGREE with the authoritative C++ result.
+    ::setenv("AEGIS_RUST_SHADOW", "1", 1);
+    const aegis::RustShadowOutcome ok = aegis::rust_parse_shadow_compare(tmp.string(), authoritative);
+    EXPECT_TRUE(ok.ran);
+    EXPECT_FALSE(ok.diverged) << "Rust shadow should agree with C++ on a clean policy";
+
+    // Inject a bogus authoritative error -> the shadow must FLAG the divergence.
+    aegis::PolicyIssues wrong = authoritative;
+    wrong.errors.emplace_back("injected bogus error that Rust will not produce");
+    const aegis::RustShadowOutcome diverged = aegis::rust_parse_shadow_compare(tmp.string(), wrong);
+    EXPECT_TRUE(diverged.ran);
+    EXPECT_TRUE(diverged.diverged) << "shadow should flag a mismatch vs the authoritative result";
+
+    // Gated OFF: no-op regardless of input.
+    ::unsetenv("AEGIS_RUST_SHADOW");
+    const aegis::RustShadowOutcome off = aegis::rust_parse_shadow_compare(tmp.string(), authoritative);
+    EXPECT_FALSE(off.ran) << "shadow must be inert when AEGIS_RUST_SHADOW is unset";
+
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+#else
+    GTEST_SKIP() << "built without AEGIS_RUST_SHADOW";
+#endif
 }
