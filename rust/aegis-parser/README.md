@@ -73,18 +73,23 @@ things:
 2. **Human review** of the swap PR.
 
 Until both are satisfied, the C++ parser remains authoritative. The `ffi` module
-(`aegis_policy_parse` + `AegisPolicySink`, declared for C in
-`src/aegis_parser_ffi.h`) is the C ABI seam for the **policy** swap specifically.
-That seam is now **linked and exercised in-process**: building with
-`-DENABLE_RUST_PARSER_LINK=ON` (default OFF) compiles the crate as a staticlib,
-links it into a C++ binary, and runs `tests/test_rust_ffi_parity.cpp`, which
-drives `aegis_policy_parse` and checks it agrees with the C++ parser on the same
-bytes — proving the real link + ABI + sink path, not just the out-of-process CLI
-parity. It is the template each swap follows; the `bundle` and `event` decoders
-still need their own analogous C ABI exports. What remains for an actual swap is
-(a) a runtime shadow at the production call site and (b) human review — so
-promotion is a (still-pending) wiring change against an established, now-linked
-pattern rather than a rewrite. The default build needs no Rust toolchain.
+(declared for C in `src/aegis_parser_ffi.h`) exposes all three decoders over a C
+ABI: `aegis_policy_parse` (+ `AegisPolicySink`) for the policy parser, and
+`aegis_bundle_canonical` / `aegis_event_canonical` for the bundle and event
+decoders. All three seams are now **linked and exercised in-process**: building
+with `-DENABLE_RUST_PARSER_LINK=ON` (default OFF) compiles the crate as a
+staticlib, links it into a C++ binary, and runs `tests/test_rust_ffi_parity.cpp`,
+which drives each seam and checks it agrees with the C++ side on the same bytes —
+the policy seam against the C++ parser's errors/warnings, and the bundle/event
+seams against the C++ canonical emitters — proving the real link + ABI + callback
+path, not just the out-of-process CLI parity. (The policy seam is
+production-shaped — it reports the errors/warnings `policy apply` consumes; the
+bundle/event seams currently expose the canonical decode, which is what proves
+in-process agreement, with production-shaped structured outputs a follow-up.)
+What remains for an actual swap is (a) a runtime shadow at the production call
+site and (b) human review — so promotion is a (still-pending) wiring change
+against an established, now-linked pattern rather than a rewrite. The default
+build needs no Rust toolchain.
 
 ## Why these three
 
