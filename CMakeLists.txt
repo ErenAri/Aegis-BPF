@@ -572,6 +572,7 @@ set(AEGIS_LIB_SOURCES
     src/ocsf_formatter.cpp
     src/cef_formatter.cpp
     src/rust_parse_shadow.cpp
+    src/rust_policy_build.cpp
 )
 
 # Memory-safe Rust parser staticlib (rust/aegis-parser). When ENABLE_RUST_PARSER_LINK

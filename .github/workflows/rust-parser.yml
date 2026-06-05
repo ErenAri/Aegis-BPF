@@ -20,6 +20,8 @@ on:
       - 'src/aegis_parser_ffi.h'
       - 'src/rust_parse_shadow.cpp'
       - 'src/rust_parse_shadow.hpp'
+      - 'src/rust_policy_build.cpp'
+      - 'src/rust_policy_build.hpp'
       - 'tests/test_rust_ffi_parity.cpp'
       # the C++ side of the parity gates: the `policy canonical`/`bundle-canonical`/
       # `event-canonical` emitters + dispatch

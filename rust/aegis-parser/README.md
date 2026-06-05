@@ -92,12 +92,18 @@ gated at runtime by `AEGIS_RUST_SHADOW`: `shadow` mode logs any divergence of th
 Rust `aegis_policy_canonical` dump from the authoritative C++ canonical
 (diagnostic), and `enforce` mode gives the memory-safe parser authoritative
 **veto** — a divergence rejects the apply, fail-closed. The C++ parser stays
-authoritative for policy *content*, and both modes are off by default. What
-remains for the full swap (C++ no longer parsing untrusted input at all) is the
-reviewed **promotion** once the shadow shows no divergence on real traffic, a
-richer FFI that transports the whole parsed policy, plus the decision to ship the
-shadow-enabled build (which adds `cargo` to the production build — x86-only
-first). The default build needs no Rust toolchain and is byte-identical.
+authoritative for policy *content*, and both modes are off by default.
+
+The **content** transport for the full swap also exists now: `aegis_policy_build`
+walks the Rust-parsed policy and rebuilds the structured C++ `Policy`
+(`src/rust_policy_build.cpp`), proven byte-identical to the C++-parsed policy
+in-process (`RustFfiParity.RustBuiltPolicyMatchesCpp`). So the memory-safe parser
+*can* be the sole content source — what remains for the full swap (C++ no longer
+parsing untrusted input at all) is to **wire** `rust_build_policy` into the apply
+path, the reviewed **promotion** once the shadow shows no divergence on real
+traffic, and the decision to ship the shadow-enabled build (which adds `cargo` to
+the production build — x86-only first). The default build needs no Rust toolchain
+and is byte-identical.
 
 ## Why these three
 

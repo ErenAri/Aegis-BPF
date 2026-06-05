@@ -34,6 +34,7 @@
 #include "commands_policy.hpp"
 #include "policy_parse.hpp"
 #include "rust_parse_shadow.hpp"
+#include "rust_policy_build.hpp"
 #include "types.hpp"
 
 namespace {
@@ -369,6 +370,83 @@ TEST(RustFfiParity, ShadowConsensusDecisionAndGating)
 
     std::error_code ec;
     std::filesystem::remove(tmp, ec);
+#else
+    GTEST_SKIP() << "built without AEGIS_RUST_SHADOW";
+#endif
+}
+
+// --- whole-Policy transport / reconstruction (the full-flip mechanism, A-final)
+// rust_build_policy() parses with the memory-safe Rust parser via the
+// aegis_policy_build seam and reconstructs the structured C++ Policy. This proves
+// the reconstructed Policy is byte-identical (by canonical content) to the
+// C++-parsed one — the correctness gate for making Rust the authoritative content
+// source. NOT wired into the apply path; this is the staged capability + proof.
+
+namespace {
+
+void expect_policy_build_matches(const std::string& bytes, const std::string& label)
+{
+    // C++ authoritative parse (path-based).
+    static int counter = 0;
+    std::filesystem::path tmp =
+        std::filesystem::temp_directory_path() / ("aegis_build_" + std::to_string(counter++) + ".conf");
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    aegis::PolicyIssues issues;
+    auto cpp = aegis::parse_policy_file(tmp.string(), issues);
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+
+    // Rust parse + structured reconstruction (bytes-based).
+    aegis::Policy rust_policy;
+    const bool built = aegis::rust_build_policy(bytes, rust_policy);
+
+    if (!cpp || issues.has_errors()) {
+        // C++ rejected it -> Rust must build nothing either.
+        EXPECT_FALSE(built) << label << ": Rust built a policy where C++ parse failed";
+        return;
+    }
+    ASSERT_TRUE(built) << label << ": Rust failed to build a policy that C++ parsed cleanly";
+    EXPECT_EQ(aegis::policy_entries_canonical(*cpp), aegis::policy_entries_canonical(rust_policy))
+        << label << ": reconstructed Rust Policy diverges from the C++ Policy";
+}
+
+} // namespace
+
+TEST(RustFfiParity, RustBuiltPolicyMatchesCpp)
+{
+#ifdef AEGIS_RUST_SHADOW
+    // Exercise every category + flag through the transport + reconstruction.
+    expect_policy_build_matches("version = 6\n", "minimal");
+    expect_policy_build_matches("version = 6\n[deny_path]\n/etc/shadow\n/root\n", "deny_paths");
+    expect_policy_build_matches("version = 6\n[deny_ip]\n10.0.0.1\n[deny_cidr]\n10.0.0.0/8\n", "ip_cidr");
+    expect_policy_build_matches("version = 6\n[deny_port]\n80/tcp\n443\n22/udp:bind\n", "ports");
+    expect_policy_build_matches("version = 6\n[deny_ip_port]\n1.2.3.4:443/tcp\n", "ip_port");
+    expect_policy_build_matches("version = 999999\n", "bad_version_rejected");
+    expect_policy_build_matches("", "empty");
+
+    // The committed corpus exercises the full field surface (all_categories_v6, etc.).
+    size_t checked = 0;
+#    ifdef AEGIS_SOURCE_DIR
+    const std::filesystem::path root(AEGIS_SOURCE_DIR);
+    for (const auto& sub : {std::string("tests/fixtures/parity"), std::string("examples/policies")}) {
+        const std::filesystem::path dir = root / sub;
+        std::error_code ec;
+        if (!std::filesystem::is_directory(dir, ec)) {
+            continue;
+        }
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            expect_policy_build_matches(read_file(entry.path().string()), entry.path().filename().string());
+            ++checked;
+        }
+    }
+#    endif
+    EXPECT_GT(checked, 0u) << "no corpus policies found for the build-equivalence test";
 #else
     GTEST_SKIP() << "built without AEGIS_RUST_SHADOW";
 #endif
