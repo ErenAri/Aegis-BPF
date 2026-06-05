@@ -20,4 +20,9 @@ namespace aegis {
 // no-op returning false unless built with AEGIS_RUST_SHADOW.
 bool rust_build_policy(const std::string& policy_bytes, Policy& out);
 
+// Path-based convenience: read `policy_path` and `rust_build_policy` its bytes.
+// Used by the apply path's `authoritative` mode. Returns false on read failure or
+// a parse error (nothing built). A no-op returning false unless AEGIS_RUST_SHADOW.
+bool rust_build_policy_from_path(const std::string& policy_path, Policy& out);
+
 } // namespace aegis

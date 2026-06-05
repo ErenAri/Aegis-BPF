@@ -18,6 +18,8 @@
 
 #    include <cstdint>
 #    include <cstdlib>
+#    include <fstream>
+#    include <sstream>
 #    include <string>
 #endif
 
@@ -201,9 +203,25 @@ bool rust_build_policy(const std::string& policy_bytes, Policy& out)
     return aegis_policy_build(policy_bytes.data(), policy_bytes.size(), &b) == 0;
 }
 
+bool rust_build_policy_from_path(const std::string& policy_path, Policy& out)
+{
+    std::ifstream in(policy_path, std::ios::binary);
+    if (!in.is_open()) {
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return rust_build_policy(ss.str(), out);
+}
+
 #else // !AEGIS_RUST_SHADOW
 
 bool rust_build_policy(const std::string& /*policy_bytes*/, Policy& /*out*/)
+{
+    return false;
+}
+
+bool rust_build_policy_from_path(const std::string& /*policy_path*/, Policy& /*out*/)
 {
     return false;
 }
