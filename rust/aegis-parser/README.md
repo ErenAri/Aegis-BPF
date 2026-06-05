@@ -86,10 +86,15 @@ path, not just the out-of-process CLI parity. (The policy seam is
 production-shaped — it reports the errors/warnings `policy apply` consumes; the
 bundle/event seams currently expose the canonical decode, which is what proves
 in-process agreement, with production-shaped structured outputs a follow-up.)
-What remains for an actual swap is (a) a runtime shadow at the production call
-site and (b) human review — so promotion is a (still-pending) wiring change
-against an established, now-linked pattern rather than a rewrite. The default
-build needs no Rust toolchain.
+With the option on, a **diagnostic runtime shadow** (`src/rust_parse_shadow.cpp`,
+gated at runtime by `AEGIS_RUST_SHADOW=1`) re-parses each applied policy through
+the `aegis_policy_parse` seam at the production call site
+(`src/policy_runtime.cpp`) and logs any divergence from the authoritative C++
+result — without affecting control flow or the applied policy. What remains for
+an actual swap is the reviewed **promotion** (make Rust authoritative) once the
+shadow shows no divergence on real traffic, plus the decision to ship the
+shadow-enabled build (which adds `cargo` to the production build — x86-only
+first). The default build needs no Rust toolchain and is byte-identical.
 
 ## Why these three
 

@@ -58,15 +58,22 @@ touches trusted, agent-generated data.
    three decoders, run nightly (`.github/workflows/nightly-fuzz.yml`, the
    `rust-fuzz` job) seeded from the parity fixtures. They are **staged, not yet
    swapped**: the C++ implementations remain authoritative until each swap
-   passes its parity gate *and* human review. The crate's C ABI seam is now
-   linked into the build for `policy` behind a default-OFF
-   `-DENABLE_RUST_PARSER_LINK=ON` option and proven to agree with the C++ parser
-   **in-process** (`tests/test_rust_ffi_parity.cpp`); the remaining steps are a
-   runtime shadow at the production call site, analogous C ABI exports for
-   `bundle`/`event`, and the reviewed promotion. A hosted
-   OSS-Fuzz/ClusterFuzzLite-Rust integration is a further option beyond the
-   nightly job. This puts memory-safe code exactly where attacker-influenced
-   bytes are parsed, without rewriting the working, test-covered remainder.
+   passes its parity gate *and* human review. All three C ABI seams are now
+   linked into the build behind a default-OFF `-DENABLE_RUST_PARSER_LINK=ON`
+   option and proven to agree with the C++ side **in-process**
+   (`tests/test_rust_ffi_parity.cpp`). With that option on, a **diagnostic
+   runtime shadow** (`src/rust_parse_shadow.cpp`, gated at runtime by
+   `AEGIS_RUST_SHADOW=1`) re-parses each applied policy through the Rust seam at
+   the production call site and logs any divergence — the C++ parser stays
+   authoritative and the applied policy is unaffected. The remaining step is the
+   reviewed **promotion** (make Rust authoritative) once the shadow shows no
+   divergence on real traffic — a rollout decision, not a code change — plus the
+   call to actually ship the shadow-enabled build (which adds `cargo` to the
+   production build; x86-only first, since the ARM64/Docker lanes have no Rust
+   cross-toolchain). A hosted OSS-Fuzz/ClusterFuzzLite-Rust integration is a
+   further option beyond the nightly job. This puts memory-safe code exactly
+   where attacker-influenced bytes are parsed, without rewriting the working,
+   test-covered remainder.
 3. **Full Rust/Aya rewrite is explicitly deferred.** It is the right greenfield
    answer, but it would discard a verified, test-covered asset for a property
    that hardening + privilege-separation + targeted Rust + fuzzing already
