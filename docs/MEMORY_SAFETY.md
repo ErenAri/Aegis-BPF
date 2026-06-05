@@ -61,15 +61,18 @@ touches trusted, agent-generated data.
    passes its parity gate *and* human review. All three C ABI seams are now
    linked into the build behind a default-OFF `-DENABLE_RUST_PARSER_LINK=ON`
    option and proven to agree with the C++ side **in-process**
-   (`tests/test_rust_ffi_parity.cpp`). With that option on, a **diagnostic
-   runtime shadow** (`src/rust_parse_shadow.cpp`, gated at runtime by
-   `AEGIS_RUST_SHADOW=1`) re-parses each applied policy through the Rust seam at
-   the production call site and logs any divergence — the C++ parser stays
-   authoritative and the applied policy is unaffected. The remaining step is the
-   reviewed **promotion** (make Rust authoritative) once the shadow shows no
-   divergence on real traffic — a rollout decision, not a code change — plus the
-   call to actually ship the shadow-enabled build (which adds `cargo` to the
-   production build; x86-only first, since the ARM64/Docker lanes have no Rust
+   (`tests/test_rust_ffi_parity.cpp`). With that option on, the Rust parser
+   cross-checks every applied policy at the production call site
+   (`src/rust_parse_shadow.cpp`, gated at runtime by `AEGIS_RUST_SHADOW`): in
+   `shadow` mode it logs any canonical divergence (diagnostic), and in `enforce`
+   mode it gains authoritative **veto** — a divergence from the C++ canonical
+   rejects the apply, fail-closed. The C++ parser stays authoritative for policy
+   *content*, and both modes are off by default. The remaining step toward the
+   full swap (C++ no longer parsing untrusted input at all) is the reviewed
+   **promotion** once the shadow shows no divergence on real traffic — a rollout
+   decision plus a richer FFI that transports the whole parsed policy — and the
+   call to ship the shadow-enabled build (which adds `cargo` to the production
+   build; x86-only first, since the ARM64/Docker lanes have no Rust
    cross-toolchain). A hosted OSS-Fuzz/ClusterFuzzLite-Rust integration is a
    further option beyond the nightly job. This puts memory-safe code exactly
    where attacker-influenced bytes are parsed, without rewriting the working,

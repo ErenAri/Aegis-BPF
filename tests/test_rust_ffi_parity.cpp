@@ -289,43 +289,83 @@ TEST(RustFfiParity, EventSeamAgreesWithCpp)
     EXPECT_GT(checked, 0u) << "no event fixtures found";
 }
 
-// --- the runtime Rust-parser shadow (A2) --------------------------------------
-// rust_parse_shadow_compare() is the diagnostic shadow inserted at the production
-// policy-apply call site. Here we drive it directly: gated on it must agree with
-// the C++ parser on a clean policy, flag an injected divergence, and be a no-op
-// when the runtime gate is off. (Exercises the same link + seam, off the real
-// enforcement path.)
+// The policy-canonical seam feeds the shadow/consensus; it must match the C++
+// `policy canonical` command (the full structural-equivalence surface).
+TEST(RustFfiParity, PolicyCanonicalSeamAgreesWithCpp)
+{
+    expect_seam_matches(aegis_policy_canonical, aegis::cmd_policy_canonical,
+                        "version = 6\n[deny_path]\n/etc/shadow\n[deny_ip]\n10.0.0.1\n", "clean_v6");
+    expect_seam_matches(aegis_policy_canonical, aegis::cmd_policy_canonical, "version = 999999\n", "bad_version");
+    expect_seam_matches(aegis_policy_canonical, aegis::cmd_policy_canonical, "", "empty");
+    expect_seam_matches(aegis_policy_canonical, aegis::cmd_policy_canonical,
+                        "version = 6\n[deny_port]\n80/tcp\n443\n22/udp:bind\n", "ports");
+    check_fixture_dir("parity", aegis_policy_canonical, aegis::cmd_policy_canonical);
+}
 
-TEST(RustFfiParity, ShadowComparesAndGates)
+// --- the runtime Rust-parser shadow + consensus (A2/A3) -----------------------
+// rust_parse_shadow_compare() is inserted at the production policy-apply call
+// site: `shadow` mode logs canonical divergence; `enforce` mode signals the
+// caller to reject the apply (fail-closed). The decision logic is exercised
+// directly with crafted canonicals (the two parsers are proven equivalent, so a
+// real divergence cannot be staged from a policy file), and the happy path is
+// exercised end-to-end on a real policy.
+
+TEST(RustFfiParity, ShadowConsensusDecisionAndGating)
 {
 #ifdef AEGIS_RUST_SHADOW
-    // A clean policy: write it, get the authoritative C++ issues the apply path
-    // would have (parse + conflicts), then run the shadow against them.
+    using aegis::rust_parse_shadow_decide;
+    using aegis::RustShadowMode;
+
+    // Agreement: never diverged; `enforce` flag tracks the mode.
+    EXPECT_FALSE(rust_parse_shadow_decide(RustShadowMode::Shadow, "x", "x").diverged);
+    {
+        const auto o = rust_parse_shadow_decide(RustShadowMode::Enforce, "x", "x");
+        EXPECT_TRUE(o.ran);
+        EXPECT_FALSE(o.diverged);
+        EXPECT_TRUE(o.enforce);
+    }
+    // Divergence in shadow mode: flagged, but not an enforce/fail-closed signal.
+    {
+        const auto o = rust_parse_shadow_decide(RustShadowMode::Shadow, "a", "b");
+        EXPECT_TRUE(o.ran);
+        EXPECT_TRUE(o.diverged);
+        EXPECT_FALSE(o.enforce);
+    }
+    // Divergence in enforce mode: THIS is the fail-closed signal the apply path
+    // acts on (ran && diverged && enforce -> reject the policy).
+    {
+        const auto o = rust_parse_shadow_decide(RustShadowMode::Enforce, "a", "b");
+        EXPECT_TRUE(o.ran);
+        EXPECT_TRUE(o.diverged);
+        EXPECT_TRUE(o.enforce);
+    }
+    // Off: no-op.
+    EXPECT_FALSE(rust_parse_shadow_decide(RustShadowMode::Off, "a", "b").ran);
+
+    // Integration: a real clean policy must AGREE in both gated modes — crucially,
+    // enforce must NOT reject a valid policy — and be a no-op when the gate is off.
     const std::string policy = "version = 6\n[deny_path]\n/etc/shadow\n[deny_ip]\n10.0.0.1\n";
-    std::filesystem::path tmp = std::filesystem::temp_directory_path() / "aegis_shadow_test.conf";
+    std::filesystem::path tmp = std::filesystem::temp_directory_path() / "aegis_shadow_a3.conf";
     {
         std::ofstream out(tmp, std::ios::binary);
         out.write(policy.data(), static_cast<std::streamsize>(policy.size()));
     }
-    const aegis::PolicyIssues authoritative = run_cpp(tmp.string());
-
-    // Gated ON: the Rust seam must AGREE with the authoritative C++ result.
-    ::setenv("AEGIS_RUST_SHADOW", "1", 1);
-    const aegis::RustShadowOutcome ok = aegis::rust_parse_shadow_compare(tmp.string(), authoritative);
-    EXPECT_TRUE(ok.ran);
-    EXPECT_FALSE(ok.diverged) << "Rust shadow should agree with C++ on a clean policy";
-
-    // Inject a bogus authoritative error -> the shadow must FLAG the divergence.
-    aegis::PolicyIssues wrong = authoritative;
-    wrong.errors.emplace_back("injected bogus error that Rust will not produce");
-    const aegis::RustShadowOutcome diverged = aegis::rust_parse_shadow_compare(tmp.string(), wrong);
-    EXPECT_TRUE(diverged.ran);
-    EXPECT_TRUE(diverged.diverged) << "shadow should flag a mismatch vs the authoritative result";
-
-    // Gated OFF: no-op regardless of input.
+    ::setenv("AEGIS_RUST_SHADOW", "shadow", 1);
+    {
+        const auto o = aegis::rust_parse_shadow_compare(tmp.string());
+        EXPECT_TRUE(o.ran);
+        EXPECT_FALSE(o.diverged) << "shadow: Rust must agree with C++ on a clean policy";
+        EXPECT_FALSE(o.enforce);
+    }
+    ::setenv("AEGIS_RUST_SHADOW", "enforce", 1);
+    {
+        const auto o = aegis::rust_parse_shadow_compare(tmp.string());
+        EXPECT_TRUE(o.ran);
+        EXPECT_FALSE(o.diverged) << "enforce must NOT reject a valid (agreeing) policy";
+        EXPECT_TRUE(o.enforce);
+    }
     ::unsetenv("AEGIS_RUST_SHADOW");
-    const aegis::RustShadowOutcome off = aegis::rust_parse_shadow_compare(tmp.string(), authoritative);
-    EXPECT_FALSE(off.ran) << "shadow must be inert when AEGIS_RUST_SHADOW is unset";
+    EXPECT_FALSE(aegis::rust_parse_shadow_compare(tmp.string()).ran) << "inert when the gate is unset";
 
     std::error_code ec;
     std::filesystem::remove(tmp, ec);
