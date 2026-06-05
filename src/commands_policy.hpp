@@ -16,6 +16,10 @@ int cmd_policy_canonical(const std::string& path);
 // Build the full canonical policy dump for `path` (the structural-equivalence
 // surface). Sets *had_errors when non-null. Used by the consensus/enforce mode.
 std::string policy_canonical_dump_from_path(const std::string& path, bool* had_errors = nullptr);
+// Canonical dump of just the stored policy content (no errors/warnings); compares
+// a Rust-built Policy against a C++-parsed one in the equivalence test.
+struct Policy;
+std::string policy_entries_canonical(const Policy& policy);
 int cmd_policy_bundle_canonical(const std::string& path);
 // Canonical dump of a decoded BPF ring-buffer event record; the test seam for
 // scripts/rust_event_parity.sh (mirrors rust/aegis-parser event::canonical_report).

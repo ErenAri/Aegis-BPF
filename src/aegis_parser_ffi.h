@@ -12,6 +12,7 @@
 #define AEGIS_PARSER_FFI_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,60 @@ int aegis_event_canonical(const char* data, size_t len, AegisEmitFn emit, void* 
  * `emit` — the structural-equivalence surface the consensus/enforce mode compares
  * against the C++ canonical. Returns 0 on success, -1 bad call, -2 panic. */
 int aegis_policy_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
+
+/* ---- whole-policy transport (the content surface for the eventual swap) ----
+ * `aegis_policy_build` parses policy text and, on a clean parse, transports every
+ * field of the resulting policy through the callbacks below. The CATEGORY ids
+ * (add_string) and FLAG ids (set_flag) are the ABI contract — they MUST match
+ * ffi.rs. Compound categories carry their canonical string form (the C side
+ * reconstructs the struct from it); the formats are:
+ *   AEGIS_PCAT_DENY_INODE        "dev:ino"
+ *   AEGIS_PCAT_DENY_IP_PORT      "ip|port|proto"
+ *   AEGIS_PCAT_CGROUP_DENY_INODE "cgroup|dev:ino"
+ *   AEGIS_PCAT_CGROUP_DENY_IP    "cgroup|ip"
+ */
+enum {
+    AEGIS_PCAT_DENY_PATH = 0,
+    AEGIS_PCAT_PROTECT_PATH = 1,
+    AEGIS_PCAT_DENY_INODE = 2,
+    AEGIS_PCAT_ALLOW_CGROUP_PATH = 3,
+    AEGIS_PCAT_DENY_IP = 4,
+    AEGIS_PCAT_DENY_CIDR = 5,
+    AEGIS_PCAT_DENY_IP_PORT = 6,
+    AEGIS_PCAT_DENY_BINARY_HASH = 7,
+    AEGIS_PCAT_ALLOW_BINARY_HASH = 8,
+    AEGIS_PCAT_TRUSTED_EXEC_HASH = 9,
+    AEGIS_PCAT_DENY_COMM = 10,
+    AEGIS_PCAT_SCAN_PATH = 11,
+    AEGIS_PCAT_CGROUP_DENY_INODE = 12,
+    AEGIS_PCAT_CGROUP_DENY_IP = 13
+};
+enum {
+    AEGIS_PFLAG_PROTECT_CONNECT = 0,
+    AEGIS_PFLAG_PROTECT_RUNTIME_DEPS = 1,
+    AEGIS_PFLAG_REQUIRE_IMA_APPRAISAL = 2,
+    AEGIS_PFLAG_IMA_FAIL_CLOSED = 3,
+    AEGIS_PFLAG_DENY_PTRACE = 4,
+    AEGIS_PFLAG_DENY_MODULE_LOAD = 5,
+    AEGIS_PFLAG_DENY_BPF = 6,
+    AEGIS_PFLAG_NETWORK_ENABLED = 7,
+    AEGIS_PFLAG_CGROUP_ENABLED = 8
+};
+
+typedef struct AegisPolicyBuilder {
+    void* ctx;
+    void (*set_version)(void* ctx, uint64_t version);
+    void (*set_flag)(void* ctx, uint32_t flag_id);
+    void (*add_string)(void* ctx, uint32_t category, const char* s, size_t len);
+    void (*add_cgroup_id)(void* ctx, uint64_t id);
+    void (*add_deny_port)(void* ctx, uint16_t port, uint8_t proto, uint8_t dir);
+    void (*add_cgroup_deny_port)(void* ctx, const char* cgroup, size_t cgroup_len, uint16_t port, uint8_t proto,
+                                 uint8_t dir);
+} AegisPolicyBuilder;
+
+/* Returns the number of errors (0 == a clean policy was built via `builder`;
+ * >0 == parse failed and nothing was built), or -1 bad call / -2 panic. */
+int aegis_policy_build(const char* text, size_t len, const AegisPolicyBuilder* builder);
 
 #ifdef __cplusplus
 } /* extern "C" */
