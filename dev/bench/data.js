@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780655230297,
+  "lastUpdate": 1780656790384,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43140,6 +43140,102 @@ window.BENCHMARK_DATA = {
             "value": 59.11058428363944,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 59.100171364537964 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "efa1e4edbfc3f21470a7c4aa17c1e1b9f83dd568",
+          "message": "feat(ffi): bundle + event C ABI seams + in-process parity (all three decoders linked) (#234)\n\nCompletes the \"all three decoders linked + in-process-proven\" milestone begun in\n#233 (policy). Adds C ABI exports for the remaining two oxidation targets and\nexercises them through the real link:\n\n* ffi.rs: `aegis_bundle_canonical` and `aegis_event_canonical` — each decodes\n  `len` bytes and emits the canonical decode dump (the same one the differential\n  parity harnesses compare) through an `AegisEmitFn` callback, with the same\n  panic-never-crosses-FFI guard as the policy seam. Declared in\n  src/aegis_parser_ffi.h (kept in lockstep with ffi.rs).\n* tests/test_rust_ffi_parity.cpp: drives both new seams in-process and checks the\n  dump matches the C++ canonical emitters (`policy bundle-canonical` /\n  `policy event-canonical`) byte-for-byte, over inline cases + the committed\n  bundle/event fixtures. The policy seam test is unchanged.\n\nThe policy seam is production-shaped (errors/warnings, what `policy apply`\nconsumes); the bundle/event seams expose the canonical decode, which is what\nproves in-process agreement — production-shaped structured outputs for those two\nare a follow-up. Still entirely behind the default-OFF -DENABLE_RUST_PARSER_LINK\noption: no production-path change, and the default build needs no Rust toolchain.\n\nVerified locally: crate clippy/fmt clean + 65 tests; all 7 FFI parity tests pass\n(policy, bundle, event seams agree in-process); clang-format/clang-tidy clean.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T13:41:50+03:00",
+          "tree_id": "cd7b2ee789c1b7fae6957a386e6356e50580afb5",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/efa1e4edbfc3f21470a7c4aa17c1e1b9f83dd568"
+        },
+        "date": 1780656789494,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1594.9273049482556,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1594.7304469968458 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3937.04717952903,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3936.1366947358183 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22184.679540790414,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22181.93017110421 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166387.44760627692,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166367.80797576494 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1339419.6447533753,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1339131.238140121 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5325373.190012956,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5324736.688067449 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4852.20483926486,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4855.919612130581 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33975.65338658762,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33978.91849722788 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 279457.59299995814,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 279412.4736333496 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 843188.5155904716,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 843259.6802956132 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 74.01071137204175,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 74.00175522745643 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.46527762381072,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.45276956799907 ns\nthreads: 1"
           }
         ]
       }
