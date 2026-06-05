@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780611163797,
+  "lastUpdate": 1780655230297,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43050,6 +43050,96 @@ window.BENCHMARK_DATA = {
             "value": 55.591882447311995,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.578116299895434 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "653f584da5e3225b11c9272fec4dc8f16944f2d3",
+          "message": "feat(build): link the Rust policy parser staticlib + in-process FFI parity test (#233)\n\nFirst slice of the staged production swap (docs/MEMORY_SAFETY.md): wire the\nmemory-safe Rust parser's C ABI seam into the C++ build and prove it works\nend-to-end IN-PROCESS — the architectural step the out-of-process differential\nparity could not cover.\n\nAdds, behind a DEFAULT-OFF `-DENABLE_RUST_PARSER_LINK=ON` CMake option:\n* src/aegis_parser_ffi.h — the hand-written C header for the FFI seam\n  (`aegis_policy_parse` + `AegisPolicySink`), the counterpart to ffi.rs.\n* A CMake block that builds the crate as a staticlib (`cargo build --release\n  --lib`) and links it into a C++ test binary as an IMPORTED static library\n  (mirroring the libbpf_imported pattern). The crate is std-only, so no extra\n  link deps were needed.\n* tests/test_rust_ffi_parity.cpp — drives `aegis_policy_parse` through the real\n  linked seam and checks it agrees with the C++ parser (`parse_policy_file` +\n  `detect_policy_conflicts`) on the same bytes: error count + sorted error/\n  warning sets, over inline cases and the committed corpus, plus pure-FFI\n  correctness (clean/bad/null-sink/empty). This exercises the real link, the C\n  ABI (struct layout, calling convention, length-carrying strings, panic-never-\n  crosses-FFI), and the sink path.\n\nValidated in rust-parser.yml (the runner with cargo). The C++ parser stays\nauthoritative and the production enforcement path is untouched; what remains for\nan actual swap is a runtime shadow at the call site + bundle/event C ABI exports\n+ reviewed promotion.\n\nSafety: the option is OFF by default and entirely self-contained — when off the\nbuild searches for no cargo, builds no Rust, defines no FFI target, and is\nbyte-identical to today (verified: a default configure needs no Rust toolchain\nand references neither cargo nor the FFI test). The main build/arm64/docker CI\nlanes never set the option, so they gain no toolchain dependency.\n\nVerified locally: links clean, all 5 FFI parity tests pass; default-OFF build\nconfigures with no Rust toolchain; clang-format/clang-tidy clean.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T13:16:01+03:00",
+          "tree_id": "0ef831ba14ccd637854f2a168e0d4c0ccef019bd",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/653f584da5e3225b11c9272fec4dc8f16944f2d3"
+        },
+        "date": 1780655228666,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1186.6027637347838,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1186.4775353357181 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2869.073023116856,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2868.787515194974 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 16429.621653195416,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16426.725074199643 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 124834.6522688775,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 124821.55869067779 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 998286.4336408781,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 998184.0019517388 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3983562.0094428714,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3983166.930594899 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 3799.649696243729,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3808.1261722884597 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 26546.158918602912,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26552.72502780681 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 214986.25494456998,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 215022.2023499488 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 669124.6570451405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 669298.3932490338 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 59.11058428363944,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 59.100171364537964 ns\nthreads: 1"
           }
         ]
       }
