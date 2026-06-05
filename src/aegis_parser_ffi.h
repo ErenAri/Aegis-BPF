@@ -32,6 +32,20 @@ typedef struct AegisPolicySink {
  * call / caught panic (-1 bad arguments, -2 panic). Never unwinds across FFI. */
 int aegis_policy_parse(const char* text, size_t len, const AegisPolicySink* sink);
 
+/* Emit callback for a canonical decode dump. The `len` bytes at `dump` are valid
+ * ONLY for the duration of the call (copy if needed afterwards); they are ASCII
+ * but consumers should honor `len` rather than assume NUL-termination. */
+typedef void (*AegisEmitFn)(void* ctx, const char* dump, size_t len);
+
+/* Decode a signed-policy-bundle header (`aegis_bundle_canonical`) or a BPF
+ * ring-buffer event record (`aegis_event_canonical`) from `len` bytes and emit
+ * the canonical decode dump through `emit`. The dump encodes both success and
+ * failure (e.g. `err <message>` / `err short_buffer` / `unknown_type`), so parse
+ * failures are NOT reported as a negative return. Returns 0 on success, -1 on a
+ * bad call, -2 on a caught panic. Never unwinds across FFI. */
+int aegis_bundle_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
+int aegis_event_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

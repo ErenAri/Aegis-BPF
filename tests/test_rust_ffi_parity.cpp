@@ -1,18 +1,21 @@
 // cppcheck-suppress-file missingIncludeSystem
 /*
- * In-process FFI parity test for the memory-safe Rust policy parser.
+ * In-process FFI parity test for the memory-safe Rust decoders.
  *
  * Built only when -DENABLE_RUST_PARSER_LINK=ON. It links the Rust staticlib
  * (rust/aegis-parser, crate-type = staticlib) into a C++ binary and drives the
- * C ABI seam `aegis_policy_parse` (src/aegis_parser_ffi.h <-> ffi.rs) IN-PROCESS,
- * checking it agrees with the authoritative C++ parser on the same bytes.
+ * C ABI seams (src/aegis_parser_ffi.h <-> ffi.rs) IN-PROCESS, checking each agrees
+ * with the authoritative C++ side on the same bytes:
+ *   - aegis_policy_parse       vs the C++ policy parser (errors/warnings)
+ *   - aegis_bundle_canonical   vs the C++ `policy bundle-canonical` emitter
+ *   - aegis_event_canonical    vs the C++ `policy event-canonical` emitter
  *
  * This is strictly stronger evidence than the out-of-process differential parity
- * harness (scripts/rust_policy_parity.sh): it exercises the real cargo->CMake
- * link, the real C ABI (struct layout, calling convention, length-carrying
- * strings, panic-never-crosses-FFI), and the real callback-sink path — the exact
- * seam a future production swap would call. It does NOT touch the production
- * enforcement path; the C++ parser stays authoritative.
+ * harnesses (scripts/rust_*_parity.sh): it exercises the real cargo->CMake link,
+ * the real C ABI (struct layout, calling convention, length-carrying strings,
+ * panic-never-crosses-FFI), and the real callback path — the exact seam a future
+ * production swap would call. It does NOT touch the production enforcement path;
+ * the C++ implementations stay authoritative.
  */
 #include "aegis_parser_ffi.h"
 
@@ -27,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "commands_policy.hpp"
 #include "policy_parse.hpp"
 #include "types.hpp"
 
@@ -190,4 +194,95 @@ TEST(RustFfiParity, AgreesWithCppOnCommittedCorpus)
 #else
     GTEST_SKIP() << "AEGIS_SOURCE_DIR not defined";
 #endif
+}
+
+// --- bundle + event canonical seams -------------------------------------------
+// aegis_bundle_canonical / aegis_event_canonical emit the same canonical decode
+// dump the differential-parity harnesses compare. Here we drive them through the
+// real link and check the dump matches the C++ canonical commands IN-PROCESS.
+
+namespace {
+
+extern "C" void on_emit(void* ctx, const char* dump, size_t len)
+{
+    static_cast<std::string*>(ctx)->assign(dump, len);
+}
+
+using CanonicalFfi = int (*)(const char*, size_t, AegisEmitFn, void*);
+
+std::string rust_canonical(CanonicalFfi fn, const std::string& bytes, const std::string& label)
+{
+    std::string out;
+    int rc = fn(bytes.data(), bytes.size(), on_emit, &out);
+    EXPECT_GE(rc, 0) << label << ": FFI returned a negative (bad-call/panic) code";
+    return out;
+}
+
+// Capture stdout of a `policy *-canonical` command run on a temp file of `bytes`
+// (the commands are the authoritative C++ canonical emitters; they take a path).
+std::string cpp_command_canonical(int (*cmd)(const std::string&), const std::string& bytes)
+{
+    static int counter = 0;
+    std::filesystem::path tmp =
+        std::filesystem::temp_directory_path() / ("aegis_ffi_canon_" + std::to_string(counter++) + ".bin");
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    std::ostringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    cmd(tmp.string());
+    std::cout.rdbuf(old);
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+    return sink.str();
+}
+
+void expect_seam_matches(CanonicalFfi ffi, int (*cmd)(const std::string&), const std::string& bytes,
+                         const std::string& label)
+{
+    EXPECT_EQ(rust_canonical(ffi, bytes, label), cpp_command_canonical(cmd, bytes))
+        << label << ": canonical seam diverges";
+}
+
+// Cross-check every file in `<src>/tests/fixtures/<sub>` through the seam.
+size_t check_fixture_dir(const char* sub, CanonicalFfi ffi, int (*cmd)(const std::string&))
+{
+    size_t checked = 0;
+#ifdef AEGIS_SOURCE_DIR
+    const std::filesystem::path dir = std::filesystem::path(AEGIS_SOURCE_DIR) / "tests" / "fixtures" / sub;
+    std::error_code ec;
+    if (std::filesystem::is_directory(dir, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            expect_seam_matches(ffi, cmd, read_file(entry.path().string()), entry.path().filename().string());
+            ++checked;
+        }
+    }
+#endif
+    return checked;
+}
+
+} // namespace
+
+TEST(RustFfiParity, BundleSeamAgreesWithCpp)
+{
+    expect_seam_matches(aegis_bundle_canonical, aegis::cmd_policy_bundle_canonical,
+                        "AEGIS-POLICY-BUNDLE-V1\nformat_version: 1\npolicy_version: 7\n---\nversion=1\n", "valid");
+    expect_seam_matches(aegis_bundle_canonical, aegis::cmd_policy_bundle_canonical, "no separator here", "missing_sep");
+    expect_seam_matches(aegis_bundle_canonical, aegis::cmd_policy_bundle_canonical, "WRONG-HEADER\n---\nx\n",
+                        "bad_header");
+    expect_seam_matches(aegis_bundle_canonical, aegis::cmd_policy_bundle_canonical, "", "empty");
+    check_fixture_dir("bundle_parity", aegis_bundle_canonical, aegis::cmd_policy_bundle_canonical);
+}
+
+TEST(RustFfiParity, EventSeamAgreesWithCpp)
+{
+    expect_seam_matches(aegis_event_canonical, aegis::cmd_policy_event_canonical, "", "empty");
+    expect_seam_matches(aegis_event_canonical, aegis::cmd_policy_event_canonical, std::string(3, '\0'), "short");
+    expect_seam_matches(aegis_event_canonical, aegis::cmd_policy_event_canonical, std::string(344, '\0'), "all_zero");
+    const size_t checked = check_fixture_dir("event_parity", aegis_event_canonical, aegis::cmd_policy_event_canonical);
+    EXPECT_GT(checked, 0u) << "no event fixtures found";
 }
