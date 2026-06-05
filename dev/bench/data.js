@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780656790384,
+  "lastUpdate": 1780659256984,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43236,6 +43236,108 @@ window.BENCHMARK_DATA = {
             "value": 56.46527762381072,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.45276956799907 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36d4e3a56fed98ab16d8c7433c6a30ac3b6d8f5d",
+          "message": "feat(policy): diagnostic runtime Rust-parser shadow (A2) (#235)\n\nAdds the runtime shadow that re-parses each applied policy through the\nmemory-safe Rust parser's C ABI seam and logs any divergence from the\nauthoritative C++ result. It is a pure DIAGNOSTIC: the C++ parser stays\nauthoritative, control flow and the applied policy are unaffected. This is the\nswap-readiness rung after the in-process FFI link (#233/#234) — it gathers\nreal-world divergence evidence at the actual call site before any flip.\n\n* src/rust_parse_shadow.{hpp,cpp}: `rust_parse_shadow_compare(path, issues)` runs\n  the Rust seam on the same policy bytes and compares error count + sorted\n  error/warning sets against the authoritative C++ `PolicyIssues`, logging a\n  structured WARN on divergence (or a DEBUG on agreement). Returns a\n  `{ran, diverged}` outcome for testing.\n* src/policy_runtime.cpp: calls it right after the authoritative parse in the\n  apply path, guarded by `#ifdef AEGIS_RUST_SHADOW` so the production path is\n  byte-identical when the option is off.\n* Double-gated: compiled in only with -DENABLE_RUST_PARSER_LINK=ON (which now\n  PUBLIC-links the Rust staticlib into aegisbpf_lib and defines AEGIS_RUST_SHADOW\n  so the daemon + tests get it), and inert at runtime unless AEGIS_RUST_SHADOW=1.\n* tests/test_rust_ffi_parity.cpp: a unit test drives the shadow directly —\n  agrees with C++ on a clean policy, flags an injected divergence, and is a no-op\n  when the runtime gate is off.\n\nSafety: default build (option OFF) is byte-identical — rust_parse_shadow.cpp\ncompiles to a trivial no-op, the call site compiles out, and no cargo/Rust is\nneeded (verified: a default-OFF configure builds aegisbpf with no Rust toolchain\nand references no cargo). The CI FFI job (rust-parser.yml) now builds the daemon\ntoo, proving the production binary links the shadow.\n\nVerified locally: option-ON build links aegisbpf + the test; all 8 FFI/shadow\ntests pass; default-OFF build + the 371-test suite unaffected; clang-format/\nclang-tidy clean.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-05T14:22:54+03:00",
+          "tree_id": "31f8f6372ce155e9893cfe7ba6bd707bf9f1038b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/36d4e3a56fed98ab16d8c7433c6a30ac3b6d8f5d"
+        },
+        "date": 1780659255632,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1512.5624325246424,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1512.417969211081 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3649.8413152241865,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3649.1365260026982 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20892.793276391214,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20890.699038633364 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 158737.0311922263,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 158720.26221467654 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1267683.1829286718,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1267445.1863758988 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5082303.479316552,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5081718.733812937 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4657.53429587847,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4679.65417431741 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33859.08521451621,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33863.53914971582 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 277764.30884003086,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 277812.4949986202 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 874504.8290575453,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 874816.5767102124 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 50.75895569070417,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 50.75340351139233 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.49249069001738,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.48446338893142 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.00537596413326,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 53.99510845842332 ns\nthreads: 1"
           }
         ]
       }
