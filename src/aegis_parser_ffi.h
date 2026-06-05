@@ -46,6 +46,12 @@ typedef void (*AegisEmitFn)(void* ctx, const char* dump, size_t len);
 int aegis_bundle_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
 int aegis_event_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
 
+/* Parse `len` bytes of policy text and emit its FULL canonical dump (version,
+ * flags, every stored entry in every category, sorted errors/warnings) through
+ * `emit` — the structural-equivalence surface the consensus/enforce mode compares
+ * against the C++ canonical. Returns 0 on success, -1 bad call, -2 panic. */
+int aegis_policy_canonical(const char* data, size_t len, AegisEmitFn emit, void* ctx);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

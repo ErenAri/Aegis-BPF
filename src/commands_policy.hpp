@@ -13,6 +13,9 @@ int cmd_policy_validate(const std::string& path, bool verbose);
 // Hidden diagnostic seams for the Rust differential-parity harnesses: emit a
 // complete canonical dump of the parsed policy / signed bundle (see impls).
 int cmd_policy_canonical(const std::string& path);
+// Build the full canonical policy dump for `path` (the structural-equivalence
+// surface). Sets *had_errors when non-null. Used by the consensus/enforce mode.
+std::string policy_canonical_dump_from_path(const std::string& path, bool* had_errors = nullptr);
 int cmd_policy_bundle_canonical(const std::string& path);
 // Canonical dump of a decoded BPF ring-buffer event record; the test seam for
 // scripts/rust_event_parity.sh (mirrors rust/aegis-parser event::canonical_report).

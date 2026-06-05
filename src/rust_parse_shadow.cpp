@@ -1,27 +1,32 @@
 // cppcheck-suppress-file missingIncludeSystem
 /*
- * Rust-parser shadow comparison (A2 of the oxidation swap plan).
+ * Rust-parser cross-check: the shadow (A2) and consensus/enforce (A3) modes.
  *
  * When built with -DENABLE_RUST_PARSER_LINK=ON (which defines AEGIS_RUST_SHADOW
- * and links the memory-safe Rust parser staticlib) AND gated on at runtime by
- * AEGIS_RUST_SHADOW=1, this re-parses an applied policy through the Rust C ABI
- * seam and logs any divergence from the authoritative C++ parser. It is a pure
- * diagnostic: the C++ result stays authoritative and the applied policy is
- * unaffected. When the option is OFF (the default), this whole translation unit
- * compiles to a trivial no-op and the binary needs no Rust toolchain.
+ * and links the memory-safe Rust parser staticlib) AND gated at runtime by
+ * AEGIS_RUST_SHADOW, this re-parses an applied policy through the Rust C ABI seam
+ * and compares its FULL canonical dump against the authoritative C++ canonical:
+ *
+ *   AEGIS_RUST_SHADOW=shadow|1  -> log any divergence (diagnostic only).
+ *   AEGIS_RUST_SHADOW=enforce   -> a divergence makes the caller reject the apply
+ *                                  (fail-closed) — the memory-safe parser gains
+ *                                  authoritative VETO power over what is applied.
+ *
+ * The C++ parse stays authoritative for the policy CONTENT; this never changes
+ * the parsed policy. When the option is OFF (the default), the whole translation
+ * unit compiles to a no-op and the binary needs no Rust toolchain.
  */
 #include "rust_parse_shadow.hpp"
 
 #ifdef AEGIS_RUST_SHADOW
 #    include "aegis_parser_ffi.h"
 
-#    include <algorithm>
-#    include <cstdint>
 #    include <cstdlib>
 #    include <fstream>
 #    include <sstream>
-#    include <vector>
+#    include <string>
 
+#    include "commands_policy.hpp" // policy_canonical_dump_from_path
 #    include "logging.hpp"
 #endif
 
@@ -31,25 +36,20 @@ namespace aegis {
 
 namespace {
 
-struct ShadowSink {
-    std::vector<std::string> errors;
-    std::vector<std::string> warnings;
-};
-
-extern "C" void shadow_add_error(void* ctx, const char* msg, size_t len)
-{
-    static_cast<ShadowSink*>(ctx)->errors.emplace_back(msg, len);
-}
-extern "C" void shadow_add_warning(void* ctx, const char* msg, size_t len)
-{
-    static_cast<ShadowSink*>(ctx)->warnings.emplace_back(msg, len);
-}
-
-// Runtime gate, re-read each call so tests (and operators) can toggle it.
-bool shadow_gate_on()
+RustShadowMode parse_mode()
 {
     const char* v = std::getenv("AEGIS_RUST_SHADOW");
-    return v != nullptr && std::string(v) == "1";
+    if (v == nullptr) {
+        return RustShadowMode::Off;
+    }
+    const std::string s(v);
+    if (s == "enforce") {
+        return RustShadowMode::Enforce;
+    }
+    if (s == "1" || s == "shadow") {
+        return RustShadowMode::Shadow;
+    }
+    return RustShadowMode::Off;
 }
 
 std::string slurp(const std::string& path)
@@ -60,62 +60,67 @@ std::string slurp(const std::string& path)
     return ss.str();
 }
 
-std::vector<std::string> sorted(std::vector<std::string> v)
+void emit_to_string(void* ctx, const char* dump, size_t len)
 {
-    std::sort(v.begin(), v.end());
-    return v;
+    static_cast<std::string*>(ctx)->assign(dump, len);
 }
 
 } // namespace
 
-RustShadowOutcome rust_parse_shadow_compare(const std::string& policy_path, const PolicyIssues& issues)
+RustShadowOutcome rust_parse_shadow_decide(RustShadowMode mode, const std::string& cpp_canonical,
+                                           const std::string& rust_canonical)
 {
-    if (!shadow_gate_on()) {
+    if (mode == RustShadowMode::Off) {
+        return {};
+    }
+    const bool enforce = (mode == RustShadowMode::Enforce);
+    const bool diverged = (cpp_canonical != rust_canonical);
+    if (diverged) {
+        logger().log(SLOG_WARN("rust parse shadow: canonical divergence vs authoritative C++ parser")
+                         .field("enforce", enforce)
+                         .field("cpp_canonical_len", static_cast<uint64_t>(cpp_canonical.size()))
+                         .field("rust_canonical_len", static_cast<uint64_t>(rust_canonical.size())));
+    } else {
+        logger().log(SLOG_DEBUG("rust parse shadow: canonical agrees with C++ parser"));
+    }
+    return {true, diverged, enforce};
+}
+
+RustShadowOutcome rust_parse_shadow_compare(const std::string& policy_path)
+{
+    const RustShadowMode mode = parse_mode();
+    if (mode == RustShadowMode::Off) {
         return {};
     }
 
+    // Authoritative C++ canonical for this file, and the Rust seam's canonical for
+    // the same bytes. These match iff the two parsers agree on the full structure
+    // (proven equivalent by scripts/rust_policy_parity.sh over the corpus + fuzz).
+    const std::string cpp_canonical = policy_canonical_dump_from_path(policy_path);
+
     const std::string bytes = slurp(policy_path);
-    ShadowSink rust;
-    AegisPolicySink sink{};
-    sink.ctx = &rust;
-    sink.add_error = shadow_add_error;
-    sink.add_warning = shadow_add_warning;
-
-    const int rc = aegis_policy_parse(bytes.data(), bytes.size(), &sink);
-
-    bool diverged = false;
+    std::string rust_canonical;
+    const int rc = aegis_policy_canonical(bytes.data(), bytes.size(), emit_to_string, &rust_canonical);
     if (rc < 0) {
-        // A bad-call / caught panic from the seam is itself a divergence worth
-        // surfacing (it must never happen on a real apply).
-        diverged = true;
+        // A bad-call / caught panic must never happen on a real apply; treat it as
+        // a divergence so Enforce mode fails closed.
         logger().log(SLOG_WARN("rust parse shadow: FFI returned a negative code")
                          .field("path", policy_path)
                          .field("rc", static_cast<int64_t>(rc)));
-    } else {
-        const bool count_ok = static_cast<size_t>(rc) == issues.errors.size();
-        const bool errors_ok = sorted(rust.errors) == sorted(issues.errors);
-        const bool warnings_ok = sorted(rust.warnings) == sorted(issues.warnings);
-        diverged = !(count_ok && errors_ok && warnings_ok);
-        if (diverged) {
-            logger().log(SLOG_WARN("rust parse shadow: divergence vs authoritative C++ parser")
-                             .field("path", policy_path)
-                             .field("cpp_errors", static_cast<uint64_t>(issues.errors.size()))
-                             .field("rust_errors", static_cast<uint64_t>(rust.errors.size()))
-                             .field("cpp_warnings", static_cast<uint64_t>(issues.warnings.size()))
-                             .field("rust_warnings", static_cast<uint64_t>(rust.warnings.size())));
-        } else {
-            logger().log(SLOG_DEBUG("rust parse shadow: agrees with C++ parser")
-                             .field("path", policy_path)
-                             .field("errors", static_cast<uint64_t>(issues.errors.size()))
-                             .field("warnings", static_cast<uint64_t>(issues.warnings.size())));
-        }
+        return {true, true, mode == RustShadowMode::Enforce};
     }
-    return {true, diverged};
+    return rust_parse_shadow_decide(mode, cpp_canonical, rust_canonical);
 }
 
 #else // !AEGIS_RUST_SHADOW
 
-RustShadowOutcome rust_parse_shadow_compare(const std::string& /*policy_path*/, const PolicyIssues& /*issues*/)
+RustShadowOutcome rust_parse_shadow_compare(const std::string& /*policy_path*/)
+{
+    return {};
+}
+
+RustShadowOutcome rust_parse_shadow_decide(RustShadowMode /*mode*/, const std::string& /*cpp_canonical*/,
+                                           const std::string& /*rust_canonical*/)
 {
     return {};
 }

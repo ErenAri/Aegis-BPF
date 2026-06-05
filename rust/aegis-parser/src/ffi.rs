@@ -100,6 +100,42 @@ pub unsafe extern "C" fn aegis_bundle_canonical(
     result.unwrap_or(-2)
 }
 
+/// Parse `len` bytes of policy text and emit its FULL canonical dump (the same one
+/// `scripts/rust_policy_parity.sh` compares — version, flags, every stored entry
+/// in every category, and the sorted errors/warnings) through `emit`. This is the
+/// structural-equivalence surface the consensus/enforce mode compares, stronger
+/// than the errors/warnings `aegis_policy_parse` reports. Returns 0 on success, -1
+/// on a bad call, -2 on a caught panic.
+///
+/// # Safety
+/// `data` must point to `len` readable bytes; `emit` (if `Some`) must be sound.
+#[no_mangle]
+pub unsafe extern "C" fn aegis_policy_canonical(
+    data: *const c_char,
+    len: usize,
+    emit: Option<AegisEmitFn>,
+    ctx: *mut c_void,
+) -> c_int {
+    if data.is_null() && len != 0 {
+        return -1;
+    }
+    let result = std::panic::catch_unwind(|| {
+        // SAFETY: caller guarantees `data`/`len` describe a readable region.
+        let bytes: &[u8] = if len == 0 {
+            &[]
+        } else {
+            unsafe { core::slice::from_raw_parts(data as *const u8, len) }
+        };
+        let (policy, issues) = parse_policy(bytes, true);
+        let dump = crate::policy::canonical_report(&policy, &issues);
+        if let Some(cb) = emit {
+            cb(ctx, dump.as_ptr() as *const c_char, dump.len());
+        }
+        0
+    });
+    result.unwrap_or(-2)
+}
+
 /// Decode a BPF ring-buffer event record from `len` bytes and emit its canonical
 /// dump (the same one `scripts/rust_event_parity.sh` compares) through `emit`. A
 /// short or unrecognized record yields a defined dump (`err short_buffer` /

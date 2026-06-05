@@ -86,13 +86,16 @@ path, not just the out-of-process CLI parity. (The policy seam is
 production-shaped — it reports the errors/warnings `policy apply` consumes; the
 bundle/event seams currently expose the canonical decode, which is what proves
 in-process agreement, with production-shaped structured outputs a follow-up.)
-With the option on, a **diagnostic runtime shadow** (`src/rust_parse_shadow.cpp`,
-gated at runtime by `AEGIS_RUST_SHADOW=1`) re-parses each applied policy through
-the `aegis_policy_parse` seam at the production call site
-(`src/policy_runtime.cpp`) and logs any divergence from the authoritative C++
-result — without affecting control flow or the applied policy. What remains for
-an actual swap is the reviewed **promotion** (make Rust authoritative) once the
-shadow shows no divergence on real traffic, plus the decision to ship the
+With the option on, the Rust parser cross-checks every applied policy at the
+production call site (`src/rust_parse_shadow.cpp`, `src/policy_runtime.cpp`),
+gated at runtime by `AEGIS_RUST_SHADOW`: `shadow` mode logs any divergence of the
+Rust `aegis_policy_canonical` dump from the authoritative C++ canonical
+(diagnostic), and `enforce` mode gives the memory-safe parser authoritative
+**veto** — a divergence rejects the apply, fail-closed. The C++ parser stays
+authoritative for policy *content*, and both modes are off by default. What
+remains for the full swap (C++ no longer parsing untrusted input at all) is the
+reviewed **promotion** once the shadow shows no divergence on real traffic, a
+richer FFI that transports the whole parsed policy, plus the decision to ship the
 shadow-enabled build (which adds `cargo` to the production build — x86-only
 first). The default build needs no Rust toolchain and is byte-identical.
 

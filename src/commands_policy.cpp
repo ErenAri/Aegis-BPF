@@ -184,12 +184,19 @@ int cmd_policy_validate(const std::string& path, bool verbose)
 // Ports render as the parsed numeric tuple `port:proto:dir`; deny_ip_port and
 // cgroup_deny_inode/ip render as their canonical dedup keys. Only the canonical
 // dump goes to stdout (the harness reads stdout; logs go to stderr).
-int cmd_policy_canonical(const std::string& path)
+// Build the full canonical policy dump for `path` (version, flags, every stored
+// entry in every category, sorted errors/warnings) — the structural-equivalence
+// surface the Rust parity harness and the consensus/enforce mode compare. Sets
+// `*had_errors` (when non-null) to whether the policy parsed with errors.
+std::string policy_canonical_dump_from_path(const std::string& path, bool* had_errors)
 {
     PolicyIssues issues;
     auto result = parse_policy_file(path, issues);
     if (result) {
         detect_policy_conflicts(*result, issues);
+    }
+    if (had_errors) {
+        *had_errors = issues.has_errors();
     }
 
     auto port_tuple = [](const PortRule& pr) {
@@ -264,8 +271,14 @@ int cmd_policy_canonical(const std::string& path)
     for (const auto& w : warns)
         out += "WARN " + w + "\n";
 
-    std::cout << out;
-    return issues.has_errors() ? 1 : 0;
+    return out;
+}
+
+int cmd_policy_canonical(const std::string& path)
+{
+    bool had_errors = false;
+    std::cout << policy_canonical_dump_from_path(path, &had_errors);
+    return had_errors ? 1 : 0;
 }
 
 // Emit a canonical, machine-comparable dump of a parsed signed-policy-bundle for
