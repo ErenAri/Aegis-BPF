@@ -241,6 +241,10 @@ BASELINE_DECISIONS=$(( $(read_metric_sum "aegisbpf_blocks_total" "${BASELINE_MET
 # on every poll. Any success is a real missed enforcement decision and fails the soak.
 ENFORCE_CANARY_MISSES=0
 ENFORCE_CANARY_CHECKS=0
+# Detect host suspend: a poll-to-poll gap far larger than POLL_SECONDS means the box
+# slept, so the wall-clock duration is fiction and the soak result is invalid.
+SUSPEND_DETECTED=0
+PREV_LOOP_TS=${SECONDS}
 
 while [[ ${SECONDS} -lt ${END_TS} ]]; do
   if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
@@ -317,6 +321,13 @@ while [[ ${SECONDS} -lt ${END_TS} ]]; do
   fi
 
   sleep "${POLL_SECONDS}"
+  LOOP_GAP=$((SECONDS - PREV_LOOP_TS))
+  if [[ "${LOOP_GAP}" -gt $((POLL_SECONDS * 3 + 10)) ]]; then
+    echo "time jump of ${LOOP_GAP}s (expected ~${POLL_SECONDS}s) — host likely suspended; soak invalid" >&2
+    SUSPEND_DETECTED=1
+    break
+  fi
+  PREV_LOOP_TS=${SECONDS}
 done
 
 RSS_GROWTH=$((MAX_RSS - INITIAL_RSS))
@@ -365,10 +376,12 @@ payload = {
     "decisions_this_run": int("${DECISIONS_THIS_RUN}"),
     "enforce_canary_checks": int("${ENFORCE_CANARY_CHECKS}"),
     "enforce_canary_misses": int("${ENFORCE_CANARY_MISSES}"),
+    "suspend_detected": bool(int("${SUSPEND_DETECTED}")),
     "pass": (${RSS_GROWTH} <= ${MAX_RSS_GROWTH_KB}
              and ${MAX_DROPS} <= ${MAX_RINGBUF_DROPS}
              and ${DECISIONS_THIS_RUN} >= ${MIN_TOTAL_DECISIONS}
              and ${ENFORCE_CANARY_MISSES} == 0
+             and ${SUSPEND_DETECTED} == 0
              and float("${MAX_DROP_RATIO_PCT}") <= float("${MAX_EVENT_DROP_RATIO_PCT}")),
 }
 with open("${OUT_JSON}", "w", encoding="utf-8") as f:
@@ -388,6 +401,11 @@ fi
 
 if [[ "${ENFORCE_CANARY_MISSES}" -gt 0 ]]; then
   echo "enforcement canary detected ${ENFORCE_CANARY_MISSES} missed decision(s): the blocked path was readable while enforcing" >&2
+  exit 1
+fi
+
+if [[ "${SUSPEND_DETECTED}" -eq 1 ]]; then
+  echo "host suspend detected during soak; wall-clock duration is invalid (only ${ENFORCE_CANARY_CHECKS} polls ran)" >&2
   exit 1
 fi
 
