@@ -18,6 +18,7 @@ zero missed decisions**, while the agent stayed leak-free and lossless.
 
 | file | mode | result | what it demonstrates |
 |---|---|---|---|
+| `overnight-12h.json` | enforce | **pass** | **12 h**, **57,701,536 denials** (~1,335/s sustained), **canary 0 misses / 718 checks**, RSS growth **0 KB**, ringbuf drops **0**, drop ratio **0.000%**, `suspend_detected:false`, 358 log rotations held |
 | `enforce-headline-180s.json` | enforce | **pass** | 180 s, **779,431 denials this run** (~4,330/s), **canary 0 misses / 12 checks**, RSS growth **0 KB**, ringbuf drops **0**, drop ratio **0.000%** |
 | `canary-teeth-no-enforcement.json` | enforce, rule absent | **fail** (by design) | the in-band canary is not theater: with enforcement absent, **6/6 reads leaked** and the soak **failed** |
 | `canary-real-enforcing.json` | enforce, rule active | **pass** | the same 60 s run with enforcement on: **0/6 leaked**, honest delta **245,733 denials** |
@@ -38,9 +39,11 @@ soak (`enforce_canary_misses > 0` → `pass: false`). It also now baselines the
 
 ## Honest caveats (what this is NOT)
 
-- **Duration:** 180 s (and 60 s validation), not the 24 h / 168 h tiers. Flat RSS
-  here means no *fast* leak and the harness is sound; a *slow* leak needs a long run
-  (same command, `DURATION_SECONDS=86400`).
+- **Duration:** the headline is a real **12 h** suspend-free run (`overnight-12h.json`,
+  718 canary checks, **0** RSS growth) plus 180 s / 60 s validation. Still short of the
+  168 h release tier (`DURATION_SECONDS=604800`), but a genuine multi-hour leak/drift
+  result. (An earlier "12 h" attempt was invalidated by host suspend after ~5 min; the
+  harness now **detects suspend and fails** rather than reporting a slept-through pass.)
 - **One kernel.** This is 6.17 only. Cross-kernel behaviour (5.15 / 6.1 / 6.8 / RHEL)
   needs the kernel matrix — a single laptop cannot cover it.
 - **Load shape** is the host's real k8s churn plus 4 file workers — realistic, but
