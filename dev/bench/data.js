@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780680176882,
+  "lastUpdate": 1780791777238,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -43740,6 +43740,102 @@ window.BENCHMARK_DATA = {
             "value": 54.59481395763209,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.58827415205667 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce64b24121f4813faf010c83df784a0983793fa3",
+          "message": "test(soak): enforcement-grade canary + red-team bypass evidence (laptop, 6.17) (#241)\n\n* test(soak): enforcement-grade canary + per-run delta; red-team bypass suite\n\nUpgrade scripts/soak_reliability.sh from telemetry-grade to enforcement-grade:\n- in-band enforcement canary: every poll asserts the blocked path is still\n  denied; a successful read is a missed enforcement decision that fails the\n  soak. Proven to have teeth (6/6 misses -> pass:false when enforcement absent,\n  0 misses when it holds).\n- per-run delta: aegisbpf_blocks_total is a pinned, cumulative counter that\n  survives daemon restarts, so the old absolute count was misleading; baseline\n  it and report decisions_this_run.\n- add SOAK_ENFORCE_SIGNAL knob; workers read $SOAK_BLOCK_PATH (was hardcoded\n  /etc/hosts) so enforce soaks can target a scratch file without touching a\n  system path.\n\nAdd scripts/redteam_bypass.sh: adversarial file-deny bypass suite. 13/13\npath-alias + TOCTOU attacks (hardlink/symlink, /proc/self/fd, bind-mount,\nrename, race) blocked on kernel 6.17; copy-to-new-inode correctly allowed.\n\nAdd evidence/soak-enforce-grade-laptop/: enforce headline (180s, 779K denials,\n0 canary misses, 0 RSS growth, 0 ringbuf drops) + audit + teeth/real JSONs +\nREADME. All from real BPF-LSM enforcement on kernel 6.17 under live k8s load.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* test(soak): detect host suspend and fail instead of reporting a slept-through pass\n\nA 12h overnight enforce soak on a laptop exited \"pass:true\" after only ~5 active\nminutes: the host suspended (s2idle) 5 min in, and on resume the wall-clock loop\nsaw the full duration had \"elapsed\" and stopped. The reliability checks (RSS\ngrowth, drops) over 5 active minutes are meaningless, but the JSON looked clean.\n\nAdd a poll-to-poll gap guard: if a single iteration's wall-clock gap exceeds\n~3x POLL_SECONDS the host almost certainly suspended, so set suspend_detected=1,\nbreak, fail the soak, and surface it in the JSON. Verified it does NOT false-fire\non a normal run (suspend_detected:false, pass:true).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* docs(evidence): real 12h suspend-free enforce soak (laptop, 6.17)\n\nA genuine 12-hour enforcement-grade soak, suspend-inhibited end to end:\n- 57,701,536 denials this run (~1,335/s sustained for 12h)\n- enforcement canary: 0 misses / 718 checks (held every minute for 12h)\n- RSS growth: 0 KB (51120 -> 51120, no leak)\n- ringbuf drops: 0, drop ratio: 0.000%\n- suspend_detected: false (systemd-inhibit blocked idle + lid-switch)\n- daemon.log rotated 358x, disk cap held; clean teardown\n\nSupersedes the earlier overnight attempt that the new suspend guard correctly\ninvalidates (host slept ~5 min in).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-06-07T03:11:42+03:00",
+          "tree_id": "4fc561481608a9ac9b1bf61567665b9e0f0e5d6e",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/ce64b24121f4813faf010c83df784a0983793fa3"
+        },
+        "date": 1780791775864,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1539.1238208966577,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1539.0256842668296 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3762.805240038455,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3762.566490209149 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21710.92773696796,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21707.59221850284 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165116.3335299433,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165106.30597499126 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1314924.9234741807,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1314846.8531298887 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5279133.269811321,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5278806.599056602 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4754.434250911697,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4757.678409442199 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33277.00457595771,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33282.68182770434 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 273403.5469767829,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 273389.0124608693 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 814641.673013037,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 814677.7707966027 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.45107215079955,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.44014454585128 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.59218368218621,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.58860982905855 ns\nthreads: 1"
           }
         ]
       }
