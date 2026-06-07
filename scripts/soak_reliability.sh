@@ -17,6 +17,10 @@ OUT_JSON="${OUT_JSON:-}"
 # SOAK_MODE: audit (default) or enforce.
 # enforce mode runs with --enforce and verifies the deny rule actually blocks.
 SOAK_MODE="${SOAK_MODE:-audit}"
+# SOAK_ENFORCE_SIGNAL: when SOAK_MODE=enforce, the --enforce-signal to pass
+# (term|kill|int|none). Empty = agent default (term). 'none' denies with EPERM
+# and sends no signal, which is the cleanest for a sustained-load soak.
+SOAK_ENFORCE_SIGNAL="${SOAK_ENFORCE_SIGNAL:-}"
 # SOAK_NET_WORKLOAD: 0 (default) or 1.
 # When enabled, workers also generate UDP connect() traffic to exercise
 # network hooks alongside file I/O.
@@ -134,6 +138,9 @@ fi
 DAEMON_MODE_FLAG="--audit"
 if [[ "${SOAK_MODE}" == "enforce" ]]; then
   DAEMON_MODE_FLAG="--enforce"
+  if [[ -n "${SOAK_ENFORCE_SIGNAL}" ]]; then
+    DAEMON_MODE_FLAG="${DAEMON_MODE_FLAG} --enforce-signal=${SOAK_ENFORCE_SIGNAL}"
+  fi
 fi
 "${AEGIS_BIN}" run ${DAEMON_MODE_FLAG} --ringbuf-bytes="${RINGBUF_BYTES}" >"${DAEMON_LOG}" 2>&1 &
 DAEMON_PID=$!
@@ -148,7 +155,7 @@ fi
 for _ in $(seq 1 "${WORKERS}"); do
   (
     while kill -0 "${DAEMON_PID}" >/dev/null 2>&1; do
-      cat /etc/hosts >/dev/null 2>&1 || true
+      cat "${SOAK_BLOCK_PATH}" >/dev/null 2>&1 || true
     done
   ) >>"${WORKLOAD_LOG}" 2>&1 &
   WORKER_PIDS+=("$!")
@@ -224,11 +231,36 @@ echo "initial RSS: ${INITIAL_RSS} kB"
 
 DAEMON_LOG_TRUNCATIONS=0
 
+# Baseline the (pinned, cumulative) decision counter so we report THIS run's delta,
+# not the absolute counter, which survives daemon restarts.
+BASELINE_METRICS="$("${AEGIS_BIN}" metrics 2>/dev/null || true)"
+BASELINE_DECISIONS=$(( $(read_metric_sum "aegisbpf_blocks_total" "${BASELINE_METRICS}") \
+  + $(read_metric_sum "aegisbpf_net_connect_blocks_total" "${BASELINE_METRICS}") \
+  + $(read_metric_sum "aegisbpf_net_bind_blocks_total" "${BASELINE_METRICS}") ))
+# In-band enforcement canary: in enforce mode a read of the blocked path MUST be denied
+# on every poll. Any success is a real missed enforcement decision and fails the soak.
+ENFORCE_CANARY_MISSES=0
+ENFORCE_CANARY_CHECKS=0
+# Detect host suspend: a poll-to-poll gap far larger than POLL_SECONDS means the box
+# slept, so the wall-clock duration is fiction and the soak result is invalid.
+SUSPEND_DETECTED=0
+PREV_LOOP_TS=${SECONDS}
+
 while [[ ${SECONDS} -lt ${END_TS} ]]; do
   if ! kill -0 "${DAEMON_PID}" >/dev/null 2>&1; then
     echo "daemon exited early during soak" >&2
     tail -c 65536 "${DAEMON_LOG}" >&2 || true
     exit 1
+  fi
+
+  # In-band enforcement canary (enforce mode only): the blocked path must stay denied
+  # while the daemon is live. A successful read is a missed enforcement decision.
+  if [[ "${SOAK_MODE}" == "enforce" ]]; then
+    ENFORCE_CANARY_CHECKS=$((ENFORCE_CANARY_CHECKS + 1))
+    if dd if="${SOAK_BLOCK_PATH}" bs=1 count=1 status=none >/dev/null 2>&1; then
+      ENFORCE_CANARY_MISSES=$((ENFORCE_CANARY_MISSES + 1))
+      echo "ENFORCEMENT CANARY MISS: read of ${SOAK_BLOCK_PATH} succeeded while enforcing (#${ENFORCE_CANARY_MISSES})" >&2
+    fi
   fi
 
   # Cap daemon log disk usage. Block usage (du -B1) ignores sparse holes,
@@ -289,9 +321,18 @@ while [[ ${SECONDS} -lt ${END_TS} ]]; do
   fi
 
   sleep "${POLL_SECONDS}"
+  LOOP_GAP=$((SECONDS - PREV_LOOP_TS))
+  if [[ "${LOOP_GAP}" -gt $((POLL_SECONDS * 3 + 10)) ]]; then
+    echo "time jump of ${LOOP_GAP}s (expected ~${POLL_SECONDS}s) — host likely suspended; soak invalid" >&2
+    SUSPEND_DETECTED=1
+    break
+  fi
+  PREV_LOOP_TS=${SECONDS}
 done
 
 RSS_GROWTH=$((MAX_RSS - INITIAL_RSS))
+DECISIONS_THIS_RUN=$((MAX_TOTAL_DECISIONS - BASELINE_DECISIONS))
+if [[ "${DECISIONS_THIS_RUN}" -lt 0 ]]; then DECISIONS_THIS_RUN=0; fi
 
 echo "max RSS: ${MAX_RSS} kB (growth=${RSS_GROWTH} kB)"
 echo "max ringbuf drops: ${MAX_DROPS} (file=${MAX_FILE_DROPS}, net=${MAX_NET_DROPS})"
@@ -299,6 +340,10 @@ echo "max observed decision events: ${MAX_TOTAL_DECISIONS}"
 echo "max observed total events (decisions + drops): ${MAX_TOTAL_EVENTS}"
 echo "max observed drop ratio: ${MAX_DROP_RATIO_PCT}% (target <= ${MAX_EVENT_DROP_RATIO_PCT}%)"
 echo "daemon.log rotations: ${DAEMON_LOG_TRUNCATIONS}"
+echo "decisions this run (delta): ${DECISIONS_THIS_RUN} (baseline=${BASELINE_DECISIONS}, max_abs=${MAX_TOTAL_DECISIONS})"
+if [[ "${SOAK_MODE}" == "enforce" ]]; then
+  echo "enforcement canary: ${ENFORCE_CANARY_MISSES} miss(es) / ${ENFORCE_CANARY_CHECKS} checks"
+fi
 
 if [[ -n "${OUT_JSON}" ]]; then
   python3 - <<PY
@@ -327,9 +372,16 @@ payload = {
     "daemon_log_rotations": int("${DAEMON_LOG_TRUNCATIONS}"),
     "max_daemon_log_bytes": int("${MAX_DAEMON_LOG_BYTES}"),
     "min_free_disk_bytes": int("${MIN_FREE_DISK_BYTES}"),
+    "baseline_decisions": int("${BASELINE_DECISIONS}"),
+    "decisions_this_run": int("${DECISIONS_THIS_RUN}"),
+    "enforce_canary_checks": int("${ENFORCE_CANARY_CHECKS}"),
+    "enforce_canary_misses": int("${ENFORCE_CANARY_MISSES}"),
+    "suspend_detected": bool(int("${SUSPEND_DETECTED}")),
     "pass": (${RSS_GROWTH} <= ${MAX_RSS_GROWTH_KB}
              and ${MAX_DROPS} <= ${MAX_RINGBUF_DROPS}
-             and ${MAX_TOTAL_DECISIONS} >= ${MIN_TOTAL_DECISIONS}
+             and ${DECISIONS_THIS_RUN} >= ${MIN_TOTAL_DECISIONS}
+             and ${ENFORCE_CANARY_MISSES} == 0
+             and ${SUSPEND_DETECTED} == 0
              and float("${MAX_DROP_RATIO_PCT}") <= float("${MAX_EVENT_DROP_RATIO_PCT}")),
 }
 with open("${OUT_JSON}", "w", encoding="utf-8") as f:
@@ -347,8 +399,18 @@ if [[ "${MAX_DROPS}" -gt "${MAX_RINGBUF_DROPS}" ]]; then
   exit 1
 fi
 
-if [[ "${MAX_TOTAL_DECISIONS}" -lt "${MIN_TOTAL_DECISIONS}" ]]; then
-  echo "insufficient decision-event volume (${MAX_TOTAL_DECISIONS} < ${MIN_TOTAL_DECISIONS})" >&2
+if [[ "${ENFORCE_CANARY_MISSES}" -gt 0 ]]; then
+  echo "enforcement canary detected ${ENFORCE_CANARY_MISSES} missed decision(s): the blocked path was readable while enforcing" >&2
+  exit 1
+fi
+
+if [[ "${SUSPEND_DETECTED}" -eq 1 ]]; then
+  echo "host suspend detected during soak; wall-clock duration is invalid (only ${ENFORCE_CANARY_CHECKS} polls ran)" >&2
+  exit 1
+fi
+
+if [[ "${DECISIONS_THIS_RUN}" -lt "${MIN_TOTAL_DECISIONS}" ]]; then
+  echo "insufficient decision-event volume this run (${DECISIONS_THIS_RUN} < ${MIN_TOTAL_DECISIONS})" >&2
   exit 1
 fi
 
