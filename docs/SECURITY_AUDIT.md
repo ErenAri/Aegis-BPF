@@ -3,7 +3,7 @@
 **Date:** 2026-02-07
 **Auditor:** Security Analysis
 **Scope:** Ed25519 signature verification and timing attack prevention
-**Status:**  MOSTLY SECURE (1 minor issue found)
+**Status:**  SECURE (no open cryptographic timing findings)
 
 ---
 
@@ -11,7 +11,7 @@
 
 AegisBPF's Ed25519 signature verification implementation is **well-designed and uses constant-time operations** for the critical signature verification path. The project uses TweetNaCl, a security-focused cryptographic library designed to resist timing attacks.
 
-**Finding:** 1 MINOR timing leak in trusted key lookup (LOW severity, difficult to exploit)
+**Finding:** The previously documented trusted-key lookup timing leak was fixed on 2026-06-19 by replacing early-exit key lookup with a full-list constant-time comparison in `verify_bundle()`.
 
 ---
 
@@ -37,19 +37,20 @@ AegisBPF's Ed25519 signature verification implementation is **well-designed and 
 
 ###  SECURE: Ed25519 Signature Verification
 
-**Location:** `src/crypto.cpp:138-141`
+**Location:** `src/crypto.cpp` (`verify_bytes()`)
 
 ```cpp
 bool verify_bytes(const uint8_t* data, size_t data_len,
                   const Signature& signature, const PublicKey& public_key)
 {
-    return crypto_sign_verify_detached(signature.data(), data,
-                                       data_len, public_key.data()) == 0;
+    return crypto_safe::crypto_sign_verify_detached_safe(
+               signature.data(), data, data_len, public_key.data()) == 0;
 }
 ```
 
 **Analysis:**
-Uses TweetNaCl's `crypto_sign_verify_detached()` which calls `crypto_sign_open()`.
+Uses AegisBPF's bounded-size safe wrapper, which prepares the signed-message
+buffer on the stack and calls TweetNaCl's `crypto_sign_open()`.
 
 **Evidence of Constant-Time:** `src/tweetnacl.c:537`
 ```c
@@ -76,7 +77,7 @@ static int crypto_verify_32(const u8* x, const u8* y) {
 
 ###  SECURE: SHA-256 Hash Comparison
 
-**Location:** `src/crypto.cpp:341`
+**Location:** `src/crypto.cpp` (`verify_bundle()`)
 
 ```cpp
 if (!constant_time_hex_compare(computed_sha256, bundle.policy_sha256)) {
@@ -108,70 +109,37 @@ bool constant_time_hex_compare(const std::string& a, const std::string& b)
 
 ---
 
-###  MINOR ISSUE: Trusted Key Lookup
+###  SECURE: Trusted Key Lookup
 
-**Location:** `src/crypto.cpp:347-348`
-
-```cpp
-bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
-    [&bundle](const auto& trusted) { return trusted == bundle.signer_key; });
-```
-
-**Issue:** Uses `std::array::operator==` which is NOT constant-time
-
-**Impact:** LOW SEVERITY
-- Timing leak reveals which trusted key index matches (or if no match)
-- Attacker needs:
-  1. Precise timing measurement (nanosecond resolution)
-  2. Multiple signature verification attempts
-  3. Control over which key signs bundles
-- **Exploitability:** Very difficult in practice
-
-**Typical timing differences:**
-- First key match: ~10-50ns
-- Last key match: ~10-50ns × number_of_keys
-- No match: ~10-50ns × number_of_keys
-
-**Attack scenario:**
-```
-Trusted keys: [key_A, key_B, key_C]
-Bundle signed by key_B:
-  - Comparison with key_A: ~20ns (mismatch at some byte)
-  - Comparison with key_B: ~30ns (full match)
-  - Total: ~50ns
-
-Bundle signed by key_C:
-  - Comparison with key_A: ~20ns
-  - Comparison with key_B: ~20ns
-  - Comparison with key_C: ~30ns
-  - Total: ~70ns
-
-Time delta: ~20ns reveals key index
-```
-
----
-
-### Recommended Fix (Optional)
-
-Replace `operator==` with constant-time comparison:
+**Location:** `src/crypto.cpp` (`trusted_key_list_contains()` called by `verify_bundle()`)
 
 ```cpp
-bool keys_match_constant_time(const PublicKey& a, const PublicKey& b) {
-    volatile unsigned char diff = 0;
-    for (size_t i = 0; i < kPublicKeySize; ++i) {
-        diff |= a[i] ^ b[i];
+bool trusted_key_list_contains(const std::vector<PublicKey>& trusted_keys,
+                               const PublicKey& signer_key)
+{
+    volatile unsigned char any_match = 0;
+
+    for (const auto& trusted : trusted_keys) {
+        volatile unsigned char diff = 0;
+        for (size_t i = 0; i < kPublicKeySize; ++i) {
+            diff = static_cast<unsigned char>(diff | (trusted[i] ^ signer_key[i]));
+        }
+        any_match = static_cast<unsigned char>(any_match |
+                                               static_cast<unsigned char>(diff == 0));
     }
-    return diff == 0;
-}
 
-// In verify_bundle():
-bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
-    [&bundle](const auto& trusted) {
-        return keys_match_constant_time(trusted, bundle.signer_key);
-    });
+    return any_match != 0;
+}
 ```
 
-**Note:** Even with this fix, the number of iterations (trusted_keys.size()) leaks the key index position, but requires more sophisticated timing analysis.
+**Analysis:**
+The key lookup no longer uses `std::array::operator==` or `std::any_of`, both
+of which can stop early. It compares every byte of each trusted key and scans
+the full trusted-key list before returning. The number of trusted keys remains
+observable, but trusted keys are public configuration and the matching key
+position is no longer exposed by an early-exit loop.
+
+**Verdict:**  **SECURE** - No data-dependent early exit in trusted signer lookup
 
 ---
 
@@ -182,8 +150,9 @@ bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
 
 ### Modifications Made
 1. Added detached signature functions
-2. Uses `/dev/urandom` for randomness (good)
-3. UBSan-safe carry math in `modL`
+2. Added bounded-size stack wrappers for detached sign/verify operations
+3. Uses `/dev/urandom` for randomness (good)
+4. UBSan-safe carry math in `modL`
 
 **Modifications Assessment:**  SAFE - No security-sensitive changes
 
@@ -212,8 +181,8 @@ verify_bundle() - Main verification function
     
         ↓
     
-     2. Trusted Key Lookup (NOT CT)       
-        std::any_of + operator==              
+     2. Trusted Key Lookup (CONSTANT-TIME PER KEY, FULL-LIST SCAN)
+        trusted_key_list_contains()
     
         ↓
     
@@ -236,6 +205,8 @@ verify_bundle() - Main verification function
 -  `CmdPolicyApplySignedTest.RequireSignatureRejectsUnsignedPolicy` - Signature required
 -  `CmdPolicyApplySignedTest.RejectsCorruptedBundleSignature` - Signature integrity
 -  `KeyLifecycleTest.RotateAndRevokeTrustedSigningKeys` - Key rotation
+-  `CryptoSafeTest.VerifyBundleAcceptsTrustedSignerAtEndOfList` - Trusted signer lookup scans beyond the first key
+-  `CryptoSafeTest.VerifyBundleRejectsUntrustedSigner` - Untrusted signer rejection
 
 ### Missing Test (Recommended)
 Add timing attack fuzzing test:
@@ -257,26 +228,21 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 |------|-----------|--------|---------|
 | **Ed25519 timing leak** |  None | N/A |  SAFE |
 | **SHA256 timing leak** |  None | N/A |  SAFE |
-| **Key lookup timing leak** |  Low | Low |  LOW |
+| **Key lookup timing leak** |  None known | N/A |  SAFE |
 
 ### Key Lookup Timing Leak Details
 
-**Likelihood:** LOW
-- Requires nanosecond-precision timing
-- Requires network access to trigger multiple verifications
-- Requires control over which key signs bundles
-- Mitigated by jitter from OS scheduler, network latency, CPU caches
+**Status:** Resolved on 2026-06-19.
 
-**Impact:** LOW
-- Only reveals which trusted key was used (not the key itself)
-- Trusted keys are already public (.pub files)
-- Does not compromise key material or signature security
-- Does not bypass signature verification
+The original audit noted that trusted-key lookup used `std::any_of` plus
+`std::array::operator==`. That implementation could exit after the matching
+key and could short-circuit byte comparisons. Current code uses a full-list
+scan with volatile diff accumulation across all 32 public-key bytes.
 
-**Real-world Exploitability:** VERY LOW
-- Remote timing attacks require thousands of samples
-- AegisBPF verification happens server-side (not exposed to network)
-- Key index information has minimal value (keys are public)
+**Residual note:** The trusted-key list length is still observable from the
+amount of configured work. This is acceptable because trusted public keys are
+public configuration, and list length disclosure does not compromise key
+material or signature verification.
 
 ---
 
@@ -286,12 +252,12 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 - [x] Uses established cryptographic library (TweetNaCl)
 - [x] Constant-time signature verification
 - [x] Constant-time hash comparison
+- [x] Constant-time trusted-key comparison without matching-key early exit
 - [x] No secret-dependent branching in crypto operations
 - [x] Proper use of `volatile` to prevent compiler optimization
 - [x] Public domain crypto (no licensing issues)
 
 ###  RECOMMENDATIONS
-- [ ] Add constant-time key lookup (optional, low priority)
 - [ ] Add timing attack fuzzing test (recommended)
 - [ ] Document crypto assumptions in developer guide
 
@@ -303,27 +269,24 @@ TEST(TimingAttackTest, SignatureVerificationIsConstantTime) {
 
 AegisBPF's cryptographic implementation is **production-ready from a timing attack perspective**. The use of TweetNaCl and constant-time comparison functions demonstrates good security awareness.
 
-The minor timing leak in trusted key lookup is:
-1. **Not a vulnerability** - does not compromise signature security
-2. **Low impact** - only leaks key index (keys are public)
-3. **Difficult to exploit** - requires precise timing and multiple samples
-4. **Optional to fix** - can be addressed in future hardening if desired
+The minor timing leak originally documented for trusted key lookup has been
+resolved. Bundle verification now uses constant-time SHA-256 comparison,
+full-list trusted-key comparison, and TweetNaCl's constant-time Ed25519
+verification path.
 
 ### Recommendations Priority
 
 1. **HIGH (Optional):** Add timing attack fuzzing test to CI
-2. **LOW (Optional):** Implement constant-time key lookup
-3. **LOW (Optional):** Document cryptographic guarantees in `docs/CRYPTOGRAPHY.md`
+2. **LOW (Optional):** Document cryptographic guarantees in `docs/CRYPTOGRAPHY.md`
 
 ### Production Deployment Decision
 
  **APPROVED** - No blocking cryptographic security issues found
 
-The Ed25519 signature verification path is properly implemented with constant-time operations. The minor timing leak in key lookup does not pose a significant security risk for production deployment.
+The Ed25519 signature verification path is properly implemented with constant-time operations, and trusted-key lookup no longer has a known data-dependent early exit.
 
 ---
 
 **Audit Completed:** 2026-02-07
 **Next Audit Recommended:** After any changes to cryptographic code
 **Security Contact:** Report crypto issues to security team
-

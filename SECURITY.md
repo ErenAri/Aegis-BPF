@@ -127,6 +127,7 @@ All cryptographic comparisons in AegisBPF use constant-time algorithms to preven
 - **BPF object integrity verification** - SHA256 hash comparison uses `constant_time_hex_compare()`
 - **Policy hash verification** - SHA256 integrity checks use constant-time comparison
 - **Signed bundle verification** - Policy bundle SHA256 verification uses constant-time comparison
+- **Trusted signing key lookup** - Public-key comparison scans all trusted keys without a matching-key early exit
 
 This prevents attackers from inferring valid hash values by measuring comparison timing.
 
@@ -216,11 +217,11 @@ The following environment variables affect security behavior. In production, avo
 4. **No independent third-party security review**: see
    `docs/EXTERNAL_VALIDATION.md`. Until that page lists a published review,
    assume none has been performed.
-5. **No head-to-head competitive performance evidence**: see
-   `docs/PERFORMANCE_COMPARISON.md`. Comparative micro-benchmarks against
-   Falco / Tetragon / Tracee / KubeArmor have not been run on the same
-   hardware in this repository. Estimated numbers were removed in
-   2026-04-08.
+5. **Performance evidence is environment-specific**: see
+   `docs/PERFORMANCE_COMPARISON.md`. Same-host head-to-head measurements
+   were added on 2026-04-15, but adopters should reproduce
+   `scripts/compare_runtime_security.sh` on their own kernel, hardware,
+   policy set, and workload before treating the numbers as deployment SLOs.
 
 ## Security Fixes History
 

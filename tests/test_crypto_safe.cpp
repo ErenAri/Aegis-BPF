@@ -3,6 +3,7 @@
 
 #include <array>
 #include <string>
+#include <vector>
 
 #include "crypto.hpp"
 #include "tweetnacl_safe.hpp"
@@ -227,6 +228,38 @@ TEST_F(CryptoSafeTest, VerifyWithWrongPublicKeyFails)
         sig.data(), reinterpret_cast<const uint8_t*>(message.data()), message.size(), wrong_pk.data());
 
     EXPECT_NE(result, 0);
+}
+
+TEST_F(CryptoSafeTest, VerifyBundleAcceptsTrustedSignerAtEndOfList)
+{
+    auto first_keypair = aegis::generate_keypair();
+    auto second_keypair = aegis::generate_keypair();
+    ASSERT_TRUE(first_keypair);
+    ASSERT_TRUE(second_keypair);
+
+    auto bundle = aegis::create_signed_bundle("version=1\n", second_keypair->second, 7, 0);
+    ASSERT_TRUE(bundle);
+    auto parsed = aegis::parse_signed_bundle(*bundle);
+    ASSERT_TRUE(parsed);
+
+    std::vector<PublicKey> trusted_keys{first_keypair->first, second_keypair->first};
+    EXPECT_TRUE(aegis::verify_bundle(*parsed, trusted_keys));
+}
+
+TEST_F(CryptoSafeTest, VerifyBundleRejectsUntrustedSigner)
+{
+    auto signing_keypair = aegis::generate_keypair();
+    auto unrelated_keypair = aegis::generate_keypair();
+    ASSERT_TRUE(signing_keypair);
+    ASSERT_TRUE(unrelated_keypair);
+
+    auto bundle = aegis::create_signed_bundle("version=1\n", signing_keypair->second, 8, 0);
+    ASSERT_TRUE(bundle);
+    auto parsed = aegis::parse_signed_bundle(*bundle);
+    ASSERT_TRUE(parsed);
+
+    std::vector<PublicKey> trusted_keys{unrelated_keypair->first};
+    EXPECT_FALSE(aegis::verify_bundle(*parsed, trusted_keys));
 }
 
 } // anonymous namespace
