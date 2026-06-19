@@ -4,7 +4,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -90,6 +89,21 @@ bool parse_header_line(const std::string& line, std::string& key, std::string& v
     key = trim_string(line.substr(0, pos));
     value = trim_string(line.substr(pos + 1));
     return !key.empty();
+}
+
+bool trusted_key_list_contains(const std::vector<PublicKey>& trusted_keys, const PublicKey& signer_key)
+{
+    volatile unsigned char any_match = 0;
+
+    for (const auto& trusted : trusted_keys) {
+        volatile unsigned char diff = 0;
+        for (size_t i = 0; i < kPublicKeySize; ++i) {
+            diff = static_cast<unsigned char>(diff | (trusted[i] ^ signer_key[i]));
+        }
+        any_match = static_cast<unsigned char>(any_match | static_cast<unsigned char>(diff == 0));
+    }
+
+    return any_match != 0;
 }
 
 } // anonymous namespace
@@ -340,9 +354,8 @@ Result<void> verify_bundle(const SignedPolicyBundle& bundle, const std::vector<P
                      "expected " + bundle.policy_sha256 + ", got " + computed_sha256);
     }
 
-    // Check if signer key is trusted
-    bool key_trusted = std::any_of(trusted_keys.begin(), trusted_keys.end(),
-                                   [&bundle](const auto& trusted) { return trusted == bundle.signer_key; });
+    // Check if signer key is trusted without data-dependent early exit.
+    bool key_trusted = trusted_key_list_contains(trusted_keys, bundle.signer_key);
     if (!key_trusted) {
         return Error(ErrorCode::SignatureInvalid, "Signer key is not trusted", encode_hex(bundle.signer_key));
     }
