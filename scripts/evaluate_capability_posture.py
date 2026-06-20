@@ -12,7 +12,7 @@ from typing import Any
 
 
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_OUTPUT_SCHEMA_SEMVER = "1.1.0"
+_OUTPUT_SCHEMA_SEMVER = "1.2.0"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -162,6 +162,37 @@ def evaluate(report: dict[str, Any], source_path: str) -> dict[str, Any]:
         ),
         "aegisbpf.io/ima-appraisal": (
             "true" if _as_bool(features.get("ima_appraisal")) else "false"
+        ),
+        "aegisbpf.io/landlock": (
+            "true" if _as_bool(features.get("landlock")) else "false"
+        ),
+        "aegisbpf.io/ipe": "true" if _as_bool(features.get("ipe")) else "false",
+        "aegisbpf.io/fs-verity": (
+            "true" if _as_bool(features.get("fs_verity")) else "false"
+        ),
+        "aegisbpf.io/bpf-token": (
+            "true" if _as_bool(features.get("bpf_token")) else "false"
+        ),
+        "aegisbpf.io/bpf-arena": (
+            "true" if _as_bool(features.get("bpf_arena")) else "false"
+        ),
+        "aegisbpf.io/user-ringbuf": (
+            "true" if _as_bool(features.get("user_ringbuf")) else "false"
+        ),
+        "aegisbpf.io/sched-ext": (
+            "true" if _as_bool(features.get("sched_ext")) else "false"
+        ),
+        "aegisbpf.io/open-coded-iterators": (
+            "true" if _as_bool(features.get("open_coded_iterators")) else "false"
+        ),
+        "aegisbpf.io/xattr-kfuncs": (
+            "true" if _as_bool(features.get("bpf_xattr_kfuncs")) else "false"
+        ),
+        "aegisbpf.io/bpf-send-signal-task": (
+            "true" if _as_bool(features.get("bpf_send_signal_task")) else "false"
+        ),
+        "aegisbpf.io/binary-auth": (
+            "true" if _as_bool(features.get("binary_auth")) else "false"
         ),
     }
 

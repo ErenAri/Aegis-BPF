@@ -229,7 +229,34 @@ std::string build_health_json(const HealthReport& report)
         << ",\"bpf_syscall\":" << (report.features.bpf_syscall ? "true" : "false")
         << ",\"ringbuf\":" << (report.features.ringbuf ? "true" : "false")
         << ",\"tracepoints\":" << (report.features.tracepoints ? "true" : "false")
-        << ",\"bpffs\":" << (report.bpffs_mounted ? "true" : "false") << "}" << ",\"checks\":{"
+        << ",\"bpffs\":" << (report.bpffs_mounted ? "true" : "false")
+        << ",\"ima\":" << (report.features.ima ? "true" : "false")
+        << ",\"ima_appraisal\":" << (report.features.ima_appraisal ? "true" : "false")
+        << ",\"bpf_ima_helpers\":" << (report.features.bpf_ima_helpers ? "true" : "false")
+        << ",\"landlock\":" << (report.features.landlock ? "true" : "false")
+        << ",\"ipe\":" << (report.features.ipe ? "true" : "false")
+        << ",\"fs_verity\":" << (report.features.fs_verity ? "true" : "false")
+        << ",\"bpf_token\":" << (report.features.bpf_token ? "true" : "false")
+        << ",\"bpf_arena\":" << (report.features.bpf_arena ? "true" : "false")
+        << ",\"user_ringbuf\":" << (report.features.user_ringbuf ? "true" : "false")
+        << ",\"sched_ext\":" << (report.features.sched_ext ? "true" : "false")
+        << ",\"open_coded_iterators\":" << (report.features.open_coded_iterators ? "true" : "false")
+        << ",\"bpf_xattr_kfuncs\":" << (report.features.bpf_xattr_kfuncs ? "true" : "false")
+        << ",\"bpf_send_signal_task\":" << (report.features.bpf_send_signal_task ? "true" : "false")
+        << ",\"binary_auth\":" << (report.features.binary_auth ? "true" : "false") << "}" << ",\"future_lsm\":{"
+        << "\"active_lsms\":\"" << json_escape(report.features.lsm_list) << "\""
+        << ",\"landlock\":" << (report.features.landlock ? "true" : "false")
+        << ",\"landlock_abi\":" << static_cast<int64_t>(report.features.landlock_abi)
+        << ",\"ipe\":" << (report.features.ipe ? "true" : "false")
+        << ",\"fs_verity\":" << (report.features.fs_verity ? "true" : "false")
+        << ",\"bpf_token\":" << (report.features.bpf_token ? "true" : "false") << "}" << ",\"next_gen_bpf\":{"
+        << "\"arena\":" << (report.features.bpf_arena ? "true" : "false")
+        << ",\"user_ringbuf\":" << (report.features.user_ringbuf ? "true" : "false")
+        << ",\"sched_ext\":" << (report.features.sched_ext ? "true" : "false")
+        << ",\"open_coded_iterators\":" << (report.features.open_coded_iterators ? "true" : "false")
+        << ",\"xattr_kfuncs\":" << (report.features.bpf_xattr_kfuncs ? "true" : "false")
+        << ",\"bpf_send_signal_task\":" << (report.features.bpf_send_signal_task ? "true" : "false")
+        << ",\"binary_auth\":" << (report.features.binary_auth ? "true" : "false") << "}" << ",\"checks\":{"
         << "\"prereqs\":" << (report.prereqs_ok ? "true" : "false")
         << ",\"bpf_load\":" << (report.bpf_load_ok ? "true" : "false")
         << ",\"required_maps\":" << (report.required_maps_ok ? "true" : "false")
@@ -437,6 +464,21 @@ int cmd_health(bool json_output, bool require_enforce)
     std::cout << "  ringbuf: " << (report.features.ringbuf ? "yes" : "no") << '\n';
     std::cout << "  tracepoints: " << (report.features.tracepoints ? "yes" : "no") << '\n';
     std::cout << "  bpffs: " << (report.bpffs_mounted ? "yes" : "no") << '\n';
+    std::cout << "Future LSM:" << '\n';
+    std::cout << "  active_lsms: " << (report.features.lsm_list.empty() ? "unknown" : report.features.lsm_list) << '\n';
+    std::cout << "  landlock: " << (report.features.landlock ? "yes" : "no") << " (abi=" << report.features.landlock_abi
+              << ")" << '\n';
+    std::cout << "  ipe: " << (report.features.ipe ? "yes" : "no") << '\n';
+    std::cout << "  fs_verity: " << (report.features.fs_verity ? "yes" : "no") << '\n';
+    std::cout << "  bpf_token: " << (report.features.bpf_token ? "yes" : "no") << '\n';
+    std::cout << "Next-gen BPF:" << '\n';
+    std::cout << "  arena: " << (report.features.bpf_arena ? "yes" : "no") << '\n';
+    std::cout << "  user_ringbuf: " << (report.features.user_ringbuf ? "yes" : "no") << '\n';
+    std::cout << "  sched_ext: " << (report.features.sched_ext ? "yes" : "no") << '\n';
+    std::cout << "  open_coded_iterators: " << (report.features.open_coded_iterators ? "yes" : "no") << '\n';
+    std::cout << "  xattr_kfuncs: " << (report.features.bpf_xattr_kfuncs ? "yes" : "no") << '\n';
+    std::cout << "  bpf_send_signal_task: " << (report.features.bpf_send_signal_task ? "yes" : "no") << '\n';
+    std::cout << "  binary_auth: " << (report.features.binary_auth ? "yes" : "no") << '\n';
 
     if (!report.ok) {
         return fail(report.error.empty() ? "Health check failed" : report.error);

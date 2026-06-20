@@ -89,6 +89,8 @@ def main() -> int:
 
     nested_required_paths = [
         ("properties", "features", "required"),
+        ("properties", "future_lsm", "required"),
+        ("properties", "next_gen_bpf", "required"),
         ("properties", "hooks", "required"),
         ("properties", "policy", "required"),
         ("properties", "requirements", "required"),

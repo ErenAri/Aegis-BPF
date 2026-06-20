@@ -3,34 +3,37 @@
 *Last reviewed: April 2026*
 
 This document is the single source of truth for **where AegisBPF sits in the
-eBPF runtime-security landscape**, **which standards it aligns to**, **which
-limitations are real**, and **what ships between now and v1.0 GA**. It is
-written for contributors, adopters evaluating the project, and CNCF / audit
-reviewers.
+eBPF runtime-security and Linux Security Module (LSM) landscape**, **which
+standards it aligns to**, **which limitations are real**, and **what ships
+between now and v1.0 GA**. It is written for contributors, adopters evaluating
+the project, and CNCF / audit reviewers.
 
 ---
 
 ## 1. Category & positioning statement
 
-> **AegisBPF is the enforcement-first eBPF runtime security engine for Linux
-> workloads.** Unlike Falco and Tracee (detection-only) or Tetragon
-> (signal-based `SIGKILL` enforcement), AegisBPF uses BPF-LSM `-EPERM` returns
-> with IMA-backed exec identity for deterministic, in-kernel prevention, and
-> ships with first-class OverlayFS copy-up handling, dual-stack CIDR network
-> deny, cgroup-scoped policy, and a dedicated priority ring buffer for
-> forensic-grade evidence.
+> **AegisBPF is the enforcement-first eBPF runtime security engine and emerging
+> LSM control plane for Linux/Kubernetes workloads.** Compared with detect-first
+> tools such as Falco and Tracee, and general eBPF observability/enforcement
+> systems such as Tetragon, AegisBPF specializes in BPF-LSM `-EPERM`
+> prevention, IMA-backed exec identity, OverlayFS copy-up handling, dual-stack
+> CIDR network deny, cgroup-scoped policy, and auditable kernel/security
+> posture evidence.
 
-The category we compete in: **eBPF Workload Enforcement Platform**. We are
-not a HIDS (Falco / Tracee), not a tracing tool (Cilium Hubble / Pixie), and
-not an eBPF program manager (bpfman). We enforce policy at the kernel, with
-enough observability to produce audit evidence.
+The category we compete in today: **eBPF Workload Enforcement Platform**.
+The category we are building toward: **open LSM control plane**. We are not a
+HIDS (Falco / Tracee), not a tracing tool (Cilium Hubble / Pixie), and not an
+eBPF program manager (bpfman). We enforce policy at the kernel, then explain
+and compose the available LSM/security substrate: BPF-LSM, IMA, fs-verity, IPE,
+Landlock, AppArmor/SELinux posture, BPF token readiness, and the post-2024 BPF
+primitives being proven in `prototype/aegis-next`.
 
 ### The four-axis map
 
 ```
                               ENFORCE
                                 │
-                    KubeArmor   │   Tetragon (signal)
+                    KubeArmor   │   Tetragon
                    ┌────────────┼────────────┐
                    │  AegisBPF  │  AegisBPF  │
           POLICY ──┼────────────┼────────────┼── OBSERVE
@@ -60,7 +63,7 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 | Project | Category | Maturity | Superpower | Main weakness vs AegisBPF |
 |---|---|---|---|---|
 | **Falco** | Detect-only HIDS | CNCF Graduated (Feb 2024) | Huge rule library, MITRE ATT&CK tags on 46+ container rules, SIEM ecosystem | No enforcement; userspace rule engine adds ~+38% overhead on file I/O |
-| **Tetragon** | Observe + Enforce | Cilium sub-project, GA v1.0 (late 2025) | TracingPolicy CRD, signal-based enforce (SIGKILL), argv/ancestry, Isovalent commercial backing | Signal override is racy vs LSM `-EPERM`; policy surface is syscall-shaped |
+| **Tetragon** | Observe + Enforce | Cilium sub-project, GA v1.0 (late 2025) | TracingPolicy CRD, SIGKILL and return-value override enforcement, argv/ancestry, Isovalent commercial backing | General low-level tracing policy surface; less specialized around identity-first BPF-LSM + IMA/fs-verity/OverlayFS enforcement evidence |
 | **Tracee** (Aqua) | Forensics + detect | Stable | 330+ syscalls out-of-box, Rego/OPA signatures, deep forensic events | 2–4× CPU vs Tetragon in high-volume envs, detect-only |
 | **KubeArmor** | Enforce-first | CNCF Sandbox | AppArmor/SELinux/BPF-LSM unified backend, edge/IoT focus | Higher latency (15–176 ms depending on policy) |
 | **bpfman** | eBPF *manager* (infra, not security) | CNCF Sandbox (Jun 2024) | OCI-packaged signed eBPF programs, BPF Token + RBAC, non-root loading | Not a security product — complementary to AegisBPF |
@@ -76,9 +79,14 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 | **BPF LSM** (`CONFIG_BPF_LSM`, kernel ≥ 5.7; static-key gated since 6.12) | 15 hooks attached today |
 | **CO‑RE + BTF** | Min kernel 5.15; loads on heterogeneous hosts without rebuild |
 | **Sleepable LSM hooks** (`lsm.s/`) | Only `bprm_check_security` today; expand where hooks permit |
-| **BPF Tokens** (kernel 6.9+) | Target: non-root daemon post-init |
+| **BPF Tokens** (kernel 6.9+) | Detected in capability posture; target: delegated/non-root BPF lifecycle |
+| **BPF arena maps** (kernel 6.9+) | Detected in next-gen posture; target: mmap-backed provenance graphs |
+| **BPF user ringbuf** (kernel 6.1+) | Detected in next-gen posture; target: zero-copy policy hot reload |
+| **sched_ext** (kernel 6.12+) | Detected in next-gen posture; target: tiered CPU quarantine |
+| **BPF xattr kfuncs / targeted signals** | Detected in next-gen posture; target: binary authorization cache and precise kill escalation |
 | **Kernel BPF signature verification** (`CONFIG_BPF_SIG`) | Target when upstream stabilizes |
-| **Landlock** (FS + net + signal + Unix-socket scoping in 6.12) | Target: self-sandbox the daemon |
+| **Landlock** | Shipped as opt-in daemon self-sandbox; ABI reported in future-LSM posture |
+| **fs-verity / IMA / IPE** | fs-verity and IPE readiness reported; IMA appraisal can gate enforce posture |
 | **seccomp-bpf** | Allowlist shipped today |
 
 ### 3.2 Supply chain

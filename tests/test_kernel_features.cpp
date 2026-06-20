@@ -110,6 +110,16 @@ TEST(KernelFeaturesTest, DetermineCapabilityCoversFullAuditAndDisabledModes)
     EXPECT_EQ(determine_capability(no_ringbuf), EnforcementCapability::Disabled);
 }
 
+TEST(KernelFeaturesTest, LsmListParsingIsTokenSafe)
+{
+    const auto tokens = split_lsm_list("lockdown, capability,landlock,yama,bpf,integrity");
+    ASSERT_EQ(tokens.size(), 6U);
+    EXPECT_EQ(tokens[0], "lockdown");
+    EXPECT_EQ(tokens[1], "capability");
+    EXPECT_TRUE(lsm_list_contains("lockdown,capability,landlock,yama,bpf,integrity", "bpf"));
+    EXPECT_FALSE(lsm_list_contains("lockdown,capability,landlock,yama,notbpf,integrity", "bpf"));
+}
+
 TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
 {
     TempDir temp;
@@ -119,10 +129,14 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     const auto bpffs_path = temp.path() / "bpffs";
     const auto ima_dir = temp.path() / "ima";
     const auto ima_policy_path = ima_dir / "policy";
+    const auto landlock_abi_path = temp.path() / "landlock_abi";
+    const auto ipe_dir = temp.path() / "ipe";
+    const auto fs_verity_path = temp.path() / "fs_verity_require_signatures";
+    const auto sched_ext_dir = temp.path() / "sched_ext";
 
     {
         std::ofstream out(lsm_path);
-        out << "lockdown,yama,bpf,integrity\n";
+        out << "lockdown,yama,bpf,ipe,integrity\n";
     }
     {
         std::ofstream out(cgroup_path);
@@ -134,9 +148,19 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     }
     std::filesystem::create_directories(bpffs_path);
     std::filesystem::create_directories(ima_dir);
+    std::filesystem::create_directories(ipe_dir);
+    std::filesystem::create_directories(sched_ext_dir);
     {
         std::ofstream out(ima_policy_path);
         out << "appraise func=BPRM_CHECK\n";
+    }
+    {
+        std::ofstream out(landlock_abi_path);
+        out << "4\n";
+    }
+    {
+        std::ofstream out(fs_verity_path);
+        out << "0\n";
     }
 
     ScopedEnvVar lsm_env("AEGIS_LSM_PATH", lsm_path.string());
@@ -145,13 +169,36 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     ScopedEnvVar bpffs_env("AEGIS_BPFFS_PATH", bpffs_path.string());
     ScopedEnvVar ima_dir_env("AEGIS_IMA_DIR_PATH", ima_dir.string());
     ScopedEnvVar ima_policy_env("AEGIS_IMA_POLICY_PATH", ima_policy_path.string());
+    ScopedEnvVar landlock_abi_env("AEGIS_LANDLOCK_ABI_PATH", landlock_abi_path.string());
+    ScopedEnvVar ipe_dir_env("AEGIS_IPE_DIR_PATH", ipe_dir.string());
+    ScopedEnvVar fs_verity_env("AEGIS_FS_VERITY_SYSCTL_PATH", fs_verity_path.string());
+    ScopedEnvVar sched_ext_env("AEGIS_SCHED_EXT_PATH", sched_ext_dir.string());
 
     EXPECT_TRUE(check_bpf_lsm_enabled());
+    EXPECT_EQ(read_lsm_list(), "lockdown,yama,bpf,ipe,integrity");
     EXPECT_TRUE(check_cgroup_v2());
     EXPECT_TRUE(check_btf_available());
     EXPECT_TRUE(check_bpffs_mounted());
     EXPECT_TRUE(check_ima_available());
     EXPECT_TRUE(check_ima_appraisal_enabled());
+    EXPECT_EQ(check_landlock_abi_version(), 4);
+    EXPECT_TRUE(check_ipe_available());
+    EXPECT_TRUE(check_fs_verity_available());
+    EXPECT_TRUE(check_bpf_token_supported(6, 9));
+    EXPECT_FALSE(check_bpf_token_supported(6, 8));
+    EXPECT_TRUE(check_bpf_arena_supported(6, 9));
+    EXPECT_FALSE(check_bpf_arena_supported(6, 8));
+    EXPECT_TRUE(check_user_ringbuf_supported(6, 1));
+    EXPECT_FALSE(check_user_ringbuf_supported(6, 0));
+    EXPECT_TRUE(check_sched_ext_available());
+    EXPECT_TRUE(check_open_coded_iterators_supported(6, 4));
+    EXPECT_FALSE(check_open_coded_iterators_supported(6, 3));
+    EXPECT_TRUE(check_bpf_xattr_kfuncs_supported(6, 8, true));
+    EXPECT_FALSE(check_bpf_xattr_kfuncs_supported(6, 8, false));
+    EXPECT_TRUE(check_bpf_send_signal_task_supported(6, 13));
+    EXPECT_FALSE(check_bpf_send_signal_task_supported(6, 12));
+    EXPECT_TRUE(check_binary_auth_supported(true, true, true));
+    EXPECT_FALSE(check_binary_auth_supported(true, true, false));
 
     {
         std::ofstream out(lsm_path, std::ios::trunc);
@@ -165,6 +212,13 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
         out << "measure func=BPRM_CHECK\n";
     }
     std::filesystem::remove_all(ima_dir);
+    {
+        std::ofstream out(landlock_abi_path, std::ios::trunc);
+        out << "-1\n";
+    }
+    std::filesystem::remove_all(ipe_dir);
+    std::filesystem::remove(fs_verity_path);
+    std::filesystem::remove_all(sched_ext_dir);
 
     EXPECT_FALSE(check_bpf_lsm_enabled());
     EXPECT_FALSE(check_cgroup_v2());
@@ -172,6 +226,10 @@ TEST(KernelFeaturesTest, FeatureChecksHonorPathOverrides)
     EXPECT_FALSE(check_bpffs_mounted());
     EXPECT_FALSE(check_ima_available());
     EXPECT_FALSE(check_ima_appraisal_enabled());
+    EXPECT_EQ(check_landlock_abi_version(), -1);
+    EXPECT_FALSE(check_ipe_available());
+    EXPECT_FALSE(check_fs_verity_available());
+    EXPECT_FALSE(check_sched_ext_available());
 }
 
 } // namespace

@@ -17,7 +17,7 @@ and Helm defaults.
 ## Schema Contract
 
 - `schema_version`: integer compatibility anchor (currently `1`)
-- `schema_semver`: semantic contract version (currently `1.6.0`)
+- `schema_semver`: semantic contract version (currently `1.8.0`)
 - Consumers must reject malformed payloads and treat unknown versions as
   non-compliant posture.
 
@@ -36,6 +36,8 @@ and Helm defaults.
 - `runtime_state`
 - `lsm_enabled`
 - `core_supported`
+- `future_lsm`
+- `next_gen_bpf`
 - `features`
 - `hooks`
 - `policy`
@@ -83,6 +85,34 @@ No-Pretend invariant holds: `enforce_capable` remains `false` (the
 - `exec_identity`
 - `exec_runtime_deps`
 - `ima_appraisal`
+
+`future_lsm` is mandatory and must include:
+
+- `active_lsms`
+- `landlock`
+- `landlock_abi`
+- `ipe`
+- `fs_verity`
+- `bpf_token`
+
+These fields are posture evidence, not enforce blockers by themselves. They
+let Kubernetes automation and auditors distinguish today's BPF-LSM enforcement
+posture from future LSM composition readiness.
+
+`next_gen_bpf` is mandatory and must include:
+
+- `arena`
+- `user_ringbuf`
+- `sched_ext`
+- `open_coded_iterators`
+- `xattr_kfuncs`
+- `bpf_send_signal_task`
+- `binary_auth`
+
+These fields are posture evidence for graduating `prototype/aegis-next`
+concepts into mainline: arena-backed provenance, zero-copy policy delivery,
+sched_ext quarantine, targeted signal delivery, and fs-verity/xattr-backed
+binary authorization.
 
 ## No Pretend Enforce Invariant
 

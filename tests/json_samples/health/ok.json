@@ -12,7 +12,38 @@
     "bpf_syscall": true,
     "ringbuf": true,
     "tracepoints": true,
-    "bpffs": true
+    "bpffs": true,
+    "ima": true,
+    "ima_appraisal": true,
+    "bpf_ima_helpers": true,
+    "landlock": true,
+    "ipe": true,
+    "fs_verity": true,
+    "bpf_token": true,
+    "bpf_arena": true,
+    "user_ringbuf": true,
+    "sched_ext": true,
+    "open_coded_iterators": true,
+    "bpf_xattr_kfuncs": true,
+    "bpf_send_signal_task": true,
+    "binary_auth": true
+  },
+  "future_lsm": {
+    "active_lsms": "lockdown,capability,landlock,yama,ipe,bpf,integrity",
+    "landlock": true,
+    "landlock_abi": 4,
+    "ipe": true,
+    "fs_verity": true,
+    "bpf_token": true
+  },
+  "next_gen_bpf": {
+    "arena": true,
+    "user_ringbuf": true,
+    "sched_ext": true,
+    "open_coded_iterators": true,
+    "xattr_kfuncs": true,
+    "bpf_send_signal_task": true,
+    "binary_auth": true
   },
   "checks": {
     "prereqs": true,
@@ -39,4 +70,3 @@
     }
   ]
 }
-

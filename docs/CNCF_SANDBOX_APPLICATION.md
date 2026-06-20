@@ -38,8 +38,8 @@ AegisBPF is an open-source eBPF runtime security agent that **prevents**
 unauthorized file, network, and process activity in the Linux kernel
 using BPF Linux Security Module (LSM) hooks rather than detecting
 events post-facto. Where Falco and Tracee observe and alert, and
-Tetragon enforces via signal injection (which is racy versus syscalls
-that have already taken effect), AegisBPF returns `-EPERM` from
+Tetragon provides a general eBPF observability/enforcement policy
+surface, AegisBPF specializes in identity-driven `-EPERM` returns from
 `security_*` LSM hooks before the action completes — the same primitive
 the kernel itself uses to enforce SELinux and AppArmor.
 
@@ -60,8 +60,8 @@ The gap AegisBPF closes in the cloud-native ecosystem is a
 engine that does not require AppArmor/SELinux fallback paths, ships
 container-aware OverlayFS handling out of the box, and produces
 audit-grade evidence by default. It complements (not replaces) Falco
-(detection), Tetragon (signal-based enforcement), and bpfman (eBPF
-program lifecycle management).
+(detection), Tetragon (general eBPF observability and enforcement), and
+bpfman (eBPF program lifecycle management).
 
 ---
 
