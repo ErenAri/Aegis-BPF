@@ -60,10 +60,21 @@ if(STATIC_LIBBPF)
     include(ExternalProject)
 
     set(LIBBPF_VERSION "1.6.1" CACHE STRING "libbpf version to build from source")
+    set(LIBBPF_URL_SHA256 "" CACHE STRING "Expected SHA256 for libbpf v${LIBBPF_VERSION} tarball")
+    if(NOT LIBBPF_URL_SHA256)
+        if(LIBBPF_VERSION STREQUAL "1.5.0")
+            set(LIBBPF_URL_SHA256 "53492aff6dd47e4da04ef5e672d753b9743848bdb38e9d90eafbe190b7983c44")
+        elseif(LIBBPF_VERSION STREQUAL "1.6.1")
+            set(LIBBPF_URL_SHA256 "f6fa65c86f20d6d2d5d958f8bb8203a580a1c7496173714582300b724e37e338")
+        else()
+            message(FATAL_ERROR "Set LIBBPF_URL_SHA256 for libbpf ${LIBBPF_VERSION}")
+        endif()
+    endif()
 
     FetchContent_Declare(
         libbpf_src
         URL https://github.com/libbpf/libbpf/archive/refs/tags/v${LIBBPF_VERSION}.tar.gz
+        URL_HASH SHA256=${LIBBPF_URL_SHA256}
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         TIMEOUT 60
     )

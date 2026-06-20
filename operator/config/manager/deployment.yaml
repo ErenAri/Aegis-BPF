@@ -24,10 +24,11 @@ spec:
           type: RuntimeDefault
       containers:
         - name: operator
-          image: ghcr.io/erenari/aegisbpf-operator:latest
+          image: ghcr.io/erenari/aegisbpf-operator:0.8.0
           args:
             - --leader-elect=true
             - --enable-identity-resolution=true
+            - --agent-namespace=aegisbpf
             - --identity-refresh-interval=30s
           ports:
             - name: metrics

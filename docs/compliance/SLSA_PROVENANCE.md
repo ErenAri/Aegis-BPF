@@ -8,14 +8,14 @@ for unforgeable signing.
 
 ## What you get with every release
 
-For every artifact attached to a GitHub Release tag `vX.Y.Z`:
+For every downloadable artifact attached to a GitHub Release tag `vX.Y.Z`:
 
 | Artifact class | Signature | SBOM | Provenance |
 |---|---|---|---|
 | `aegisbpf-*.tar.gz` (release archives) | cosign keyless (`*.sig` + `*.pem`) | SPDX 2.3 + CycloneDX 1.6 | SLSA v1.0 L3 |
 | `*.deb` / `*.rpm` | cosign keyless | Included in release SBOM | SLSA v1.0 L3 |
 | `SHA256SUMS.txt` | cosign keyless | — | SLSA v1.0 L3 |
-| `ghcr.io/erenari/aegis-bpf:vX.Y.Z` (OCI image) | cosign keyless image sig | — | SLSA v1.0 L3 |
+| `ghcr.io/erenari/aegis-bpf:vX.Y.Z` (OCI image) | cosign keyless image sig | - | Signed image; image provenance/SBOM attestation is tracked separately from release archive SLSA |
 
 Provenance is published to the Sigstore Rekor transparency log and is
 discoverable via `gh attestation verify`.

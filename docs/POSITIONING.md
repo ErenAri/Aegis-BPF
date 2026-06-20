@@ -85,7 +85,7 @@ close for v1.0 is the rightmost column — multi-cluster / fleet.
 
 | Standard | Target |
 |---|---|
-| **SLSA v1.0 L3** | `slsa-github-generator` in `release.yml`, hermetic build, isolated signing key |
+| **SLSA v1.0 L3** | GitHub artifact attestations via `actions/attest-build-provenance` in `release.yml`; ephemeral hosted runners and keyless Sigstore identity |
 | **Sigstore / cosign** | Sign all release tarballs, container images, BPF objects; publish Rekor inclusion proofs |
 | **SBOM** | SPDX 2.3 + CycloneDX 1.6 (shipping); add per-release VEX |
 | **OpenSSF Best Practices Badge** | Gold target; required for CNCF Sandbox |
@@ -243,7 +243,7 @@ of buyer. Dates are directional, not commitments.
 
 *Exit: adopter can `apt install aegisbpf` on Ubuntu 24.04 and trust the binary.*
 
-- SLSA L3 via `slsa-github-generator`; cosign-sign all artifacts; OpenSSF
+- SLSA L3 via GitHub artifact attestations; cosign-sign all artifacts; OpenSSF
   Best Practices gold badge; Scorecard ≥ 8.0; VEX alongside SBOM.
 - Ubuntu PPA, Fedora COPR, OpenSUSE OBS, Arch AUR packages. (`.deb` +
   `.rpm` artefacts now built and CI-smoke-tested per PR; hosted-repo
@@ -313,8 +313,8 @@ of buyer. Dates are directional, not commitments.
 1. ~~**Fix the soak harness bug** that filled disk on the laptop 24 h run.~~
    Done. Re-run for 168 h on a host with adequate disk + thermal headroom.
 2. **Add MITRE ATT&CK tags** to built-in rules.
-3. **Turn on `slsa-github-generator`** in `release.yml` — jumps from SLSA L1
-   to L3 for release artifacts.
+3. **Keep release artifact attestations enforced** in `release.yml` and add
+   VEX alongside the generated SBOMs.
 4. **Stand up OpenSSF Best Practices badge** and OpenSSF Scorecard action.
 5. **Publish an Ubuntu PPA** of the current binary. (`.deb` artefact +
    CI gate landed; remaining step is `dput` from a maintainer

@@ -111,7 +111,17 @@ Where it fits on the runtime-security map:
 
 ## Web Console
 
-The operator includes a built-in web console for monitoring policy status, daemon health, and real-time events. Enable it with `--enable-console` on the operator binary.
+The operator includes a built-in web console for monitoring policy status, daemon health, and real-time events. Enable it with `--enable-console` on the operator binary. Production use requires basic authentication and TLS:
+
+```bash
+aegis-operator \
+  --enable-console \
+  --console-auth-password-file=/run/secrets/aegisbpf-console/password \
+  --console-tls-cert-file=/run/secrets/aegisbpf-console/tls.crt \
+  --console-tls-key-file=/run/secrets/aegisbpf-console/tls.key
+```
+
+For local-only previews behind a trusted tunnel, opt in explicitly with `--console-insecure-allow-http`; unauthenticated mode requires `--console-insecure-allow-unauthenticated`.
 
 | Dashboard | Policies |
 |-----------|----------|

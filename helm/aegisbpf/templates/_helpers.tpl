@@ -64,5 +64,43 @@ Image name with tag
 */}}
 {{- define "aegisbpf.image" -}}
 {{- $tag := default .Chart.AppVersion .Values.image.tag }}
+{{- if .Values.image.digest }}
+{{- printf "%s:%s@%s" .Values.image.repository $tag .Values.image.digest }}
+{{- else }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
+{{- end }}
+{{- end }}
+
+{{/*
+Operator image name with tag and optional digest.
+*/}}
+{{- define "aegisbpf.operatorImage" -}}
+{{- $tag := default .Chart.AppVersion .Values.operator.image.tag }}
+{{- if .Values.operator.image.digest }}
+{{- printf "%s:%s@%s" .Values.operator.image.repository $tag .Values.operator.image.digest }}
+{{- else }}
+{{- printf "%s:%s" .Values.operator.image.repository $tag }}
+{{- end }}
+{{- end }}
+
+{{/*
+Posture automation image name with tag and optional digest.
+*/}}
+{{- define "aegisbpf.postureAutomationImage" -}}
+{{- if .Values.postureAutomation.image.digest }}
+{{- printf "%s:%s@%s" .Values.postureAutomation.image.repository .Values.postureAutomation.image.tag .Values.postureAutomation.image.digest }}
+{{- else }}
+{{- printf "%s:%s" .Values.postureAutomation.image.repository .Values.postureAutomation.image.tag }}
+{{- end }}
+{{- end }}
+
+{{/*
+Webhook serving certificate secret.
+*/}}
+{{- define "aegisbpf.webhookSecretName" -}}
+{{- if .Values.operator.webhook.certManager }}
+{{- printf "%s-webhook-tls" (include "aegisbpf.fullname" .) }}
+{{- else }}
+{{- required "operator.webhook.tls.secretName is required when operator.webhook.enabled=true and operator.webhook.certManager=false" .Values.operator.webhook.tls.secretName }}
+{{- end }}
 {{- end }}

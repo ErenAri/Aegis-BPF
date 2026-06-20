@@ -324,15 +324,15 @@ Outputs:
 
 ### 5.4 Supply Chain Levels (SLSA)
 
-**Current Level:** SLSA 2 (working toward SLSA 3)
+**Current Level:** SLSA v1.0 Build L3 for GitHub release artifacts
 
 **Evidence:**
--  Source: Version controlled (Git)
--  Build: Scripted build (CMake)
--  Provenance: Build logs available
-- ⏳ Hermetic: Reproducible builds
-- ⏳ Isolated: CI-based builds
-- ⏳ Signed: Sigstore integration planned
+- Source: Version controlled (Git)
+- Build: Scripted release workflow
+- Provenance: GitHub artifact attestations via `actions/attest-build-provenance`
+- Isolated: GitHub-hosted ephemeral release runners
+- Signed: Sigstore/cosign keyless release artifact signatures
+- Remaining: OCI image SBOM/provenance attestation is tracked separately from release archive SLSA
 
 ---
 
@@ -530,7 +530,7 @@ Trust Score: 95/100
 ![Tests: 213/213](https://img.shields.io/badge/tests-213%2F213-brightgreen)
 ![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25%2B-brightgreen)
 ![OWASP: Compliant](https://img.shields.io/badge/OWASP-compliant-blue)
-![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
+![SLSA: L3 Artifacts](https://img.shields.io/badge/SLSA-L3%20artifacts-green)
 ```
 
 ---

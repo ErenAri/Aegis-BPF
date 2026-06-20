@@ -126,7 +126,9 @@ AegisBPF is designed for Kubernetes-first deployment:
 - Validating admission webhook with selector-based filtering and
   merged-policy reconciler.
 - `AegisPolicy` and `AegisClusterPolicy` `v1alpha1` CRDs.
-- Embedded htmx web console (`--enable-console` on the operator).
+- Embedded htmx web console (`--enable-console` on the operator) with
+  required basic authentication and TLS unless explicit insecure development
+  flags are set.
 - Prometheus metrics + Grafana dashboard pack (4 dashboards) +
   PrometheusRule alerting.
 - OpenTelemetry OTLP exporter.

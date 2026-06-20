@@ -58,6 +58,9 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         path: /validate-aegisbpf-io-v1alpha1-policy
         port: 443
+      {{- if not $certManagerEnabled }}
+      caBundle: {{ required "operator.webhook.tls.caBundle is required when operator.webhook.enabled=true and operator.webhook.certManager=false" .Values.operator.webhook.tls.caBundle | quote }}
+      {{- end }}
     rules:
       - apiGroups: ["aegisbpf.io"]
         apiVersions: ["v1alpha1"]
@@ -76,7 +79,7 @@ metadata:
   labels:
     {{- include "aegisbpf.labels" . | nindent 4 }}
 spec:
-  secretName: {{ include "aegisbpf.fullname" . }}-webhook-tls
+  secretName: {{ include "aegisbpf.webhookSecretName" . }}
   issuerRef:
     name: {{ $issuerName }}
     kind: {{ $issuerKind }}

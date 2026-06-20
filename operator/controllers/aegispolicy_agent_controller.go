@@ -28,16 +28,16 @@ import (
 )
 
 const (
-	DefaultAgentNamespace     = "aegisbpf"
-	AgentContainerName        = "aegisbpf"
-	AgentBinaryPath           = "/usr/bin/aegisbpf"
-	AgentNextContainerName    = "aegisbpf-next"
-	AgentNextBinaryPath       = "/usr/bin/aegisbpf-next"
-	AgentSyncInterval         = 30 * time.Second
-	AgentSyncFinalizer        = "aegisbpf.io/agent-sync-finalizer"
-	AgentStatePrefix          = "aegis-agent-state-"
-	ReasonAgentSyncFailed     = "AgentSyncFailed"
-	ReasonAgentSynced         = "AgentSynced"
+	DefaultAgentNamespace  = "aegisbpf"
+	AgentContainerName     = "aegisbpf"
+	AgentBinaryPath        = "/usr/bin/aegisbpf"
+	AgentNextContainerName = "aegisbpf-next"
+	AgentNextBinaryPath    = "/usr/bin/aegisbpf-next"
+	AgentSyncInterval      = 30 * time.Second
+	AgentSyncFinalizer     = "aegisbpf.io/agent-sync-finalizer"
+	AgentStatePrefix       = "aegis-agent-state-"
+	ReasonAgentSyncFailed  = "AgentSyncFailed"
+	ReasonAgentSynced      = "AgentSynced"
 )
 
 type agentRule struct {
@@ -63,15 +63,15 @@ type agentSyncResult struct {
 // to remove stale rules on policy update/delete.
 type AegisPolicyAgentReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	RestConfig *rest.Config
+	Scheme         *runtime.Scheme
+	RestConfig     *rest.Config
+	AgentNamespace string
 }
 
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=aegisbpf.io,resources=aegispolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;create
 
@@ -518,13 +518,13 @@ func agentStateName(namespace, name string) string {
 
 // agentPod wraps a Pod reference with metadata about which agent variant it is.
 type agentPod struct {
-	Pod   *corev1.Pod
+	Pod    *corev1.Pod
 	IsNext bool // true if this is an aegis-next pod
 }
 
 func (r *AegisPolicyAgentReconciler) findAgentForNode(ctx context.Context, node string) (*agentPod, error) {
 	var agents corev1.PodList
-	if err := r.List(ctx, &agents, client.InNamespace(DefaultAgentNamespace)); err != nil {
+	if err := r.List(ctx, &agents, client.InNamespace(r.agentNamespace())); err != nil {
 		return nil, err
 	}
 	for i := range agents.Items {
@@ -539,6 +539,13 @@ func (r *AegisPolicyAgentReconciler) findAgentForNode(ctx context.Context, node 
 		return &agentPod{Pod: agent, IsNext: isNext}, nil
 	}
 	return nil, fmt.Errorf("no running AegisBPF agent pod on node %s", node)
+}
+
+func (r *AegisPolicyAgentReconciler) agentNamespace() string {
+	if r.AgentNamespace != "" {
+		return r.AgentNamespace
+	}
+	return DefaultAgentNamespace
 }
 
 func hasContainer(pod *corev1.Pod, name string) bool {

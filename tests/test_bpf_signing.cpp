@@ -10,6 +10,7 @@
 #include <fstream>
 #include <string>
 
+#include "binary_hash.hpp"
 #include "bpf_signing.hpp"
 #include "crypto.hpp"
 
@@ -192,6 +193,37 @@ TEST(BpfSigningTest, BreakGlassAllowsMissingSignature)
 
     auto verified = verify_bpf_signature(obj.string());
     EXPECT_TRUE(verified.ok()) << verified.error().to_string();
+}
+
+TEST(BpfSigningTest, HashingTreatsObjectPathAsDataNotShell)
+{
+    TempDir dir;
+    const auto sentinel =
+        std::filesystem::current_path() / ("aegisbpf_signing_shell_ran_" + std::to_string(::getpid()));
+    std::filesystem::remove(sentinel);
+    const auto obj = dir.path() / ("payload' ; touch " + sentinel.filename().string() + " ; #.bpf.o");
+    write_object(obj, "dummy-bpf-object-contents");
+
+    auto hash = compute_file_sha256(obj.string());
+    ASSERT_TRUE(hash.ok()) << hash.error().to_string();
+    EXPECT_FALSE(std::filesystem::exists(sentinel));
+    std::filesystem::remove(sentinel);
+}
+
+TEST(BpfSigningTest, BinaryHashingTreatsPathAsDataNotShell)
+{
+    TempDir dir;
+    const auto sentinel =
+        std::filesystem::current_path() / ("aegisbpf_binary_hash_shell_ran_" + std::to_string(::getpid()));
+    std::filesystem::remove(sentinel);
+    const auto obj = dir.path() / ("binary' ; touch " + sentinel.filename().string() + " ; #");
+    write_object(obj, "dummy-binary-contents");
+
+    auto hash = compute_binary_sha256(obj.string());
+    ASSERT_TRUE(hash.ok()) << hash.error().to_string();
+    EXPECT_EQ(hash->size(), 64u);
+    EXPECT_FALSE(std::filesystem::exists(sentinel));
+    std::filesystem::remove(sentinel);
 }
 
 } // namespace

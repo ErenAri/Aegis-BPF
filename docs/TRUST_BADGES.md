@@ -76,7 +76,7 @@ Add these badges to your project README to showcase trustworthiness.
 
 ```markdown
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?logo=files)
-![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
+![SLSA: L3 Artifacts](https://img.shields.io/badge/SLSA-L3%20artifacts-green)
 ![Dependencies: Verified](https://img.shields.io/badge/dependencies-verified-brightgreen)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 ```
@@ -84,7 +84,7 @@ Add these badges to your project README to showcase trustworthiness.
 **Rendered:**
 
 ![SBOM: Available](https://img.shields.io/badge/SBOM-available-blue?logo=files)
-![SLSA: Level 2](https://img.shields.io/badge/SLSA-level%202-yellow)
+![SLSA: L3 Artifacts](https://img.shields.io/badge/SLSA-L3%20artifacts-green)
 ![Dependencies: Verified](https://img.shields.io/badge/dependencies-verified-brightgreen)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 

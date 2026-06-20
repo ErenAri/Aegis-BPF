@@ -1,6 +1,8 @@
 package console
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -118,4 +120,40 @@ func TestStaticFS(t *testing.T) {
 		t.Fatalf("expected sse.js in static FS: %v", err)
 	}
 	f.Close()
+}
+
+func TestNewServerRequiresAuthByDefault(t *testing.T) {
+	_, err := NewServer(nil, ":0", NewBroker(), ServerOptions{})
+	if err == nil {
+		t.Fatal("expected missing console password to fail")
+	}
+}
+
+func TestBasicAuthMiddleware(t *testing.T) {
+	srv, err := NewServer(nil, ":0", NewBroker(), ServerOptions{
+		BasicAuthUsername: "admin",
+		BasicAuthPassword: "secret",
+		AllowInsecureHTTP: true,
+	})
+	if err != nil {
+		t.Fatalf("NewServer() error: %v", err)
+	}
+
+	handler := srv.basicAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	unauth := httptest.NewRecorder()
+	handler.ServeHTTP(unauth, httptest.NewRequest(http.MethodGet, "/console", nil))
+	if unauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized without credentials, got %d", unauth.Code)
+	}
+
+	okReq := httptest.NewRequest(http.MethodGet, "/console", nil)
+	okReq.SetBasicAuth("admin", "secret")
+	ok := httptest.NewRecorder()
+	handler.ServeHTTP(ok, okReq)
+	if ok.Code != http.StatusNoContent {
+		t.Fatalf("expected authenticated request to pass, got %d", ok.Code)
+	}
 }
