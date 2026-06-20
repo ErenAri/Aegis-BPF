@@ -43,9 +43,12 @@ RUN set -eux; \
     bpftool_base="bpftool-${BPFTOOL_VERSION}-${bpftool_arch}.tar.gz"; \
     curl -fsSLo "/tmp/${bpftool_base}" \
         "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/${bpftool_base}"; \
+    curl -fsSLo "/tmp/${bpftool_base}.sha256sum" \
+        "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/${bpftool_base}.sha256sum"; \
+    (cd /tmp && sha256sum -c "${bpftool_base}.sha256sum"); \
     tar -xzf "/tmp/${bpftool_base}" -C /usr/local/bin bpftool; \
     chmod +x /usr/local/bin/bpftool; \
-    rm -f "/tmp/${bpftool_base}"
+    rm -f "/tmp/${bpftool_base}" "/tmp/${bpftool_base}.sha256sum"
 
 WORKDIR /build
 

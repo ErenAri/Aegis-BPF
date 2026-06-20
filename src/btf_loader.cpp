@@ -1,11 +1,15 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "btf_loader.hpp"
 
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
+#include <cctype>
+#include <cerrno>
 #include <cstdlib>
+#include <string_view>
 
 namespace aegis {
 
@@ -18,12 +22,60 @@ bool readable(const std::string& path)
     return ::access(path.c_str(), R_OK) == 0;
 }
 
+bool safe_kernel_release(std::string_view release)
+{
+    if (release.empty() || release.size() > 256) {
+        return false;
+    }
+    for (unsigned char c : release) {
+        if (std::isalnum(c) != 0 || c == '.' || c == '-' || c == '_' || c == '+' || c == '~') {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool run_btfgen(const std::string& btfgen, const std::string& kernel_release, const std::string& output_dir)
+{
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        return false;
+    }
+
+    if (pid == 0) {
+        int dev_null = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (dev_null >= 0) {
+            (void)::dup2(dev_null, STDOUT_FILENO);
+            (void)::dup2(dev_null, STDERR_FILENO);
+            (void)::close(dev_null);
+        }
+
+        ::execl(btfgen.c_str(), btfgen.c_str(), kernel_release.c_str(), "--output-dir", output_dir.c_str(), "--quiet",
+                static_cast<char*>(nullptr));
+        _exit(127);
+    }
+
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) {
+            continue;
+        }
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 // Attempt to download a BTF blob from BTFhub-archive by invoking
 // btfgen.sh as a child process.  Returns the path on success, or
 // empty string on failure.  This is opt-in: only called when
 // AEGIS_BTF_AUTO_DOWNLOAD=1.
 std::string try_btfhub_download(const std::string& kernel_release, const std::string& output_dir)
 {
+    if (!safe_kernel_release(kernel_release)) {
+        return {};
+    }
+
     // Locate btfgen.sh: first look relative to the running binary
     // (../scripts/btfgen.sh from bin/), then fall back to $PATH.
     // We also accept an explicit override via AEGIS_BTFGEN_PATH.
@@ -47,11 +99,7 @@ std::string try_btfhub_download(const std::string& kernel_release, const std::st
         return {};
     }
 
-    // Build command: btfgen.sh <release> --output-dir <dir> --quiet
-    std::string cmd = btfgen + " " + kernel_release + " --output-dir " + output_dir + " --quiet 2>/dev/null";
-
-    int rc = ::system(cmd.c_str()); // NOLINT(cert-env33-c)
-    if (rc == -1 || !WIFEXITED(rc) || WEXITSTATUS(rc) != 0) {
+    if (!run_btfgen(btfgen, kernel_release, output_dir)) {
         return {};
     }
 

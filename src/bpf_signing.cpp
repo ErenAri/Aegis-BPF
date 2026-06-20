@@ -12,6 +12,7 @@
 
 #include "crypto.hpp"
 #include "logging.hpp"
+#include "sha256.hpp"
 
 namespace aegis {
 
@@ -43,24 +44,14 @@ bool hex_decode(const std::string& hex, uint8_t* out, size_t out_len)
 
 Result<std::array<uint8_t, 32>> compute_file_sha256(const std::string& path)
 {
-    // Use sha256sum for portability (avoids external crypto library dependency)
-    std::string cmd = "sha256sum '" + path + "' 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r"); // NOLINT
-    if (!pipe) {
-        return Error(ErrorCode::IoError, "Failed to run sha256sum", path);
+    std::string hex;
+    if (!sha256_file_hex(path, hex)) {
+        return Error(ErrorCode::IoError, "Failed to compute SHA-256", path);
     }
 
-    char buf[128] = {};
-    if (fgets(buf, sizeof(buf), pipe) == nullptr) {
-        pclose(pipe);
-        return Error(ErrorCode::IoError, "sha256sum produced no output", path);
-    }
-    pclose(pipe);
-
-    std::string hex(buf, 64);
     std::array<uint8_t, 32> hash{};
     if (!hex_decode(hex, hash.data(), 32)) {
-        return Error(ErrorCode::IoError, "Failed to parse sha256sum output");
+        return Error(ErrorCode::IoError, "Failed to parse SHA-256 output");
     }
 
     return hash;

@@ -1,8 +1,8 @@
-IMG ?= ghcr.io/erenari/aegisbpf-operator:latest
+IMG ?= ghcr.io/erenari/aegisbpf-operator:0.8.0
 
 # Pin controller-gen to the version used to last regenerate the CRDs and
-# deepcopy. Bumping this is intentional and should be a separate commit.
-CONTROLLER_GEN_VERSION ?= v0.14.0
+# deepcopy.
+CONTROLLER_GEN_VERSION ?= v0.21.0
 CONTROLLER_GEN          = $(shell pwd)/bin/controller-gen
 
 .PHONY: build docker-build docker-push generate install run fmt vet test \

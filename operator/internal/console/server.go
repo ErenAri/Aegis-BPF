@@ -2,6 +2,7 @@ package console
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +11,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// ServerOptions controls production exposure for the web console. The console
+// is read-only, but it still exposes cluster security posture and policy state.
+type ServerOptions struct {
+	BasicAuthUsername    string
+	BasicAuthPassword    string
+	TLSCertFile          string
+	TLSKeyFile           string
+	AllowInsecureHTTP    bool
+	AllowUnauthenticated bool
+}
+
 // Server is the web console HTTP server. It implements the controller-runtime
 // Runnable interface so it can be added to the manager via mgr.Add().
 type Server struct {
@@ -17,10 +29,19 @@ type Server struct {
 	addr      string
 	broker    *Broker
 	templates *TemplateSet
+	options   ServerOptions
 }
 
 // NewServer creates a new console server.
-func NewServer(c client.Client, addr string, broker *Broker) (*Server, error) {
+func NewServer(c client.Client, addr string, broker *Broker, opts ServerOptions) (*Server, error) {
+	if !opts.AllowUnauthenticated {
+		if opts.BasicAuthUsername == "" {
+			opts.BasicAuthUsername = "admin"
+		}
+		if opts.BasicAuthPassword == "" {
+			return nil, fmt.Errorf("console authentication requires a password or explicit unauthenticated override")
+		}
+	}
 	tmpl, err := parseTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("parsing console templates: %w", err)
@@ -30,6 +51,7 @@ func NewServer(c client.Client, addr string, broker *Broker) (*Server, error) {
 		addr:      addr,
 		broker:    broker,
 		templates: tmpl,
+		options:   opts,
 	}, nil
 }
 
@@ -69,9 +91,14 @@ func (s *Server) Start(ctx context.Context) error {
 		http.NotFound(w, r)
 	})
 
+	handler := http.Handler(mux)
+	if !s.options.AllowUnauthenticated {
+		handler = s.basicAuth(handler)
+	}
+
 	srv := &http.Server{
 		Addr:              s.addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -83,6 +110,18 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	logger.Info("Starting web console", "addr", s.addr)
+	if s.options.TLSCertFile != "" || s.options.TLSKeyFile != "" {
+		if s.options.TLSCertFile == "" || s.options.TLSKeyFile == "" {
+			return fmt.Errorf("console TLS requires both certificate and key files")
+		}
+		if err := srv.ListenAndServeTLS(s.options.TLSCertFile, s.options.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+	if !s.options.AllowInsecureHTTP {
+		return fmt.Errorf("console TLS is required unless --console-insecure-allow-http is set")
+	}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -91,3 +130,23 @@ func (s *Server) Start(ctx context.Context) error {
 
 // NeedLeaderElection returns false — the console serves on all replicas.
 func (s *Server) NeedLeaderElection() bool { return false }
+
+func (s *Server) basicAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || !constantTimeStringEqual(user, s.options.BasicAuthUsername) ||
+			!constantTimeStringEqual(pass, s.options.BasicAuthPassword) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="AegisBPF Console", charset="UTF-8"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func constantTimeStringEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}

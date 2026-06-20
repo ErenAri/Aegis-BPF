@@ -55,14 +55,14 @@ each applicable control.
 | 5.2.1 | Ensure Privileged containers are not used | **Partial** | AegisBPF enforces at kernel level regardless of container privilege. `deny_ptrace`, `deny_module_load`, `deny_bpf` restrict privileged operations. |
 | 5.2.2 | Ensure hostPID is not set | **Partial** | `deny_ptrace` prevents cross-PID-namespace process manipulation even if hostPID is enabled. |
 | 5.2.3 | Ensure hostNetwork is not set | **Partial** | Network deny rules apply regardless of network namespace. AegisBPF hooks operate at syscall level. |
-| 5.2.6 | Ensure allowPrivilegeEscalation is set to false | **Full** | `deny_ptrace` prevents ptrace-based privilege escalation. `deny_module_load` and `deny_bpf` prevent kernel-level privilege escalation. |
+| 5.2.6 | Ensure allowPrivilegeEscalation is set to false | **Partial** | AegisBPF can reduce kernel-level escalation paths with `deny_ptrace`, `deny_module_load`, and `deny_bpf`, but the Kubernetes pod spec field must still be set by Pod Security Admission or admission policy. The AegisBPF agent DaemonSet is a privileged exception. |
 | 5.2.7 | Ensure root containers do not run | **Partial** | Block events include UID for root detection. Combined with cgroup policy, can restrict root container execution. |
 
 ### 5.7 Network Policies
 
 | CIS Control | Recommendation | AegisBPF Enforcement | Policy Section |
 |-------------|----------------|---------------------|----------------|
-| 5.7.1 | Ensure network policies are configured for every namespace | **Full** | AegisBPF network deny rules apply kernel-level enforcement complementing K8s NetworkPolicy. Covers gaps where CNI enforcement may not apply. |
+| 5.7.1 | Ensure network policies are configured for every namespace | **Partial** | AegisBPF network deny rules complement Kubernetes NetworkPolicy but do not create namespace-scoped CNI NetworkPolicy objects. Use native NetworkPolicy or an admission policy to satisfy this control. |
 | 5.7.2 | Ensure default deny all ingress traffic | **Partial** | Network deny rules can implement default-deny for specific ports. Combined with cgroup allowlisting, provides workload-level deny-by-default. |
 
 ## Pre-Built Policy

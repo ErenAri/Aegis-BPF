@@ -33,7 +33,7 @@ spec:
       {{- end }}
       containers:
         - name: operator
-          image: "{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag }}"
+          image: "{{ include "aegisbpf.operatorImage" . }}"
           imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
           args:
             {{- if .Values.operator.leaderElect }}
@@ -42,6 +42,7 @@ spec:
             {{- if .Values.operator.enableIdentityResolution }}
             - --enable-identity-resolution=true
             {{- end }}
+            - --agent-namespace={{ default .Release.Namespace .Values.operator.agentNamespace }}
             {{- if .Values.operator.webhook.enabled }}
             - --enable-webhook=true
             - --webhook-port={{ .Values.operator.webhook.port }}
@@ -88,7 +89,7 @@ spec:
       volumes:
         - name: webhook-certs
           secret:
-            secretName: {{ include "aegisbpf.fullname" . }}-webhook-tls
+            secretName: {{ include "aegisbpf.webhookSecretName" . }}
       {{- end }}
 ---
 apiVersion: v1

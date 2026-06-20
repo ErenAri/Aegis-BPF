@@ -5,7 +5,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +45,13 @@ func main() {
 		webhookPort          int
 		enableConsole        bool
 		consoleAddr          string
+		consoleAuthUser      string
+		consolePasswordFile  string
+		consoleTLSCertFile   string
+		consoleTLSKeyFile    string
+		consoleInsecureHTTP  bool
+		consoleUnauth        bool
+		agentNamespace       string
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -60,6 +69,20 @@ func main() {
 		"Enable the web console for policy visualization and monitoring.")
 	flag.StringVar(&consoleAddr, "console-addr", ":9090",
 		"The address the web console binds to.")
+	flag.StringVar(&consoleAuthUser, "console-auth-user", envOrDefault("AEGIS_CONSOLE_AUTH_USER", "admin"),
+		"Basic auth username for the web console.")
+	flag.StringVar(&consolePasswordFile, "console-auth-password-file", os.Getenv("AEGIS_CONSOLE_PASSWORD_FILE"),
+		"Path to a file containing the web console basic auth password. AEGIS_CONSOLE_PASSWORD is accepted as a fallback.")
+	flag.StringVar(&consoleTLSCertFile, "console-tls-cert-file", os.Getenv("AEGIS_CONSOLE_TLS_CERT_FILE"),
+		"Path to the TLS certificate for the web console.")
+	flag.StringVar(&consoleTLSKeyFile, "console-tls-key-file", os.Getenv("AEGIS_CONSOLE_TLS_KEY_FILE"),
+		"Path to the TLS private key for the web console.")
+	flag.BoolVar(&consoleInsecureHTTP, "console-insecure-allow-http", false,
+		"Allow the web console to serve plaintext HTTP. Intended only for local development or TLS-terminating proxies.")
+	flag.BoolVar(&consoleUnauth, "console-insecure-allow-unauthenticated", false,
+		"Allow the web console without authentication. Intended only for local development.")
+	flag.StringVar(&agentNamespace, "agent-namespace", envOrDefault("AEGIS_AGENT_NAMESPACE", controllers.DefaultAgentNamespace),
+		"Namespace containing AegisBPF DaemonSet pods for live agent sync.")
 
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
@@ -101,9 +124,10 @@ func main() {
 
 	// NEW: live agent sync controller
 	if err := (&controllers.AegisPolicyAgentReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		RestConfig: mgr.GetConfig(),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		RestConfig:     mgr.GetConfig(),
+		AgentNamespace: agentNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "Unable to create AegisPolicy agent sync controller")
 		os.Exit(1)
@@ -152,7 +176,19 @@ func main() {
 	}
 
 	if enableConsole {
-		consoleSrv, err := console.NewServer(mgr.GetClient(), consoleAddr, eventBroker)
+		consolePassword, err := loadConsolePassword(consolePasswordFile)
+		if err != nil {
+			logger.Error(err, "Unable to read console password")
+			os.Exit(1)
+		}
+		consoleSrv, err := console.NewServer(mgr.GetClient(), consoleAddr, eventBroker, console.ServerOptions{
+			BasicAuthUsername:    consoleAuthUser,
+			BasicAuthPassword:    consolePassword,
+			TLSCertFile:          consoleTLSCertFile,
+			TLSKeyFile:           consoleTLSKeyFile,
+			AllowInsecureHTTP:    consoleInsecureHTTP,
+			AllowUnauthenticated: consoleUnauth,
+		})
 		if err != nil {
 			logger.Error(err, "Unable to create console server")
 			os.Exit(1)
@@ -179,4 +215,22 @@ func main() {
 		logger.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func loadConsolePassword(path string) (string, error) {
+	if path != "" {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read console password file: %w", err)
+		}
+		return strings.TrimRight(string(contents), "\r\n"), nil
+	}
+	return strings.TrimRight(os.Getenv("AEGIS_CONSOLE_PASSWORD"), "\r\n"), nil
 }

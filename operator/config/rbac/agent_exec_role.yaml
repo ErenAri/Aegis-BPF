@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aegis-operator-agent-exec
+  namespace: aegisbpf
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aegis-operator-agent-exec
+  namespace: aegisbpf
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aegis-operator-agent-exec
+subjects:
+  - kind: ServiceAccount
+    name: aegis-operator
+    namespace: aegisbpf-system

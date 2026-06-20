@@ -90,7 +90,7 @@ spec:
           {{- end }}
         {{- if .ctx.Values.postureAutomation.enabled }}
         - name: posture-labeler
-          image: {{ .ctx.Values.postureAutomation.image.repository }}:{{ .ctx.Values.postureAutomation.image.tag }}
+          image: {{ include "aegisbpf.postureAutomationImage" .ctx }}
           imagePullPolicy: {{ .ctx.Values.postureAutomation.image.pullPolicy }}
           command:
             - python3

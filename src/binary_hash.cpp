@@ -3,11 +3,11 @@
 
 #include <sys/stat.h>
 
-#include <cstdio>
-#include <cstring>
+#include <cerrno>
 #include <filesystem>
 
 #include "logging.hpp"
+#include "sha256.hpp"
 
 namespace aegis {
 
@@ -22,20 +22,11 @@ Result<std::string> compute_binary_sha256(const std::string& path)
         return Error(ErrorCode::InvalidArgument, "Not a regular file", path);
     }
 
-    std::string cmd = "sha256sum '" + path + "' 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r"); // NOLINT
-    if (!pipe) {
-        return Error(ErrorCode::IoError, "Failed to run sha256sum", path);
+    std::string hash_hex;
+    if (!sha256_file_hex(path, hash_hex)) {
+        return Error(ErrorCode::IoError, "Failed to compute SHA-256", path);
     }
-
-    char buf[128] = {};
-    if (fgets(buf, sizeof(buf), pipe) == nullptr) {
-        pclose(pipe);
-        return Error(ErrorCode::IoError, "sha256sum produced no output", path);
-    }
-    pclose(pipe);
-
-    return std::string(buf, 64);
+    return hash_hex;
 }
 
 Result<bool> verify_binary_hash(const std::string& path, const std::string& expected_sha256)
