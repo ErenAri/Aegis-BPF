@@ -80,6 +80,14 @@ std::string make_temp_file_path(const std::string& prefix, const std::string& su
     return (base / (prefix + "_" + std::to_string(getpid()) + "_" + std::to_string(std::rand()) + suffix)).string();
 }
 
+std::string read_text_file(const std::string& path)
+{
+    std::ifstream input(path);
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
 } // namespace
 
 namespace aegis {
@@ -635,6 +643,8 @@ TEST(TracingTest, DaemonRunFailsClosedWhenNetworkPolicyHooksMissing)
 
     const std::string log = output.str();
     EXPECT_NE(log.find("Network policy requires unavailable kernel hooks"), std::string::npos);
+    EXPECT_NE(log.find("AEGIS_STATE_CHANGE"), std::string::npos);
+    EXPECT_NE(log.find("NETWORK_HOOK_UNAVAILABLE"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(policy_path, ec);
@@ -669,11 +679,62 @@ TEST(TracingTest, DaemonRunFailsClosedWhenImaAppraisalRequiredButUnavailable)
     logger().set_json_format(false);
 
     const std::string log = output.str();
+    EXPECT_NE(log.find("AEGIS_STATE_CHANGE"), std::string::npos);
     EXPECT_NE(log.find("IMA_APPRAISAL_UNAVAILABLE"), std::string::npos);
     EXPECT_NE(log.find("Policy requires IMA appraisal"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(policy_path, ec);
+}
+
+TEST(TracingTest, DaemonRunAuditFallbackReportsNetworkBlockerWithoutPretendEnforce)
+{
+    TracingEnvGuard env("1");
+    std::ostringstream output;
+    logger().set_output(&output);
+    logger().set_json_format(true);
+
+    const std::string policy_path = make_temp_file_path("aegis_policy", ".conf");
+    {
+        std::ofstream policy(policy_path);
+        ASSERT_TRUE(policy.is_open());
+        policy << "version=2\n\n[deny_cidr]\n10.0.0.0/8\n";
+    }
+    const std::string capabilities_path = make_temp_file_path("aegis_caps", ".json");
+
+    {
+        ScopedEnvVar policy_env("AEGIS_POLICY_APPLIED_PATH", policy_path);
+        ScopedEnvVar report_env("AEGIS_CAPABILITIES_REPORT_PATH", capabilities_path);
+        DaemonHookGuard hooks(test_config_ok, test_detect_full, test_memlock_ok, test_load_bpf_ok,
+                              test_ensure_layout_ok, test_set_agent_config_ok, test_populate_survival_ok,
+                              test_setup_agent_cgroup_ok, test_attach_all_full_contract_no_network_hooks);
+        int rc = daemon_run(false, false, false, false, 0, kEnforceSignalTerm, false, LsmHookMode::FileOpen, 0, 1,
+                            kSigkillEscalationThresholdDefault, kSigkillEscalationWindowSecondsDefault, 0, 3, false,
+                            false, false, EnforceGateMode::AuditFallback);
+        EXPECT_EQ(rc, 1);
+    }
+
+    logger().set_output(&std::cerr);
+    logger().set_json_format(false);
+
+    const std::string log = output.str();
+    EXPECT_NE(log.find("Network policy hooks unavailable; falling back to audit-only mode"), std::string::npos);
+    EXPECT_NE(log.find("AEGIS_STATE_CHANGE"), std::string::npos);
+    EXPECT_NE(log.find("NETWORK_HOOK_UNAVAILABLE"), std::string::npos);
+
+    ASSERT_TRUE(std::filesystem::exists(capabilities_path));
+    const std::string payload = read_text_file(capabilities_path);
+    EXPECT_NE(payload.find("\"audit_only\": true"), std::string::npos);
+    EXPECT_NE(payload.find("\"enforce_capable\": false"), std::string::npos);
+    EXPECT_NE(payload.find("\"NETWORK_HOOK_UNAVAILABLE\""), std::string::npos);
+    EXPECT_NE(payload.find("\"runtime_state\": \"AUDIT_FALLBACK\""), std::string::npos);
+    EXPECT_NE(payload.find("\"network_enforcement_required\": true"), std::string::npos);
+    EXPECT_NE(payload.find("\"network\": false"), std::string::npos);
+    EXPECT_NE(payload.find("\"enforce_requested\": true"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(policy_path, ec);
+    std::filesystem::remove(capabilities_path, ec);
 }
 
 TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
@@ -691,11 +752,8 @@ TEST(TracingTest, DaemonRunWritesCapabilityReportArtifact)
         EXPECT_EQ(rc, 1);
     }
 
-    std::ifstream report(capabilities_path);
-    ASSERT_TRUE(report.is_open());
-    std::stringstream buffer;
-    buffer << report.rdbuf();
-    const std::string payload = buffer.str();
+    ASSERT_TRUE(std::filesystem::exists(capabilities_path));
+    const std::string payload = read_text_file(capabilities_path);
     EXPECT_NE(payload.find("\"schema_version\": 1"), std::string::npos);
     EXPECT_NE(payload.find("\"schema_semver\": \"1.8.0\""), std::string::npos);
     EXPECT_NE(payload.find("\"features\""), std::string::npos);

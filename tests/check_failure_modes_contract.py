@@ -42,6 +42,11 @@ def main() -> int:
         # BPF load/verifier failure paths.
         "TracingTest.DaemonRunMarksLoadSpanErrorWhenLoadBpfFails",
         "TracingTest.DaemonRunSurfacesVerifierRejectError",
+        "TracingTest.DaemonRunRejectsSilentPartialAttachContract",
+        "TracingTest.DaemonRunFailsClosedWhenNetworkPolicyHooksMissing",
+        "TracingTest.DaemonRunFailsClosedWhenImaAppraisalRequiredButUnavailable",
+        "TracingTest.DaemonRunAuditFallbackReportsNetworkBlockerWithoutPretendEnforce",
+        "TracingTest.DaemonRunWritesCapabilityReportArtifact",
         # Strict degrade fail-closed path.
         "TracingTest.DaemonRunStrictDegradeFailsWhenEnforceFallsBack",
     }

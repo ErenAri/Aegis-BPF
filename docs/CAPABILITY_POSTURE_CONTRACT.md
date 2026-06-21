@@ -124,6 +124,16 @@ If enforce prerequisites are unmet:
 
 No valid path may claim effective enforce behavior while unmet blockers exist.
 
+The failure-mode contract must cover the concrete no-pretend cases:
+
+- Silent partial attach metadata is fatal; the daemon must not continue when
+  expected and attached hook counts diverge.
+- Missing policy-required network hooks or IMA appraisal must fail closed in
+  `fail-closed` mode and emit a state-change reason code.
+- When `audit-fallback` mode is explicitly selected, `capabilities.json` must
+  report `audit_only=true`, `enforce_capable=false`, `AUDIT_FALLBACK`, and the
+  specific unmet blocker such as `NETWORK_HOOK_UNAVAILABLE`.
+
 ## Helm Defaults Contract
 
 Helm defaults must preserve fail-closed posture semantics:
