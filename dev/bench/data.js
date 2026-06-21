@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782045061765,
+  "lastUpdate": 1782048928779,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -44616,6 +44616,90 @@ window.BENCHMARK_DATA = {
             "value": 54.75658254630353,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.752231898029635 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e1b73b1f714f7aa09873094359d29fab43991c41",
+          "message": "Add e2e matrix coverage contract\n\nAdds category-level evidence counters for the E2E file-enforcement matrix and enforces them in the summary validator.",
+          "timestamp": "2026-06-21T16:24:41+03:00",
+          "tree_id": "a7642162d67f18664d2b3b7fecfff002bbb38b63",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/e1b73b1f714f7aa09873094359d29fab43991c41"
+        },
+        "date": 1782048927254,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 906.9314174112504,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 906.8400490854691 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2388.3383101297545,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2388.2586166792084 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 14288.687353577809,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 14288.166772999626 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 108948.6367883529,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 108938.41946596111 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 879327.496955624,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 879295.2375644986 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3516564.0414572633,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3516430.985762149 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 2671.8824369465224,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2672.1472390666713 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 16307.110154900312,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16306.982447728593 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 129792.2922488695,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 129791.05833572207 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 409340.5165490539,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 409399.5177012698 ns\nthreads: 1"
           }
         ]
       }
