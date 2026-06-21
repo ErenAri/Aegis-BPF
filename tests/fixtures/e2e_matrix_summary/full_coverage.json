@@ -1,0 +1,24 @@
+{
+  "total_checks": 114,
+  "passed_checks": 114,
+  "failed_checks": 0,
+  "skipped_checks": 0,
+  "kernel_release": "6.14.0-37-generic",
+  "os_id": "ubuntu",
+  "os_version": "24.04",
+  "workspace_fs": "ext2/ext3",
+  "coverage": {
+    "direct_read": {"total": 42, "passed": 42, "failed": 0, "skipped": 0},
+    "symlink": {"total": 6, "passed": 6, "failed": 0, "skipped": 0},
+    "hardlink": {"total": 9, "passed": 9, "failed": 0, "skipped": 0},
+    "exec": {"total": 12, "passed": 12, "failed": 0, "skipped": 0},
+    "benign_control": {"total": 3, "passed": 3, "failed": 0, "skipped": 0},
+    "symlink_swap": {"total": 3, "passed": 3, "failed": 0, "skipped": 0},
+    "traversal": {"total": 3, "passed": 3, "failed": 0, "skipped": 0},
+    "rename": {"total": 9, "passed": 9, "failed": 0, "skipped": 0},
+    "bind_mount": {"total": 9, "passed": 9, "failed": 0, "skipped": 0},
+    "overlayfs": {"total": 6, "passed": 6, "failed": 0, "skipped": 0},
+    "mount_namespace": {"total": 6, "passed": 6, "failed": 0, "skipped": 0},
+    "audit_log": {"total": 6, "passed": 6, "failed": 0, "skipped": 0}
+  }
+}

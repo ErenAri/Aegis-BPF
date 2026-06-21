@@ -62,10 +62,10 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Security automation: `.github/workflows/security.yml` (CodeQL, dependency review, gitleaks)
 - Dependency update automation: `.github/dependabot.yml` (GitHub Actions) + `renovate.json` (CMake/regex-managed deps)
 - E2E workflow: `.github/workflows/e2e.yml`
-- Kernel file-enforcement matrix (114 logical checks): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` and `.github/workflows/kernel-matrix.yml` with summary/metadata artifacts, including `skipped_checks` when bind-mount alias checks cannot run)
+- Kernel file-enforcement matrix (114 logical checks plus category coverage): `scripts/e2e_file_enforcement_matrix.sh` (run from `.github/workflows/e2e.yml` with summary/metadata artifacts, including `skipped_checks` when optional mount or namespace checks cannot run)
 - Filesystem matrix: `scripts/e2e_fs_matrix.sh` (overlayfs/bind/tmpfs/symlink/hardlink behavior)
 - Namespace matrix: `scripts/e2e_namespace_matrix.sh` (mount/pid/network namespace behavior)
-- Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 100 --max-failed-checks 0`)
+- Kernel matrix summary validator: `scripts/validate_e2e_matrix_summary.py` (`--min-total-checks 100 --max-failed-checks 0`, required coverage categories)
 - Soak reliability workflow: `.github/workflows/soak.yml` + `scripts/soak_reliability.sh`
 - Chaos ringbuf overflow check: `scripts/chaos_ringbuf_overflow.sh` (runs in `e2e.yml`)
 - Staging canary workflow: `.github/workflows/canary.yml` + `scripts/canary_gate.sh`

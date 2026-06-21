@@ -10,6 +10,26 @@ declare -i PASSED_CHECKS=0
 declare -i FAILED_CHECKS=0
 declare -i SKIPPED_CHECKS=0
 
+COVERAGE_CATEGORIES=(
+    direct_read
+    symlink
+    hardlink
+    exec
+    benign_control
+    symlink_swap
+    traversal
+    rename
+    bind_mount
+    overlayfs
+    mount_namespace
+    audit_log
+)
+
+declare -A CATEGORY_TOTALS=()
+declare -A CATEGORY_PASSED=()
+declare -A CATEGORY_FAILED=()
+declare -A CATEGORY_SKIPPED=()
+
 AGENT_PID=""
 TMP_DIR=""
 LOG_FILE=""
@@ -36,6 +56,7 @@ pass() {
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     PASSED_CHECKS=$((PASSED_CHECKS + 1))
     echo "[PASS] ${label}"
+    record_category "${label}" "passed"
 }
 
 fail() {
@@ -44,6 +65,7 @@ fail() {
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     FAILED_CHECKS=$((FAILED_CHECKS + 1))
     echo "[FAIL] ${label}: ${detail}" >&2
+    record_category "${label}" "failed"
 }
 
 skip() {
@@ -52,6 +74,91 @@ skip() {
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     SKIPPED_CHECKS=$((SKIPPED_CHECKS + 1))
     echo "[SKIP] ${label}: ${detail}"
+    record_category "${label}" "skipped"
+}
+
+category_from_label() {
+    local label="$1"
+    case "${label}" in
+    *"expected action logged"* | *"inode logged"*)
+        echo "audit_log"
+        ;;
+    *"unshare "*)
+        echo "mount_namespace"
+        ;;
+    *"overlay "*)
+        echo "overlayfs"
+        ;;
+    *"bind mount alias"* | *"cat bind"* | *"head bind"* | *"unmount bind alias"*)
+        echo "bind_mount"
+        ;;
+    *"benign symlink before swap"*)
+        echo "benign_control"
+        ;;
+    *"symlink after swap"*)
+        echo "symlink_swap"
+        ;;
+    *"exec "*)
+        echo "exec"
+        ;;
+    *"traversal"*)
+        echo "traversal"
+        ;;
+    *"renamed"* | *"rename"*)
+        echo "rename"
+        ;;
+    *"hardlink"*)
+        echo "hardlink"
+        ;;
+    *"symlink"*)
+        echo "symlink"
+        ;;
+    *)
+        echo "direct_read"
+        ;;
+    esac
+}
+
+record_category() {
+    local label="$1"
+    local outcome="$2"
+    local category
+    category="$(category_from_label "${label}")"
+
+    CATEGORY_TOTALS["${category}"]=$(( ${CATEGORY_TOTALS["${category}"]:-0} + 1 ))
+    case "${outcome}" in
+    passed)
+        CATEGORY_PASSED["${category}"]=$(( ${CATEGORY_PASSED["${category}"]:-0} + 1 ))
+        ;;
+    failed)
+        CATEGORY_FAILED["${category}"]=$(( ${CATEGORY_FAILED["${category}"]:-0} + 1 ))
+        ;;
+    skipped)
+        CATEGORY_SKIPPED["${category}"]=$(( ${CATEGORY_SKIPPED["${category}"]:-0} + 1 ))
+        ;;
+    *)
+        echo "Unknown coverage outcome: ${outcome}" >&2
+        exit 1
+        ;;
+    esac
+}
+
+emit_coverage_json() {
+    local category
+    local first=1
+    for category in "${COVERAGE_CATEGORIES[@]}"; do
+        if [[ "${first}" -eq 0 ]]; then
+            printf ',\n'
+        fi
+        first=0
+        printf '    "%s": {"total": %d, "passed": %d, "failed": %d, "skipped": %d}' \
+            "${category}" \
+            "${CATEGORY_TOTALS["${category}"]:-0}" \
+            "${CATEGORY_PASSED["${category}"]:-0}" \
+            "${CATEGORY_FAILED["${category}"]:-0}" \
+            "${CATEGORY_SKIPPED["${category}"]:-0}"
+    done
+    printf '\n'
 }
 
 run_expect_success() {
@@ -341,7 +448,10 @@ main() {
   "kernel_release": "${kernel_rel}",
   "os_id": "${os_id}",
   "os_version": "${os_version}",
-  "workspace_fs": "${fs_type}"
+  "workspace_fs": "${fs_type}",
+  "coverage": {
+$(emit_coverage_json)
+  }
 }
 EOF
     fi
