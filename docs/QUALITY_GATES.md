@@ -20,8 +20,10 @@ This project enforces quality gates through required CI checks on `main`.
 - SBOM generation
 - Security scans (`dependency-review`, `codeql`, `gitleaks`)
 - Failure-mode regression contract, including parser/signature failures,
-  map-full rollback, BPF load/verifier failures, strict degrade fail-closed, and
-  1,000-attempt rollback stress under a 5s budget
+  map-full rollback, BPF load/verifier failures, silent partial attach
+  rejection, network/IMA degraded-mode gates, no-pretend capability reporting,
+  strict degrade fail-closed, and 1,000-attempt rollback stress under a 5s
+  budget
 - Benchmark regression policy:
   - PR: advisory signal only
   - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)

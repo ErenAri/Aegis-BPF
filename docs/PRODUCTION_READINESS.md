@@ -54,7 +54,10 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Environment verification: `scripts/verify_env.sh [--strict]`
 - Event schema validation: `scripts/validate_event_schema.py` + `tests/event_samples/`
 - Runtime state-change contract: `type=state_change` events (`config/event-schema.json`)
-- Failure-mode regression contract: `tests/check_failure_modes_contract.py` (parser, signature, map-full, verifier, rollback paths, 1,000-attempt rollback stress)
+- Failure-mode regression contract: `tests/check_failure_modes_contract.py`
+  (parser, signature, map-full, verifier, rollback paths, 1,000-attempt
+  rollback stress, silent partial attach rejection, network/IMA degraded-mode
+  gates, and no-pretend capability reporting)
 - SBOM generation: `sbom` job in `.github/workflows/ci.yml`
 - Release provenance attestations: `actions/attest-build-provenance` in `.github/workflows/release.yml`
 - Reproducibility gate: `scripts/check_reproducible_build.sh` + `.github/workflows/reproducibility.yml`
