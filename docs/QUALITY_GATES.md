@@ -11,12 +11,8 @@ This project enforces quality gates through required CI checks on `main`.
 - Clang-Tidy (changed C++ files)
 - Semgrep (changed C/C++ files; full scan on schedule)
 - Smoke fuzzing (60s per fuzz target on PR/main)
-- E2E enforcement gate (`e2e` in `.github/workflows/e2e.yml`) including:
-  - file-enforcement matrix
-  - filesystem matrix
-  - namespace matrix
-- Kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
-  minimum 100 checks, zero failed checks)
+- BPF compiler matrix (`bpf-compile (clang-15..18)`), with required jobs
+  reporting on every PR and expensive BPF work gated inside the job
 - Coverage report with minimum thresholds
 - Required-checks contract validation (`required_checks*.txt` -> workflow contexts)
 - Label contract validation (`repo_labels.json` -> workflows/templates references)
@@ -36,6 +32,21 @@ This project enforces quality gates through required CI checks on `main`.
   - Strict KPI ratio gates: open/connect `p95_with_agent / p95_baseline <= 1.05`
   - Soak reliability gate enforces event-drop ratio `<0.1%` with minimum decision-event volume
 
+## Hardware-backed gates
+
+Privileged enforcement E2E runs in `E2E (BPF LSM)` on `self-hosted,bpf-lsm`
+runners and includes:
+
+- file-enforcement matrix
+- filesystem matrix
+- namespace matrix
+- kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
+  minimum 100 checks, zero failed checks)
+
+These jobs are release evidence and may be required by release approvers, but
+they are not part of the default `main` branch required-check baseline unless
+the self-hosted runner fleet is continuously available.
+
 ## Coverage ratchet policy
 
 Coverage thresholds are enforced in CI and should only move upward:
@@ -52,3 +63,5 @@ Automated recommendation workflow: `.github/workflows/coverage-ratchet.yml`.
 `config/required_checks.txt` is the authoritative list for required status checks.
 The workflow `branch-protection-audit.yml` validates repository protection against that list.
 Release branch required checks are tracked in `config/required_checks_release.txt`.
+Required checks must report on every pull request; workflows for required jobs
+must not use `pull_request.paths` filters.

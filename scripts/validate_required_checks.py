@@ -94,9 +94,24 @@ def expand_job_name(name_template: str, row: dict[str, Any]) -> str:
     return MATRIX_REF_RE.sub(repl, name_template)
 
 
-def discover_contexts() -> tuple[set[str], set[str]]:
+def has_pull_request_path_filter(on_value: Any) -> bool:
+    if not isinstance(on_value, dict):
+        return False
+
+    pull_request = on_value.get("pull_request")
+    if pull_request is None:
+        return False
+
+    if isinstance(pull_request, dict):
+        return "paths" in pull_request or "paths-ignore" in pull_request
+
+    return False
+
+
+def discover_contexts() -> tuple[set[str], set[str], dict[str, str]]:
     contexts: set[str] = set()
     job_names: set[str] = set()
+    path_filtered_pr_jobs: dict[str, str] = {}
 
     for workflow_path in WORKFLOW_FILES:
         data = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
@@ -110,6 +125,8 @@ def discover_contexts() -> tuple[set[str], set[str]]:
         jobs = data.get("jobs")
         if not isinstance(workflow_name, str) or not isinstance(jobs, dict):
             continue
+
+        pr_path_filtered = has_pull_request_path_filter(on_value)
 
         events: set[str] = set()
         if isinstance(on_value, str):
@@ -127,13 +144,15 @@ def discover_contexts() -> tuple[set[str], set[str]]:
             for row in rows:
                 job_name = expand_job_name(name_template, row)
                 job_names.add(job_name)
+                if pr_path_filtered:
+                    path_filtered_pr_jobs[job_name] = str(workflow_path)
                 context = f"{workflow_name} / {job_name}"
                 contexts.add(context)
                 for event in events:
                     contexts.add(f"{context} ({event})")
                     job_names.add(f"{job_name} ({event})")
 
-    return contexts, job_names
+    return contexts, job_names, path_filtered_pr_jobs
 
 
 def main() -> int:
@@ -142,7 +161,7 @@ def main() -> int:
     args = parser.parse_args()
 
     required_files = [Path(p) for p in args.required]
-    contexts, job_names = discover_contexts()
+    contexts, job_names, path_filtered_pr_jobs = discover_contexts()
     status = 0
 
     for req_file in required_files:
@@ -160,6 +179,20 @@ def main() -> int:
         else:
             print(
                 f"{req_file}: all entries map to existing workflow contexts/job names."
+            )
+
+        path_filtered = sorted(
+            item for item in required if item in path_filtered_pr_jobs
+        )
+        if path_filtered:
+            status = 1
+            print(
+                f"Required checks in {req_file} are defined in pull_request path-filtered workflows:"
+            )
+            for item in path_filtered:
+                print(f"  - {item} ({path_filtered_pr_jobs[item]})")
+            print(
+                "Required checks must report on every PR. Gate expensive work inside the job instead of path-filtering the workflow."
             )
 
     return status

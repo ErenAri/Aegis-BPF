@@ -31,8 +31,15 @@ or `semgrep`) to match GitHub branch-protection contexts directly.
 
 For protected `release/*` branches, use `config/required_checks_release.txt`.
 
-Current baseline includes the `e2e` check from `.github/workflows/e2e.yml` so
-PRs must pass real enforcement-path integration tests before merge.
+Every check listed in `config/required_checks.txt` must report on every pull
+request. Do not put required checks behind `pull_request.paths` or
+`paths-ignore` filters; keep the required job visible and gate expensive work
+inside the job.
+
+Privileged `E2E (BPF LSM)` runs on `self-hosted,bpf-lsm` runners. It is
+hardware-backed release evidence and can be required for release approval, but
+it is not part of the default `main` branch required-check baseline unless
+runner capacity is continuously available.
 
 ## Audit command
 
