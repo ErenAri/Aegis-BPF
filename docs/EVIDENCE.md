@@ -16,7 +16,7 @@ artifacts on each run.
 |------------|----------|-------------|-------|
 | Build + unit tests + sanitizers | `CI` (`.github/workflows/ci.yml`) | `coverage-report` (HTML), `sbom` | Coverage report + SBOM are published as artifacts. |
 | Kernel portability | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | Includes kernel + OS details and ctest log. |
-| Edge‑case compliance | `Kernel Matrix` + `E2E (BPF LSM)` | `kernel-matrix-<runner>`, `e2e-evidence` | File‑enforcement matrix and edge‑case behaviors. |
+| Edge‑case compliance | `E2E (BPF LSM)` | `e2e-evidence` | File‑enforcement matrix and category coverage for edge‑case behaviors. |
 | BPF LSM E2E validation | `E2E (BPF LSM)` (`.github/workflows/e2e.yml`) | `e2e-evidence` | Includes environment info, soak summary, and chaos ringbuf overflow result. |
 | **Behavioral enforcement proof** | `Kernel Matrix` (`.github/workflows/kernel-matrix.yml`) | `kernel-matrix-<runner>` | `tests/enforcement/enforcement_proof.sh` boots the real `apply→run` flow and asserts `-EPERM` per ENFORCED class + bypass regressions, with `runtime_state==ENFORCE` (No-Pretend). See `docs/ENFORCEMENT_WEDGE_STRATEGY.md`. |
 | **Proof/label/bypass contract** | `CI` → `enforcement-proof-contract` | (status only) | `scripts/validate_enforcement_proof_contract.py` fails the build if any ENFORCED claim, mitigated bypass, or capability hook lacks a backing test (`tests/enforcement/enforcement_classes.tsv`, `docs/BYPASS_CATALOG.md`, `src/hook_capabilities.cpp`), and if `kernel_compat_manifest.json` is stale. |

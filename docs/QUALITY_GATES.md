@@ -41,7 +41,7 @@ runners and includes:
 - filesystem matrix
 - namespace matrix
 - kernel e2e matrix summary validation (`scripts/validate_e2e_matrix_summary.py`,
-  minimum 100 checks, zero failed checks)
+  minimum 100 checks, zero failed checks, required coverage categories)
 
 These jobs are release evidence and may be required by release approvers, but
 they are not part of the default `main` branch required-check baseline unless

@@ -1,4 +1,4 @@
-# Edge‑Case Compliance Suite (v1.0)
+# Edge‑Case Compliance Suite (v1.1)
 
 Status: **published**  
 Primary harness: `scripts/e2e_file_enforcement_matrix.sh`  
@@ -11,12 +11,15 @@ verifiable tests**.
 ## What this suite covers
 
 The harness currently exercises:
-- **Symlink behavior:** direct, chained, and swap‑after‑policy
+- **Direct reads:** common readers against the denied inode
+- **Symlink behavior:** direct symlinks and swap‑after‑policy
 - **Hardlinks:** same‑dir and cross‑dir
 - **Rename flows:** rename before/after access; path traversal
 - **Bind‑mount aliases:** canonical path vs mount alias
+- **OverlayFS aliases:** when the runner can mount overlayfs and inode identity is stable
+- **Mount namespaces:** when `unshare -m` is permitted
 - **Execution path:** deny for exec from file targets
-- **Common readers:** cat/head/tail/dd/grep/awk/sed/od/wc/python
+- **Audit evidence:** expected action and inode appear in the agent log
 
 > For full coverage detail, see the test definitions in
 > `scripts/e2e_file_enforcement_matrix.sh`.
@@ -28,6 +31,11 @@ The harness currently exercises:
 - **Allowed**: benign targets or controls not covered by deny rules.
 - **Skipped**: when kernel or environment constraints make a scenario invalid
   (recorded in the summary artifacts as `skipped_checks`).
+- **Covered**: every summary must include per-scenario counters under
+  `coverage`. The validator requires the categories `direct_read`, `symlink`,
+  `hardlink`, `exec`, `benign_control`, `symlink_swap`, `traversal`, `rename`,
+  `bind_mount`, `overlayfs`, `mount_namespace`, and `audit_log`. Optional
+  kernel-dependent categories may be skipped, but they must be represented.
 
 ## How to run (local / CI)
 
@@ -44,14 +52,14 @@ python3 scripts/validate_e2e_matrix_summary.py \
 
 ## Evidence artifacts
 
-The suite is executed in:
-- **Kernel Matrix** (`.github/workflows/kernel-matrix.yml`)
-- **E2E (BPF LSM)** (`.github/workflows/e2e.yml`)
+The suite is executed in **E2E (BPF LSM)** (`.github/workflows/e2e.yml`).
 
 Artifacts produced:
-- `kernel-matrix-<runner>/ctest.log`
-- `kernel-matrix-<runner>/summary.json`
-- `e2e-evidence/*` (when run from the e2e workflow)
+- `e2e-evidence/matrix_summary.json`
+- `e2e-evidence/*` supplementary logs from the e2e workflow
+
+`kernel-matrix.yml` produces portability and CTest evidence, but it does not run
+this file-enforcement matrix directly.
 
 ## Results
 
@@ -66,6 +74,7 @@ Public, human‑readable results live in:
 ## Change control
 
 Any enforcement change that can affect file deny semantics must:
-1) Update this suite if a new edge case is introduced.
-2) Update expected outcomes in `docs/POLICY_SEMANTICS.md`.
-3) Produce fresh evidence artifacts linked from `docs/EVIDENCE.md`.
+1. Update this suite if a new edge case is introduced.
+2. Add or update the summary `coverage` category for the scenario.
+3. Update expected outcomes in `docs/POLICY_SEMANTICS.md`.
+4. Produce fresh evidence artifacts linked from `docs/EVIDENCE.md`.
