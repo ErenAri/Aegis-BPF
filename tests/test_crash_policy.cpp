@@ -202,7 +202,7 @@ TEST_F(CrashPolicyTest, RapidCrashRollbackCyclesCompleteWithinTimeBudget)
     ScopedEnvVar env_prev("AEGIS_POLICY_APPLIED_PREV_PATH", (test_dir_ / "prev.conf").string());
     ScopedEnvVar env_hash("AEGIS_POLICY_APPLIED_HASH_PATH", (test_dir_ / "applied.sha256").string());
 
-    constexpr int kCycles = 500;
+    constexpr int kCycles = 1000;
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < kCycles; ++i) {
         g_crash_apply_calls.clear();
@@ -212,7 +212,8 @@ TEST_F(CrashPolicyTest, RapidCrashRollbackCyclesCompleteWithinTimeBudget)
         ASSERT_FALSE(result);
     }
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    EXPECT_LT(elapsed.count(), 5000) << "Crash-rollback cycles exceeded 5s budget: " << elapsed.count() << "ms";
+    EXPECT_LT(elapsed.count(), 5000) << kCycles << " crash-rollback cycles exceeded 5s budget: " << elapsed.count()
+                                     << "ms";
 }
 
 // Test: Crash with BpfLoadFailed error type
