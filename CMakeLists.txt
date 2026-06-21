@@ -872,6 +872,7 @@ if(BUILD_TESTING)
         NAME failure_modes_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_failure_modes_contract.py
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_policy.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_crash_policy.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_commands.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_metrics.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tracing.cpp

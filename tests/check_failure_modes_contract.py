@@ -29,9 +29,13 @@ def main() -> int:
         # Signed-policy parsing/signature failure paths.
         "CmdPolicyApplySignedTest.RequireSignatureRejectsUnsignedPolicy",
         "CmdPolicyApplySignedTest.RejectsCorruptedBundleSignature",
-        # Map update and rollback failure paths.
+        # Map update, crash rollback, and rollback stress paths.
         "PolicyRollbackTest.MapFullFailureTriggersRollbackAttemptWhenEnabled",
         "PolicyRollbackTest.RollbackFailureStillReturnsOriginalApplyError",
+        "PolicyRollbackTest.RollbackControlPathCompletesWithinFiveSecondsUnderLoad",
+        "CrashPolicyTest.RapidCrashRollbackCyclesCompleteWithinTimeBudget",
+        "CrashPolicyTest.CorruptedAppliedHashTriggersInMemoryFallback",
+        "CrashPolicyTest.BpfLoadFailureCrashTriggersRollback",
         # Observability degradation path (ring buffer drops surfaced).
         "MetricsTest.IncludesRingbufDropsInBlockMetrics",
         "MetricsTest.IncludesRingbufDropsInNetMetrics",
