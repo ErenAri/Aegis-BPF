@@ -47,6 +47,12 @@ These jobs are release evidence and may be required by release approvers, but
 they are not part of the default `main` branch required-check baseline unless
 the self-hosted runner fleet is continuously available.
 
+Self-hosted PR jobs are capacity-gated by repository variable:
+`AEGIS_ENABLE_SELF_HOSTED_PR_GATES=true`. When the variable is absent or false,
+PR-triggered self-hosted jobs are skipped before runner allocation; release
+approvers must treat that state as missing privileged evidence, not as a passed
+kernel/e2e gate.
+
 ## Coverage ratchet policy
 
 Coverage thresholds are enforced in CI and should only move upward:
@@ -65,3 +71,5 @@ The workflow `branch-protection-audit.yml` validates repository protection again
 Release branch required checks are tracked in `config/required_checks_release.txt`.
 Required checks must report on every pull request; workflows for required jobs
 must not use `pull_request.paths` filters.
+`scripts/validate_ci_workflow_policy.py` additionally prevents PR-triggered
+self-hosted jobs from queueing without the explicit capacity gate.

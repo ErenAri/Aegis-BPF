@@ -24,6 +24,7 @@ on:
 
 jobs:
   e2e:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
     runs-on: [self-hosted, bpf-lsm]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

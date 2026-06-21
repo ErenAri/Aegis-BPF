@@ -279,6 +279,7 @@ jobs:
           python3 scripts/validate_required_checks.py \
             --required config/required_checks.txt \
             --required config/required_checks_release.txt
+          python3 scripts/validate_ci_workflow_policy.py
 
   label-contract:
     runs-on: ubuntu-24.04
