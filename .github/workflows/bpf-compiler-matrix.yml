@@ -6,10 +6,7 @@ on:
     paths:
       - 'bpf/**'
       - 'CMakeLists.txt'
-  pull_request:
-    paths:
-      - 'bpf/**'
-      - 'CMakeLists.txt'
+  pull_request: {}
   workflow_dispatch:
 
 jobs:
@@ -30,8 +27,46 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect BPF-relevant changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "bpf_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "Non-PR event; running compiler matrix."
+            exit 0
+          fi
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(
+            git diff --name-only "$base" "$head" -- \
+              bpf \
+              CMakeLists.txt \
+              .github/workflows/bpf-compiler-matrix.yml \
+              scripts/veristat_check.sh
+          )"
+
+          if [[ -n "$changed" ]]; then
+            echo "bpf_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "BPF-relevant changes detected:"
+            echo "$changed"
+          else
+            echo "bpf_relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No BPF-relevant changes; satisfying required check without compiler work."
+          fi
+
+      - name: Required check no-op
+        if: steps.changes.outputs.bpf_relevant != 'true'
+        run: |
+          echo "No BPF/CMake/compiler-matrix inputs changed."
+          echo "This required job reports success so branch protection does not wait on an untriggered path-filtered check."
 
       - name: Install LLVM ${{ matrix.clang_version }}
+        if: steps.changes.outputs.bpf_relevant == 'true'
         run: |
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
           CODENAME=$(lsb_release -cs)
@@ -58,6 +93,7 @@ jobs:
           fi
 
       - name: Check BPF tooling availability
+        if: steps.changes.outputs.bpf_relevant == 'true'
         id: bpf_check
         run: |
           if [[ -f /sys/kernel/btf/vmlinux ]] && bpftool version >/dev/null 2>&1; then
@@ -69,7 +105,7 @@ jobs:
           fi
 
       - name: Configure with clang-${{ matrix.clang_version }}
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -80,7 +116,7 @@ jobs:
           CLANG: clang-${{ matrix.clang_version }}
 
       - name: Build BPF object
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           # Build BPF object (the primary gate for this matrix)
           cmake --build build --target bpf_obj
@@ -88,7 +124,7 @@ jobs:
           cmake --build build --target bpf_skel || echo "::warning::Skeleton generation failed (expected on older bpftool)"
 
       - name: Verify BPF object
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           echo "=== BPF object info (clang-${{ matrix.clang_version }}) ==="
           file build/aegis.bpf.o
@@ -101,7 +137,7 @@ jobs:
           fi
 
       - name: Run veristat (if available)
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           if [[ -x scripts/veristat_check.sh ]]; then
             bash scripts/veristat_check.sh build/aegis.bpf.o || true

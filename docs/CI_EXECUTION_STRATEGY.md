@@ -18,6 +18,13 @@ Fallback model:
 - VM-based workflow with pinned kernel images if self-hosted capacity is
   unavailable.
 
+Required-check reporting:
+- Required branch-protection checks must report on every pull request.
+- If a required check has expensive path-specific work, the workflow must still
+  start and the job must decide whether to run the expensive steps.
+- Do not put required checks behind `pull_request.paths` or `paths-ignore`
+  filters; GitHub will leave those required contexts expected but unreported.
+
 ## Runner classes
 
 - `ubuntu-22.04`, `ubuntu-24.04` (hosted):
@@ -82,8 +89,10 @@ Any PR touching enforcement paths (`bpf/`, `src/bpf_ops*`, `src/policy*`,
 
 ## Failure handling
 
-- If self-hosted runners are unavailable, gate release merges and mark status
-  as infrastructure-blocked (not green).
+- If self-hosted runners are unavailable, gate release promotion decisions and
+  mark status as infrastructure-blocked (not green).
+- Do not add self-hosted jobs to `config/required_checks.txt` unless the runner
+  fleet has continuous capacity and an owner for queue health.
 - Never treat skipped privileged checks as success.
 
 ## Artifacts to retain

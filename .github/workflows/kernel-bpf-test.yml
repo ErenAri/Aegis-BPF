@@ -7,11 +7,7 @@ on:
       - 'bpf/**'
       - 'src/**'
       - 'CMakeLists.txt'
-  pull_request:
-    paths:
-      - 'bpf/**'
-      - 'src/**'
-      - 'CMakeLists.txt'
+  pull_request: {}
   workflow_dispatch:
 
 jobs:
@@ -20,8 +16,46 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect kernel-BPF-relevant changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "kernel_bpf_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "Non-PR event; running kernel BPF test."
+            exit 0
+          fi
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(
+            git diff --name-only "$base" "$head" -- \
+              bpf \
+              src \
+              CMakeLists.txt \
+              .github/workflows/kernel-bpf-test.yml
+          )"
+
+          if [[ -n "$changed" ]]; then
+            echo "kernel_bpf_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "kernel-BPF-relevant changes detected:"
+            echo "$changed"
+          else
+            echo "kernel_bpf_relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No kernel-BPF-relevant changes; satisfying required check without kernel work."
+          fi
+
+      - name: Required check no-op
+        if: steps.changes.outputs.kernel_bpf_relevant != 'true'
+        run: |
+          echo "No bpf/src/CMake/kernel-bpf workflow inputs changed."
+          echo "This required job reports success so branch protection does not wait on an untriggered path-filtered check."
 
       - name: Install dependencies
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
@@ -39,6 +73,7 @@ jobs:
           sudo pip3 install virtme-ng || pip3 install --user virtme-ng
 
       - name: Check BPF tooling availability
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true'
         id: bpf_check
         run: |
           if [[ -f /sys/kernel/btf/vmlinux ]] && bpftool version >/dev/null 2>&1; then
@@ -50,7 +85,7 @@ jobs:
           fi
 
       - name: Build with BPF enabled
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -58,20 +93,20 @@ jobs:
           cmake --build build
 
       - name: Verify BPF object compiles
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           test -f build/aegis.bpf.o || { echo "BPF object not built"; exit 1; }
           file build/aegis.bpf.o | grep -q "ELF" || { echo "Not a valid ELF"; exit 1; }
 
       - name: Run BPF verifier check
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: |
           if command -v veristat >/dev/null 2>&1; then
             veristat build/aegis.bpf.o || true
           fi
 
       - name: Boot kernel with virtme-ng and test BPF loading
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         timeout-minutes: 10
         run: |
           KERNEL_IMG=$(ls /boot/vmlinuz-* 2>/dev/null | sort -V | tail -1)
@@ -113,5 +148,5 @@ jobs:
           fi
 
       - name: Run userspace tests
-        if: steps.bpf_check.outputs.bpf_ready == 'true'
+        if: steps.changes.outputs.kernel_bpf_relevant == 'true' && steps.bpf_check.outputs.bpf_ready == 'true'
         run: ctest --test-dir build --output-on-failure --timeout 120

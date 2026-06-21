@@ -4,13 +4,7 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-  pull_request:
-    paths:
-      - 'Dockerfile'
-      - 'CMakeLists.txt'
-      - 'src/**'
-      - 'bpf/**'
-      - '.github/workflows/multi-arch.yml'
+  pull_request: {}
   workflow_dispatch:
 
 permissions:
@@ -23,8 +17,47 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect arm64-relevant changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "arm64_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "Non-PR event; running arm64 cross-compile."
+            exit 0
+          fi
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(
+            git diff --name-only "$base" "$head" -- \
+              Dockerfile \
+              CMakeLists.txt \
+              src \
+              bpf \
+              .github/workflows/multi-arch.yml
+          )"
+
+          if [[ -n "$changed" ]]; then
+            echo "arm64_relevant=true" >> "$GITHUB_OUTPUT"
+            echo "arm64-relevant changes detected:"
+            echo "$changed"
+          else
+            echo "arm64_relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No arm64-relevant changes; satisfying required check without cross-compile work."
+          fi
+
+      - name: Required check no-op
+        if: steps.changes.outputs.arm64_relevant != 'true'
+        run: |
+          echo "No Dockerfile/CMake/src/bpf/multi-arch workflow inputs changed."
+          echo "This required job reports success so branch protection does not wait on an untriggered path-filtered check."
 
       - name: Install arm64 cross-compilation toolchain
+        if: steps.changes.outputs.arm64_relevant == 'true'
         run: |
           sudo dpkg --add-architecture arm64
 
@@ -49,6 +82,7 @@ jobs:
             libbpf-dev:arm64 libelf-dev:arm64 zlib1g-dev:arm64
 
       - name: Configure for arm64
+        if: steps.changes.outputs.arm64_relevant == 'true'
         run: |
           cmake -S . -B build-arm64 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -71,9 +105,11 @@ jobs:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
 
       - name: Build for arm64
+        if: steps.changes.outputs.arm64_relevant == 'true'
         run: cmake --build build-arm64
 
       - name: Verify arm64 binary
+        if: steps.changes.outputs.arm64_relevant == 'true'
         run: |
           file build-arm64/aegisbpf | grep -q "aarch64" || (echo "ERROR: Binary is not arm64"; exit 1)
           echo "arm64 binary verified"

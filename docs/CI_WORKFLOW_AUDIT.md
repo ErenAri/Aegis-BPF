@@ -125,14 +125,17 @@ The other three are intentional.
 | Release readiness | `release-readiness`, `go-live-gate` | `release-readiness` is per-PR, `go-live-gate` is one-shot for v1.0. Distinct. |
 | Repo admin | `bootstrap-repo-controls`, `branch-protection-audit`, `label-sync` | Three workflows for repo administration. Could plausibly merge into one `repo-admin` workflow with multiple jobs, but the gain is small and the split is honest. |
 
-### 5. Trigger-path filtering is inconsistent
+### 5. Trigger-path filtering is policy-sensitive
 
-Some workflows use `paths:` filters (`check-vendored`, `e2e`,
-`helm`, `operator`, `perf`); others run on every push regardless of
-what changed (`ci`, `kernel-bpf-test`, `bpf-compiler-matrix`,
-`security`). Adding `paths:` filters to the docs-only and
-config-only paths in `ci.yml` would noticeably reduce CI minutes
-without reducing coverage — `ci.yml` runs ~20 jobs on every PR.
+Optional workflows may use `paths:` filters (`check-vendored`, `e2e`, `helm`,
+`operator`, `perf`). Workflows that publish required branch-protection contexts
+must not hide those contexts behind `pull_request.paths`; they should start on
+every PR and gate expensive work inside the job. This keeps branch protection
+from waiting on checks that GitHub never creates.
+
+Adding internal no-op paths to docs-only and config-only cases in required
+workflows can reduce CI minutes without reducing coverage, but the required job
+context must still report.
 
 ### 6. Workflows referencing this audit will go stale
 
