@@ -24,6 +24,12 @@ Required-check reporting:
   start and the job must decide whether to run the expensive steps.
 - Do not put required checks behind `pull_request.paths` or `paths-ignore`
   filters; GitHub will leave those required contexts expected but unreported.
+- PR-triggered self-hosted jobs must also have an explicit capacity gate. The
+  default repository-variable policy is
+  `vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES != 'true'`, which skips PR jobs on
+  unavailable self-hosted fleets before GitHub allocates a runner. Maintainers
+  may set `AEGIS_ENABLE_SELF_HOSTED_PR_GATES=true` only when queue health is
+  continuously monitored.
 
 ## Runner classes
 
@@ -37,6 +43,9 @@ Required-check reporting:
   - perf regression evidence (`.github/workflows/perf.yml`)
 - `self-hosted,bpf-lsm`:
   - soak reliability evidence (`.github/workflows/soak.yml`)
+- `self-hosted,kvm,bpfcompat`:
+  - cross-kernel object load/verify/attach evidence
+    (`.github/workflows/bpfcompat-matrix.yml`)
 
 ## Runner setup (self-hosted)
 
@@ -56,6 +65,7 @@ Example labels:
 - `kernel-6.5` (Ubuntu 24.04 host)
 - `bpf-lsm` (privileged e2e + soak)
 - `perf` (perf regression)
+- `kvm,bpfcompat` (VM-backed bpfcompat compatibility matrix)
 
 Notes:
 - Runner hosts must have the **target kernel** installed and booted.
@@ -84,8 +94,10 @@ Example target set:
 
 Any PR touching enforcement paths (`bpf/`, `src/bpf_ops*`, `src/policy*`,
 `src/network_ops*`) must pass:
-- e2e privileged tests
-- kernel-matrix subset (minimum 2 kernels)
+- hosted required checks, including `kernel-bpf-test`
+- self-hosted e2e privileged tests when
+  `AEGIS_ENABLE_SELF_HOSTED_PR_GATES=true`
+- kernel-matrix subset (minimum 2 kernels) before release promotion
 
 ## Failure handling
 
@@ -94,6 +106,8 @@ Any PR touching enforcement paths (`bpf/`, `src/bpf_ops*`, `src/policy*`,
 - Do not add self-hosted jobs to `config/required_checks.txt` unless the runner
   fleet has continuous capacity and an owner for queue health.
 - Never treat skipped privileged checks as success.
+- Keep `scripts/validate_ci_workflow_policy.py` in the required-check contract
+  so new PR-facing self-hosted jobs cannot bypass the capacity gate.
 
 ## Artifacts to retain
 

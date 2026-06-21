@@ -36,6 +36,7 @@ concurrency:
 
 jobs:
   perf:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
     runs-on: [self-hosted, perf]
     timeout-minutes: 75
     steps:

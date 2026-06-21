@@ -2,7 +2,7 @@
 
 This document is a one-time audit of `.github/workflows/`. The
 project shipped **34 workflows** at audit time; the current tree has since
-grown to **41 workflows**. This pass categorizes the audit-time inventory,
+grown to **43 workflows**. This pass categorizes the audit-time inventory,
 flags staleness, identifies overlap, and proposes consolidation.
 
 It is intentionally non-prescriptive — it documents the current
@@ -83,6 +83,13 @@ inside `kernel-bpf-test.yml` already proves real-kernel-on-hosted
 is possible; the others could follow that pattern at the cost of
 some test fidelity.
 
+**Current control:** PR-triggered self-hosted jobs are now guarded by
+`vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'`. With the variable unset,
+those jobs skip before runner allocation instead of silently accumulating
+queued optional checks. This does not create privileged evidence; it prevents
+false-green/noisy PR checks until runner capacity is restored or hosted VM
+coverage replaces the self-hosted path.
+
 ### 2. `kernel-matrix` and `release-drill` failed last and never recovered
 
 | Workflow | Last result | Last run |
@@ -136,6 +143,10 @@ from waiting on checks that GitHub never creates.
 Adding internal no-op paths to docs-only and config-only cases in required
 workflows can reduce CI minutes without reducing coverage, but the required job
 context must still report.
+
+For self-hosted optional PR workflows, use a job-level capacity gate instead of
+letting jobs queue on unavailable labels. The required CI contract runs
+`scripts/validate_ci_workflow_policy.py` to enforce this rule.
 
 ### 6. Workflows referencing this audit will go stale
 

@@ -2,8 +2,9 @@
 #
 # Manual / opt-in: runs only on a self-hosted runner that has KVM, the bpfcompat
 # checkout (path in the BPFCOMPAT_DIR repo variable), and its cached VM images.
-# Until such a runner is registered this workflow simply never picks up a job, so
-# it cannot affect required CI. The verdict logic lives in the tested wrapper
+# PR runs are capacity-gated by AEGIS_ENABLE_SELF_HOSTED_PR_GATES. With that
+# repository variable unset, PR jobs skip before runner allocation and do not
+# count as compatibility evidence. The verdict logic lives in the tested wrapper
 # scripts/run_bpfcompat_matrix.sh. See docs/KERNEL_COMPAT_MATRIX.md.
 #
 # Alternative (no self-hosted runner): submit aegis.bpf.o + the manifest to the
@@ -19,9 +20,10 @@ on:
   # Cross-kernel load gate: any change that can alter the compiled BPF object (or
   # the matrix/gate itself) is validated on every target kernel BEFORE merge.
   # A verifier rejection that only shows up on an older LTS kernel (the failure
-  # mode single-kernel CI cannot see) fails this check. Runs on the self-hosted
-  # KVM runner; if that runner is offline the check stays pending (does not
-  # silently pass), so treat it as required for bpf/ changes.
+  # mode single-kernel CI cannot see) fails this check when the self-hosted KVM
+  # runner fleet is enabled. If AEGIS_ENABLE_SELF_HOSTED_PR_GATES is not true,
+  # this job skips and release approvers must treat cross-kernel evidence as
+  # missing rather than passed.
   pull_request:
     paths:
       - 'bpf/**'
@@ -38,6 +40,7 @@ permissions:
 
 jobs:
   layer-a:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
     runs-on: [self-hosted, kvm, bpfcompat]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -51,7 +54,7 @@ jobs:
         env:
           AEGIS_BPFCOMPAT_DIR: ${{ vars.BPFCOMPAT_DIR }}
           AEGIS_BPF_OBJ: build/aegis.bpf.o
-          AEGIS_BPFCOMPAT_MATRIX: ${{ inputs.matrix }}
+          AEGIS_BPFCOMPAT_MATRIX: ${{ inputs.matrix || 'tests/enforcement/bpfcompat-matrix.yaml' }}
           AEGIS_MATRIX_OUT: bpfcompat-matrix-summary.json
         run: bash scripts/run_bpfcompat_matrix.sh
 
