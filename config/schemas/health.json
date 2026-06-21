@@ -13,6 +13,8 @@
     "engine_mode",
     "kernel_version",
     "features",
+    "future_lsm",
+    "next_gen_bpf",
     "checks",
     "bpf_object_path",
     "bpf_object_found",
@@ -37,7 +39,29 @@
     "features": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["bpf_lsm", "cgroup_v2", "btf", "bpf_syscall", "ringbuf", "tracepoints", "bpffs"],
+      "required": [
+        "bpf_lsm",
+        "cgroup_v2",
+        "btf",
+        "bpf_syscall",
+        "ringbuf",
+        "tracepoints",
+        "bpffs",
+        "ima",
+        "ima_appraisal",
+        "bpf_ima_helpers",
+        "landlock",
+        "ipe",
+        "fs_verity",
+        "bpf_token",
+        "bpf_arena",
+        "user_ringbuf",
+        "sched_ext",
+        "open_coded_iterators",
+        "bpf_xattr_kfuncs",
+        "bpf_send_signal_task",
+        "binary_auth"
+      ],
       "properties": {
         "bpf_lsm": { "type": "boolean" },
         "cgroup_v2": { "type": "boolean" },
@@ -45,7 +69,56 @@
         "bpf_syscall": { "type": "boolean" },
         "ringbuf": { "type": "boolean" },
         "tracepoints": { "type": "boolean" },
-        "bpffs": { "type": "boolean" }
+        "bpffs": { "type": "boolean" },
+        "ima": { "type": "boolean" },
+        "ima_appraisal": { "type": "boolean" },
+        "bpf_ima_helpers": { "type": "boolean" },
+        "landlock": { "type": "boolean" },
+        "ipe": { "type": "boolean" },
+        "fs_verity": { "type": "boolean" },
+        "bpf_token": { "type": "boolean" },
+        "bpf_arena": { "type": "boolean" },
+        "user_ringbuf": { "type": "boolean" },
+        "sched_ext": { "type": "boolean" },
+        "open_coded_iterators": { "type": "boolean" },
+        "bpf_xattr_kfuncs": { "type": "boolean" },
+        "bpf_send_signal_task": { "type": "boolean" },
+        "binary_auth": { "type": "boolean" }
+      }
+    },
+    "future_lsm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_lsms", "landlock", "landlock_abi", "ipe", "fs_verity", "bpf_token"],
+      "properties": {
+        "active_lsms": { "type": "string" },
+        "landlock": { "type": "boolean" },
+        "landlock_abi": { "type": "integer", "minimum": -1 },
+        "ipe": { "type": "boolean" },
+        "fs_verity": { "type": "boolean" },
+        "bpf_token": { "type": "boolean" }
+      }
+    },
+    "next_gen_bpf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arena",
+        "user_ringbuf",
+        "sched_ext",
+        "open_coded_iterators",
+        "xattr_kfuncs",
+        "bpf_send_signal_task",
+        "binary_auth"
+      ],
+      "properties": {
+        "arena": { "type": "boolean" },
+        "user_ringbuf": { "type": "boolean" },
+        "sched_ext": { "type": "boolean" },
+        "open_coded_iterators": { "type": "boolean" },
+        "xattr_kfuncs": { "type": "boolean" },
+        "bpf_send_signal_task": { "type": "boolean" },
+        "binary_auth": { "type": "boolean" }
       }
     },
     "checks": {
@@ -96,4 +169,3 @@
     }
   }
 }
-

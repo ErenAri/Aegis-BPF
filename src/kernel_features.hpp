@@ -2,6 +2,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "result.hpp"
 
@@ -14,19 +15,32 @@ namespace aegis {
  * capability level for the current system.
  */
 struct KernelFeatures {
-    bool bpf_lsm = false;         // BPF LSM support (full enforcement)
-    bool ringbuf = false;         // Ring buffer support
-    bool cgroup_v2 = false;       // cgroup v2 support
-    bool btf = false;             // BTF (BPF Type Format) available
-    bool bpf_syscall = false;     // BPF syscall available
-    bool tracepoints = false;     // Tracepoints available
-    bool ima = false;             // IMA securityfs availability
-    bool ima_appraisal = false;   // IMA appraisal policy active
-    bool bpf_ima_helpers = false; // bpf_ima_file_hash() available (kernel 6.1+)
-    std::string kernel_version;   // Kernel version string (e.g., "6.1.0")
-    int kernel_major = 0;         // Major version number
-    int kernel_minor = 0;         // Minor version number
-    int kernel_patch = 0;         // Patch version number
+    bool bpf_lsm = false;              // BPF LSM support (full enforcement)
+    bool ringbuf = false;              // Ring buffer support
+    bool cgroup_v2 = false;            // cgroup v2 support
+    bool btf = false;                  // BTF (BPF Type Format) available
+    bool bpf_syscall = false;          // BPF syscall available
+    bool tracepoints = false;          // Tracepoints available
+    bool ima = false;                  // IMA securityfs availability
+    bool ima_appraisal = false;        // IMA appraisal policy active
+    bool bpf_ima_helpers = false;      // bpf_ima_file_hash() available (kernel 6.1+)
+    bool landlock = false;             // Landlock LSM available
+    bool ipe = false;                  // Integrity Policy Enforcement LSM available
+    bool fs_verity = false;            // fs-verity kernel support visible
+    bool bpf_token = false;            // BPF token support (kernel 6.9+)
+    bool bpf_arena = false;            // BPF arena map support (kernel 6.9+)
+    bool user_ringbuf = false;         // BPF user ring buffer support (kernel 6.1+)
+    bool sched_ext = false;            // sched_ext sysfs surface available
+    bool open_coded_iterators = false; // Open-coded BPF iterator support (kernel 6.4+)
+    bool bpf_xattr_kfuncs = false;     // BPF file xattr kfunc readiness (kernel 6.8+ with BPF LSM)
+    bool bpf_send_signal_task = false; // Targeted signal helper support (kernel 6.13+)
+    bool binary_auth = false;          // Composite readiness for fs-verity-backed binary auth
+    int landlock_abi = -1;             // Landlock ABI version, or -1 when unavailable
+    std::string lsm_list;              // Raw active LSM list from securityfs
+    std::string kernel_version;        // Kernel version string (e.g., "6.1.0")
+    int kernel_major = 0;              // Major version number
+    int kernel_minor = 0;              // Minor version number
+    int kernel_patch = 0;              // Patch version number
 };
 
 /**
@@ -105,6 +119,23 @@ std::string get_kernel_version();
 bool check_bpf_lsm_enabled();
 
 /**
+ * Read the active LSM list from securityfs.
+ *
+ * Reads /sys/kernel/security/lsm unless AEGIS_LSM_PATH is set.
+ */
+std::string read_lsm_list();
+
+/**
+ * Split a comma-separated LSM list into ordered tokens.
+ */
+std::vector<std::string> split_lsm_list(const std::string& lsm_list);
+
+/**
+ * Check whether an LSM token appears in the active LSM list.
+ */
+bool lsm_list_contains(const std::string& lsm_list, const std::string& name);
+
+/**
  * Check if cgroup v2 is available.
  *
  * Checks for /sys/fs/cgroup/cgroup.controllers.
@@ -138,5 +169,62 @@ bool check_ima_available();
  * Reads /sys/kernel/security/ima/policy and looks for appraise rules.
  */
 bool check_ima_appraisal_enabled();
+
+/**
+ * Probe the running kernel for Landlock support.
+ *
+ * Returns the supported ABI version (>= 1) or -1 if Landlock is unavailable.
+ */
+int check_landlock_abi_version();
+
+/**
+ * Check if Integrity Policy Enforcement (IPE) appears available.
+ */
+bool check_ipe_available(const std::string& lsm_list = {});
+
+/**
+ * Check if fs-verity support is visible through procfs/sysctl.
+ */
+bool check_fs_verity_available();
+
+/**
+ * Check if the kernel version is new enough for BPF token support.
+ */
+bool check_bpf_token_supported(int kernel_major, int kernel_minor);
+
+/**
+ * Check if the kernel version is new enough for BPF arena maps.
+ */
+bool check_bpf_arena_supported(int kernel_major, int kernel_minor);
+
+/**
+ * Check if the kernel version is new enough for BPF user ring buffers.
+ */
+bool check_user_ringbuf_supported(int kernel_major, int kernel_minor);
+
+/**
+ * Check if sched_ext appears available.
+ */
+bool check_sched_ext_available();
+
+/**
+ * Check if the kernel version is new enough for open-coded BPF iterators.
+ */
+bool check_open_coded_iterators_supported(int kernel_major, int kernel_minor);
+
+/**
+ * Check if BPF file xattr kfuncs are expected to be usable.
+ */
+bool check_bpf_xattr_kfuncs_supported(int kernel_major, int kernel_minor, bool bpf_lsm);
+
+/**
+ * Check if the kernel version is new enough for bpf_send_signal_task().
+ */
+bool check_bpf_send_signal_task_supported(int kernel_major, int kernel_minor);
+
+/**
+ * Check if the composite binary authorization substrate is ready.
+ */
+bool check_binary_auth_supported(bool fs_verity, bool bpf_lsm, bool bpf_xattr_kfuncs);
 
 } // namespace aegis

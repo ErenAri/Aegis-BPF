@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "landlock.hpp"
 #include "logging.hpp"
 
 namespace aegis {
@@ -22,6 +23,11 @@ std::string env_path_or_default(const char* env_name, const char* fallback)
         return std::string(value);
     }
     return std::string(fallback);
+}
+
+bool version_at_least(int major, int minor, int req_major, int req_minor)
+{
+    return major > req_major || (major == req_major && minor >= req_minor);
 }
 
 } // namespace
@@ -69,12 +75,43 @@ bool kernel_version_at_least(int req_major, int req_minor, int req_patch)
 
 bool check_bpf_lsm_enabled()
 {
+    return lsm_list_contains(read_lsm_list(), "bpf");
+}
+
+std::string read_lsm_list()
+{
     std::ifstream lsm(env_path_or_default("AEGIS_LSM_PATH", "/sys/kernel/security/lsm"));
     std::string line;
     if (!lsm.is_open() || !std::getline(lsm, line)) {
-        return false;
+        return {};
     }
-    return line.find("bpf") != std::string::npos;
+    return line;
+}
+
+std::vector<std::string> split_lsm_list(const std::string& lsm_list)
+{
+    std::vector<std::string> tokens;
+    std::string current;
+    std::istringstream input(lsm_list);
+    while (std::getline(input, current, ',')) {
+        const auto begin = current.find_first_not_of(" \t\r\n");
+        if (begin == std::string::npos) {
+            continue;
+        }
+        const auto end = current.find_last_not_of(" \t\r\n");
+        tokens.push_back(current.substr(begin, end - begin + 1));
+    }
+    return tokens;
+}
+
+bool lsm_list_contains(const std::string& lsm_list, const std::string& name)
+{
+    for (const auto& token : split_lsm_list(lsm_list)) {
+        if (token == name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool check_cgroup_v2()
@@ -122,6 +159,76 @@ bool check_ima_appraisal_enabled()
     return false;
 }
 
+int check_landlock_abi_version()
+{
+    const char* override_path = std::getenv("AEGIS_LANDLOCK_ABI_PATH");
+    if (override_path != nullptr && *override_path != '\0') {
+        std::ifstream input(override_path);
+        int abi = -1;
+        if (input >> abi) {
+            return abi;
+        }
+        return -1;
+    }
+    return landlock_abi_version();
+}
+
+bool check_ipe_available(const std::string& lsm_list)
+{
+    const std::string active_lsms = lsm_list.empty() ? read_lsm_list() : lsm_list;
+    std::error_code ec;
+    return lsm_list_contains(active_lsms, "ipe") ||
+           std::filesystem::exists(env_path_or_default("AEGIS_IPE_DIR_PATH", "/sys/kernel/security/ipe"), ec);
+}
+
+bool check_fs_verity_available()
+{
+    std::error_code ec;
+    return std::filesystem::exists(
+        env_path_or_default("AEGIS_FS_VERITY_SYSCTL_PATH", "/proc/sys/fs/verity/require_signatures"), ec);
+}
+
+bool check_bpf_token_supported(int kernel_major, int kernel_minor)
+{
+    return version_at_least(kernel_major, kernel_minor, 6, 9);
+}
+
+bool check_bpf_arena_supported(int kernel_major, int kernel_minor)
+{
+    return version_at_least(kernel_major, kernel_minor, 6, 9);
+}
+
+bool check_user_ringbuf_supported(int kernel_major, int kernel_minor)
+{
+    return version_at_least(kernel_major, kernel_minor, 6, 1);
+}
+
+bool check_sched_ext_available()
+{
+    std::error_code ec;
+    return std::filesystem::exists(env_path_or_default("AEGIS_SCHED_EXT_PATH", "/sys/kernel/sched_ext"), ec);
+}
+
+bool check_open_coded_iterators_supported(int kernel_major, int kernel_minor)
+{
+    return version_at_least(kernel_major, kernel_minor, 6, 4);
+}
+
+bool check_bpf_xattr_kfuncs_supported(int kernel_major, int kernel_minor, bool bpf_lsm)
+{
+    return bpf_lsm && version_at_least(kernel_major, kernel_minor, 6, 8);
+}
+
+bool check_bpf_send_signal_task_supported(int kernel_major, int kernel_minor)
+{
+    return version_at_least(kernel_major, kernel_minor, 6, 13);
+}
+
+bool check_binary_auth_supported(bool fs_verity, bool bpf_lsm, bool bpf_xattr_kfuncs)
+{
+    return fs_verity && bpf_lsm && bpf_xattr_kfuncs;
+}
+
 static bool check_tracepoints_available()
 {
     std::error_code ec;
@@ -163,6 +270,7 @@ Result<KernelFeatures> detect_kernel_features()
     }
 
     // Detect individual features
+    features.lsm_list = read_lsm_list();
     features.bpf_lsm = check_bpf_lsm_enabled();
     features.cgroup_v2 = check_cgroup_v2();
     features.btf = check_btf_available();
@@ -172,6 +280,19 @@ Result<KernelFeatures> detect_kernel_features()
     features.ima = check_ima_available();
     features.ima_appraisal = features.ima && check_ima_appraisal_enabled();
     features.bpf_ima_helpers = features.kernel_major > 6 || (features.kernel_major == 6 && features.kernel_minor >= 1);
+    features.landlock_abi = check_landlock_abi_version();
+    features.landlock = features.landlock_abi >= 1;
+    features.ipe = check_ipe_available(features.lsm_list);
+    features.fs_verity = check_fs_verity_available();
+    features.bpf_token = check_bpf_token_supported(features.kernel_major, features.kernel_minor);
+    features.bpf_arena = check_bpf_arena_supported(features.kernel_major, features.kernel_minor);
+    features.user_ringbuf = check_user_ringbuf_supported(features.kernel_major, features.kernel_minor);
+    features.sched_ext = check_sched_ext_available();
+    features.open_coded_iterators = check_open_coded_iterators_supported(features.kernel_major, features.kernel_minor);
+    features.bpf_xattr_kfuncs =
+        check_bpf_xattr_kfuncs_supported(features.kernel_major, features.kernel_minor, features.bpf_lsm);
+    features.bpf_send_signal_task = check_bpf_send_signal_task_supported(features.kernel_major, features.kernel_minor);
+    features.binary_auth = check_binary_auth_supported(features.fs_verity, features.bpf_lsm, features.bpf_xattr_kfuncs);
 
     return features;
 }

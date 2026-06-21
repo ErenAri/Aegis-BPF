@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "schema_semver": "1.6.0",
+  "schema_semver": "1.8.0",
   "generated_at_unix": 1700000000,
   "kernel_version": "6.14.0-37-generic",
   "capability": "Full",
@@ -10,6 +10,23 @@
   "runtime_state": "ENFORCE",
   "lsm_enabled": true,
   "core_supported": true,
+  "future_lsm": {
+    "active_lsms": "lockdown,capability,landlock,yama,ipe,bpf,integrity",
+    "landlock": true,
+    "landlock_abi": 4,
+    "ipe": true,
+    "fs_verity": true,
+    "bpf_token": true
+  },
+  "next_gen_bpf": {
+    "arena": true,
+    "user_ringbuf": true,
+    "sched_ext": true,
+    "open_coded_iterators": true,
+    "xattr_kfuncs": true,
+    "bpf_send_signal_task": true,
+    "binary_auth": true
+  },
   "features": {
     "bpf_lsm": true,
     "cgroup_v2": true,
@@ -19,7 +36,25 @@
     "tracepoints": true,
     "bpffs": true,
     "ima": true,
-    "ima_appraisal": true
+    "ima_appraisal": true,
+    "bpf_ima_helpers": true,
+    "landlock": true,
+    "ipe": true,
+    "fs_verity": true,
+    "bpf_token": true,
+    "bpf_arena": true,
+    "user_ringbuf": true,
+    "sched_ext": true,
+    "open_coded_iterators": true,
+    "bpf_xattr_kfuncs": true,
+    "bpf_send_signal_task": true,
+    "binary_auth": true,
+    "overlay_copy_up_propagation": true,
+    "deep_process_lineage": true,
+    "enhanced_rule_engine": true,
+    "cgroup_scoped_deny": true,
+    "policy_generation": true,
+    "deadman_fail_static": true
   },
   "hooks": {
     "lsm_file_open": true,
@@ -30,7 +65,10 @@
     "lsm_socket_bind": true,
     "lsm_socket_listen": true,
     "lsm_socket_accept": true,
-    "lsm_socket_sendmsg": true
+    "lsm_socket_sendmsg": true,
+    "lsm_socket_recvmsg": true,
+    "lsm_inode_copy_up": true,
+    "lsm_bprm_ima_check": true
   },
   "policy": {
     "applied_path": "/etc/aegisbpf/policy.applied",
@@ -41,7 +79,10 @@
     "protect_connect": false,
     "protect_runtime_deps": false,
     "require_ima_appraisal": false,
-    "allow_binary_hash_count": 0
+    "allow_binary_hash_count": 0,
+    "cgroup_deny_inode_count": 0,
+    "cgroup_deny_ip_count": 0,
+    "cgroup_deny_port_count": 0
   },
   "requirements": {
     "network_enforcement_required": false,

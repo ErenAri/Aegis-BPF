@@ -17,6 +17,8 @@
     "runtime_state",
     "lsm_enabled",
     "core_supported",
+    "future_lsm",
+    "next_gen_bpf",
     "features",
     "hooks",
     "policy",
@@ -45,7 +47,7 @@
     },
     "runtime_state": {
       "type": "string",
-      "enum": ["ENFORCE", "AUDIT_FALLBACK", "DEGRADED"]
+      "enum": ["ENFORCE", "ENFORCE_SIGNAL", "AUDIT_FALLBACK", "DEGRADED"]
     },
     "lsm_enabled": { "type": "boolean" },
     "core_supported": { "type": "boolean" },
@@ -61,7 +63,25 @@
         "tracepoints",
         "bpffs",
         "ima",
-        "ima_appraisal"
+        "ima_appraisal",
+        "bpf_ima_helpers",
+        "landlock",
+        "ipe",
+        "fs_verity",
+        "bpf_token",
+        "bpf_arena",
+        "user_ringbuf",
+        "sched_ext",
+        "open_coded_iterators",
+        "bpf_xattr_kfuncs",
+        "bpf_send_signal_task",
+        "binary_auth",
+        "overlay_copy_up_propagation",
+        "deep_process_lineage",
+        "enhanced_rule_engine",
+        "cgroup_scoped_deny",
+        "policy_generation",
+        "deadman_fail_static"
       ],
       "properties": {
         "bpf_lsm": { "type": "boolean" },
@@ -72,7 +92,60 @@
         "tracepoints": { "type": "boolean" },
         "bpffs": { "type": "boolean" },
         "ima": { "type": "boolean" },
-        "ima_appraisal": { "type": "boolean" }
+        "ima_appraisal": { "type": "boolean" },
+        "bpf_ima_helpers": { "type": "boolean" },
+        "landlock": { "type": "boolean" },
+        "ipe": { "type": "boolean" },
+        "fs_verity": { "type": "boolean" },
+        "bpf_token": { "type": "boolean" },
+        "bpf_arena": { "type": "boolean" },
+        "user_ringbuf": { "type": "boolean" },
+        "sched_ext": { "type": "boolean" },
+        "open_coded_iterators": { "type": "boolean" },
+        "bpf_xattr_kfuncs": { "type": "boolean" },
+        "bpf_send_signal_task": { "type": "boolean" },
+        "binary_auth": { "type": "boolean" },
+        "overlay_copy_up_propagation": { "type": "boolean" },
+        "deep_process_lineage": { "type": "boolean" },
+        "enhanced_rule_engine": { "type": "boolean" },
+        "cgroup_scoped_deny": { "type": "boolean" },
+        "policy_generation": { "type": "boolean" },
+        "deadman_fail_static": { "type": "boolean" }
+      }
+    },
+    "future_lsm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_lsms", "landlock", "landlock_abi", "ipe", "fs_verity", "bpf_token"],
+      "properties": {
+        "active_lsms": { "type": "string" },
+        "landlock": { "type": "boolean" },
+        "landlock_abi": { "type": "integer", "minimum": -1 },
+        "ipe": { "type": "boolean" },
+        "fs_verity": { "type": "boolean" },
+        "bpf_token": { "type": "boolean" }
+      }
+    },
+    "next_gen_bpf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arena",
+        "user_ringbuf",
+        "sched_ext",
+        "open_coded_iterators",
+        "xattr_kfuncs",
+        "bpf_send_signal_task",
+        "binary_auth"
+      ],
+      "properties": {
+        "arena": { "type": "boolean" },
+        "user_ringbuf": { "type": "boolean" },
+        "sched_ext": { "type": "boolean" },
+        "open_coded_iterators": { "type": "boolean" },
+        "xattr_kfuncs": { "type": "boolean" },
+        "bpf_send_signal_task": { "type": "boolean" },
+        "binary_auth": { "type": "boolean" }
       }
     },
     "hooks": {
@@ -87,7 +160,10 @@
         "lsm_socket_bind",
         "lsm_socket_listen",
         "lsm_socket_accept",
-        "lsm_socket_sendmsg"
+        "lsm_socket_sendmsg",
+        "lsm_socket_recvmsg",
+        "lsm_inode_copy_up",
+        "lsm_bprm_ima_check"
       ],
       "properties": {
         "lsm_file_open": { "type": "boolean" },
@@ -98,7 +174,10 @@
         "lsm_socket_bind": { "type": "boolean" },
         "lsm_socket_listen": { "type": "boolean" },
         "lsm_socket_accept": { "type": "boolean" },
-        "lsm_socket_sendmsg": { "type": "boolean" }
+        "lsm_socket_sendmsg": { "type": "boolean" },
+        "lsm_socket_recvmsg": { "type": "boolean" },
+        "lsm_inode_copy_up": { "type": "boolean" },
+        "lsm_bprm_ima_check": { "type": "boolean" }
       }
     },
     "policy": {
@@ -113,7 +192,10 @@
         "protect_connect",
         "protect_runtime_deps",
         "require_ima_appraisal",
-        "allow_binary_hash_count"
+        "allow_binary_hash_count",
+        "cgroup_deny_inode_count",
+        "cgroup_deny_ip_count",
+        "cgroup_deny_port_count"
       ],
       "properties": {
         "applied_path": { "type": "string" },
@@ -124,7 +206,10 @@
         "protect_connect": { "type": "boolean" },
         "protect_runtime_deps": { "type": "boolean" },
         "require_ima_appraisal": { "type": "boolean" },
-        "allow_binary_hash_count": { "type": "integer", "minimum": 0 }
+        "allow_binary_hash_count": { "type": "integer", "minimum": 0 },
+        "cgroup_deny_inode_count": { "type": "integer", "minimum": 0 },
+        "cgroup_deny_ip_count": { "type": "integer", "minimum": 0 },
+        "cgroup_deny_port_count": { "type": "integer", "minimum": 0 }
       }
     },
     "requirements": {

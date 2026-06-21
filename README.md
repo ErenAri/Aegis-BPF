@@ -16,20 +16,19 @@
 
 ### Positioning
 
-AegisBPF is an **enforcement-first** eBPF runtime security engine for Linux
-workloads. Unlike Falco and Tracee (detection-only) or Tetragon (signal-based
-enforcement via `SIGKILL`), AegisBPF uses BPF-LSM `-EPERM` returns with
-IMA-backed exec identity for **deterministic, in-kernel prevention**, and
-ships with first-class OverlayFS copy-up handling, dual-stack CIDR network
-deny, cgroup-scoped policy, and a dedicated priority ring buffer for
-forensic-grade evidence.
+AegisBPF is an **enforcement-first** eBPF runtime security engine and emerging
+LSM control plane for Linux/Kubernetes workloads. Compared with detect-first
+tools such as Falco and Tracee, and general eBPF observability/enforcement
+systems such as Tetragon, AegisBPF specializes in BPF-LSM `-EPERM` prevention,
+IMA-backed exec identity, OverlayFS copy-up handling, dual-stack CIDR network
+deny, cgroup-scoped policy, and auditable kernel/security posture evidence.
 
 Where it fits on the runtime-security map:
 
 ```
                               ENFORCE
                                 │
-                    KubeArmor   │   Tetragon (signal)
+                    KubeArmor   │   Tetragon
                    ┌────────────┼────────────┐
                    │  AegisBPF  │  AegisBPF  │
           POLICY ──┼────────────┼────────────┼── OBSERVE
@@ -88,6 +87,7 @@ Where it fits on the runtime-security map:
 - **Audit mode** - Monitor without blocking (works without BPF LSM)
 - **Emergency kill switch** - Single-command enforcement bypass that preserves audit/telemetry and emits an auditable trail
 - **Capability reporting + enforce gating** - `capabilities.json` + explicit fail-closed vs audit-fallback enforcement posture
+- **Future LSM + next-gen BPF posture reporting** - `capabilities.json`, `health`, and `probe` report active LSM order, Landlock ABI, IPE, fs-verity, BPF token readiness, arena maps, user ring buffers, sched_ext, xattr kfuncs, targeted signal delivery, and binary-auth readiness for Kubernetes placement and audit evidence
 - **Prometheus metrics** - Export block counts and statistics
 - **Structured logging** - JSON or text output to stdout/journald
 - **Policy files and signed bundles** - Declarative configuration with SHA256 verification and signature enforcement
