@@ -15,8 +15,9 @@
 #   SUMMARY_OUT (default: artifacts/perf/perf-slo-summary.json)
 #
 # Thresholds:
-#   MAX_OPEN_DELTA_PCT (fallback to MAX_OPEN_P95_OVERHEAD, default: 10)
-#   MAX_CONNECT_P95_OVERHEAD (default: 10)
+#   MAX_OPEN_DELTA_PCT (default: 10)
+#   MAX_OPEN_P95_OVERHEAD (default: 5)
+#   MAX_CONNECT_P95_OVERHEAD (default: 5)
 #   MAX_WORKLOAD_FAILED_ROWS (default: 0)
 #   MAX_RSS_GROWTH_MB (default: 128)
 #   MAX_RINGBUF_DROP_RATE (default: 0.1)
@@ -33,8 +34,9 @@ CONNECT_BASELINE_JSON="${CONNECT_BASELINE_JSON:-artifacts/perf/connect_baseline.
 CONNECT_WITH_AGENT_JSON="${CONNECT_WITH_AGENT_JSON:-artifacts/perf/connect_with_agent.json}"
 SOAK_JSON="${SOAK_JSON:-artifacts/soak/soak_summary.json}"
 
-MAX_OPEN_DELTA_PCT="${MAX_OPEN_DELTA_PCT:-${MAX_OPEN_P95_OVERHEAD:-10}}"
-MAX_CONNECT_P95_OVERHEAD="${MAX_CONNECT_P95_OVERHEAD:-10}"
+MAX_OPEN_DELTA_PCT="${MAX_OPEN_DELTA_PCT:-10}"
+MAX_OPEN_P95_OVERHEAD="${MAX_OPEN_P95_OVERHEAD:-5}"
+MAX_CONNECT_P95_OVERHEAD="${MAX_CONNECT_P95_OVERHEAD:-5}"
 MAX_WORKLOAD_FAILED_ROWS="${MAX_WORKLOAD_FAILED_ROWS:-0}"
 MAX_RSS_GROWTH_MB="${MAX_RSS_GROWTH_MB:-128}"
 MAX_RINGBUF_DROP_RATE="${MAX_RINGBUF_DROP_RATE:-0.1}"
@@ -47,7 +49,7 @@ SUMMARY_OUT="${SUMMARY_OUT:-artifacts/perf/perf-slo-summary.json}"
 mkdir -p "$(dirname "${REPORT_OUT}")" "$(dirname "${SUMMARY_OUT}")"
 
 export OPEN_JSON WORKLOAD_JSON OPEN_BASELINE_JSON OPEN_WITH_AGENT_JSON CONNECT_BASELINE_JSON CONNECT_WITH_AGENT_JSON
-export SOAK_JSON MAX_OPEN_DELTA_PCT MAX_CONNECT_P95_OVERHEAD MAX_WORKLOAD_FAILED_ROWS MAX_RSS_GROWTH_MB
+export SOAK_JSON MAX_OPEN_DELTA_PCT MAX_OPEN_P95_OVERHEAD MAX_CONNECT_P95_OVERHEAD MAX_WORKLOAD_FAILED_ROWS MAX_RSS_GROWTH_MB
 export MAX_RINGBUF_DROP_RATE REQUIRE_PERCENTILE_PROFILES REQUIRE_SOAK REPORT_OUT SUMMARY_OUT
 
 python3 - <<'PY'
@@ -118,7 +120,8 @@ connect_baseline_json = os.environ["CONNECT_BASELINE_JSON"]
 connect_with_agent_json = os.environ["CONNECT_WITH_AGENT_JSON"]
 soak_json = os.environ["SOAK_JSON"]
 
-open_limit = float(os.environ["MAX_OPEN_DELTA_PCT"])
+open_delta_limit = float(os.environ["MAX_OPEN_DELTA_PCT"])
+open_p95_limit = float(os.environ["MAX_OPEN_P95_OVERHEAD"])
 connect_p95_limit = float(os.environ["MAX_CONNECT_P95_OVERHEAD"])
 max_workload_failed_rows = int(float(os.environ["MAX_WORKLOAD_FAILED_ROWS"]))
 max_rss_growth_mb = float(os.environ["MAX_RSS_GROWTH_MB"])
@@ -151,7 +154,7 @@ if open_payload is not None:
         scenario="audit_mode_open",
         metric="delta_pct",
         result=float(delta_pct),
-        budget=open_limit,
+        budget=open_delta_limit,
         unit="%",
         evidence=open_json,
     )
@@ -174,7 +177,7 @@ if workload_payload is not None:
                 continue
             name = str(item.get("name", f"row_{idx}"))
             delta_pct = as_float(item.get("delta_pct"))
-            limit = as_float(item.get("max_allowed_pct"), open_limit)
+            limit = as_float(item.get("max_allowed_pct"), open_delta_limit)
             passed = bool(item.get("pass", False))
             add_row(
                 rows,
@@ -235,7 +238,7 @@ if require_profiles:
             scenario="audit_mode_open",
             metric="p95_overhead_pct",
             result=open_p95_overhead,
-            budget=open_limit,
+            budget=open_p95_limit,
             unit="%",
             evidence=f"{open_baseline_json},{open_with_agent_json}",
         )
