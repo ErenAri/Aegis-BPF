@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782058426319,
+  "lastUpdate": 1782082096246,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -44802,6 +44802,102 @@ window.BENCHMARK_DATA = {
             "value": 54.2896827960701,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.279752957099674 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b29f749b787b549d465753f464faa3a639a5039f",
+          "message": "Harden degraded-mode contract coverage\n\nAdd no-pretend degraded-mode contract coverage for audit fallback reporting, silent partial attach rejection, and network/IMA fail-closed gates.",
+          "timestamp": "2026-06-22T01:36:49+03:00",
+          "tree_id": "ee29d60cb0c10f953a7ea5d2faf2924e6864b4ad",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/b29f749b787b549d465753f464faa3a639a5039f"
+        },
+        "date": 1782082095233,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1544.7982319315706,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1544.6461848542212 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3794.435071030101,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3793.6614165368032 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21975.68006732168,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21973.310658400846 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166698.94080363578,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166681.02000119598 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1326288.7657232748,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1326133.483490565 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5314216.125947032,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5313041.742739911 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4862.312425726323,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4869.880208991693 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33305.80693871956,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33313.32207818733 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267741.2225242345,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267707.91437859944 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 802026.1022357441,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 802118.6225769952 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 73.23627097476786,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 73.23121340056674 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.48567038468256,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.481560916402806 ns\nthreads: 1"
           }
         ]
       }
