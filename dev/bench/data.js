@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782082096246,
+  "lastUpdate": 1782121202140,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -44898,6 +44898,102 @@ window.BENCHMARK_DATA = {
             "value": 55.48567038468256,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.481560916402806 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "15e32accc683d12e9d88e0417e073edcd1253b28",
+          "message": "Lock KPI threshold contracts\n\nLock KPI thresholds across tracked product/quality docs, perf SLO scripts, release workflow, and PR template. Fixes the CI contract inputs to avoid ignored docs/_internal files.",
+          "timestamp": "2026-06-22T12:28:29+03:00",
+          "tree_id": "34e38e579517567f4da2d8936377415916406801",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/15e32accc683d12e9d88e0417e073edcd1253b28"
+        },
+        "date": 1782121200400,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1623.3089688474709,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1623.004382455838 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3914.3917763887143,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3914.072199526461 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22922.53226532445,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22920.679531876583 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 174643.55120131353,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 174628.27420293525 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1391516.740841583,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1391273.5957920814 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5568855.5942895105,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5568395.229083662 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4770.218532040731,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4774.894618269748 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32884.1799451669,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32889.285359721085 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 267357.98094410694,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 267320.23124843184 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 804676.3433067421,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 804774.6479671922 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.44546098710781,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.44016677393527 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.750221393071946,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.74062231778816 ns\nthreads: 1"
           }
         ]
       }
