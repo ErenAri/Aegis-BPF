@@ -24,6 +24,12 @@ This project enforces quality gates through required CI checks on `main`.
   rejection, network/IMA degraded-mode gates, no-pretend capability reporting,
   strict degrade fail-closed, and 1,000-attempt rollback stress under a 5s
   budget
+- Release KPI threshold contract:
+  - Rollback reliability | `100%` over `1,000`
+  - Rollback speed | `p99 <= 5s`
+  - Unexplained event drops | `<0.1%`
+  - Syscall overhead (p95) | `<=5%`
+  - p95 ratio gates (`<=1.05`) for open/connect perf profiles
 - Benchmark regression policy:
   - PR: advisory signal only
   - Main: advisory trend storage on `gh-pages` (non-blocking on hosted runners)

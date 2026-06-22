@@ -838,8 +838,8 @@ if(BUILD_TESTING)
     add_test(
         NAME kpi_threshold_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_kpi_threshold_contract.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/_internal/PRODUCT_EXCELLENCE_PLAN.md
-            ${CMAKE_CURRENT_SOURCE_DIR}/docs/_internal/RELEASE_READINESS_SCORECARD.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PRODUCT.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/QUALITY_GATES.md
             ${CMAKE_CURRENT_SOURCE_DIR}/docs/PERF.md
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/perf_slo_check.sh
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_perf_baseline_artifact.py

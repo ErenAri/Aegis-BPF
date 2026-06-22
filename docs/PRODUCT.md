@@ -16,6 +16,16 @@ Primary contract for current maturity push:
   cgroup-scoped workloads.
 - Provide safe rollback and signed policy provenance for every rollout.
 
+## Release KPI thresholds
+
+These thresholds are release gates, not aspirational planning notes:
+
+- Rollback success `100%` over `1,000` stress iterations.
+- Rollback completion `p99 <= 5s`.
+- Unexplained event drops `<0.1%`.
+- Syscall overhead `p95 <= 5%`.
+- `0` false-green health states.
+
 ## Target environment
 - Linux kernel with BTF enabled and `CONFIG_BPF_LSM=y`.
 - cgroup v2 mounted at `/sys/fs/cgroup`.

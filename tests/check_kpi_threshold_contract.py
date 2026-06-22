@@ -22,14 +22,14 @@ def main() -> int:
     if len(sys.argv) != 8:
         print(
             "usage: check_kpi_threshold_contract.py "
-            "<product-excellence-plan> <release-readiness-scorecard> <perf-doc> "
+            "<product-doc> <quality-gates-doc> <perf-doc> "
             "<perf-slo-script> <perf-baseline-generator> <release-workflow> <pr-template>",
             file=sys.stderr,
         )
         return 2
 
-    product_plan = Path(sys.argv[1]).read_text(encoding="utf-8")
-    scorecard = Path(sys.argv[2]).read_text(encoding="utf-8")
+    product_doc = Path(sys.argv[1]).read_text(encoding="utf-8")
+    quality_gates = Path(sys.argv[2]).read_text(encoding="utf-8")
     perf_doc = Path(sys.argv[3]).read_text(encoding="utf-8")
     perf_slo = Path(sys.argv[4]).read_text(encoding="utf-8")
     baseline_generator = Path(sys.argv[5]).read_text(encoding="utf-8")
@@ -38,17 +38,17 @@ def main() -> int:
 
     errors: list[str] = []
 
-    require(product_plan, "Rollback success `100%` over `1,000` stress iterations", "product plan", errors)
-    require(product_plan, "Rollback completion `p99 <= 5s`", "product plan", errors)
-    require(product_plan, "Unexplained event drops `<0.1%`", "product plan", errors)
-    require(product_plan, "Syscall overhead `p95 <= 5%`", "product plan", errors)
-    require(product_plan, "`0` false-green health states", "product plan", errors)
+    require(product_doc, "Rollback success `100%` over `1,000` stress iterations", "product doc", errors)
+    require(product_doc, "Rollback completion `p99 <= 5s`", "product doc", errors)
+    require(product_doc, "Unexplained event drops `<0.1%`", "product doc", errors)
+    require(product_doc, "Syscall overhead `p95 <= 5%`", "product doc", errors)
+    require(product_doc, "`0` false-green health states", "product doc", errors)
 
-    require(scorecard, "Rollback reliability | `100%` over `1,000`", "release scorecard", errors)
-    require(scorecard, "Rollback speed | `p99 <= 5s`", "release scorecard", errors)
-    require(scorecard, "Unexplained event drops | `<0.1%`", "release scorecard", errors)
-    require(scorecard, "Syscall overhead (p95) | `<=5%`", "release scorecard", errors)
-    require(scorecard, "p95 ratio gates (`<=1.05`)", "release scorecard", errors)
+    require(quality_gates, "Rollback reliability | `100%` over `1,000`", "quality gates", errors)
+    require(quality_gates, "Rollback speed | `p99 <= 5s`", "quality gates", errors)
+    require(quality_gates, "Unexplained event drops | `<0.1%`", "quality gates", errors)
+    require(quality_gates, "Syscall overhead (p95) | `<=5%`", "quality gates", errors)
+    require(quality_gates, "p95 ratio gates (`<=1.05`)", "quality gates", errors)
 
     require(perf_doc, "p95_with_agent / p95_baseline <= 1.05", "perf doc", errors)
     require(perf_doc, "5% p95 KPI budget", "perf doc", errors)
