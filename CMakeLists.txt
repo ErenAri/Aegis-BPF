@@ -848,6 +848,16 @@ if(BUILD_TESTING)
     )
 
     add_test(
+        NAME pilot_evidence_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_pilot_evidence_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/PILOT_EVIDENCE_TEMPLATE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/pilots
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EXTERNAL_VALIDATION.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/docs/EVIDENCE.md
+            ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+    )
+
+    add_test(
         NAME upgrade_compat_n_minus_1
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_upgrade_compat.py
             $<TARGET_FILE:aegisbpf>

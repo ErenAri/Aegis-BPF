@@ -1099,6 +1099,8 @@ TOCTOU analysis are in [docs/GUARANTEES.md](docs/GUARANTEES.md).
 | [METRICS_OPERATIONS.md](docs/METRICS_OPERATIONS.md) | Metric interpretation, thresholds, and operator actions |
 | [EVIDENCE.md](docs/EVIDENCE.md) | Public CI evidence and artifact map |
 | [EXTERNAL_VALIDATION.md](docs/EXTERNAL_VALIDATION.md) | Independent review and pilot case study summaries |
+| [PILOT_EVIDENCE_TEMPLATE.md](docs/PILOT_EVIDENCE_TEMPLATE.md) | Weekly pilot evidence capture template |
+| [pilots/](docs/pilots/) | Public-safe internal staging pilot reports |
 | [runbooks/](docs/runbooks/) | Alert/incident/maintenance operational runbooks |
 | [VENDORED_DEPENDENCIES.md](docs/VENDORED_DEPENDENCIES.md) | Vendored dependency inventory and review cadence |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and solutions |
