@@ -52,7 +52,7 @@
 ### Performance
 - [ ] Hot paths reviewed for unnecessary allocations/loops
 - [ ] Benchmarks run when behavior touches critical paths
-- [ ] No benchmark regression >10% (or justified)
+- [ ] No strict p95 KPI regression (`p95_with_agent / p95_baseline > 1.05`) unless justified
 
 ### Maintainability
 - [ ] Public APIs/docs updated for behavior changes

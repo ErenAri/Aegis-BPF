@@ -196,8 +196,9 @@ jobs:
           CONNECT_WITH_AGENT_JSON=artifacts/perf/connect_with_agent.json \
           REPORT_OUT=artifacts/perf/perf-slo-report.md \
           SUMMARY_OUT=artifacts/perf/perf-slo-summary.json \
-          MAX_OPEN_P95_OVERHEAD=10 \
-          MAX_CONNECT_P95_OVERHEAD=10 \
+          MAX_OPEN_DELTA_PCT=10 \
+          MAX_OPEN_P95_OVERHEAD=5 \
+          MAX_CONNECT_P95_OVERHEAD=5 \
           scripts/perf_slo_check.sh
 
       - name: Generate canonical perf baseline artifact
@@ -214,8 +215,8 @@ jobs:
             --out-json artifacts/perf/perf-baseline-canonical.json \
             --out-md artifacts/perf/perf-baseline-canonical.md \
             --max-open-delta-pct 10 \
-            --max-open-p95-overhead-pct 10 \
-            --max-connect-p95-overhead-pct 10 \
+            --max-open-p95-overhead-pct 5 \
+            --max-connect-p95-overhead-pct 5 \
             --max-workload-failed-rows 0 \
             --repository "${GITHUB_REPOSITORY}" \
             --workflow "${GITHUB_WORKFLOW}" \
