@@ -27,6 +27,7 @@ artifacts on each run.
 | Release readiness | `Release Readiness` (`.github/workflows/release-readiness.yml`) | (status only) | Status gate for release readiness script. |
 | Security scans | `Security` (`.github/workflows/security.yml`) | (status only) | CodeQL, gitleaks, semgrep results. |
 | External validation | (manual) | `docs/EXTERNAL_VALIDATION.md` | Public summaries of independent reviews or pilot case studies. |
+| Internal staging pilots | (manual) | `docs/PILOT_EVIDENCE_TEMPLATE.md`, `docs/pilots/` | Public-safe weekly pilot evidence reports; not external validation. |
 
 ## Latest evidence runs
 
@@ -44,6 +45,7 @@ artifacts on each run.
 - Perf baseline: **published** (see `docs/PERF_BASELINE.md`)
 - Edge-case compliance results: **published** (see `docs/EDGE_CASE_COMPLIANCE_RESULTS.md`)
 - External validation: **none published** (see `docs/EXTERNAL_VALIDATION.md`)
+- Internal staging pilot evidence: **published** (see `docs/pilots/`)
 
 ## Evidence expectations
 
@@ -51,6 +53,8 @@ artifacts on each run.
 - **Hosted evidence** (CI, security scans, SBOM, coverage) should be present on
   every PR and main run.
 - **External validation** is only listed once a public summary exists.
+- **Internal staging pilot evidence** may be listed before external validation
+  when reports follow `docs/PILOT_EVIDENCE_TEMPLATE.md`.
 
 ## Kernel matrix coverage
 

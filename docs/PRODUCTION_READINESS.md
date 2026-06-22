@@ -111,6 +111,8 @@ For public CI evidence, see `docs/EVIDENCE.md`.
 - Explainability CLI: `aegisbpf explain` (see `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`)
 - Production deployment blueprint: `docs/PRODUCTION_DEPLOYMENT_BLUEPRINT.md`
 - Public CI evidence map: `docs/EVIDENCE.md`
+- Pilot evidence template: `docs/PILOT_EVIDENCE_TEMPLATE.md`
+- Internal staging pilot reports: `docs/pilots/`
 - CI kernel-e2e execution strategy: `docs/CI_EXECUTION_STRATEGY.md`
 - Branch-protection baseline: `docs/BRANCH_PROTECTION.md` + `scripts/check_branch_protection.sh`
 - Branch-protection audit workflow: `.github/workflows/branch-protection-audit.yml`
