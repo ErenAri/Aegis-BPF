@@ -15,12 +15,12 @@ This is the coverage a single host can't give: every prior result was 6.17-only.
 | **6.17** | Ubuntu 24.04 (HWE) — host | active | ✅ | ✅ 11/0 | ✅ 6/0 | ✅ | **PASS** |
 | **6.1** | Debian 12 | active | ✅ | ✅ 11/0 | ✅ 6/0 | ✅ | **PASS** |
 | **5.15** | Ubuntu 22.04 | active | ✅ | ✅ 11/0 | ✅ 6/0 | ✅ | **PASS** (after fix ↓) |
-| **6.8** | Ubuntu 24.04 (GA) | active | ❌ | ❌ | ❌ | ❌ | **FAIL — degraded, no enforcement** |
+| **6.8** | Ubuntu 24.04 (GA) | active | ✅ | ✅ 11/0 | ✅ 6/0 | ✅ | **PASS** (after resilient-load fix ↓) |
 
-Per-kernel raw JSON in `results/`; aggregate in `matrix.json`.
+Per-kernel raw JSON in `results/`; aggregate in `matrix.json`. **All four kernels now pass.**
 
-The matrix found **two real defects** that 6.17-only testing could never surface. One is
-fixed in this branch; one is confirmed and characterized with a proven fix direction.
+The matrix found **two real defects** that 6.17-only testing could never surface; both are
+now fixed. (The `results/kernel-6.8-*.json` `note` records the unpatched degraded behavior.)
 
 ## Finding 1 — agent would not start on any kernel < 6.1 (FIXED in this PR)
 
@@ -44,7 +44,7 @@ kernels fully supporting BPF-LSM enforcement.
 autoload was disabled (`bpf_program__autoload() == false`). With the fix, 5.15 goes from
 "won't start" to the clean sweep above; 6.17 is unchanged (host smoke still passes).
 
-## Finding 2 — no enforcement on Ubuntu 24.04 LTS's GA 6.8 kernel (CONFIRMED, fix teed up)
+## Finding 2 — no enforcement on Ubuntu 24.04 LTS's GA 6.8 kernel (FIXED)
 
 On 6.8 the BPF **verifier rejects `handle_inode_copy_up`** (the overlayfs copy-up hook):
 
@@ -66,13 +66,21 @@ fails — so it is purely the kernel.)
 (one line, `set_autoload(false)`) makes 6.8 load and enforce fully — smoke passes, all
 hooks attach. So the whole failure is one optional overlay hook.
 
-**Recommended fix (not in this PR — touches the critical load path, wants explicit sign-off
-+ iterative on-6.8 validation):** make the load resilient — on `bpf_object__load` failure,
-re-open the object (it is opened from a file, so re-open is cheap), disable the offending
-optional hook, and retry, so a single verifier-fragile *optional* hook can never take down
-core enforcement. Alternatively, fix the `handle_inode_copy_up` return path so its result
-is provably in `[-4095, 0]` for every verifier. The resilient-load approach is preferred —
-it generalizes to any future per-kernel verifier quirk on any optional hook.
+**Fix** (`src/bpf_ops.cpp`): resilient load. `load_bpf()` now wraps a `load_bpf_once()`
+that re-runs the whole open→configure→load flow (the object is opened from a file, so a
+re-open is cheap). On a load failure it retries once with known verifier-fragile *optional*
+hooks (`handle_inode_copy_up`) disabled, so a single fragile optional hook can never take
+down core enforcement. Required enforcement hooks (file_open / inode_permission / execve /
+fork) are never in that set — if one of those is the failure, the retry fails identically
+and the original error is returned. The approach generalizes to any future per-kernel
+verifier quirk on any optional hook.
+
+Validated on 6.8: the agent logs the first-attempt verifier rejection, then
+*"Loaded with a verifier-fragile optional hook disabled (degraded overlay telemetry; core
+enforcement unaffected)"* — and all four batteries pass (smoke, path-alias 11/0,
+alt-read 6/0, backpressure PASS: 877,699 drops, **0/1600 decisions lost**). No regression
+on 6.17 (host smoke still passes). Overlay copy-up **telemetry** is the only thing lost on
+6.8, and only until that hook's return path is made verifiable everywhere.
 
 ## Build-portability notes (old distros; build-only, not enforcement)
 

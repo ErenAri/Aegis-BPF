@@ -201,7 +201,11 @@ void set_max_network_entries(uint32_t count)
     g_max_network_entries.store(count, std::memory_order_relaxed);
 }
 
-Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
+// One open->configure->load->attach attempt. force_disable names optional programs to
+// additionally set autoload=false before load, so the public load_bpf() wrapper can retry
+// with a verifier-fragile optional hook disabled. Callers use the wrapper, not this.
+static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& state,
+                                  const std::set<std::string>& force_disable)
 {
     const std::string inherited_trace_id = current_trace_id();
     const std::string trace_id = inherited_trace_id.empty() ? make_span_id("trace") : inherited_trace_id;
@@ -667,6 +671,19 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
                 }
             }
         }
+
+        /* Resilient-load overrides: optional programs the caller asked to disable because
+         * they failed the verifier on a previous attempt. Applied to whichever branch ran
+         * above so a single verifier-fragile optional hook cannot fail the whole atomic
+         * object load and take core enforcement down with it. */
+        for (const auto& prog_name : force_disable) {
+            bpf_program* prog = bpf_object__find_program_by_name(state.obj, prog_name.c_str());
+            if (prog) {
+                bpf_program__set_autoload(prog, false);
+                logger().log(SLOG_WARN("Disabling verifier-fragile optional program for resilient load")
+                                 .field("program", prog_name));
+            }
+        }
     }
 
     {
@@ -822,6 +839,39 @@ Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
     }
 
     return {};
+}
+
+Result<void> load_bpf(bool reuse_pins, bool attach_links, BpfState& state)
+{
+    auto result = load_bpf_once(reuse_pins, attach_links, state, {});
+    if (result) {
+        return result;
+    }
+
+    // BPF object load is atomic: one optional program the kernel verifier rejects fails the
+    // whole object and drops the agent to DEGRADED with no enforcement. Observed on Ubuntu
+    // 24.04 LTS's GA 6.8 kernel, where handle_inode_copy_up (overlayfs copy-up telemetry)
+    // fails the verifier ("R0 ... should have been in [-4095, 0]") even though the same
+    // object verifies on 5.15 and 6.17 — a non-monotonic verifier quirk, not a missing hook.
+    // Disabling only that optional hook restores full core enforcement, so retry once with
+    // known verifier-fragile OPTIONAL hooks disabled. Required enforcement hooks
+    // (file_open/inode_permission/execve/fork) are never in this set — if one of those is
+    // the failure, the retry fails identically and we return the original error.
+    if (result.error().code() != ErrorCode::BpfLoadFailed) {
+        return result;
+    }
+    static const std::set<std::string> kVerifierFragileOptional = {"handle_inode_copy_up"};
+    logger().log(SLOG_WARN("BPF object load failed; retrying with verifier-fragile optional hooks "
+                           "disabled so core enforcement can still load"));
+    auto retry = load_bpf_once(reuse_pins, attach_links, state, kVerifierFragileOptional);
+    if (retry) {
+        logger().log(SLOG_WARN("Loaded with a verifier-fragile optional hook disabled "
+                               "(degraded overlay telemetry; core enforcement unaffected)")
+                         .field("disabled", "handle_inode_copy_up"));
+        return retry;
+    }
+    // Retry did not help — the failure was elsewhere. Report the original error.
+    return result;
 }
 
 // --- FD-accepting overloads for shadow population ---
