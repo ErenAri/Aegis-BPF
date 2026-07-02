@@ -1,0 +1,1 @@
+{"workers":48,"ringbuf_bytes":4096,"freeze_seconds":6,"drops_baseline":180614,"drops_frozen_end":409056,"drops_delta_frozen":228442,"min_drops_required":1000,"saturation_achieved":true,"metrics_reachable_while_frozen":true,"canary_reads_total":1600,"canary_misses_total":0,"daemon_survived_resume":true,"pass":true}
