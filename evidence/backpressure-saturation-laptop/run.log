@@ -1,0 +1,20 @@
+# AegisBPF backpressure-saturation — captured run
+# host: Linux 6.17.0-35-generic  lsm: lockdown,capability,landlock,yama,apparmor,bpf,ima,evm
+# agent: aegisbpf 0.8.0
+# date(utc): 2026-07-02T17:32:19Z
+# harness: scripts/backpressure_saturation.sh (SIGSTOP the consumer to force telemetry drops)
+
+== backpressure saturation: workers=48 ringbuf=4096 freeze=6s ==
+A live    drops=180614    blocks=1216878      canary_misses=0/200
+B frozen  drops=203328    blocks=1275460      canary_misses=0/200  (+1s)
+B frozen  drops=243889    blocks=1319131      canary_misses=0/200  (+2s)
+B frozen  drops=286484    blocks=1361176      canary_misses=0/200  (+3s)
+B frozen  drops=328296    blocks=1402969      canary_misses=0/200  (+4s)
+B frozen  drops=369299    blocks=1441679      canary_misses=0/200  (+5s)
+B frozen  drops=409056    blocks=1479858      canary_misses=0/200  (+6s)
+C resume  drops=422612    blocks=1537967      canary_misses=0/200  daemon_alive=1
+
+telemetry dropped while frozen (delta): 228442   canary: 0 miss / 1600 reads
+wrote /home/ern42/CLionProjects/aegisbpf/evidence/backpressure-saturation-laptop/result.json
+
+RESULT: PASS — telemetry saturated (228442 events dropped), 0/1600 decisions lost, agent recovered
