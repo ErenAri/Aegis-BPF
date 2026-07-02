@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783014389576,
+  "lastUpdate": 1783033915376,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45186,6 +45186,108 @@ window.BENCHMARK_DATA = {
             "value": 56.53317690572991,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.52781017364027 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f7e13423b26f1c5019783eb8ebe26a5fdacb86b",
+          "message": "fix(bpf): start on kernels < 6.1 (handle_exit) + cross-kernel matrix evidence (#265)\n\n* fix(bpf): skip handle_exit attach when gated off on kernels < 6.1\n\nprepare_and_load_bpf() disables autoload for the handle_exit process-exit\ntracepoint on kernels < 6.1 (the verifier rejects it there; it is best-effort\ntelemetry and enforcement does not depend on it). But the attach path in\nbpf_attach.cpp still attached it via attach_required_program(), which is fatal:\nlibbpf reports \"prog 'handle_exit': can't attach BPF program without FD (was it\nloaded?)\" and the whole startup aborts with EINVAL — taking working enforcement\n(file_open/inode_permission/exec/network hooks) down with it.\n\nResult: AegisBPF failed to start at all on every kernel < 6.1 (5.4/5.10/5.15),\ndespite those kernels fully supporting BPF-LSM enforcement.\n\nFix: honor the gate — skip the handle_exit attach when its autoload was disabled\n(bpf_program__autoload() == false), matching the gate's own comment (\"the attach\nloop skips any program left disabled here\"). handle_exit is the only gated-off\nprogram reached via the fatal attach_required_program path; the other gated hooks\n(IMA, socket_accept/sendmsg/recvmsg, inode_copy_up, ...) already use the optional\nattach path.\n\nFound via the cross-kernel VM matrix (Ubuntu 22.04 / kernel 5.15): with this fix,\n5.15 goes from \"agent won't start\" to smoke + all three red-team/backpressure\nbatteries passing. No change on 6.17 (host smoke still passes).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* test(kernel-matrix): cross-kernel enforcement evidence (5.15/6.1/6.8/6.17)\n\nFree local qemu/KVM VM matrix running the full battery suite (smoke + path-alias\n+ alt-read + backpressure) on four kernels, each with BPF-LSM active. This is\ncoverage a single host cannot give — every prior result was 6.17-only.\n\nResults: 6.17 PASS, 6.1 PASS, 5.15 PASS (after the handle_exit fix in this\nbranch), 6.8 FAIL (degraded, no enforcement).\n\nThe matrix found two real defects invisible to 6.17-only testing:\n * Finding 1 (fixed here): agent would not start on any kernel < 6.1 — the\n   gated-off handle_exit tracepoint was still attached via the fatal required\n   path, aborting all enforcement. See the src/bpf_attach.cpp fix.\n * Finding 2 (confirmed, fix teed up): on Ubuntu 24.04 LTS's GA 6.8 kernel the\n   verifier rejects handle_inode_copy_up (non-monotonic — verifies on 5.15 AND\n   6.17, not 6.8); atomic object load fails -> DEGRADED, no enforcement.\n   Disabling that one optional overlay hook restores full enforcement (proven),\n   so the recommended fix is a resilient re-open-and-disable load path.\n\nIncludes per-kernel result JSON, an aggregate matrix.json, the VM harness\n(boot_vm.sh / guest_setup.sh / guest_test.sh / cloud-init), and three\nbuild-portability notes for stock older distros (cmake 3.22, bpftool/clang-14,\nGCC 12 -Wrestrict).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:00:30+03:00",
+          "tree_id": "09592227a8a3dd4894fbdd8b879c160931d86c61",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/9f7e13423b26f1c5019783eb8ebe26a5fdacb86b"
+        },
+        "date": 1783033914114,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1511.1158684799586,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1510.9292345362248 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3649.8622126905047,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3648.9456127313565 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20893.732253051847,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20891.230384624945 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159025.4201314152,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159004.52483856358 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1263164.4492034924,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1262895.9501803427 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5069509.923586038,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5068837.164259936 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4894.947297249286,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4909.312623639696 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34265.77393195674,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34267.25051500699 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 282267.64780029753,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 282243.9742200526 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 873658.8659197207,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 873892.4446866832 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.312522559010525,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.305894974846574 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.85741459884606,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.84826639759945 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.64327542651097,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.629122314432415 ns\nthreads: 1"
           }
         ]
       }
