@@ -4,6 +4,9 @@ name: Kernel Matrix
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   kernel-matrix:
     strategy:

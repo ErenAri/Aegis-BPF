@@ -12,6 +12,9 @@ on:
       - 'config/veristat_baseline.json'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   veristat:
     name: veristat

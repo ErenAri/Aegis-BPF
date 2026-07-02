@@ -22,6 +22,9 @@ on:
   schedule:
     - cron: "0 3 * * 0"
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
     if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'

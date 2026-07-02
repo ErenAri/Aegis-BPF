@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 7 1 * *"
 
+permissions:
+  contents: read
+
 jobs:
   incident-drill:
     runs-on: [self-hosted, bpf-lsm]

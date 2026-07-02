@@ -10,6 +10,9 @@ on:
       - 'bpf/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   bpf-coverage:
     name: bpf-coverage

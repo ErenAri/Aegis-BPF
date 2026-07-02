@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 1 * * 0"
 
+permissions:
+  contents: read
+
 jobs:
   soak-audit:
     name: "Audit-mode soak (1 hour)"

@@ -6,6 +6,9 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   reproducible-build:
     runs-on: ubuntu-24.04
