@@ -1,0 +1,12 @@
+#cloud-config
+ssh_pwauth: false
+users:
+  - name: km
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: [sudo]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REPLACE_WITH_YOUR_PUBKEY... aegis-km
+# Keep first boot fast; we drive everything over ssh.
+package_update: false
+package_upgrade: false
