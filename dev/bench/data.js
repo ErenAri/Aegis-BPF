@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782121202140,
+  "lastUpdate": 1783013551026,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -44994,6 +44994,102 @@ window.BENCHMARK_DATA = {
             "value": 55.750221393071946,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.74062231778816 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9cfa406d4c0f6da100e8dcfb1597ea2d23b6420",
+          "message": "test(redteam): alternate-read-path bypass battery (io_uring / handle / openat2) (#263)\n\nAdds scripts/redteam_altread.sh, a second adversarial file-deny battery that\nattacks the content-read axis (vs. redteam_bypass.sh's path-aliasing axis):\n\n  * io_uring IORING_OP_OPENAT + IORING_OP_READ  (async io-wq worker context)\n  * open_by_handle_at()                          (reopen by file handle)\n  * openat2()                                    (RESOLVE_* open syscall)\n\nAll three denied with -EPERM on 6.17 via the inode-keyed lsm/file_open +\nlsm/inode_permission gates. The io_uring verdict is validated with a positive\ncontrol (same helper reads an UNBLOCKED file successfully), so the block is real\nenforcement on a working async path, not an incidental setup failure.\n\nAlso asserts, as expected-ALLOWED controls, the honest limits of an open-time\ninode LSM: a pre-block fd survives (deny is not retroactive) and a raw\nblock-device read bypasses the VFS (defended at block level, not by a file LSM).\n\nEvidence: evidence/redteam-altread-laptop/{README.md,run.log} (6/6, laptop 6.17).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-02T20:20:37+03:00",
+          "tree_id": "d515c5456431a8a6a18d2498cd3363dec6898a81",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/e9cfa406d4c0f6da100e8dcfb1597ea2d23b6420"
+        },
+        "date": 1783013549801,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1560.7922547191708,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1560.6574544165262 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3914.104096569384,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3913.7438770833596 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22954.642157344017,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22952.628413467275 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 174716.27486785836,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 174682.85747284305 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1388553.5671962954,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1388405.5729890754 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5576771.4980158685,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5576130.001653421 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5116.701893552755,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5127.324165672385 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33353.54642798141,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33357.37153629506 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 268239.12111617165,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 268220.8378723716 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 806394.3834591004,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 806567.1012666585 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 70.58008232861452,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 70.57394106839503 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.71645795739452,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.7120071552398 ns\nthreads: 1"
           }
         ]
       }
