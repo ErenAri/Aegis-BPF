@@ -1,0 +1,48 @@
+{
+  "kernel": "5.15.0-185-generic",
+  "lsm": "lockdown,capability,landlock,yama,apparmor,bpf",
+  "os": "Ubuntu 22.04.5 LTS",
+  "bpf_lsm_active": true,
+  "batteries": {
+    "smoke_enforce": {
+      "exit": 0,
+      "pass": true
+    },
+    "redteam_bypass": {
+      "exit": 0,
+      "pass": true,
+      "counts": {
+        "passed": 11,
+        "failed": 0
+      }
+    },
+    "redteam_altread": {
+      "exit": 0,
+      "pass": true,
+      "counts": {
+        "passed": 6,
+        "failed": 0
+      }
+    },
+    "backpressure_saturation": {
+      "exit": 0,
+      "pass": true,
+      "detail": {
+        "workers": 48,
+        "ringbuf_bytes": 4096,
+        "freeze_seconds": 6,
+        "drops_baseline": 283448,
+        "drops_frozen_end": 411822,
+        "drops_delta_frozen": 128374,
+        "min_drops_required": 1000,
+        "saturation_achieved": true,
+        "metrics_reachable_while_frozen": true,
+        "canary_reads_total": 1600,
+        "canary_misses_total": 0,
+        "daemon_survived_resume": true,
+        "pass": true
+      }
+    }
+  },
+  "all_pass": true
+}

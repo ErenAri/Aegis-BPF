@@ -1,0 +1,27 @@
+{
+  "kernel": "6.8.0-124-generic",
+  "lsm": "lockdown,capability,landlock,yama,apparmor,bpf",
+  "os": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm_active": true,
+  "batteries": {
+    "smoke_enforce": {
+      "exit": 1,
+      "pass": false
+    },
+    "redteam_bypass": {
+      "exit": 1,
+      "pass": false,
+      "counts": null
+    },
+    "redteam_altread": {
+      "exit": 1,
+      "pass": false,
+      "counts": null
+    },
+    "backpressure_saturation": {
+      "exit": 1,
+      "pass": false
+    }
+  },
+  "all_pass": false
+}

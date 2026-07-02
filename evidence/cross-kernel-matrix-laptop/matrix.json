@@ -1,0 +1,62 @@
+{
+  "targets": [
+    {
+      "kernel": "5.15.0-185-generic",
+      "os": "Ubuntu 22.04.5 LTS",
+      "bpf_lsm_active": true,
+      "all_pass": true,
+      "batteries": {
+        "smoke_enforce": true,
+        "redteam_bypass": true,
+        "redteam_altread": true,
+        "backpressure_saturation": true
+      }
+    },
+    {
+      "kernel": "6.1.0-49-cloud-amd64",
+      "os": "Debian GNU/Linux 12 (bookworm)",
+      "bpf_lsm_active": true,
+      "all_pass": true,
+      "batteries": {
+        "smoke_enforce": true,
+        "redteam_bypass": true,
+        "redteam_altread": true,
+        "backpressure_saturation": true
+      }
+    },
+    {
+      "kernel": "6.17.0-35-generic",
+      "os": "Ubuntu 24.04.3 LTS",
+      "bpf_lsm_active": true,
+      "all_pass": true,
+      "batteries": {
+        "smoke_enforce": true,
+        "redteam_bypass": true,
+        "redteam_altread": true,
+        "backpressure_saturation": true
+      }
+    },
+    {
+      "kernel": "6.8.0-124-generic",
+      "os": "Ubuntu 24.04.4 LTS",
+      "bpf_lsm_active": true,
+      "all_pass": false,
+      "batteries": {
+        "smoke_enforce": false,
+        "redteam_bypass": false,
+        "redteam_altread": false,
+        "backpressure_saturation": false
+      }
+    }
+  ],
+  "summary": {
+    "pass": [
+      "5.15.0-185-generic",
+      "6.1.0-49-cloud-amd64",
+      "6.17.0-35-generic"
+    ],
+    "fail": [
+      "6.8.0-124-generic"
+    ]
+  }
+}
