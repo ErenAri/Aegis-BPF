@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035024391,
+  "lastUpdate": 1783036259224,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45390,6 +45390,102 @@ window.BENCHMARK_DATA = {
             "value": 55.15151648099725,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.14644319840743 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8c43d4779bfe1ce1f7fa89f05771d1e59a522fd1",
+          "message": "fix(bpf): make handle_inode_copy_up verify on all kernels (barrier_var + clamp) (#267)\n\nRoot-cause fix for Finding 2 of the cross-kernel matrix. On Ubuntu 24.04 LTS's GA\n6.8 kernel the verifier rejected handle_inode_copy_up with \"R0 ... should have been\nin [-4095, 0]\" — clang lowered the final `return audit ? 0 : -EPERM;` into a shared\nrecord_hook_latency() tail carrying an `r0 = -r0` negation the 6.8 verifier can't\nbound. BPF load is atomic, so that one rejection dropped overlay copy-up enforcement\n(and, with the resilient-load safety net, its telemetry).\n\nNeither a plain if/return nor duplicated per-branch tails changed clang's codegen\nenough (verified against the actual 6.8 verifier). Fix: make the return provably in\nrange — compute it, force it opaque with barrier_var(), then re-clamp to [-4095, 0]\nwith explicit compares the verifier tracks and clang cannot fold away past the\nbarrier. This is the idiom bpf_helpers.h documents for exactly this class of\nunverifiable pattern.\n\nValidated on the real VMs: handle_inode_copy_up now verifies and loads on 6.8 (the\nresilient-load retry no longer fires; overlay hook active, no degradation) and still\nverifies on 5.15 and 6.17. All four batteries pass on 6.8 (path-alias 11/0, alt-read\n6/0, backpressure 488934 drops / 0-of-1600 decisions lost). No regression on 6.17.\n\nWith this, 6.8 has zero degradation; the resilient load from #266 remains as a\nsafety net for any future per-kernel verifier quirk on an optional hook.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:39:44+03:00",
+          "tree_id": "09703262d7ea2787f7a1a4c41551a3167aeca211",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/8c43d4779bfe1ce1f7fa89f05771d1e59a522fd1"
+        },
+        "date": 1783036258276,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1527.3210509196388,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1527.1806644921642 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3786.115614528535,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3785.404673727277 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21899.64688992732,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21897.62944963652 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166191.91356818643,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166176.78195184533 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1322808.3239603026,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1322683.7322778823 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5292873.576415108,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5291882.4999999935 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4848.771693529882,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4856.62981162695 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33484.69911384007,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33493.86344850607 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269640.2278843325,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269582.7745515046 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 809480.7252083329,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 809612.368971582 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 74.94007599586587,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 74.93300677055153 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.1659902748109,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.154655537290985 ns\nthreads: 1"
           }
         ]
       }
