@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783013551026,
+  "lastUpdate": 1783014389576,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45090,6 +45090,102 @@ window.BENCHMARK_DATA = {
             "value": 55.71645795739452,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.7120071552398 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "791e6e7436daea62f4bf3b594e9d0d83c8d72524",
+          "message": "test(backpressure): saturation battery — enforcement holds when telemetry drops (#264)\n\nAdds scripts/backpressure_saturation.sh, which proves the enforcement decision\nstays synchronous and correct when the telemetry channel is saturated —\n\"losing telemetry is acceptable; losing a decision is not.\"\n\nA pure high-rate firehose (48 workers, ~35K denials/s) does NOT overflow the\nbuffers (the consumer keeps up — a robustness signal, but no telemetry is lost,\nso it proves nothing about decoupling). The harness instead induces the\nworst-case stall directly: SIGSTOP the agent's userspace. Its BPF programs stay\nattached in-kernel and keep returning -EPERM, but the ring buffers stop draining\nand aegisbpf_ringbuf_drops_total climbs. A separate canary reads the denied\ninode throughout and must be denied every time.\n\nResult on 6.17 (evidence/backpressure-saturation-laptop/): 228,442 telemetry\nevents dropped during a 6s freeze, 0/1600 canary misses, blocks_total advancing\n~264K WHILE frozen (in-kernel enforcement never paused), agent recovered on\nSIGCONT, metrics readable throughout. PASS requires real saturation\n(drops delta >= MIN_DROPS, else INCONCLUSIVE) AND zero misses AND clean recovery.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-02T20:34:44+03:00",
+          "tree_id": "7f3466cba1bbe5681d0a44db9005e1aeef9adefc",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/791e6e7436daea62f4bf3b594e9d0d83c8d72524"
+        },
+        "date": 1783014388614,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1562.7070687664357,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1562.5413917773915 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3797.89137815598,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3797.5226611564653 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21971.832834959787,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21969.90326565939 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 167544.41628941413,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 167512.7521840999 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1331017.3352362888,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1330862.9877101171 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5309604.992156834,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5308965.100326794 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4764.9408110002405,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4771.439961000889 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33101.039855422845,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33111.35452891843 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 269901.9139488382,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 269880.40600224223 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 811334.0556195389,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 811438.9566281812 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 71.44190745099023,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 71.42805461362711 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 56.53317690572991,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 56.52781017364027 ns\nthreads: 1"
           }
         ]
       }
