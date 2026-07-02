@@ -79,8 +79,19 @@ Validated on 6.8: the agent logs the first-attempt verifier rejection, then
 *"Loaded with a verifier-fragile optional hook disabled (degraded overlay telemetry; core
 enforcement unaffected)"* — and all four batteries pass (smoke, path-alias 11/0,
 alt-read 6/0, backpressure PASS: 877,699 drops, **0/1600 decisions lost**). No regression
-on 6.17 (host smoke still passes). Overlay copy-up **telemetry** is the only thing lost on
-6.8, and only until that hook's return path is made verifiable everywhere.
+on 6.17 (host smoke still passes).
+
+**Root-cause fix** (`bpf/aegis_overlay.bpf.h`): the resilient load above kept enforcement
+up but disabled the overlay hook on 6.8, losing copy-up *telemetry*. The underlying cause
+is clang lowering `return audit ? 0 : -EPERM;` into a shared `record_hook_latency()` tail
+with an `r0 = -r0` negation the 6.8 verifier can't bound. Fixed by making the return
+provably in range: force the value opaque with `barrier_var()`, then re-clamp to
+`[-4095, 0]` with explicit compares the verifier tracks (and clang can't fold away past the
+barrier) — the idiom `bpf_helpers.h` documents for exactly this. With it,
+`handle_inode_copy_up` **verifies and loads on 6.8** (the resilient-load retry no longer
+fires; the overlay hook is active), and the object still verifies on 5.15 and 6.17. So on
+6.8 there is now **no degradation at all** — the resilient load remains as a safety net for
+any future per-kernel verifier quirk.
 
 ## Build-portability notes (old distros; build-only, not enforcement)
 

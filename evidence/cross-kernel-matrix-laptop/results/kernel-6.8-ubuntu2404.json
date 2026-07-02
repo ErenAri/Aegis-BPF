@@ -3,7 +3,7 @@
   "os": "Ubuntu 24.04.4 LTS",
   "lsm": "lockdown,capability,landlock,yama,apparmor,bpf",
   "bpf_lsm_active": true,
-  "note": "Unpatched agent goes DEGRADED here (handle_inode_copy_up verifier rejection fails the atomic object load). With the resilient-load fix, the agent retries with that one optional hook disabled and enforces fully.",
+  "note": "With the bpf/aegis_overlay.bpf.h return-value fix (barrier_var + clamp), handle_inode_copy_up verifies on 6.8: the agent loads with the overlay hook ACTIVE (no resilient-load retry, no degradation). Unpatched, the verifier rejected that hook and \u2014 load being atomic \u2014 the agent went DEGRADED with no enforcement. Backpressure this run: 488934 drops, 0/1600 canary misses.",
   "resilient_load_fix": true,
   "batteries": {
     "smoke_enforce": {

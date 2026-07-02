@@ -168,5 +168,24 @@ int BPF_PROG(handle_inode_copy_up, struct dentry *src, struct cred **new_cred)
     }
 
     record_hook_latency(HOOK_INODE_COPY_UP, _start_ns);
-    return audit ? 0 : -EPERM;
+
+    /* Some kernel verifiers (observed on Ubuntu 24.04 LTS's GA 6.8) lose the bound on
+     * this return through clang's codegen — the value flows through a `r0 = -r0`
+     * negation in the shared record_hook_latency() tail and is seen as an unbounded
+     * scalar at exit, so the program is rejected with EINVAL ("R0 ... should have been
+     * in [-4095, 0]"). BPF load is atomic, so that one rejection drops overlay copy-up
+     * enforcement entirely. The same object verifies on 5.15 and 6.17 — it is a
+     * non-monotonic verifier quirk, not a code bug. Force the value opaque with
+     * barrier_var(), then re-establish the [-4095, 0] range with explicit clamps the
+     * verifier can track (and that clang cannot fold away past the barrier). This is
+     * the idiom bpf_helpers.h documents for exactly this class of unverifiable pattern. */
+    int ret = audit ? 0 : -EPERM;
+    barrier_var(ret);
+    if (ret < -4095) {
+        ret = -EPERM;
+    }
+    if (ret > 0) {
+        ret = 0;
+    }
+    return ret;
 }
