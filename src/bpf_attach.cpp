@@ -207,10 +207,24 @@ Result<void> attach_all(BpfState& state, bool lsm_enabled, bool use_inode_permis
         return fail(result.error());
     }
 
-    result = attach_required_program(state, trace_id, root_span.span_id(), "bpf.attach.exit", "handle_exit",
-                                     "BPF program not found: handle_exit");
-    if (!result) {
-        return fail(result.error());
+    /* handle_exit is best-effort telemetry (dead-process correlation) and is gated
+     * off (autoload disabled) on kernels < 6.1 in prepare_and_load_bpf(), where the
+     * tracepoint is rejected by the verifier. A disabled program is never loaded, so
+     * attaching it as *required* would abort startup with EINVAL ("can't attach BPF
+     * program without FD") and take enforcement down with it. Respect the gate: skip
+     * the attach when the program was left disabled. Enforcement does not depend on it. */
+    {
+        bpf_program* exit_prog = bpf_object__find_program_by_name(state.obj, "handle_exit");
+        if (exit_prog && !bpf_program__autoload(exit_prog)) {
+            logger().log(SLOG_INFO("Skipping handle_exit attach (gated off on this kernel; telemetry only, "
+                                   "enforcement unaffected)"));
+        } else {
+            result = attach_required_program(state, trace_id, root_span.span_id(), "bpf.attach.exit", "handle_exit",
+                                             "BPF program not found: handle_exit");
+            if (!result) {
+                return fail(result.error());
+            }
+        }
     }
 
     if (lsm_enabled && attach_network_hooks) {
