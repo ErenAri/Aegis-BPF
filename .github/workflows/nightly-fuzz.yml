@@ -17,8 +17,7 @@ jobs:
   fuzz:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
-      actions: write   # needed to save the corpus cache
+      contents: read   # actions/cache/save needs no extra scope (unique run_id keys, no cache deletion)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -105,8 +104,7 @@ jobs:
   rust-fuzz:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
-      actions: write   # needed to save the corpus cache
+      contents: read   # actions/cache/save needs no extra scope (unique run_id keys, no cache deletion)
     defaults:
       run:
         working-directory: rust/aegis-parser

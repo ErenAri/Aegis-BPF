@@ -6,10 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  id-token: write  # Required for Sigstore keyless signing
-  packages: write
-  attestations: write
+  contents: read
 
 jobs:
   e2e-gate:
@@ -341,6 +338,12 @@ jobs:
   sign-and-release:
     needs: [build-release]
     runs-on: ubuntu-24.04
+    # Publishes the GitHub Release (contents), does keyless Sigstore
+    # signing (id-token) and build-provenance attestation (attestations).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -474,6 +477,11 @@ jobs:
   docker:
     needs: [build-release]
     runs-on: ubuntu-24.04
+    # Pushes the image to GHCR (packages) and cosign keyless-signs it (id-token).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

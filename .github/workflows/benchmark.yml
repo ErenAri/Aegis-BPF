@@ -7,13 +7,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   benchmark:
     name: benchmark
     runs-on: ubuntu-24.04
+    # github-action-benchmark auto-pushes history to gh-pages and posts
+    # commit/PR advisory comments on main; scope those writes to this job.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
