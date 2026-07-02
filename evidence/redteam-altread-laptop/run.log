@@ -1,0 +1,32 @@
+# AegisBPF alternate-read-path red-team — captured run
+# host: Linux 6.17.0-35-generic  lsm: lockdown,capability,landlock,yama,apparmor,bpf,ima,evm
+# agent: aegisbpf 0.8.0
+# date(utc): 2026-07-02T17:08:45Z
+
+=== harness: scripts/redteam_altread.sh ===
+
+TEST                       EXPECT    ACTUAL    VERDICT
+----------------------------------------------------------------------
+direct-open (sanity)       BLOCKED   BLOCKED   PASS
+io_uring-openat-read       BLOCKED   BLOCKED   PASS
+open_by_handle_at          BLOCKED   BLOCKED   PASS
+openat2                    BLOCKED   BLOCKED   PASS
+preblock-fd-survives       ALLOWED   ALLOWED   PASS
+raw-block-device-read      ALLOWED   ALLOWED   PASS
+
+--- probe output ---
+    iouring OPENAT res=-1 (Operation not permitted)
+    open_by_handle_at res=-errno (Operation not permitted)
+
+block events logged by agent: 4
+
+RESULT: 6 passed, 0 failed
+HARNESS_EXIT=0
+
+=== positive control: io_uring OPENAT+READ on an UNBLOCKED file ===
+# (proves the ring machinery works, so the blocked-case -EPERM is real enforcement)
+iouring OPENAT res=4 (opened)
+iouring READ res=31
+iouring DATA=[AEGIS_ALTREAD_TOPSECRET_7f3a91
+]
+CONTROL_EXIT=0
