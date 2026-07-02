@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783033915376,
+  "lastUpdate": 1783035024391,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45288,6 +45288,108 @@ window.BENCHMARK_DATA = {
             "value": 54.64327542651097,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.629122314432415 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf0675584df791d748a3081469d7c9fb97a54926",
+          "message": "fix(bpf): resilient object load — a verifier-fragile optional hook can't kill enforcement (#266)\n\nFinding 2 from the cross-kernel matrix: on Ubuntu 24.04 LTS's GA 6.8 kernel the\nverifier rejects handle_inode_copy_up (overlayfs copy-up telemetry) with\n\"R0 ... should have been in [-4095, 0]\". BPF object load is atomic, so that one\noptional program failing verification fails the whole object and drops the agent\nto DEGRADED — no enforcement at all. It is non-monotonic: the same CO-RE object\nverifies on 5.15 AND 6.17 but not 6.8 (same 24.04 distro on the 6.17 HWE kernel\npasses; on the GA 6.8 kernel it fails — purely the kernel).\n\nFix: load_bpf() now retries. The prior body becomes load_bpf_once(..., force_disable)\nwhich re-runs the full open->configure->load flow (the object is opened from a file,\nso re-open is cheap) with an extra set of programs forced to autoload=false. On a\nload failure the wrapper retries once with known verifier-fragile OPTIONAL hooks\n(handle_inode_copy_up) disabled, so a single fragile optional hook can never take\ncore enforcement down. Required hooks (file_open/inode_permission/execve/fork) are\nnever in that set — if one of those fails, the retry fails identically and the\noriginal error is returned. Generalizes to any future per-kernel verifier quirk on\nany optional hook.\n\nValidated on 6.8: agent logs the first-attempt rejection, then \"Loaded with a\nverifier-fragile optional hook disabled (degraded overlay telemetry; core\nenforcement unaffected)\" and all four batteries pass (smoke, path-alias 11/0,\nalt-read 6/0, backpressure PASS 877,699 drops / 0-of-1600 decisions lost). No\nregression on 6.17. Cross-kernel matrix is now 4/4 (5.15/6.1/6.8/6.17).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:19:07+03:00",
+          "tree_id": "bb871e4ef9eb86a52283d9ba7d272b11002a7604",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/cf0675584df791d748a3081469d7c9fb97a54926"
+        },
+        "date": 1783035023422,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1534.8338489203927,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1534.5442397620454 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3686.171860497616,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3685.80440745018 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21071.63174405745,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21069.747086536972 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160306.84876897137,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160276.6548820584 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1275266.969062777,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1275138.9459357 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5092551.508787833,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5092008.536969698 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4928.188809826416,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4943.467495481157 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34460.05209280958,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34458.706797195395 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 278673.0068360949,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 278672.46300178097 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 863835.5924894573,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 864029.6673353611 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.071483160980684,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.06686997192913 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.1900318287155,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.18307193713837 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.15151648099725,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.14644319840743 ns\nthreads: 1"
           }
         ]
       }
