@@ -1,27 +1,50 @@
 {
   "kernel": "6.8.0-124-generic",
-  "lsm": "lockdown,capability,landlock,yama,apparmor,bpf",
   "os": "Ubuntu 24.04.4 LTS",
+  "lsm": "lockdown,capability,landlock,yama,apparmor,bpf",
   "bpf_lsm_active": true,
+  "note": "Unpatched agent goes DEGRADED here (handle_inode_copy_up verifier rejection fails the atomic object load). With the resilient-load fix, the agent retries with that one optional hook disabled and enforces fully.",
+  "resilient_load_fix": true,
   "batteries": {
     "smoke_enforce": {
-      "exit": 1,
-      "pass": false
+      "exit": 0,
+      "pass": true
     },
     "redteam_bypass": {
-      "exit": 1,
-      "pass": false,
-      "counts": null
+      "exit": 0,
+      "pass": true,
+      "counts": {
+        "passed": 11,
+        "failed": 0
+      }
     },
     "redteam_altread": {
-      "exit": 1,
-      "pass": false,
-      "counts": null
+      "exit": 0,
+      "pass": true,
+      "counts": {
+        "passed": 6,
+        "failed": 0
+      }
     },
     "backpressure_saturation": {
-      "exit": 1,
-      "pass": false
+      "exit": 0,
+      "pass": true,
+      "detail": {
+        "workers": 48,
+        "ringbuf_bytes": 4096,
+        "freeze_seconds": 6,
+        "drops_baseline": 882474,
+        "drops_frozen_end": 1760173,
+        "drops_delta_frozen": 877699,
+        "min_drops_required": 1000,
+        "saturation_achieved": true,
+        "metrics_reachable_while_frozen": true,
+        "canary_reads_total": 1600,
+        "canary_misses_total": 0,
+        "daemon_survived_resume": true,
+        "pass": true
+      }
     }
   },
-  "all_pass": false
+  "all_pass": true
 }
