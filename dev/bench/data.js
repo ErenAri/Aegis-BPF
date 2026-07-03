@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783082453844,
+  "lastUpdate": 1783082876738,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -46632,6 +46632,108 @@ window.BENCHMARK_DATA = {
             "value": 56.17692719351609,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.16839330078233 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710e878599dfb072149285fa4687539fbf1a4387",
+          "message": "docs: consolidate docs tree + add documentation index (#271)\n\nConsolidation pass over the docs corpus (reference-graph driven, not\nblind deletion):\n\n- Add docs/README.md — a categorized index of every doc under docs/,\n  linked from the README's Documentation section. This makes the ~97\n  docs navigable and surfaces previously-orphaned but useful docs\n  (QUICKSTART_K8S, WHY_AEGISBPF, ARCHITECTURE_CONTROL_PLANE,\n  BPF_VERIFICATION_BYPASS, ERROR_HANDLING, POLICY_AUDIT_EXPLAINABILITY,\n  ROLLOUT_CHECKLIST) that nothing linked to before.\n- Remove 4 orphaned, self-superseded docs (referenced by no other\n  tracked file; recoverable from git history):\n  - RELEASE_SUMMARY_v0.1.1.md   (historical v0.1.1 note, superseded by CHANGELOG)\n  - docs/EXCELLENCE_SUMMARY.md   (internal meta-doc, stale stats)\n  - docs/GOLD_STANDARD_IMPLEMENTATION_PLAN.md (internal aspirational plan)\n  - docs/CI_WORKFLOW_AUDIT.md    (self-described one-time audit, outdated)\n\nA reference-graph scan showed only 11 of 101 candidate docs were\norphans and the other 90 are cross-linked, so the remaining docs are\ninterconnected/substantive rather than redundant — mass deletion would\nhave broken links and lost content. Kept accordingly.\n\nAlso gitignore .claude/ (Claude Code local state).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:23:48+03:00",
+          "tree_id": "a124d37c7faf77f434188675be2891ca01d7e80d",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/710e878599dfb072149285fa4687539fbf1a4387"
+        },
+        "date": 1783082875712,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1521.3665528028332,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1521.2297855893823 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3671.091979313849,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3670.804514275334 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21025.99157097023,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21022.2428739906 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 159714.6390796051,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 159702.0556127705 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1272051.6913273018,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1271954.9333333329 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5083322.932065212,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5082428.310084552 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4914.236355483775,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4931.633990681345 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34202.17238859725,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34205.808819093865 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 277280.7538491766,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 277274.9675733061 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 874015.4042862217,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 874270.5214835516 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.76020275241611,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.75084584710823 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.88818429548866,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.88230390275115 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.489081224628144,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.477821818091996 ns\nthreads: 1"
           }
         ]
       }
