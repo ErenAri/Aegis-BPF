@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="AegisBPF - eBPF/LSM runtime security enforcement for Linux and Kubernetes">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1120"/>
+      <stop offset="0.55" stop-color="#0d1930"/>
+      <stop offset="1" stop-color="#0b1526"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.6" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e6f1ff"/>
+      <stop offset="1" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <linearGradient id="shieldFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12233f"/>
+      <stop offset="1" stop-color="#0b1a30"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.18" cy="0.4" r="0.75">
+      <stop offset="0" stop-color="#1d4ed8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#1d4ed8" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="hex" width="56" height="48" patternUnits="userSpaceOnUse" patternTransform="scale(1)">
+      <path d="M14 0 L42 0 L56 24 L42 48 L14 48 L0 24 Z" fill="none" stroke="#3b82f6" stroke-opacity="0.08" stroke-width="1.5"/>
+    </pattern>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1280" height="340" rx="20" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="340" rx="20" fill="url(#hex)"/>
+  <rect x="0" y="0" width="1280" height="340" rx="20" fill="url(#glow)"/>
+  <rect x="1" y="1" width="1278" height="338" rx="19" fill="none" stroke="#1e3a5f" stroke-opacity="0.6" stroke-width="2"/>
+
+  <!-- shield emblem -->
+  <g transform="translate(96,60)">
+    <path d="M70 0 L136 26 L136 92 C136 150 106 190 70 214 C34 190 4 150 4 92 L4 26 Z"
+          fill="url(#shieldFill)" stroke="url(#accent)" stroke-width="4"/>
+    <!-- kernel hook / bpf motif inside -->
+    <g stroke="url(#accent)" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M70 44 L70 132"/>
+      <path d="M42 70 L70 44 L98 70"/>
+      <path d="M42 118 C42 152 98 152 98 118"/>
+    </g>
+    <circle cx="70" cy="150" r="7" fill="#38bdf8"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text x="264" y="150" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="82" font-weight="700" fill="url(#wordmark)" letter-spacing="1">AegisBPF</text>
+  <text x="268" y="196" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#9fb6d1">eBPF &#183; LSM runtime security enforcement for Linux &amp; Kubernetes</text>
+
+  <!-- capability chips -->
+  <g font-family="'JetBrains Mono','SF Mono',Consolas,monospace" font-size="16" font-weight="600">
+    <g transform="translate(268,238)">
+      <rect x="0" y="0" width="182" height="40" rx="12" fill="#0e2038" stroke="#2563eb" stroke-opacity="0.55"/>
+      <text x="18" y="26" fill="#7dd3fc">BPF-LSM &#8722;EPERM</text>
+    </g>
+    <g transform="translate(462,238)">
+      <rect x="0" y="0" width="196" height="40" rx="12" fill="#0e2038" stroke="#2563eb" stroke-opacity="0.55"/>
+      <text x="18" y="26" fill="#7dd3fc">IMA exec identity</text>
+    </g>
+    <g transform="translate(670,238)">
+      <rect x="0" y="0" width="204" height="40" rx="12" fill="#0e2038" stroke="#2563eb" stroke-opacity="0.55"/>
+      <text x="18" y="26" fill="#7dd3fc">OverlayFS copy-up</text>
+    </g>
+    <g transform="translate(886,238)">
+      <rect x="0" y="0" width="216" height="40" rx="12" fill="#0e2038" stroke="#2563eb" stroke-opacity="0.55"/>
+      <text x="18" y="26" fill="#7dd3fc">dual-stack CIDR deny</text>
+    </g>
+  </g>
+
+  <!-- right-side status ticks -->
+  <g font-family="'JetBrains Mono','SF Mono',Consolas,monospace" font-size="15" fill="#6b8bb0">
+    <text x="1150" y="70" text-anchor="end">kernel 5.15+</text>
+    <text x="1150" y="96" text-anchor="end">x86_64 &#183; ARM64</text>
+    <text x="1150" y="122" text-anchor="end">CO-RE portable</text>
+  </g>
+  <circle cx="1170" cy="65" r="4" fill="#22c55e"/>
+  <circle cx="1170" cy="91" r="4" fill="#22c55e"/>
+  <circle cx="1170" cy="117" r="4" fill="#22c55e"/>
+</svg>
