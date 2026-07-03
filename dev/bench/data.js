@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783079803066,
+  "lastUpdate": 1783081705930,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45684,6 +45684,102 @@ window.BENCHMARK_DATA = {
             "value": 55.48892712067667,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.484033773179334 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec6ba3899014947e6b1c648af75a36672dfc53f3",
+          "message": "docs: remove README banner (#270)\n\nReverts the SVG banner added in #269 and its README reference; the\ndocs/images/banner.svg asset is deleted. README top returns to the\nheading + badges layout. All remaining relative links and the four\nconsole screenshots still resolve.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:16:54+03:00",
+          "tree_id": "745d1d90481ca49ad98e5382537df249a06a0e65",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/ec6ba3899014947e6b1c648af75a36672dfc53f3"
+        },
+        "date": 1783081704943,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1523.552259098382,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1523.414312166917 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3638.67460793659,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3638.3498048449396 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20886.700113650517,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20884.76115024354 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 158436.11091694856,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 158406.83378429216 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1258736.8327338102,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1258597.2631145122 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5024738.58033573,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5024210.639688256 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4729.738407195795,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4739.869402203157 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33098.18291982635,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33108.857546808555 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 271451.3611004441,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 271423.58275308757 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 814968.4045894011,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 814964.5662802025 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 69.56289776361469,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.55004482861243 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.88347880290584,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.878546525734045 ns\nthreads: 1"
           }
         ]
       }
