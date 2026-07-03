@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/images/banner.svg" alt="AegisBPF — eBPF/LSM runtime security enforcement for Linux & Kubernetes" width="100%">
-</p>
-
 # AegisBPF
 
 [![CI](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml/badge.svg)](https://github.com/ErenAri/Aegis-BPF/actions/workflows/ci.yml)
