@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783081833765,
+  "lastUpdate": 1783081926841,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -46158,6 +46158,96 @@ window.BENCHMARK_DATA = {
             "value": 58.93386089133336,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 58.92135728983706 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b57ecfa82b39174f6c137d43cef26abc5f1948f9",
+          "message": "chore(deps): Bump gitleaks/gitleaks-action (#258)\n\nBumps [gitleaks/gitleaks-action](https://github.com/gitleaks/gitleaks-action) from dcedce43c6f43de0b836d1fe38946645c9c638dc to ff98106e4c7b2bc287b24eaf42907196329070c7.\n- [Release notes](https://github.com/gitleaks/gitleaks-action/releases)\n- [Commits](https://github.com/gitleaks/gitleaks-action/compare/dcedce43c6f43de0b836d1fe38946645c9c638dc...ff98106e4c7b2bc287b24eaf42907196329070c7)\n\n---\nupdated-dependencies:\n- dependency-name: gitleaks/gitleaks-action\n  dependency-version: ff98106e4c7b2bc287b24eaf42907196329070c7\n  dependency-type: direct:production\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-03T15:17:13+03:00",
+          "tree_id": "6c6c4a82deec109cbd210dc22724e3f79ac7b41a",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/b57ecfa82b39174f6c137d43cef26abc5f1948f9"
+        },
+        "date": 1783081925263,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1184.0213225290465,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1183.9177027102203 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2854.1388675671074,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2853.882083819917 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 16347.650100957098,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16344.49173995765 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 124021.13527457888,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 124009.53749630933 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 985735.2061064237,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 985643.6191983122 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3945085.958687443,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3944266.3807837553 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 3926.8248641026585,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3939.6093833270425 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 26456.785706702096,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26464.80424396652 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 217461.62353816486,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 217442.45353419194 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 676029.3093163929,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 676237.6882253491 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 58.68997360728262,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 58.684942292828914 ns\nthreads: 1"
           }
         ]
       }
