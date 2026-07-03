@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783084489726,
+  "lastUpdate": 1783092423491,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -46830,6 +46830,108 @@ window.BENCHMARK_DATA = {
             "value": 55.42602475906983,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.42092806882863 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76ff07cfeb9de141d0ea1016bda8435303c8d995",
+          "message": "docs: re-validate kernel matrix for v0.9.0 (6.8/6.12 now 22/22) (#274)\n\nRe-ran the bpfcompat Layer-A matrix against the v0.9.0 aegis.bpf.o\n(sha256 a468abd5…, commit dcd6128) via bpfcompat-matrix.yml CI run\n28668816737 (PASS). Refreshes the stale 2026-06-01 provenance.\n\nKey change: 6.8 and 6.12 now load all 22 programs (was 21/22) —\nhandle_inode_copy_up verifies after the #267 barrier_var+clamp fix, so\nthe overlay copy-up hook is active on those kernels. 5.15 remains 20/22\n(the two <6.1-gated optional hooks). Required hooks (file_open +\ninode_permission) load on every profile.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T18:15:43+03:00",
+          "tree_id": "3c240f387ca91a78369d46b41756f3f753a6a502",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/76ff07cfeb9de141d0ea1016bda8435303c8d995"
+        },
+        "date": 1783092422274,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1531.1835191724667,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1530.8528052159838 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3681.291042778519,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3680.975622834985 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21079.199145569353,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21077.361064701934 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160407.07861473353,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160378.58718447355 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1279750.6478030325,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1279634.233560607 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5141981.483636342,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5141455.1596969655 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4941.948613942891,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4957.5975846405045 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34315.36421177511,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34315.452942325595 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 279471.0159679533,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 279482.10294420004 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 867386.3458564538,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 867643.5584930292 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.05944176671355,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.05513987838353 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.68475175303782,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.67132729427216 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.454972364715836,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.44998327884577 ns\nthreads: 1"
           }
         ]
       }
