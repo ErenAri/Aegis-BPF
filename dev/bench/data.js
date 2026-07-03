@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783036259224,
+  "lastUpdate": 1783078647186,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45486,6 +45486,102 @@ window.BENCHMARK_DATA = {
             "value": 56.1659902748109,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.154655537290985 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2262ccdaabbebba6f81168a4cdf807d54a5c9cf5",
+          "message": "ci: least-privilege GITHUB_TOKEN permissions across all workflows (#268)\n\n* ci: add least-privilege top-level permissions to all workflows\n\nAdds a top-level `permissions: contents: read` block to the 18\nworkflows that had none and to nightly-fuzz.yml (which had only\njob-level permissions). This resolves the OSSF Scorecard\nToken-Permissions (high) code-scanning alerts: with no top-level\nblock, a workflow inherits the repository-default GITHUB_TOKEN\nscope, which may be read/write.\n\nNone of these workflows push packages, create releases, upload\nSARIF, comment on PRs/issues, or dispatch other workflows, so\ncontents: read is sufficient. actions/upload-artifact needs only\ncontents: read. nightly-fuzz.yml keeps its job-level `actions:\nwrite` (corpus cache) — job permissions override the top-level\ndefault — so no functional change to any workflow.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: move write permissions from top-level to the jobs that need them\n\nSecond half of the Token-Permissions cleanup. Scorecard scores any\ntop-level write scope as 0; the fix is top-level `contents: read`\nplus job-level escalation only where a job actually needs write.\n\n- benchmark.yml: top-level contents+pull-requests write -> read;\n  the writes (github-action-benchmark auto-push to gh-pages + advisory\n  comments) move to the single `benchmark` job.\n- multi-arch.yml: top-level packages:write -> read; packages:write\n  moves to `docker-multiarch` (the only job that pushes to GHCR).\n- release.yml: top-level contents/id-token/packages/attestations write\n  -> read; scoped per job — `sign-and-release` gets contents+id-token+\n  attestations (GH release, Sigstore, provenance), `docker` gets\n  packages+id-token (GHCR push + cosign). Gate/build jobs stay read.\n- nightly-fuzz.yml: drop job-level `actions: write` from both jobs —\n  actions/cache/save uses unique run_id keys and never deletes caches,\n  so it needs no actions scope.\n\nMirrors the already-clean job-level pattern in container-images.yml,\nscorecard.yml and security.yml (none of which raise an alert). No\nfunctional change to any workflow.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:26:12+03:00",
+          "tree_id": "745d1d90481ca49ad98e5382537df249a06a0e65",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/2262ccdaabbebba6f81168a4cdf807d54a5c9cf5"
+        },
+        "date": 1783078645950,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1530.0497312634843,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1529.8202602625443 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4339.334108966379,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4338.962202209546 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26862.021942204363,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26859.79684299801 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 206818.79209736202,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 206799.97015898817 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1644228.4843505465,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1643972.2235915505 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6565038.441978205,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6564401.846962612 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4114.189935132786,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4118.187776988829 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29609.14461861787,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29609.699366347613 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 240755.68884029277,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 240736.24871335013 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 727423.9447030978,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 727462.4833075483 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 66.31283511093532,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 66.30781251396158 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 50.981358932387074,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 50.97755954719122 ns\nthreads: 1"
           }
         ]
       }
