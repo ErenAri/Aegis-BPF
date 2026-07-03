@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # Cross-compile userspace for arm64 without QEMU (faster than full emulation)
@@ -118,6 +117,10 @@ jobs:
   docker-multiarch:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    # Only this job pushes images to GHCR.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

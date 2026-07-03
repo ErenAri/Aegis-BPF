@@ -6,6 +6,9 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   readiness:
     name: readiness (${{ matrix.os }})

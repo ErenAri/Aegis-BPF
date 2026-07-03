@@ -9,6 +9,9 @@ on:
   pull_request: {}
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   bpf-compile-matrix:
     name: bpf-compile (clang-${{ matrix.clang_version }})

@@ -12,6 +12,9 @@ on:
       - '.github/workflows/helm.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   helm:
     runs-on: ubuntu-24.04
