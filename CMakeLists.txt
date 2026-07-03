@@ -226,6 +226,7 @@ set(AEGIS_SOURCES
     src/commands_emergency.cpp
     src/commands_explain.cpp
     src/commands_health.cpp
+    src/commands_simulate.cpp
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
@@ -281,6 +282,7 @@ set(AEGIS_HEADERS
     src/commands_emergency.hpp
     src/commands_explain.hpp
     src/commands_health.hpp
+    src/commands_simulate.hpp
     src/commands_keys_survival.hpp
     src/commands_metrics.hpp
     src/commands_monitoring.hpp
@@ -374,6 +376,7 @@ set(AEGIS_LIB_SOURCES
     src/commands_emergency.cpp
     src/commands_explain.cpp
     src/commands_health.cpp
+    src/commands_simulate.cpp
     src/commands_network.cpp
     src/commands_policy.cpp
     src/commands_probe.cpp
@@ -479,6 +482,7 @@ if(BUILD_TESTING)
         tests/test_tracing.cpp
         tests/test_rule_engine.cpp
         tests/test_landlock_sandbox.cpp
+        tests/test_simulate.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

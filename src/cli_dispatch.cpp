@@ -152,6 +152,43 @@ int dispatch_explain_command(int argc, char** argv, const char* prog)
     return cmd_explain(event_path, policy_path, json_output);
 }
 
+int dispatch_simulate_command(int argc, char** argv, const char* prog)
+{
+    SimulateOptions opts{};
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--events") {
+            if (i + 1 >= argc) return usage(prog);
+            opts.events_path = argv[++i];
+        } else if (arg.rfind("--events=", 0) == 0) {
+            opts.events_path = arg.substr(std::strlen("--events="));
+        } else if (arg == "--policy") {
+            if (i + 1 >= argc) return usage(prog);
+            opts.policy_path = argv[++i];
+        } else if (arg.rfind("--policy=", 0) == 0) {
+            opts.policy_path = arg.substr(std::strlen("--policy="));
+        } else if (arg == "--json") {
+            opts.json_output = true;
+        } else if (arg == "--strict") {
+            opts.strict = true;
+        } else if (arg.rfind("--sample-limit=", 0) == 0) {
+            try {
+                opts.sample_limit = static_cast<size_t>(std::stoul(arg.substr(std::strlen("--sample-limit="))));
+            } catch (...) {
+                return usage(prog);
+            }
+        } else if (opts.events_path.empty() && arg.rfind("--", 0) != 0) {
+            // Positional events path for ergonomics: `aegisbpf simulate past.jsonl`
+            opts.events_path = arg;
+        } else {
+            return usage(prog);
+        }
+    }
+
+    return cmd_simulate(opts);
+}
+
 int dispatch_metrics_command(int argc, char** argv, const char* prog)
 {
     std::string out_path;
@@ -302,6 +339,8 @@ int dispatch_cli(int argc, char** argv)
         return dispatch_doctor_command(argc, argv, argv[0]);
     if (cmd == "explain")
         return dispatch_explain_command(argc, argv, argv[0]);
+    if (cmd == "simulate")
+        return dispatch_simulate_command(argc, argv, argv[0]);
     if (cmd == "metrics")
         return dispatch_metrics_command(argc, argv, argv[0]);
     if (cmd == "capabilities")

@@ -5,6 +5,7 @@
 #include "commands_emergency.hpp"
 #include "commands_explain.hpp"
 #include "commands_health.hpp"
+#include "commands_simulate.hpp"
 #include "commands_keys_survival.hpp"
 #include "commands_metrics.hpp"
 #include "commands_monitoring.hpp"
