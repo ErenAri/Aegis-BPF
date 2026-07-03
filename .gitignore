@@ -33,3 +33,6 @@ artifacts/
 
 # operator local tooling (controller-gen etc.)
 /operator/bin/
+
+# Claude Code local state (agent worktrees, settings)
+.claude/
