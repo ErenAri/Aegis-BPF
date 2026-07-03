@@ -98,6 +98,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Feature surface contract: passing
 - Build: zero errors, zero warnings
 
+## [0.9.0] - 2026-07-03
+
+Cross-kernel enforcement hardening, on-hardware trust evidence, and supply-chain
+CI hygiene. Highlights since v0.8.0:
+
+### Fixed — Cross-kernel enforcement
+- **Agent now starts and enforces on kernels < 6.1** (#265): the `handle_exit`
+  process-exit tracepoint is verifier-gated below 6.1 and was still attached via
+  the fatal path, aborting *all* enforcement on 5.4/5.10/5.15. The attach now
+  honors the autoload gate.
+- **Resilient BPF object load** (#266): a single verifier-fragile *optional* hook
+  can no longer take down core enforcement — load retries once with known-fragile
+  optional hooks disabled; required enforcement hooks are never disabled.
+- **`handle_inode_copy_up` verifies on all kernels** (#267): fixed a non-monotonic
+  6.8 verifier rejection (`R0` out of `[-4095,0]`) via the `barrier_var()` + clamp
+  idiom, restoring overlay copy-up enforcement with zero degradation on 6.8.
+- Net effect: clean load + enforcement across the 5.15 → 6.17 LTS range.
+
+### Added — Trust evidence (reproducible, on-hardware)
+- Free cross-kernel enforcement matrix (5.15/6.1/6.8/6.17 via qemu/KVM) (#265).
+- Red-team alternate-read-path bypass battery — io_uring / `open_by_handle_at` /
+  `openat2` (#263).
+- Backpressure-saturation battery — enforcement holds when telemetry drops (#264).
+- Enforcement-grade canary + red-team soak evidence (#241, #242).
+- Pilot evidence contract + template and validation test (#252).
+
+### Added — Security posture & CI supply-chain hardening
+- Least-privilege `GITHUB_TOKEN` permissions across all workflows; write scopes
+  moved to the jobs that need them (#268). Cleared all OSSF Scorecard
+  Token-Permissions alerts.
+- Future-LSM / next-gen BPF posture (#245); trusted key lookup hardening (#243);
+  policy `authoritative` flip behind a default-off mode (#240).
+- Self-hosted PR workflows gated (#247); required-check reporting hardened (#246).
+- KPI-threshold, degraded-mode, rollback-failure, and e2e-matrix coverage
+  contracts locked in.
+- ~20 pinned GitHub Action dependency bumps.
+
+### Changed — Docs
+- Added a categorized documentation index (`docs/README.md`) and consolidated the
+  docs tree (#271).
+
 ## [0.1.1] - 2026-02-07
 
 ### Security
