@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783078647186,
+  "lastUpdate": 1783079803066,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -45582,6 +45582,108 @@ window.BENCHMARK_DATA = {
             "value": 50.981358932387074,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 50.97755954719122 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9517010c2f3b4a62a9691ebede0da5a2bb6c226b",
+          "message": "docs: add SVG project banner to README (#269)\n\nAdds a self-contained (no external hosting, CSP-safe, scales crisply)\nSVG banner at docs/images/banner.svg and places it at the top of the\nREADME. It states the project identity — eBPF/LSM runtime security\nenforcement for Linux & Kubernetes — with a shield emblem and capability\nchips (BPF-LSM -EPERM, IMA exec identity, OverlayFS copy-up, dual-stack\nCIDR deny) plus kernel/arch/CO-RE status ticks.\n\nReferenced via a repo-relative path so GitHub serves it from\nraw.githubusercontent and the browser renders the gradients/text\nnatively in <img>.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:45:18+03:00",
+          "tree_id": "97340f8cb130dfaef853b099c46f547918060428",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/9517010c2f3b4a62a9691ebede0da5a2bb6c226b"
+        },
+        "date": 1783079802051,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1528.686468790492,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1528.3914215155612 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3672.4987479007705,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3672.1214306757943 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21009.798254094265,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21007.57086293553 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160107.4466978083,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160092.944779917 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1273756.0261228227,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1273518.0806599432 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5091760.556461351,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5091152.639190801 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4914.462168841035,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4931.707645776084 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34251.682518302216,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34254.40306373117 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 277295.6758222502,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 277301.8202754445 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 873442.6108675832,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 873658.0174696896 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.51510971936583,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.510753780619496 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.72801983696722,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.72154474118587 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.48892712067667,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.484033773179334 ns\nthreads: 1"
           }
         ]
       }
