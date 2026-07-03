@@ -1066,6 +1066,8 @@ TOCTOU analysis are in [docs/GUARANTEES.md](docs/GUARANTEES.md).
 
 ## Documentation
 
+**[Full documentation index →](docs/README.md)** — categorized map of every doc under `docs/`.
+
 ### Core Documentation
 
 | Document | Description |
