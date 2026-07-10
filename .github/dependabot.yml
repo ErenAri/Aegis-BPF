@@ -5,3 +5,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # Held at v3 until cosign-installer v4 can be validated in a real release
+      # run (release.yml is tag-triggered + needs the self-hosted signing runners).
+      # Remove this entry to let Dependabot propose v4 again.
+      - dependency-name: "sigstore/cosign-installer"
+        update-types: ["version-update:semver-major"]
