@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783092423491,
+  "lastUpdate": 1783696124802,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -46932,6 +46932,102 @@ window.BENCHMARK_DATA = {
             "value": 55.454972364715836,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.44998327884577 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ca2d77ae31e7cc1e27108816a8650a753453d209",
+          "message": "evidence: publish 168h enforce-mode soak on v0.9.0 (PASS) (#285)\n\nA full 7-day continuous BPF-LSM enforcement soak on real hardware\n(kernel 6.17), against v0.9.0 (commit dcd6128):\n\n- enforcement canary: 0 misses / 57,310 checks\n- 7,131,132,679 enforcement decisions\n- RSS growth +784 KB over 168h (no leak; budget was 128 MiB)\n- zero crashes, no suspend interruptions, clean exit 0\n\nAdds the reproducible wrapper (scripts/soak_laptop_168h.sh — enforce,\n168h, private canary so enforce mode never denies a system path\nhost-wide), a live status helper (scripts/soak_status.sh), the evidence\npack (evidence/soak-168h-laptop/, soak.log trimmed of 54,957 rotation\nlines), and a CHANGELOG entry closing the \"168h soak evidence not yet\npublished\" gap. Telemetry drops (~21.7%) are expected and decoupled from\nenforcement — the canary is the proof.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T17:57:22+03:00",
+          "tree_id": "ae507530ced6aab5d4230bed1df10b55c77d8ab1",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/ca2d77ae31e7cc1e27108816a8650a753453d209"
+        },
+        "date": 1783696123376,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1528.2627163144437,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1528.1276834299886 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3763.317879084157,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3762.6313490315515 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21895.25499410175,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21893.04667499663 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166325.35926079573,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166310.52329026881 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1324059.9379332114,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1323945.8231726543 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5290642.852830184,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5289666.302515703 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4847.584395929528,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4858.99692127373 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33283.22268061333,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33294.890523866816 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 270316.07250643155,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 270279.45289574604 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 813326.8549345651,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 813451.0807489478 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 73.0259692224132,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 73.01967741933767 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.336526231976144,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.32582441129539 ns\nthreads: 1"
           }
         ]
       }
