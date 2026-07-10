@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — CI / Dependencies
+- **Pinned `sigstore/cosign-installer` back to v3 in `release.yml`** (reverted
+  Dependabot's v3→v4.1.2 major bump) plus a Dependabot `ignore` for its
+  semver-major updates. The v4 bump was never exercised — `release.yml` is
+  tag-triggered and gated on the (currently offline) self-hosted signing
+  runners, so it can't run in normal push CI, and cosign-installer v4 may change
+  the installed cosign CLI behavior (`cosign sign-blob` / `cosign sign`). Held at
+  the known-good v3 until v4 can be validated in a real release run; remove the
+  Dependabot ignore to re-propose v4. The other 9 action bumps from the same
+  Dependabot batch were kept (all exercised-green in push CI or dormant).
+
 ### Added — Soak Evidence
 - **168-hour (7-day) enforce-mode soak on v0.9.0** (`scripts/soak_laptop_168h.sh`,
   `scripts/soak_status.sh`, `evidence/soak-168h-laptop/`) — a full week of
