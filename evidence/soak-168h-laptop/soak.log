@@ -1,0 +1,16 @@
+# soak.log (trimmed: 54,957 identical 'daemon.log rotated' watchdog lines elided;
+#  log-rotation kept disk bounded for the full 7 days — see daemon_log_rotations in soak_summary.json)
+soak working dir: /tmp/tmp.i66kn8MJsv (free=175939 MiB, cap_log=100 MiB, min_free=2048 MiB)
+starting daemon for soak test (mode=enforce duration=604800s workers=16 net=1)
+preloaded temporary soak block rule: /var/tmp/aegis-soak-canary
+starting network workload workers (UDP connect to 127.0.0.1:9)
+initial RSS: 51096 kB
+max RSS: 51880 kB (growth=784 kB)
+max ringbuf drops: 669056 (file=669056, net=0)
+max observed decision events: 7133534912
+max observed total events (decisions + drops): 7134203968
+max observed drop ratio: 21.746094% (target <= 100%)
+daemon.log rotations: 54957
+decisions this run (delta): 7131132679 (baseline=2402233, max_abs=7133534912)
+enforcement canary: 0 miss(es) / 57310 checks
+soak reliability checks passed
