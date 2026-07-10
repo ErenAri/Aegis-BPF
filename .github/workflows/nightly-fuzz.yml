@@ -83,7 +83,7 @@ jobs:
       # eviction if the repo exceeds its 10 GB quota.
       - name: Save corpus cache
         if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: runtime-corpus
           key: fuzz-corpus-${{ github.run_id }}
@@ -150,7 +150,7 @@ jobs:
 
       - name: Save Rust corpus cache
         if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: rust/aegis-parser/rust-runtime-corpus
           key: rust-fuzz-corpus-${{ github.run_id }}
