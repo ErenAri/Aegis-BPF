@@ -342,10 +342,8 @@ fn parse_ip_port_canonical(text: &[u8]) -> Option<String> {
     let protocol = parse_protocol_value(&protocol_part)?;
     let ip_canon = if let Some(v4) = parse_ipv4(&ip_part) {
         v4.to_string()
-    } else if let Some(v6) = parse_ipv6(&ip_part) {
-        v6.to_string()
     } else {
-        return None;
+        parse_ipv6(&ip_part)?.to_string()
     };
     Some(format!("{ip_canon}|{port}|{protocol}"))
 }
