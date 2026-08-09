@@ -2,7 +2,7 @@
   "tweetnacl": {
     "upstream_version": "20140917",
     "upstream_source": "https://tweetnacl.cr.yp.to/",
-    "last_reviewed": "2026-05-07",
+    "last_reviewed": "2026-08-09",
     "review_interval_days": 90,
     "owner": "security-team"
   }
