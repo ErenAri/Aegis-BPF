@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786302351539,
+  "lastUpdate": 1786306808316,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -48672,6 +48672,108 @@ window.BENCHMARK_DATA = {
             "value": 55.94613945623119,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 55.93471703387882 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b05e5602e1e59709e68c10d9cca720bb7650b1b",
+          "message": "fix(ci): repair main — clippy 1.97 lint + stale vendored-dep review (#298)\n\nTwo time/toolchain-drift failures broke every ci.yml job on main (none\nrelated to the recent Dependabot action bumps):\n\n1. rust-parser (clippy): clippy 1.97's question_mark lint now errors on\n   the `else if let Some(v6) … else { return None }` block in\n   rust/aegis-parser/src/policy.rs. Applied clippy's own suggested\n   rewrite: `parse_ipv6(&ip_part)?.to_string()`. Semantically identical;\n   local clippy + fmt + tests pass.\n\n2. vendored_dependency_contract (test / sanitizers×3 / coverage /\n   readiness×2 / QEMU-ARM64 — 8 jobs, all failing on this single test):\n   the TweetNaCl vendored-dep review went stale (last_reviewed 2026-05-07,\n   90-day interval, age 94d). src/tweetnacl.c is byte-identical since that\n   review (git log: 0 commits touching it), so this is a calendar\n   re-attestation of unchanged, still-pinned upstream — not a code change.\n   Bumped last_reviewed to 2026-08-09; check passes locally.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-09T23:08:51+03:00",
+          "tree_id": "88468698b10ac3c14a37094eb9ba6b475f008eaf",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/4b05e5602e1e59709e68c10d9cca720bb7650b1b"
+        },
+        "date": 1786306807113,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1530.9766123989348,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1530.815868375149 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3662.198424441573,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3661.7855586037203 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21076.82251222091,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21073.010022238228 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160686.79645434895,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160668.58339061335 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1280608.4620786337,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1280455.4006710357 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5098719.058181862,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5098113.45060606 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4798.434574197293,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4814.627312104388 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 35276.69008361262,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 35319.30918889103 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 280687.614852476,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 280744.8093195029 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 870564.2582873031,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 870838.5394657714 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.06033282246466,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.05014311753788 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.459344620692,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.45194890774032 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.16386979722915,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.15807279968979 ns\nthreads: 1"
           }
         ]
       }
