@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Node control API
+- **Root-only Unix-socket control API** (`AEGIS_API_SOCKET=<path>` on `run`,
+  `src/socket_api.{hpp,cpp}`, `src/daemon.cpp` wiring, `tests/test_socket_api.cpp`,
+  `docs/CONTROL_API.md`) — lets a co-located process drive AegisBPF enforcement
+  programmatically instead of shelling out to the CLI. Opt-in (off by default);
+  the pre-existing (never-wired) read-only socket server is now instantiated by
+  the daemon and extended with **control** verbs: `POST /block/add|del|clear`,
+  `POST /network/deny/ip|cidr`. Control ops are authorized by `SO_PEERCRED`
+  (peer uid must equal `control_uid`, default 0) on top of the `0600` socket, and
+  reuse the same `cmd_block_*` / `cmd_network_deny_*` code paths as the CLI, so a
+  `POST /block/add` takes effect on the running daemon's pinned maps immediately.
+  Verified end-to-end (driving `POST /block/add` over the socket made the target
+  file `-EPERM` on the next read) plus a 5-case GTest suite (health, verb/arg
+  routing incl. spaces in paths, control-disabled-without-handler, unauthorized
+  peer-uid rejection, unknown-verb). This is the foundation for the Falco Talon /
+  Falcosidekick response-engine integration — detect elsewhere, enforce here.
+
 ### Changed — CI / Dependencies
 - **Held the untested major bumps of the two `release.yml` signing-path actions**
   — `sigstore/cosign-installer` (pinned back to v3 from Dependabot's v4.1.2 bump)
