@@ -2,6 +2,11 @@
 
 This document describes how to integrate AegisBPF events with popular Security Information and Event Management (SIEM) systems.
 
+> **Ready-made pipeline:** [`integrations/vector/`](../integrations/vector/) ships a
+> Vector config that takes AegisBPF's OCSF output, enriches it (cloud/k8s/observables),
+> and fans it out to AWS Security Lake, Splunk, Microsoft Sentinel, or any
+> OCSF/OTLP-HTTP endpoint — plus a live-captured sample OCSF event. Start there.
+
 ## Event Format
 
 AegisBPF emits events in JSON format to stdout or journald. Two on-the-wire shapes are available:

@@ -61,7 +61,7 @@ A categorized map of the `docs/` tree. For a high-level overview start with the
 
 ## Policy & Rules
 - [Policy Format (v1–v6)](POLICY.md) · [Policy Audit & Explainability](POLICY_AUDIT_EXPLAINABILITY.md)
-- [SIEM Integration Guide](SIEM_INTEGRATION.md)
+- [SIEM Integration Guide](SIEM_INTEGRATION.md) · [OCSF → SIEM / data-lake pipeline (Vector)](../integrations/vector/)
 - Rule packs: [../rules/](../rules/) · MITRE tag schema: [rules/MITRE_ATTACK_TAG_SCHEMA.md](rules/MITRE_ATTACK_TAG_SCHEMA.md)
 
 ## Compliance & Evidence
