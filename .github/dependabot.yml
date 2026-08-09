@@ -6,8 +6,11 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     ignore:
-      # Held at v3 until cosign-installer v4 can be validated in a real release
-      # run (release.yml is tag-triggered + needs the self-hosted signing runners).
-      # Remove this entry to let Dependabot propose v4 again.
+      # Signing-path actions in release.yml (tag-triggered + gated on the offline
+      # self-hosted runners) can't be exercised in push CI, so their untested
+      # major bumps are held until they can be validated in a real release run.
+      # Remove an entry to let Dependabot propose the next major again.
       - dependency-name: "sigstore/cosign-installer"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "actions/attest-build-provenance"
         update-types: ["version-update:semver-major"]
