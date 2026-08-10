@@ -1,0 +1,81 @@
+# aegis-responder DaemonSet — runs one responder per node, next to the AegisBPF
+# agent, and reaches the agent's control socket over a hostPath mount.
+#
+# Prereq: the AegisBPF agent DaemonSet runs with
+#   env: AEGIS_API_SOCKET=/var/run/aegisbpf/aegisbpf.sock
+# so the 0600 root-owned control socket exists at that hostPath.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-responder-config
+  namespace: aegis
+data:
+  config.json: |
+    {
+      "socket": "/var/run/aegisbpf/aegisbpf.sock",
+      "dry_run": true,
+      "min_priority": "warning",
+      "auth_token": "",
+      "rules": [
+        { "rule": "Write below binary dir",         "action": "block-file", "field": "fd.name" },
+        { "rule": "Unexpected outbound connection", "action": "deny-ip",    "field": "fd.sip"  }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: aegis-responder
+  namespace: aegis
+  labels: { app.kubernetes.io/name: aegis-responder }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: aegis-responder }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: aegis-responder }
+    spec:
+      containers:
+        - name: aegis-responder
+          image: ghcr.io/erenari/aegis-responder:latest
+          args: []
+          ports:
+            - name: webhook
+              containerPort: 8080
+          env:
+            - { name: AEGIS_RESPONDER_CONFIG, value: /etc/aegis-responder/config.json }
+            - { name: AEGIS_RESPONDER_ADDR,   value: ":8080" }
+            # Optional: require callers to present X-Aegis-Token. Wire from a Secret:
+            # - name: AEGIS_RESPONDER_TOKEN
+            #   valueFrom: { secretKeyRef: { name: aegis-responder-token, key: token } }
+          # Runs as root to read the agent's 0600 control socket.
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: config,   mountPath: /etc/aegis-responder, readOnly: true }
+            - { name: ctl-sock, mountPath: /var/run/aegisbpf }
+          livenessProbe:
+            httpGet: { path: /healthz, port: webhook }
+          readinessProbe:
+            httpGet: { path: /healthz, port: webhook }
+      volumes:
+        - name: config
+          configMap: { name: aegis-responder-config }
+        - name: ctl-sock
+          hostPath: { path: /var/run/aegisbpf, type: Directory }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-responder
+  namespace: aegis
+spec:
+  selector: { app.kubernetes.io/name: aegis-responder }
+  ports:
+    - { name: webhook, port: 8080, targetPort: webhook }
+  # internalTrafficPolicy: Local keeps webhook traffic on the node that raised
+  # the alert, so enforcement lands where Falco saw the event.
+  internalTrafficPolicy: Local

@@ -24,6 +24,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   peer-uid rejection, unknown-verb). This is the foundation for the Falco Talon /
   Falcosidekick response-engine integration — detect elsewhere, enforce here.
 
+### Added — Falco integration
+- **`aegis-responder`: Falco → AegisBPF enforcement adapter**
+  (`integrations/falco/aegis-responder/`, `.github/workflows/falco-responder.yml`)
+  — a stdlib-only Go webhook responder that turns Falco detections into AegisBPF
+  kernel enforcement via the node-local control API. Falcosidekick posts alerts
+  to it; it maps configured rules to `POST /block/add` / `POST /network/deny/*`
+  on the agent's control socket, installing a race-free in-kernel `-EPERM` on the
+  node where the alert fired. **Safe by default:** an explicit rule allowlist (only
+  named Falco rules act), a `min_priority` gate, and a `dry_run` mode. Ships a
+  config schema + example, a DaemonSet/Service manifest, a distroless Dockerfile,
+  Go unit tests (rule→verb mapping, priority gate, socket-protocol round-trip),
+  and its own CI (gofmt/vet/test/build). Verified end-to-end: a Falco webhook for
+  *"Write below binary dir"* drove `POST /block/add <path>` and the target file
+  became `-EPERM` on the next read. Pairs Falco (CNCF-graduated detection) with
+  AegisBPF enforcement; the standalone equivalent of a Falco Talon actionner.
+  Hardened at the trust boundary: every enforcement target is shape-validated
+  (absolute path / parseable IP / CIDR) with control-character (`\n\r\x00`)
+  rejection to block control-protocol injection from Falco fields, an optional
+  `X-Aegis-Token` shared-secret (constant-time compare), and a 64 KiB request-body
+  cap.
+
 ### Changed — CI / Dependencies
 - **Held the untested major bumps of the two `release.yml` signing-path actions**
   — `sigstore/cosign-installer` (pinned back to v3 from Dependabot's v4.1.2 bump)
