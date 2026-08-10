@@ -1,0 +1,13 @@
+{
+  "socket": "/var/run/aegisbpf/aegisbpf.sock",
+  "dry_run": false,
+  "min_priority": "warning",
+  "auth_token": "",
+  "rules": [
+    { "rule": "Write below binary dir",            "action": "block-file", "field": "fd.name" },
+    { "rule": "Write below etc",                   "action": "block-file", "field": "fd.name" },
+    { "rule": "Read sensitive file untrusted",     "action": "block-file", "field": "fd.name" },
+    { "rule": "Unexpected outbound connection",    "action": "deny-ip",    "field": "fd.sip"  },
+    { "rule": "Contact EC2 Instance Metadata Service Credential Theft", "action": "deny-ip", "field": "fd.sip" }
+  ]
+}
