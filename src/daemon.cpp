@@ -25,6 +25,8 @@
 #include "bpf_link_pin.hpp"
 #include "bpf_ops.hpp"
 #include "capabilities.hpp"
+#include "commands_block_allow.hpp"
+#include "commands_network.hpp"
 #include "daemon_policy_gate.hpp"
 #include "daemon_posture.hpp"
 #include "daemon_runtime.hpp"
@@ -39,6 +41,7 @@
 #include "proc_scan.hpp"
 #include "seccomp.hpp"
 #include "selftest.hpp"
+#include "socket_api.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -981,6 +984,43 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     uint32_t bp_poll_count = 0;
     uint64_t prev_priority_drops = 0;
     uint64_t prev_telemetry_drops = 0;
+
+    // Optional node-local control API (opt-in via AEGIS_API_SOCKET=<path>).
+    // Off by default. Exposes a root-only Unix socket that lets a co-located
+    // responder (e.g. a Falco Talon actionner) drive enforcement programmatically
+    // instead of shelling out to the CLI. RAII-stopped when daemon_run returns.
+    std::unique_ptr<aegis::SocketApiServer> api_server;
+    if (const char* api_sock = std::getenv("AEGIS_API_SOCKET"); api_sock != nullptr && api_sock[0] != '\0') {
+        aegis::SocketApiServer::Config api_cfg;
+        api_cfg.socket_path = api_sock;
+        api_server = std::make_unique<aegis::SocketApiServer>(api_cfg);
+        api_server->set_control_callback([](const std::string& verb, const std::string& arg) -> std::string {
+            int rc;
+            if (verb == "/block/add") {
+                rc = cmd_block_add(arg);
+            } else if (verb == "/block/del") {
+                rc = cmd_block_del(arg);
+            } else if (verb == "/block/clear") {
+                rc = cmd_block_clear();
+            } else if (verb == "/network/deny/ip") {
+                rc = cmd_network_deny_add_ip(arg);
+            } else if (verb == "/network/deny/cidr") {
+                rc = cmd_network_deny_add_cidr(arg);
+            } else {
+                return R"({"error":"unknown control verb"})";
+            }
+            if (rc == 0) {
+                return R"({"status":"ok"})";
+            }
+            return std::string(R"({"error":"command failed","rc":)") + std::to_string(rc) + "}";
+        });
+        if (api_server->start()) {
+            logger().log(SLOG_INFO("Node control API enabled").field("socket", api_sock));
+        } else {
+            logger().log(SLOG_ERROR("Failed to start node control API").field("socket", api_sock));
+            api_server.reset();
+        }
+    }
 
     ScopedSpan event_loop_span("daemon.event_loop", trace_id, root_span.span_id());
     while (!exit_requested()) {

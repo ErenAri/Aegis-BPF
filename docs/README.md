@@ -74,7 +74,7 @@ A categorized map of the `docs/` tree. For a high-level overview start with the
 - [CNCF Sandbox Application](CNCF_SANDBOX_APPLICATION.md)
 
 ## Development
-- [Developer Guide](DEVELOPER_GUIDE.md) · [API Reference](API_REFERENCE.md)
+- [Developer Guide](DEVELOPER_GUIDE.md) · [API Reference](API_REFERENCE.md) · [Node Control API](CONTROL_API.md)
 - [Fuzzing Strategy](FUZZING.md) · [CI Execution Strategy](CI_EXECUTION_STRATEGY.md)
 - [Distro Packaging](PACKAGING.md) · [Vendored Dependencies](VENDORED_DEPENDENCIES.md)
 - [Rust-parser Shadow & Consensus Runbook](RUST_PARSER_SHADOW.md)

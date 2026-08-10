@@ -88,15 +88,22 @@ void SocketApiServer::stop()
     if (!running_.compare_exchange_strong(expected, false))
         return;
 
-    // Close listen fd to wake up accept()
+    // Wake the blocked accept() so the accept thread observes running_==false
+    // and exits. Do NOT close or reset listen_fd_ yet: the accept thread still
+    // reads it, and mutating it here would race (shutdown() alone unblocks
+    // accept() without touching the fd value).
     if (listen_fd_ >= 0) {
         shutdown(listen_fd_, SHUT_RDWR);
-        close(listen_fd_);
-        listen_fd_ = -1;
     }
 
     if (accept_thread_.joinable())
         accept_thread_.join();
+
+    // The accept thread has exited; it is now safe to close and reset the fd.
+    if (listen_fd_ >= 0) {
+        close(listen_fd_);
+        listen_fd_ = -1;
+    }
 
     // Close streaming clients
     {
@@ -144,7 +151,15 @@ void SocketApiServer::handle_client(int client_fd)
     while (!request.empty() && (request.back() == '\n' || request.back() == '\r'))
         request.pop_back();
 
-    std::string response = handle_request(request, client_fd);
+    // Identify the connecting peer for control-op authorization (SO_PEERCRED).
+    unsigned int peer_uid = static_cast<unsigned int>(-1);
+    struct ucred cred {};
+    socklen_t cred_len = sizeof(cred);
+    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) == 0) {
+        peer_uid = cred.uid;
+    }
+
+    std::string response = handle_request(request, client_fd, peer_uid);
 
     if (!response.empty()) {
         // Send response followed by empty line delimiter
@@ -155,10 +170,33 @@ void SocketApiServer::handle_client(int client_fd)
     // If response is empty, client_fd has been moved to streaming list
 }
 
-std::string SocketApiServer::handle_request(const std::string& request, int client_fd)
+std::string SocketApiServer::handle_request(const std::string& request, int client_fd, unsigned int peer_uid)
 {
     if (request == "GET /health" || request == "{\"method\":\"health\"}") {
         return build_health_response();
+    }
+
+    // Control (mutating) operations: "POST /<verb> [arg]". Root-only.
+    if (request.rfind("POST ", 0) == 0) {
+        if (!control_cb_) {
+            return R"({"error":"control not enabled"})";
+        }
+        if (peer_uid != config_.control_uid) {
+            logger().log(SLOG_WARN("Rejected control request from unauthorized peer")
+                             .field("peer_uid", static_cast<int64_t>(peer_uid))
+                             .field("required_uid", static_cast<int64_t>(config_.control_uid)));
+            return R"({"error":"forbidden"})";
+        }
+        // Split "POST /verb/path optional-argument-with-spaces".
+        std::string rest = request.substr(5);
+        while (!rest.empty() && rest.front() == ' ')
+            rest.erase(rest.begin());
+        size_t sp = rest.find(' ');
+        std::string verb = (sp == std::string::npos) ? rest : rest.substr(0, sp);
+        std::string arg = (sp == std::string::npos) ? std::string() : rest.substr(sp + 1);
+        while (!arg.empty() && arg.front() == ' ')
+            arg.erase(arg.begin());
+        return control_cb_(verb, arg);
     }
 
     if (request == "GET /status" || request == "{\"method\":\"status\"}") {
@@ -187,7 +225,7 @@ std::string SocketApiServer::handle_request(const std::string& request, int clie
         return ""; // empty = don't close fd
     }
 
-    return R"({"error":"unknown request","help":"GET /health, GET /status, GET /stats, GET /events"})";
+    return R"({"error":"unknown request","help":"GET /health|/status|/stats|/events; POST /block/add <path>|/block/del <path>|/block/clear|/network/deny/ip <ip>|/network/deny/cidr <cidr>"})";
 }
 
 void SocketApiServer::broadcast_event(const std::string& json_line)
