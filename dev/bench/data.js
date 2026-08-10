@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786311409973,
+  "lastUpdate": 1786395820657,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -48864,6 +48864,102 @@ window.BENCHMARK_DATA = {
             "value": 58.93159893761288,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 58.923243138488886 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba40eea5b1e1311d3bf0422182ed3aebe85e690",
+          "message": "feat(api): node-local control socket to drive enforcement programmatically (#300)\n\n* feat(api): node-local control socket to drive enforcement programmatically\n\nFoundation for the Falco integration: a root-only Unix-domain control API\nso a co-located responder (e.g. a Falco Talon actionner) can install\nrace-free in-kernel denies instead of shelling out to the CLI.\n\n- The pre-existing but never-instantiated read-only SocketApiServer is now\n  started by the daemon when AEGIS_API_SOCKET=<path> is set (opt-in, off by\n  default), and extended with control verbs:\n    POST /block/add <path> | /block/del <path> | /block/clear\n    POST /network/deny/ip <ip> | /network/deny/cidr <cidr>\n  Control ops reuse the CLI's own cmd_block_* / cmd_network_deny_* code paths,\n  so a POST takes effect on the running daemon's pinned maps immediately.\n- Authz: SO_PEERCRED per request (peer uid must equal control_uid, default 0)\n  on top of the 0600 socket; unauthorized control requests are rejected +\n  logged. Read (GET) ops are unchanged; POST needs a registered handler\n  (else \"control not enabled\").\n- tests/test_socket_api.cpp: 5-case end-to-end GTest (health, verb/arg routing\n  incl. spaces in paths, control-disabled, unauthorized-peer rejection,\n  unknown-verb). Verified live: driving POST /block/add over the socket made\n  the target file -EPERM on the next read.\n- docs/CONTROL_API.md documents the protocol/authz the Falco adapter targets.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: suppress cppcheck syntaxError on tests/test_socket_api.cpp\n\ncppcheck mis-parses the gtest TEST_F macro (same false positive already\nsuppressed for the other gtest test files). No code impact.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* fix(api): close control-socket listen fd after joining accept thread (TSan)\n\nThreadSanitizer flagged a data race: stop() reset listen_fd_ while the\naccept thread was still reading it in accept(). shutdown() alone unblocks\naccept(), so wake + join the thread first, then close/reset the fd.\nVerified: SocketApiTest passes clean under -fsanitize=thread.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-10T23:52:14+03:00",
+          "tree_id": "91d73150508b9b8a5e6ca11c0e8148fa3fc6dcbd",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/3ba40eea5b1e1311d3bf0422182ed3aebe85e690"
+        },
+        "date": 1786395818656,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1520.5924296262438,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1520.420812030592 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3728.053251743408,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3727.687617922948 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21569.964606131627,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21566.130146959516 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 166133.75778281692,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 166118.48151325717 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1320878.0460257574,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1320744.5548224933 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5294446.0050125355,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5293943.400375951 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4676.987381523463,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4685.437172538668 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 32469.250713694444,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 32475.892196605895 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 262711.7591241276,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 262688.0543077127 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 794106.523782485,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 794125.1949498495 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 72.82624084615497,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 72.81281611560256 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.11358711519554,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.1090720499663 ns\nthreads: 1"
           }
         ]
       }
