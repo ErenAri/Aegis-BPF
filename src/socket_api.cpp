@@ -88,15 +88,22 @@ void SocketApiServer::stop()
     if (!running_.compare_exchange_strong(expected, false))
         return;
 
-    // Close listen fd to wake up accept()
+    // Wake the blocked accept() so the accept thread observes running_==false
+    // and exits. Do NOT close or reset listen_fd_ yet: the accept thread still
+    // reads it, and mutating it here would race (shutdown() alone unblocks
+    // accept() without touching the fd value).
     if (listen_fd_ >= 0) {
         shutdown(listen_fd_, SHUT_RDWR);
-        close(listen_fd_);
-        listen_fd_ = -1;
     }
 
     if (accept_thread_.joinable())
         accept_thread_.join();
+
+    // The accept thread has exited; it is now safe to close and reset the fd.
+    if (listen_fd_ >= 0) {
+        close(listen_fd_);
+        listen_fd_ = -1;
+    }
 
     // Close streaming clients
     {
