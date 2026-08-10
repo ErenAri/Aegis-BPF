@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786395820657,
+  "lastUpdate": 1786397766207,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -48960,6 +48960,108 @@ window.BENCHMARK_DATA = {
             "value": 54.11358711519554,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.1090720499663 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd22e5e9cef5428738dc81f0ceda13fd1e213076",
+          "message": "feat(falco): aegis-responder — Falco -> AegisBPF enforcement adapter (#301)\n\nStandalone Falcosidekick webhook responder (stdlib-only Go) that turns\nFalco detections into AegisBPF kernel enforcement via the node-local\ncontrol socket (feat: node control API). Maps configured Falco rules to\nPOST /block/add | /network/deny/* on the agent socket.\n\n- integrations/falco/aegis-responder/: main.go (pure decide() mapper +\n  control-socket client + webhook handler), main_test.go (rule->verb\n  mapping, priority gate, missing-field, socket-protocol round-trip,\n  config defaults), config.example.json, deploy/daemonset.yaml (DaemonSet\n  + Service, hostPath control socket, dry_run default), Dockerfile\n  (distroless/nonroot), README.\n- .github/workflows/falco-responder.yml: gofmt/vet/test(-race)/build,\n  path-filtered, top-level contents:read.\n- Safe by default: explicit rule allowlist, min_priority gate, dry_run.\n\nVerified end-to-end: Falco webhook \"Write below binary dir\" -> responder\n-> POST /block/add -> target file -EPERM on next read.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T00:24:40+03:00",
+          "tree_id": "99263b139b16faf651cb215455ee3220b3dbe7e4",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/dd22e5e9cef5428738dc81f0ceda13fd1e213076"
+        },
+        "date": 1786397764934,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1520.9621675607739,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1520.8029580953107 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3664.540645571357,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3663.7877800869232 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21082.320679570177,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21080.145984586077 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 160503.03227161616,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 160485.33222578643 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1275895.8739763435,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1275650.801107065 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5097348.315997624,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5096804.260340634 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 5086.033993570373,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5100.643432273216 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34401.652977911406,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34401.1605151689 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 279372.77025215625,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 279377.6649735476 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 868161.0156378993,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 868402.6423525548 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.337321397381565,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.33241995181763 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 76.4823423511319,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 76.4748720550453 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 55.26191146838902,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 55.25667372836208 ns\nthreads: 1"
           }
         ]
       }
