@@ -1,0 +1,117 @@
+# AegisBPF -> OCSF -> SIEM / data-lake pipeline (Vector).
+#
+# AegisBPF already emits schema-valid OCSF 1.1.0 (File Activity 1001 /
+# Network Activity 4001) when run with `--event-format=ocsf`. This pipeline
+# enriches each event with the cloud/k8s/observable context the kernel agent
+# cannot know, then fans it out to any OCSF consumer (AWS Security Lake, Splunk,
+# Microsoft Sentinel, or a generic OTLP/HTTP endpoint).
+#
+# Validate before deploying:  vector validate integrations/vector/aegisbpf-ocsf.yaml
+# All sinks are env-gated — enable only the ones you set variables for.
+
+sources:
+  # Bare-metal / systemd: the agent runs `--event-format=ocsf --log=journald`,
+  # which puts the OCSF JSON in the journal MESSAGE field.
+  aegisbpf_journald:
+    type: journald
+    include_units: ["aegisbpf.service"]
+
+  # Kubernetes (DaemonSet): the agent runs `--event-format=ocsf --log=stdout`;
+  # uncomment and use this instead of journald.
+  # aegisbpf_k8s:
+  #   type: kubernetes_logs
+  #   extra_label_selector: "app.kubernetes.io/name=aegisbpf"
+
+transforms:
+  # 1) The journal MESSAGE holds the OCSF JSON string — parse it, drop the rest.
+  parse_ocsf:
+    type: remap
+    inputs: ["aegisbpf_journald"]
+    drop_on_abort: true
+    source: |
+      parsed, err = parse_json(.message)
+      if err != null || !is_object(parsed) { abort }
+      if !exists(parsed.class_uid) { abort }   # only AegisBPF OCSF records
+      . = object!(parsed)
+
+  # 2) Enrich with context the kernel can't see + add OCSF observables[].
+  enrich_ocsf:
+    type: remap
+    inputs: ["parse_ocsf"]
+    source: |
+      # cloud/region (set via env or instance metadata at deploy time)
+      .cloud = object(.cloud) ?? {}
+      .cloud.provider = get_env_var("AEGIS_CLOUD_PROVIDER") ?? "on-prem"
+      region = get_env_var("AEGIS_CLOUD_REGION") ?? null
+      if region != null { .cloud.region = region }
+
+      # Kubernetes identity via the Downward API (POD_NAME/POD_NAMESPACE/NODE_NAME)
+      labels = array(.metadata.labels) ?? []
+      pod = get_env_var("POD_NAME") ?? null
+      ns  = get_env_var("POD_NAMESPACE") ?? null
+      node = get_env_var("NODE_NAME") ?? null
+      if pod  != null { labels = push(labels, "k8s.pod:" + pod) }
+      if ns   != null { labels = push(labels, "k8s.namespace:" + ns) }
+      if node != null { labels = push(labels, "k8s.node:" + node) }
+      if length(labels) > 0 { .metadata.labels = labels }
+
+      # OCSF observables[] so SIEMs can pivot on host/process/file.
+      obs = []
+      if exists(.device.hostname)     { obs = push(obs, {"name": to_string!(.device.hostname), "type_id": 1,  "type": "Hostname"}) }
+      if exists(.actor.process.name)  { obs = push(obs, {"name": to_string!(.actor.process.name), "type_id": 24, "type": "Process Name"}) }
+      if exists(.file.path)           { obs = push(obs, {"name": to_string!(.file.path), "type_id": 7,  "type": "File Name"}) }
+      if length(obs) > 0 { .observables = obs }
+
+      # Correlate by AegisBPF process-lineage id when present.
+      if exists(.unmapped.aegis_parent_exec_id) {
+        .metadata.correlation_uid = to_string!(.unmapped.aegis_parent_exec_id)
+      }
+
+sinks:
+  # --- AWS Security Lake custom source (OCSF in S3) ------------------------
+  # Security Lake ultimately wants OCSF *Parquet* in a fixed partition layout.
+  # Ship JSON to a raw prefix here and convert with Firehose+Glue or a Lambda
+  # (see README "AWS Security Lake"), or swap encoding.codec to a Parquet sink.
+  security_lake_s3:
+    type: aws_s3
+    inputs: ["enrich_ocsf"]
+    bucket: "${AEGIS_SECLAKE_BUCKET:-}"
+    key_prefix: "ext/AegisBPF/region=${AEGIS_CLOUD_REGION:-unknown}/eventDay=%Y%m%d/"
+    compression: gzip
+    encoding:
+      codec: json
+    healthcheck:
+      enabled: false
+
+  # --- Splunk (HTTP Event Collector) --------------------------------------
+  splunk_hec:
+    type: splunk_hec_logs
+    inputs: ["enrich_ocsf"]
+    endpoint: "${SPLUNK_HEC_URL:-http://localhost:8088}"
+    default_token: "${SPLUNK_HEC_TOKEN:-}"
+    sourcetype: "ocsf:file_activity"
+    encoding:
+      codec: json
+    healthcheck:
+      enabled: false
+
+  # --- Microsoft Sentinel / generic OCSF HTTP (also fits OTLP-HTTP gateways) -
+  sentinel_http:
+    type: http
+    inputs: ["enrich_ocsf"]
+    uri: "${SENTINEL_DCE_URI:-}"
+    method: post
+    encoding:
+      codec: json
+    request:
+      headers:
+        Content-Type: "application/json"
+    healthcheck:
+      enabled: false
+
+  # --- Local debug: see the enriched OCSF on stdout -----------------------
+  # console:
+  #   type: console
+  #   inputs: ["enrich_ocsf"]
+  #   encoding:
+  #     codec: json

@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `X-Aegis-Token` shared-secret (constant-time compare), and a 64 KiB request-body
   cap.
 
+### Added — Integrations
+- **OCSF → SIEM / data-lake pipeline** (`integrations/vector/aegisbpf-ocsf.yaml`,
+  `integrations/vector/README.md`, `integrations/vector/sample-ocsf-event.json`)
+  — a ready Vector pipeline that ships AegisBPF's native OCSF 1.1.0 output to any
+  OCSF consumer (AWS Security Lake, Splunk HEC, Microsoft Sentinel, or generic
+  OCSF/OTLP-HTTP). Vector `remap` transforms enrich each event with cloud/region,
+  Kubernetes pod/namespace/node (Downward API), OCSF `observables[]`, and a
+  process-lineage `correlation_uid` — the context the kernel agent can't know —
+  then fan out to env-gated sinks. Includes a live-captured File Activity (1001)
+  sample event verifying all OCSF/Security-Lake required fields are present and
+  AegisBPF forensics (inode/dev/cgroup/exec-lineage) ride under OCSF `unmapped`.
+  No agent code change — the "ready now" data integration.
+
 ### Changed — CI / Dependencies
 - **Held the untested major bumps of the two `release.yml` signing-path actions**
   — `sigstore/cosign-installer` (pinned back to v3 from Dependabot's v4.1.2 bump)
