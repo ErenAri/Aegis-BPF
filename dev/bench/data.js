@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786454620632,
+  "lastUpdate": 1786478242771,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49362,6 +49362,96 @@ window.BENCHMARK_DATA = {
             "value": 54.34843928348809,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.340183755587454 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f92d51b4d285def35e5c2a03af78ad406e2acfa7",
+          "message": "release: v0.10.0 (#303)\n\nBump project version 0.9.0 -> 0.10.0 and finalize the CHANGELOG for the\nv0.10.0 release (ecosystem integration + programmatic enforcement):\n\n- Node-local control API (root-only Unix socket)\n- Falco -> AegisBPF enforcement adapter (aegis-responder)\n- OCSF -> SIEM/data-lake pipeline (Vector)\n- TTL / auto-expiry for dynamically-added denies\n\nNo breaking changes (additive features) -> minor bump per SemVer.\nTag to be pushed separately once the self-hosted signing runners are online.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T22:46:13+03:00",
+          "tree_id": "9b0fa19727a0e990b52a22c07034df00d760d3e7",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/f92d51b4d285def35e5c2a03af78ad406e2acfa7"
+        },
+        "date": 1786478240974,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1070.003255236578,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1069.933256741024 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2827.455205775724,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2827.247122312216 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 16248.808900663034,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16246.127068726624 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 126334.83369737264,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 126323.19430199428 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 977414.8537615776,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 977333.72650463 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3914372.606018512,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3914030.9037037077 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 3157.8594984633005,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3159.6102086146834 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 21516.56204673497,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21516.320433656056 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 169252.6315931556,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 169193.71899375084 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 508800.79495691694,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 508745.27297159383 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 57.297985945631346,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 57.2901401564176 ns\nthreads: 1"
           }
         ]
       }
