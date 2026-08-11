@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-11
+
+Ecosystem integration and programmatic enforcement: AegisBPF now plugs into the
+detection/response and SIEM stack. Highlights since v0.9.0 — a root-only node
+control API, a Falco → AegisBPF enforcement adapter, an OCSF → SIEM/data-lake
+pipeline, and TTL auto-expiry so automated response can't wedge a deny forever.
+
 ### Added — Auto-expiry (TTL) for dynamic denies
 - **Timed denies over the control API** (`src/ttl_registry.{hpp,cpp}`,
   `src/daemon.cpp` reaper wiring, `tests/test_ttl_registry.cpp`,
