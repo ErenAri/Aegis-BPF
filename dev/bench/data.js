@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786449991606,
+  "lastUpdate": 1786454620632,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49260,6 +49260,108 @@ window.BENCHMARK_DATA = {
             "value": 54.96936922738712,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.96450265241256 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f794769f6accd2a1d8f48df6d8fd55bf823f1a33",
+          "message": "feat(control-api): TTL / auto-expiry for dynamically-added denies (#302)\n\nAny control-API add verb now accepts an optional trailing `ttl=<seconds>`\ntoken; the deny is removed automatically when it expires, so a transient\nsignal (e.g. a Falco detection relayed by aegis-responder) can no longer\nwedge a path or IP permanently.\n\n- src/ttl_registry.{hpp,cpp}: kernel-free parse/partition/persistence\n  helpers for a timed-deny registry (/var/lib/aegisbpf/deny_ttl.db).\n- src/daemon.cpp: parse ttl in the control callback, maintain the registry\n  after a successful op, and run a reaper thread (5s granularity) that\n  re-issues the CLI del command for expired entries. A mutex serializes\n  registry read-modify-write between the socket thread and the reaper.\n  Wall-clock expiry survives restart; re-add extends, re-add-without-ttl\n  makes permanent, del/clear drop the timer.\n- aegis-responder: per-rule `ttl_seconds` forwarded as the `ttl=` token\n  (decide/sendControl), with Go tests for passthrough + wire format.\n- tests/test_ttl_registry.cpp: 11-case GTest suite (parse, partition,\n  upsert/remove, db round-trip with spaces, reap).\n- docs/CONTROL_API.md, responder README/config/DaemonSet, CHANGELOG.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T16:11:59+03:00",
+          "tree_id": "dc11ff85c35dd9b35c794727c4963f7079992bbf",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/f794769f6accd2a1d8f48df6d8fd55bf823f1a33"
+        },
+        "date": 1786454619269,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1518.3568458571665,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1518.1457055181118 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3678.0069166633907,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3677.484006654304 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 21066.688291868228,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 21062.026078443192 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 161107.81115867593,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 161085.91563926937 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1271673.65441621,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1271483.8014216581 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5113022.899090917,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5112170.955454547 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4969.477330455845,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4981.556066852402 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 34026.12786753689,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 34026.54358593268 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 278314.89927868603,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 278290.1308151241 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 865816.2222736152,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 865953.9159969743 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.12693806256522,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.11492116558737 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 75.67800828918477,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 75.66752263588462 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.34843928348809,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.340183755587454 ns\nthreads: 1"
           }
         ]
       }
