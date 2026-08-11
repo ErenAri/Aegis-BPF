@@ -266,6 +266,7 @@ Exported metrics:
 - `aegisbpf_perf_slo_failed_rows`
 - `aegisbpf_deny_inode_entries`
 - `aegisbpf_deny_path_entries`
+- `aegisbpf_deny_ttl_entries`
 - `aegisbpf_allow_cgroup_entries`
 - `aegisbpf_allow_exec_inode_entries`
 - `aegisbpf_map_capacity{map}`

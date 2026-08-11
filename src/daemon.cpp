@@ -29,6 +29,7 @@
 #include "bpf_ops.hpp"
 #include "capabilities.hpp"
 #include "commands_block_allow.hpp"
+#include "commands_metrics.hpp"
 #include "commands_network.hpp"
 #include "daemon_policy_gate.hpp"
 #include "daemon_posture.hpp"
@@ -40,6 +41,7 @@
 #include "landlock.hpp"
 #include "logging.hpp"
 #include "map_monitor.hpp"
+#include "metrics_server.hpp"
 #include "posture_gate.hpp"
 #include "proc_scan.hpp"
 #include "seccomp.hpp"
@@ -1108,6 +1110,31 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         } else {
             logger().log(SLOG_ERROR("Failed to start node control API").field("socket", api_sock));
             api_server.reset();
+        }
+    }
+
+    // Optional Prometheus metrics endpoint (opt-in via AEGIS_METRICS_ADDR=<host:port>).
+    // Off by default. Serves the same exposition as `aegisbpf metrics`, reusing the
+    // daemon's already-loaded BPF state (no per-scrape reload). Reads are limited to
+    // pinned maps + files, so they run concurrently with the poll loop safely.
+    std::unique_ptr<aegis::MetricsServer> metrics_server;
+    if (const char* metrics_addr = std::getenv("AEGIS_METRICS_ADDR");
+        metrics_addr != nullptr && metrics_addr[0] != '\0') {
+        aegis::MetricsServer::Config metrics_cfg;
+        metrics_cfg.bind_addr = metrics_addr;
+        metrics_server = std::make_unique<aegis::MetricsServer>(metrics_cfg);
+        metrics_server->set_metrics_callback([&state]() -> std::string {
+            auto report = build_metrics_report(state, false);
+            if (!report) {
+                return "# metrics unavailable: " + report.error().to_string() + "\n";
+            }
+            return *report;
+        });
+        if (metrics_server->start()) {
+            logger().log(SLOG_INFO("Prometheus metrics endpoint enabled").field("addr", metrics_addr));
+        } else {
+            logger().log(SLOG_ERROR("Failed to start metrics endpoint").field("addr", metrics_addr));
+            metrics_server.reset();
         }
     }
 

@@ -43,7 +43,7 @@ A categorized map of the `docs/` tree. For a high-level overview start with the
 - [BTF Fallback](BTF_FALLBACK.md)
 
 ## Operations & Runbooks
-- [Monitoring & Alerting Guide](MONITORING_GUIDE.md) · [Metrics Operations](METRICS_OPERATIONS.md)
+- [Monitoring & Alerting Guide](MONITORING_GUIDE.md) · [Metrics Operations](METRICS_OPERATIONS.md) · [Metrics endpoint (Prometheus)](METRICS.md)
 - [Troubleshooting Guide](TROUBLESHOOTING.md) · [Error Handling Guidelines](ERROR_HANDLING.md)
 - [Emergency Recovery Runbook](RUNBOOK_RECOVERY.md) · [Incident Response Runbook](INCIDENT_RESPONSE.md)
 - [Staging Canary Runbook](CANARY_RUNBOOK.md) · [Release Drill Runbook](RELEASE_DRILL.md)
