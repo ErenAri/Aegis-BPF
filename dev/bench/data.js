@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786448212519,
+  "lastUpdate": 1786449991606,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49164,6 +49164,102 @@ window.BENCHMARK_DATA = {
             "value": 54.91018087030167,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 54.90568377563552 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0edc7e1bae8ea6d6bd60e55bcb630c42169d073",
+          "message": "feat(integrations): OCSF -> SIEM/data-lake pipeline (Vector) (#299)\n\nTier-1 \"ready now\" data integration. AegisBPF already emits schema-valid\nOCSF 1.1.0 (File Activity 1001 / Network Activity 4001), so this ships a\nVector pipeline that enriches and routes it — no agent code change.\n\n- integrations/vector/aegisbpf-ocsf.yaml: journald/k8s source -> remap\n  transforms (add cloud/region, k8s pod/ns/node via Downward API, OCSF\n  observables[], process-lineage correlation_uid) -> env-gated sinks for\n  AWS Security Lake (S3/OCSF), Splunk HEC, and Microsoft Sentinel / generic\n  OCSF-OTLP-HTTP.\n- integrations/vector/sample-ocsf-event.json: a live-captured (kernel 6.17)\n  File Activity deny event; verifies all OCSF/Security-Lake required fields\n  are present and AegisBPF forensics ride under OCSF `unmapped`.\n- integrations/vector/README.md: the pipeline guide + per-target setup\n  (Security Lake custom source incl. the JSON->Parquet note, Splunk, Sentinel)\n  + a validation checklist.\n- Linked from docs/SIEM_INTEGRATION.md and the docs index.\n\nConfig YAML + sample JSON validated locally; run `vector validate` before deploy.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T14:54:58+03:00",
+          "tree_id": "83277f704e80ded1aaf03df1d064894506881d81",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/e0edc7e1bae8ea6d6bd60e55bcb630c42169d073"
+        },
+        "date": 1786449988859,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1505.8019820610216,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1505.684671319503 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3643.358159353443,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3642.945153663681 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 20889.667754155696,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 20885.52852215311 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 158420.82330159418,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 158404.86722587436 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1255536.1607142936,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1255396.039657738 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5015768.820788523,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5015246.572281963 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4715.281402904984,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4723.745535962363 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 33297.41910216441,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 33302.729485788106 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 271616.52217736276,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 271592.2885293309 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 811072.6149856666,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 811049.4463976537 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 69.73334926778324,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 69.7168506847931 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 54.96936922738712,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 54.96450265241256 ns\nthreads: 1"
           }
         ]
       }
