@@ -23,6 +23,7 @@
 #include "logging.hpp"
 #include "network_ops.hpp"
 #include "tracing.hpp"
+#include "ttl_registry.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -321,24 +322,14 @@ int cmd_stats(bool detailed)
     return 0;
 }
 
-int cmd_metrics(const std::string& out_path, bool detailed)
+Result<std::string> build_metrics_report(BpfState& state, bool detailed)
 {
-    const std::string trace_id = make_span_id("trace-metrics");
-    ScopedSpan span("cli.metrics", trace_id);
-
-    BpfState state;
-    auto load_result = load_bpf(true, false, state);
-    if (!load_result) {
-        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
-        return fail_span(span, load_result.error().to_string());
-    }
-
     std::ostringstream oss;
 
     auto stats_result = read_block_stats_map(state.block_stats);
     if (!stats_result) {
         logger().log(SLOG_ERROR("Failed to read block stats").field("error", stats_result.error().to_string()));
-        return fail_span(span, stats_result.error().to_string());
+        return stats_result.error();
     }
     const auto& stats = *stats_result;
     append_metric_header(oss, "aegisbpf_blocks_total", "counter", "Total number of blocked operations");
@@ -353,7 +344,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         if (!cgroup_stats_result) {
             logger().log(SLOG_ERROR("Failed to read cgroup block stats")
                              .field("error", cgroup_stats_result.error().to_string()));
-            return fail_span(span, cgroup_stats_result.error().to_string());
+            return cgroup_stats_result.error();
         }
         auto cgroup_stats = *cgroup_stats_result;
         std::sort(cgroup_stats.begin(), cgroup_stats.end(),
@@ -372,7 +363,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         if (!inode_stats_result) {
             logger().log(
                 SLOG_ERROR("Failed to read inode block stats").field("error", inode_stats_result.error().to_string()));
-            return fail_span(span, inode_stats_result.error().to_string());
+            return inode_stats_result.error();
         }
         auto inode_stats = *inode_stats_result;
         std::sort(inode_stats.begin(), inode_stats.end(), [](const auto& a, const auto& b) {
@@ -390,7 +381,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         if (!path_stats_result) {
             logger().log(
                 SLOG_ERROR("Failed to read path block stats").field("error", path_stats_result.error().to_string()));
-            return fail_span(span, path_stats_result.error().to_string());
+            return path_stats_result.error();
         }
         auto path_stats = *path_stats_result;
         std::sort(path_stats.begin(), path_stats.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -405,7 +396,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
         if (!net_stats_result) {
             logger().log(
                 SLOG_ERROR("Failed to read network block stats").field("error", net_stats_result.error().to_string()));
-            return fail_span(span, net_stats_result.error().to_string());
+            return net_stats_result.error();
         }
 
         const auto& net_stats = *net_stats_result;
@@ -427,7 +418,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
             if (!net_ip_stats_result) {
                 logger().log(SLOG_ERROR("Failed to read network IP stats")
                                  .field("error", net_ip_stats_result.error().to_string()));
-                return fail_span(span, net_ip_stats_result.error().to_string());
+                return net_ip_stats_result.error();
             }
             auto net_ip_stats = *net_ip_stats_result;
             std::sort(net_ip_stats.begin(), net_ip_stats.end(),
@@ -444,7 +435,7 @@ int cmd_metrics(const std::string& out_path, bool detailed)
             if (!net_port_stats_result) {
                 logger().log(SLOG_ERROR("Failed to read network port stats")
                                  .field("error", net_port_stats_result.error().to_string()));
-                return fail_span(span, net_port_stats_result.error().to_string());
+                return net_port_stats_result.error();
             }
             auto net_port_stats = *net_port_stats_result;
             std::sort(net_port_stats.begin(), net_port_stats.end(),
@@ -685,7 +676,32 @@ int cmd_metrics(const std::string& out_path, bool detailed)
                          (perf_slo_sample.summary_present && perf_slo_sample.parse_ok) ? perf_slo_sample.failed_rows
                                                                                        : 0);
 
-    std::string metrics = oss.str();
+    // Timed-deny registry size (control-API TTL denies awaiting expiry). File-based
+    // (deny_ttl.db), so it is correct from both the CLI and the daemon endpoint.
+    append_metric_header(oss, "aegisbpf_deny_ttl_entries", "gauge",
+                         "Number of control-API denies with a pending TTL (auto-expiry)");
+    append_metric_sample(oss, "aegisbpf_deny_ttl_entries", static_cast<uint64_t>(read_ttl_db(kTtlDbPath).size()));
+
+    return oss.str();
+}
+
+int cmd_metrics(const std::string& out_path, bool detailed)
+{
+    const std::string trace_id = make_span_id("trace-metrics");
+    ScopedSpan span("cli.metrics", trace_id);
+
+    BpfState state;
+    auto load_result = load_bpf(true, false, state);
+    if (!load_result) {
+        logger().log(SLOG_ERROR("Failed to load BPF object").field("error", load_result.error().to_string()));
+        return fail_span(span, load_result.error().to_string());
+    }
+
+    auto report = build_metrics_report(state, detailed);
+    if (!report) {
+        return fail_span(span, report.error().to_string());
+    }
+    const std::string& metrics = *report;
 
     if (out_path.empty() || out_path == "-") {
         std::cout << metrics;

@@ -367,6 +367,7 @@ set(AEGIS_SOURCES
     src/kernel_features.cpp
     src/network_ops.cpp
     src/otlp_exporter.cpp
+    src/metrics_server.cpp
     src/socket_api.cpp
     src/ttl_registry.cpp
     src/policy.cpp
@@ -563,6 +564,7 @@ set(AEGIS_LIB_SOURCES
     src/kernel_features.cpp
     src/network_ops.cpp
     src/otlp_exporter.cpp
+    src/metrics_server.cpp
     src/socket_api.cpp
     src/ttl_registry.cpp
     src/policy.cpp
@@ -697,6 +699,7 @@ if(BUILD_TESTING)
         tests/test_net_block_event_dedup.cpp
         tests/test_event_decode.cpp
         tests/test_posture_gate.cpp
+        tests/test_metrics_server.cpp
         tests/test_socket_api.cpp
         tests/test_ttl_registry.cpp
     )

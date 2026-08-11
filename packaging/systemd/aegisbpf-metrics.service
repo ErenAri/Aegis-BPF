@@ -1,0 +1,30 @@
+# AegisBPF metrics — Prometheus node_exporter textfile-collector writer.
+#
+# Runs `aegisbpf metrics` and writes the exposition to a .prom file that the
+# node_exporter textfile collector picks up. This is the zero-network-port
+# alternative to the agent's built-in HTTP endpoint (AEGIS_METRICS_ADDR): no
+# port is opened; node_exporter serves the metrics for you.
+#
+# Enable the paired timer to run it periodically:
+#   systemctl enable --now aegisbpf-metrics.timer
+#
+# Override the output directory via /etc/default/aegisbpf (AEGIS_METRICS_TEXTFILE).
+[Unit]
+Description=AegisBPF Prometheus metrics (textfile collector writer)
+After=aegisbpf.service
+ConditionPathExists=/sys/fs/bpf
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/aegisbpf
+Environment=AEGIS_METRICS_TEXTFILE=/var/lib/node_exporter/textfile_collector/aegisbpf.prom
+# Write to a temp file and rename so node_exporter never reads a partial file.
+ExecStart=/bin/sh -c 'd=$(dirname "$AEGIS_METRICS_TEXTFILE"); mkdir -p "$d"; /usr/bin/aegisbpf metrics --out "$AEGIS_METRICS_TEXTFILE.tmp" && mv "$AEGIS_METRICS_TEXTFILE.tmp" "$AEGIS_METRICS_TEXTFILE"'
+LimitMEMLOCK=infinity
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ReadWritePaths=/sys/fs/bpf /var/lib/aegisbpf /var/lib/node_exporter
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_BPF CAP_PERFMON

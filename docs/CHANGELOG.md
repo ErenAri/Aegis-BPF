@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Prometheus metrics endpoint
+- **Opt-in HTTP `/metrics` endpoint** (`AEGIS_METRICS_ADDR=<host:port>`,
+  `src/metrics_server.{hpp,cpp}`, `src/daemon.cpp` wiring, `docs/METRICS.md`) —
+  serves the agent's Prometheus exposition over HTTP so Prometheus /
+  kube-prometheus can scrape it directly, reusing the daemon's already-loaded BPF
+  state (no per-scrape reload). Off by default; routes `GET /metrics` and
+  `GET /healthz`. Binds loopback by default; bind `:9635` to expose and restrict
+  with a firewall / NetworkPolicy (no auth, standard for a scrape target). The
+  Prometheus builder was refactored out of the `metrics` CLI command into a shared
+  `build_metrics_report(BpfState&, bool)` so the CLI, the textfile collector, and
+  the HTTP endpoint all emit identical output. A new `aegisbpf_deny_ttl_entries`
+  gauge exposes the count of control-API denies awaiting TTL expiry.
+- **node_exporter textfile-collector units** (`packaging/systemd/aegisbpf-metrics.{service,timer}`)
+  — the no-open-port alternative: a 30 s timer writes the exposition atomically to
+  `${AEGIS_METRICS_TEXTFILE}` for node_exporter to serve.
+- New GTest suite `tests/test_metrics_server.cpp` (bind-addr parsing, real
+  loopback round-trip for `/metrics` `/healthz` 404, no-callback 503, non-GET 405).
+
 ## [0.10.0] - 2026-08-11
 
 Ecosystem integration and programmatic enforcement: AegisBPF now plugs into the

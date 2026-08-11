@@ -1,0 +1,17 @@
+# Periodically refresh the AegisBPF Prometheus textfile-collector output.
+#
+#   systemctl enable --now aegisbpf-metrics.timer
+#
+# Pairs with aegisbpf-metrics.service. 30s cadence matches a typical Prometheus
+# scrape interval; adjust OnUnitActiveSec to taste.
+[Unit]
+Description=Refresh AegisBPF Prometheus metrics textfile every 30s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=aegisbpf-metrics.service
+
+[Install]
+WantedBy=timers.target
