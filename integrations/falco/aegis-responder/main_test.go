@@ -26,25 +26,36 @@ func baseCfg() *Config {
 func TestDecide_FileBlock(t *testing.T) {
 	a := FalcoAlert{Rule: "Write below binary dir", Priority: "Error",
 		OutputFields: map[string]interface{}{"fd.name": "/usr/bin/evil"}}
-	verb, arg, ok := decide(a, baseCfg())
-	if !ok || verb != "/block/add" || arg != "/usr/bin/evil" {
-		t.Fatalf("got verb=%q arg=%q ok=%v", verb, arg, ok)
+	verb, arg, ttl, ok := decide(a, baseCfg())
+	if !ok || verb != "/block/add" || arg != "/usr/bin/evil" || ttl != 0 {
+		t.Fatalf("got verb=%q arg=%q ttl=%d ok=%v", verb, arg, ttl, ok)
 	}
 }
 
 func TestDecide_NetDeny(t *testing.T) {
 	a := FalcoAlert{Rule: "Unexpected outbound connection", Priority: "Warning",
 		OutputFields: map[string]interface{}{"fd.sip": "203.0.113.7"}}
-	verb, arg, ok := decide(a, baseCfg())
+	verb, arg, _, ok := decide(a, baseCfg())
 	if !ok || verb != "/network/deny/ip" || arg != "203.0.113.7" {
 		t.Fatalf("got verb=%q arg=%q ok=%v", verb, arg, ok)
+	}
+}
+
+func TestDecide_PassesTTL(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Rules[0].TTL = 300 // "Write below binary dir"
+	a := FalcoAlert{Rule: "Write below binary dir", Priority: "Error",
+		OutputFields: map[string]interface{}{"fd.name": "/usr/bin/evil"}}
+	verb, arg, ttl, ok := decide(a, cfg)
+	if !ok || verb != "/block/add" || arg != "/usr/bin/evil" || ttl != 300 {
+		t.Fatalf("got verb=%q arg=%q ttl=%d ok=%v", verb, arg, ttl, ok)
 	}
 }
 
 func TestDecide_UnknownRuleNoAction(t *testing.T) {
 	a := FalcoAlert{Rule: "Some benign rule", Priority: "Critical",
 		OutputFields: map[string]interface{}{"fd.name": "/etc/passwd"}}
-	if _, _, ok := decide(a, baseCfg()); ok {
+	if _, _, _, ok := decide(a, baseCfg()); ok {
 		t.Fatal("unlisted rule must not trigger enforcement")
 	}
 }
@@ -52,7 +63,7 @@ func TestDecide_UnknownRuleNoAction(t *testing.T) {
 func TestDecide_BelowMinPriority(t *testing.T) {
 	a := FalcoAlert{Rule: "Write below binary dir", Priority: "Notice",
 		OutputFields: map[string]interface{}{"fd.name": "/usr/bin/evil"}}
-	if _, _, ok := decide(a, baseCfg()); ok {
+	if _, _, _, ok := decide(a, baseCfg()); ok {
 		t.Fatal("alert below min_priority must be ignored")
 	}
 }
@@ -60,7 +71,7 @@ func TestDecide_BelowMinPriority(t *testing.T) {
 func TestDecide_MissingFieldNoAction(t *testing.T) {
 	a := FalcoAlert{Rule: "Write below binary dir", Priority: "Error",
 		OutputFields: map[string]interface{}{"other": "x"}}
-	if _, _, ok := decide(a, baseCfg()); ok {
+	if _, _, _, ok := decide(a, baseCfg()); ok {
 		t.Fatal("missing target field must not trigger enforcement")
 	}
 }
@@ -69,7 +80,7 @@ func TestDecide_MissingFieldNoAction(t *testing.T) {
 func TestDecide_RejectsProtocolInjection(t *testing.T) {
 	a := FalcoAlert{Rule: "Write below binary dir", Priority: "Error",
 		OutputFields: map[string]interface{}{"fd.name": "/usr/bin/evil\nPOST /block/clear"}}
-	if _, _, ok := decide(a, baseCfg()); ok {
+	if _, _, _, ok := decide(a, baseCfg()); ok {
 		t.Fatal("target with embedded newline must be rejected")
 	}
 }
@@ -160,7 +171,7 @@ func TestSendControl_SpeaksProtocol(t *testing.T) {
 		_, _ = c.Write([]byte(`{"status":"ok"}` + "\n\n"))
 	}()
 
-	reply, err := sendControl(sock, "/block/add", "/var/tmp/evil")
+	reply, err := sendControl(sock, "/block/add", "/var/tmp/evil", 0)
 	if err != nil {
 		t.Fatalf("sendControl: %v", err)
 	}
@@ -169,6 +180,36 @@ func TestSendControl_SpeaksProtocol(t *testing.T) {
 	}
 	if !strings.Contains(reply, `"status":"ok"`) {
 		t.Fatalf("reply %q", reply)
+	}
+}
+
+// A positive TTL must be appended as a trailing "ttl=<sec>" token.
+func TestSendControl_AppendsTTL(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "a.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		line, _ := bufio.NewReader(c).ReadString('\n')
+		got <- strings.TrimSpace(line)
+		_, _ = c.Write([]byte(`{"status":"ok","ttl":300}` + "\n\n"))
+	}()
+
+	if _, err := sendControl(sock, "/block/add", "/var/tmp/evil", 300); err != nil {
+		t.Fatalf("sendControl: %v", err)
+	}
+	if r := <-got; r != "POST /block/add /var/tmp/evil ttl=300" {
+		t.Fatalf("server saw %q", r)
 	}
 }
 

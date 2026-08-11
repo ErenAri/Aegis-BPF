@@ -18,7 +18,7 @@ data:
       "auth_token": "",
       "rules": [
         { "rule": "Write below binary dir",         "action": "block-file", "field": "fd.name" },
-        { "rule": "Unexpected outbound connection", "action": "deny-ip",    "field": "fd.sip"  }
+        { "rule": "Unexpected outbound connection", "action": "deny-ip",    "field": "fd.sip", "ttl_seconds": 600 }
       ]
     }
 ---

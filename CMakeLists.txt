@@ -368,6 +368,7 @@ set(AEGIS_SOURCES
     src/network_ops.cpp
     src/otlp_exporter.cpp
     src/socket_api.cpp
+    src/ttl_registry.cpp
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
@@ -563,6 +564,7 @@ set(AEGIS_LIB_SOURCES
     src/network_ops.cpp
     src/otlp_exporter.cpp
     src/socket_api.cpp
+    src/ttl_registry.cpp
     src/policy.cpp
     src/policy_parse.cpp
     src/policy_runtime.cpp
@@ -696,6 +698,7 @@ if(BUILD_TESTING)
         tests/test_event_decode.cpp
         tests/test_posture_gate.cpp
         tests/test_socket_api.cpp
+        tests/test_ttl_registry.cpp
     )
 
     add_executable(aegisbpf_test ${TEST_SOURCES})

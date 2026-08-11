@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Auto-expiry (TTL) for dynamic denies
+- **Timed denies over the control API** (`src/ttl_registry.{hpp,cpp}`,
+  `src/daemon.cpp` reaper wiring, `tests/test_ttl_registry.cpp`,
+  `docs/CONTROL_API.md`) — any add verb now accepts an optional trailing
+  `ttl=<seconds>` token (`POST /block/add /p ttl=300`), and the deny is removed
+  automatically when it expires. Closes the standing safety gap in automated
+  response: a transient signal (e.g. a Falco detection relayed by
+  `aegis-responder`) can no longer wedge a path or IP permanently. Timed denies
+  are persisted to `/var/lib/aegisbpf/deny_ttl.db` and reaped by a dedicated
+  thread (5 s granularity) that re-issues the same `del` command the CLI uses;
+  expiry is wall-clock so it survives a daemon restart. Re-adding with a fresh
+  TTL extends it, re-adding with no TTL makes it permanent, and `del`/`clear`
+  drop the timer. The `aegis-responder` config gains a per-rule `ttl_seconds`
+  that is forwarded as the `ttl=` token. Parse/partition/persistence are a
+  kernel-free module with an 11-case GTest suite; the responder's Go tests cover
+  TTL passthrough and the wire-format token.
+
 ### Added — Node control API
 - **Root-only Unix-socket control API** (`AEGIS_API_SOCKET=<path>` on `run`,
   `src/socket_api.{hpp,cpp}`, `src/daemon.cpp` wiring, `tests/test_socket_api.cpp`,

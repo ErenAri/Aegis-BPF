@@ -37,9 +37,10 @@ type FalcoAlert struct {
 
 // RuleAction maps a Falco rule name to an AegisBPF enforcement action.
 type RuleAction struct {
-	Rule   string `json:"rule"`   // exact Falco rule name to act on
-	Action string `json:"action"` // block-file | deny-ip | deny-cidr
-	Field  string `json:"field"`  // output_fields key holding the target (path/ip/cidr)
+	Rule   string `json:"rule"`                  // exact Falco rule name to act on
+	Action string `json:"action"`                // block-file | deny-ip | deny-cidr
+	Field  string `json:"field"`                 // output_fields key holding the target (path/ip/cidr)
+	TTL    int    `json:"ttl_seconds,omitempty"` // if >0, the deny auto-expires after this many seconds
 }
 
 // Config is the responder configuration (JSON; stdlib-only, no YAML dep).
@@ -99,11 +100,12 @@ func validTarget(verb, arg string) bool {
 }
 
 // decide is the pure mapping: given an alert and config, return the control
-// (verb, arg) to issue, or ok=false to take no action. Kept side-effect-free so
-// it is fully unit-testable.
-func decide(a FalcoAlert, cfg *Config) (verb, arg string, ok bool) {
+// (verb, arg, ttl) to issue, or ok=false to take no action. ttl is the matched
+// rule's auto-expiry in seconds (0 = permanent). Kept side-effect-free so it is
+// fully unit-testable.
+func decide(a FalcoAlert, cfg *Config) (verb, arg string, ttl int, ok bool) {
 	if cfg.MinPriority != "" && rank(a.Priority) < rank(cfg.MinPriority) {
-		return "", "", false
+		return "", "", 0, false
 	}
 	for _, r := range cfg.Rules {
 		if r.Rule != a.Rule {
@@ -111,28 +113,34 @@ func decide(a FalcoAlert, cfg *Config) (verb, arg string, ok bool) {
 		}
 		v, vok := verbFor(r.Action)
 		if !vok {
-			return "", "", false
+			return "", "", 0, false
 		}
 		raw, present := a.OutputFields[r.Field]
 		if !present {
-			return "", "", false
+			return "", "", 0, false
 		}
 		s, _ := raw.(string)
 		s = strings.TrimSpace(s)
 		if s == "" {
-			return "", "", false
+			return "", "", 0, false
 		}
 		if !validTarget(v, s) {
-			return "", "", false
+			return "", "", 0, false
 		}
-		return v, s, true
+		ttl := r.TTL
+		if ttl < 0 {
+			ttl = 0
+		}
+		return v, s, ttl, true
 	}
-	return "", "", false
+	return "", "", 0, false
 }
 
 // sendControl issues one control request to the AegisBPF socket and returns the
-// agent's JSON reply (read up to the blank-line terminator).
-func sendControl(socket, verb, arg string) (string, error) {
+// agent's JSON reply (read up to the blank-line terminator). When ttl > 0 the
+// deny is installed with an auto-expiry, appended as a trailing "ttl=<sec>" token
+// (the agent strips it before treating the rest as the target).
+func sendControl(socket, verb, arg string, ttl int) (string, error) {
 	d := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := d.DialContext(context.Background(), "unix", socket)
 	if err != nil {
@@ -141,7 +149,11 @@ func sendControl(socket, verb, arg string) (string, error) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
-	if _, err := fmt.Fprintf(conn, "POST %s %s\n", verb, arg); err != nil {
+	line := fmt.Sprintf("POST %s %s", verb, arg)
+	if ttl > 0 {
+		line += fmt.Sprintf(" ttl=%d", ttl)
+	}
+	if _, err := fmt.Fprintf(conn, "%s\n", line); err != nil {
 		return "", err
 	}
 	buf := make([]byte, 512)
@@ -184,23 +196,23 @@ func (h *responder) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	verb, arg, ok := decide(a, h.cfg)
+	verb, arg, ttl, ok := decide(a, h.cfg)
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]string{"result": "no-action", "rule": a.Rule})
 		return
 	}
 	if h.cfg.DryRun {
-		log.Printf("DRY-RUN rule=%q -> POST %s %s", a.Rule, verb, arg)
+		log.Printf("DRY-RUN rule=%q -> POST %s %s ttl=%d", a.Rule, verb, arg, ttl)
 		writeJSON(w, http.StatusOK, map[string]string{"result": "dry-run", "verb": verb, "arg": arg})
 		return
 	}
-	reply, err := sendControl(h.cfg.Socket, verb, arg)
+	reply, err := sendControl(h.cfg.Socket, verb, arg, ttl)
 	if err != nil {
 		log.Printf("ERROR rule=%q POST %s %s: %v", a.Rule, verb, arg, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"result": "error", "error": err.Error()})
 		return
 	}
-	log.Printf("ENFORCED rule=%q -> POST %s %s -> %s", a.Rule, verb, arg, reply)
+	log.Printf("ENFORCED rule=%q -> POST %s %s ttl=%d -> %s", a.Rule, verb, arg, ttl, reply)
 	writeJSON(w, http.StatusOK, map[string]string{"result": "enforced", "verb": verb, "arg": arg, "agent": reply})
 }
 
