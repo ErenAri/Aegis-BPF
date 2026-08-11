@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -19,6 +20,8 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -43,6 +46,7 @@
 #include "selftest.hpp"
 #include "socket_api.hpp"
 #include "tracing.hpp"
+#include "ttl_registry.hpp"
 #include "types.hpp"
 #include "utils.hpp"
 
@@ -229,6 +233,51 @@ Result<void> validate_attach_contract(const BpfState& state, bool lsm_enabled, b
                          ", attached=" + std::to_string(state.file_hooks_attached));
     }
     return {};
+}
+
+// Serializes read-modify-write of the TTL registry between the control-API
+// callback (socket accept thread) and the reaper thread, so concurrent add +
+// reap can't lose an update to deny_ttl.db.
+std::mutex g_ttl_db_mu;
+
+// Remove a timed deny by re-issuing the same del command the CLI uses.
+void dispatch_ttl_del(const std::string& verb, const std::string& arg)
+{
+    if (verb == "/block/add") {
+        cmd_block_del(arg);
+    } else if (verb == "/network/deny/ip") {
+        cmd_network_deny_del_ip(arg);
+    } else if (verb == "/network/deny/cidr") {
+        cmd_network_deny_del_cidr(arg);
+    } else {
+        logger().log(SLOG_WARN("TTL reaper: unknown verb, cannot expire").field("verb", verb));
+    }
+}
+
+// Reaper for TTL-scoped denies installed over the control API. Runs only while
+// the control API is enabled. Each tick, expired entries are removed via the
+// matching del command so a transient deny (e.g. from a Falco alert) cannot wedge
+// a path or IP forever. Wall-clock (CLOCK_REALTIME) expiry keeps "N seconds"
+// meaningful across restarts; a large backwards clock step only delays reaping.
+void ttl_reaper_loop(std::atomic<bool>* running)
+{
+    while (running->load(std::memory_order_relaxed)) {
+        struct timespec ts {};
+        clock_gettime(CLOCK_REALTIME, &ts);
+        const auto now = static_cast<uint64_t>(ts.tv_sec);
+        size_t reaped = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_ttl_db_mu);
+            reaped = reap_expired_ttls(now, dispatch_ttl_del, kTtlDbPath);
+        }
+        if (reaped > 0) {
+            logger().log(SLOG_INFO("Expired timed denies reaped").field("count", static_cast<int64_t>(reaped)));
+        }
+        // 5s granularity: fine for security TTLs, negligible overhead when idle.
+        for (int i = 0; i < 5 && running->load(std::memory_order_relaxed); ++i) {
+            sleep(1);
+        }
+    }
 }
 
 } // namespace
@@ -990,11 +1039,23 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     // responder (e.g. a Falco Talon actionner) drive enforcement programmatically
     // instead of shelling out to the CLI. RAII-stopped when daemon_run returns.
     std::unique_ptr<aegis::SocketApiServer> api_server;
+    std::atomic<bool> ttl_reaper_running{false};
+    std::thread ttl_reaper;
     if (const char* api_sock = std::getenv("AEGIS_API_SOCKET"); api_sock != nullptr && api_sock[0] != '\0') {
         aegis::SocketApiServer::Config api_cfg;
         api_cfg.socket_path = api_sock;
         api_server = std::make_unique<aegis::SocketApiServer>(api_cfg);
-        api_server->set_control_callback([](const std::string& verb, const std::string& arg) -> std::string {
+        api_server->set_control_callback([](const std::string& verb, const std::string& raw_arg) -> std::string {
+            // An add verb may carry an optional trailing "ttl=<seconds>"; the deny
+            // is then auto-removed by the reaper once it expires. A path can contain
+            // spaces, so only the final token is treated as a ttl marker.
+            std::string arg = raw_arg;
+            std::optional<uint32_t> ttl;
+            const bool is_add = (verb == "/block/add" || verb == "/network/deny/ip" || verb == "/network/deny/cidr");
+            if (is_add) {
+                ttl = parse_ttl_suffix(arg);
+            }
+
             int rc;
             if (verb == "/block/add") {
                 rc = cmd_block_add(arg);
@@ -1009,13 +1070,41 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
             } else {
                 return R"({"error":"unknown control verb"})";
             }
-            if (rc == 0) {
-                return R"({"status":"ok"})";
+            if (rc != 0) {
+                return std::string(R"({"error":"command failed","rc":)") + std::to_string(rc) + "}";
             }
-            return std::string(R"({"error":"command failed","rc":)") + std::to_string(rc) + "}";
+
+            // Maintain the TTL registry only after the enforcement op succeeded.
+            // Guarded against the reaper thread's concurrent read-modify-write.
+            std::lock_guard<std::mutex> ttl_lock(g_ttl_db_mu);
+            if (is_add) {
+                auto entries = read_ttl_db(kTtlDbPath);
+                if (ttl) {
+                    struct timespec ts {};
+                    clock_gettime(CLOCK_REALTIME, &ts);
+                    const uint64_t expiry = static_cast<uint64_t>(ts.tv_sec) + *ttl;
+                    upsert_ttl_entry(entries, expiry, verb, arg);
+                    write_ttl_db(entries, kTtlDbPath);
+                    return std::string(R"({"status":"ok","ttl":)") + std::to_string(*ttl) + "}";
+                }
+                // Re-adding with no TTL makes the deny permanent again.
+                remove_ttl_entry(entries, verb, arg);
+                write_ttl_db(entries, kTtlDbPath);
+            } else if (verb == "/block/clear") {
+                auto entries = read_ttl_db(kTtlDbPath);
+                remove_ttl_entries_by_verb(entries, "/block/add");
+                write_ttl_db(entries, kTtlDbPath);
+            } else if (verb == "/block/del") {
+                auto entries = read_ttl_db(kTtlDbPath);
+                remove_ttl_entry(entries, "/block/add", arg);
+                write_ttl_db(entries, kTtlDbPath);
+            }
+            return R"({"status":"ok"})";
         });
         if (api_server->start()) {
             logger().log(SLOG_INFO("Node control API enabled").field("socket", api_sock));
+            ttl_reaper_running.store(true);
+            ttl_reaper = std::thread(ttl_reaper_loop, &ttl_reaper_running);
         } else {
             logger().log(SLOG_ERROR("Failed to start node control API").field("socket", api_sock));
             api_server.reset();
@@ -1080,6 +1169,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     // Stop heartbeat thread
     if (deadman_ttl > 0) {
         stop_deadman_heartbeat(heartbeat);
+    }
+
+    // Stop TTL reaper thread (only started when the control API is enabled)
+    if (ttl_reaper.joinable()) {
+        ttl_reaper_running.store(false);
+        ttl_reaper.join();
     }
 
     logger().log(SLOG_INFO("Agent stopped"));

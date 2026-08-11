@@ -43,13 +43,16 @@ Verified end-to-end: a Falco webhook for *"Write below binary dir"* drove
   "auth_token": "",
   "rules": [
     { "rule": "Write below binary dir",         "action": "block-file", "field": "fd.name" },
-    { "rule": "Unexpected outbound connection", "action": "deny-ip",    "field": "fd.sip"  }
+    { "rule": "Unexpected outbound connection", "action": "deny-ip",    "field": "fd.sip", "ttl_seconds": 600 }
   ]
 }
 ```
 - `action`: `block-file` → `POST /block/add`, `deny-ip` → `POST /network/deny/ip`,
   `deny-cidr` → `POST /network/deny/cidr`.
 - `field`: the Falco `output_fields` key holding the target (path / IP / CIDR).
+- `ttl_seconds` (optional): if `>0`, the deny auto-expires after this many seconds
+  (the agent reaps it). Recommended for automated response so a transient alert
+  can't permanently wedge a path or IP. Omit / `0` = permanent.
 - `auth_token`: optional shared secret; when set, callers must send a matching
   `X-Aegis-Token` header. Leave empty to accept unauthenticated requests.
 
@@ -83,7 +86,8 @@ which owns the `0600` socket). See [`deploy/daemonset.yaml`](deploy/daemonset.ya
 - Falco + Falcosidekick in the cluster.
 
 ## Roadmap
-- **TTL / auto-expiry** of dynamically-added denies (so a transient alert can't
-  permanently wedge a path) — recommended before high-volume automated response.
+- **TTL / auto-expiry** — *done*: set `ttl_seconds` on a rule and the deny is
+  reaped by the agent when it expires (see the AegisBPF `docs/CONTROL_API.md`
+  "Auto-expiry" section). Recommended for automated response.
 - A native **Falco Talon actionner** to upstream into `falcosecurity/falco-talon`
   (this webhook responder is the standalone equivalent that needs no Talon fork).

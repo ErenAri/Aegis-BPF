@@ -58,6 +58,31 @@ Failures return `{"error":"command failed","rc":<n>}`; an unrecognized verb
 returns `{"error":"unknown control verb"}`. The argument may contain spaces
 (paths), so it is everything after the verb token.
 
+### Auto-expiry (TTL)
+
+Any add verb accepts an optional trailing `ttl=<seconds>` token — the deny is
+then removed automatically once it expires, so a transient signal (e.g. a Falco
+detection) can't wedge a path or IP permanently:
+
+```
+POST /block/add /usr/bin/suspicious ttl=300      -> {"status":"ok","ttl":300}
+POST /network/deny/ip 203.0.113.7 ttl=600        -> {"status":"ok","ttl":600}
+```
+
+Because a path may itself contain spaces, only the **final** token is treated as
+a `ttl=` marker (a malformed one — `ttl=`, `ttl=abc`, `ttl=0` — is left as part of
+the path and the deny is permanent). Timed denies are recorded in
+`/var/lib/aegisbpf/deny_ttl.db` (`<expiry-epoch> <verb> <arg>`) and a reaper
+thread removes each one via the matching `del` command when it expires — checked
+every 5 s. Semantics:
+
+- **Re-add with a new TTL** extends the deadline (no duplicate).
+- **Re-add with no TTL** makes the deny permanent again (drops the timer).
+- `POST /block/del <path>` and `POST /block/clear` also drop the corresponding
+  timer(s).
+- Expiry is wall-clock, so it survives a daemon restart; a large backwards clock
+  step only delays reaping.
+
 ## Example (Python)
 
 ```python
@@ -80,7 +105,7 @@ node — see the integration roadmap in the README.
   mutate the pinned BPF maps — so a `POST /block/add` takes effect on the running
   daemon's enforcement immediately (verified end-to-end).
 - The server runs one accept thread and is RAII-stopped when the daemon exits;
-  the socket file is unlinked on shutdown.
-- **Not yet exposed:** TTL/auto-expiry of dynamically-added denies and an audit
-  trail of who-added-what — recommended before wiring an automated response loop
-  that can add denies at volume.
+  the socket file is unlinked on shutdown. The TTL reaper thread starts with the
+  control API and is joined on shutdown.
+- **Not yet exposed:** an audit trail of who-added-what — recommended alongside
+  TTL before wiring an automated response loop that can add denies at volume.
