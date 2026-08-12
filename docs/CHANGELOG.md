@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Fluent Bit integration
+- **`integrations/fluent-bit/`** — docs + example config for streaming AegisBPF's
+  OCSF events into any Fluent Bit output via the native `aegisbpf` input plugin
+  (connects to the control socket, `GET /events`, forwards each event as a
+  record). Plugin proposed upstream at fluent/fluent-bit#12272 (docs at
+  fluent/fluent-bit-docs#2670); a generic-input fallback is documented until it
+  ships in a release.
+
 ### Added — Nix packaging + hermetic BPF builds
 - **`packaging/nix/`** — a hermetic Nix build of the agent (`package.nix`,
   `test-default.nix`, `README.md`), the basis for the `NixOS/nixpkgs` submission.
