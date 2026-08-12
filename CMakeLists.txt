@@ -272,12 +272,29 @@ if(NOT SKIP_BPF_BUILD)
         set(BPF_TARGET_ARCH ${CMAKE_SYSTEM_PROCESSOR})
     endif()
 
-    # Generate vmlinux.h from kernel BTF
-    add_custom_command(
-        OUTPUT ${VMLINUX_HEADER}
-        COMMAND ${BASH} -c "${BPFTOOL} btf dump file /sys/kernel/btf/vmlinux format c > ${VMLINUX_HEADER}"
-        VERBATIM
-    )
+    # vmlinux.h source. A caller may supply a pre-generated header via
+    # -DVMLINUX_H=<path>; this makes the BPF build hermetic and reproducible for
+    # distro packaging (Nix, rpm/deb sandboxes) and CI where /sys/kernel/btf is
+    # unavailable. CO-RE keeps the resulting object portable regardless of which
+    # kernel's BTF the header was generated from. When unset, generate it from the
+    # running kernel's BTF as before.
+    set(VMLINUX_H "" CACHE FILEPATH "Path to a pre-generated vmlinux.h (skips BTF dump)")
+    if(VMLINUX_H)
+        message(STATUS "Using supplied vmlinux.h: ${VMLINUX_H}")
+        add_custom_command(
+            OUTPUT ${VMLINUX_HEADER}
+            COMMAND ${CMAKE_COMMAND} -E copy ${VMLINUX_H} ${VMLINUX_HEADER}
+            DEPENDS ${VMLINUX_H}
+            VERBATIM
+        )
+    else()
+        # Generate vmlinux.h from the running kernel's BTF.
+        add_custom_command(
+            OUTPUT ${VMLINUX_HEADER}
+            COMMAND ${BASH} -c "${BPFTOOL} btf dump file /sys/kernel/btf/vmlinux format c > ${VMLINUX_HEADER}"
+            VERBATIM
+        )
+    endif()
 
     # Compile BPF object
     add_custom_command(

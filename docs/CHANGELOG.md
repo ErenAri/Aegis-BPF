@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Nix packaging + hermetic BPF builds
+- **`packaging/nix/`** — a hermetic Nix build of the agent (`package.nix`,
+  `test-default.nix`, `README.md`), the basis for the `NixOS/nixpkgs` submission.
+  Builds the `aegisbpf` binary + `aegis.bpf.o` + systemd unit in a sandbox with no
+  network and no `/sys/kernel/btf`, verified end-to-end (`nix-build` → working
+  `aegisbpf version`). Uses an unwrapped LLVM-18 clang for the BPF object (avoids
+  the cc-wrapper hardening flags the `bpf` target rejects) and `linuxHeaders`/`zstd`
+  for the UAPI headers / libelf.
+- **`-DVMLINUX_H=<path>` CMake option** — supply a pre-generated `vmlinux.h`
+  instead of dumping the running kernel's BTF, making the BPF object build hermetic
+  and reproducible for distro packaging and CI (CO-RE keeps the object portable).
+  A checked-in `packaging/nix/vmlinux.x86_64.h` is shipped for that purpose; the
+  default build still generates `vmlinux.h` from the live kernel BTF unchanged.
+
 ### Added — Prometheus metrics endpoint
 - **Opt-in HTTP `/metrics` endpoint** (`AEGIS_METRICS_ADDR=<host:port>`,
   `src/metrics_server.{hpp,cpp}`, `src/daemon.cpp` wiring, `docs/METRICS.md`) —
