@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786478242771,
+  "lastUpdate": 1786527908075,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49452,6 +49452,96 @@ window.BENCHMARK_DATA = {
             "value": 57.297985945631346,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 57.2901401564176 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0fa0012faef63a885bd6316630d5896bd56a4b4",
+          "message": "feat(packaging): hermetic Nix build + -DVMLINUX_H for reproducible BPF builds (#305)\n\nAdds packaging/nix/ — a hermetic Nix build of the agent, the basis for a\nNixOS/nixpkgs submission. Verified end-to-end in a nixos/nix container\n(nix-build -> working `aegisbpf version`), no network, no /sys/kernel/btf.\n\nBuild-system change enabling it:\n- CMake: new -DVMLINUX_H=<path> option supplies a pre-generated vmlinux.h\n  instead of dumping the running kernel's BTF, so the BPF object builds in a\n  sandbox. CO-RE keeps the object portable regardless of the header's source\n  kernel. Default behaviour (generate from live BTF) is unchanged.\n\npackaging/nix/:\n- package.nix — the derivation. Unwrapped LLVM-18 clang for the BPF object\n  (the stdenv cc-wrapper injects hardening flags the bpf target rejects; LLVM 18\n  matches the tested clang matrix and stays under the 512-byte BPF stack limit),\n  linuxHeaders via CPATH for asm-generic/*, zstd for libelf's pkg-config,\n  ENABLE_RUST_PARSER_LINK=OFF (no cargo needed). Absolute /etc install paths\n  redirected under $out.\n- test-default.nix — pins nixpkgs; local `nix-build` entry point.\n- vmlinux.x86_64.h — checked-in CO-RE header (same approach as ebpf_exporter).\n- README.md — build instructions + rationale for each input.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T12:33:46+03:00",
+          "tree_id": "de0ba3186531020739c2c0558b76d87aae016eea",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/d0fa0012faef63a885bd6316630d5896bd56a4b4"
+        },
+        "date": 1786527905471,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1517.6778344535207,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1517.571193267512 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 4327.511135531578,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4327.172947726785 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 26861.97801540873,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26858.2874428567 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 206429.18282425826,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 206415.25659092015 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1643647.254210732,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1643530.8067959247 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 6571893.840342664,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 6571346.434968855 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4039.516401125043,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4043.2360779470587 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 29700.009877663277,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 29697.02393761033 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 239457.2022984786,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 239420.76205514974 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 726747.517178686,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 726705.8103851808 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 58.00726058866925,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 57.99937629319632 ns\nthreads: 1"
           }
         ]
       }
