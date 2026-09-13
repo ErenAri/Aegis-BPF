@@ -598,6 +598,50 @@ struct {
     __type(value, __u64);
 } policy_generation SEC(".maps");
 
+/* Active policy slot selector.
+ *
+ * Every slotted policy map is an ARRAY_OF_MAPS with two slots.  Userspace
+ * builds a complete new generation in the inactive slot -- writes no hook can
+ * observe, because active_slot still names the other one -- and then writes the
+ * new index here.  That single u32 write is the only observable transition, so
+ * file, network and cgroup rules all switch generations together.
+ *
+ * This replaces the old generation-mismatch scheme, which degraded enforcement
+ * to audit-only for the duration of every reload.
+ *
+ * Key 0 = index of the live slot (0 or 1).
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+} active_slot SEC(".maps");
+
+/* Read the live policy slot.
+ *
+ * MUST be called exactly once per hook invocation, with the result threaded
+ * through every helper in that invocation.  Re-reading it mid-hook can straddle
+ * a flip and evaluate old file rules against new network rules, which defeats
+ * the whole point of a single commit point. */
+static __always_inline __u32 policy_active_slot(void)
+{
+    __u32 key = 0;
+    __u32 *slot = bpf_map_lookup_elem(&active_slot, &key);
+    /* Mask to the slot count so the verifier can bound the outer array access. */
+    return slot ? (*slot & 1u) : 0;
+}
+
+/* Resolve an outer ARRAY_OF_MAPS slot to its inner policy map.
+ *
+ * Returns NULL when the slot is unpopulated, which callers MUST treat exactly
+ * as they treat an empty map -- never as "deny everything" and never as
+ * "allow everything" beyond what an empty map already means. */
+static __always_inline void *policy_inner(void *outer, __u32 slot)
+{
+    return bpf_map_lookup_elem(outer, &slot);
+}
+
 /* ============================================================================
  * Network Maps
  * ============================================================================ */
