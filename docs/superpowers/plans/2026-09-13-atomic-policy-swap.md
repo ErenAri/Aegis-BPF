@@ -354,6 +354,61 @@ git commit -m "feat(bpf): add active_slot map and policy slot helpers"
 
 ---
 
+### Task 3b: Policy map accessor layer  *(added during execution)*
+
+**Why added:** the spec assumed the reload path was the only consumer of policy
+maps. It is not — ~117 call sites across six files address them directly and all
+break the moment a map is slotted. This must land **before** any conversion.
+
+**Files:**
+- Modify: `src/policy_slots.hpp`, `src/policy_slots.cpp`
+- Test: `tests/test_policy_slots.cpp`
+
+**Interfaces:**
+- Consumes: `ShadowMap` (`src/bpf_maps.hpp`).
+- Produces: `Result<ShadowMap> live_policy_map(const BpfState& state, bpf_map* outer);` and
+  `Result<ShadowMap> live_policy_map_from_fds(int outer_fd, int active_slot_fd);`
+
+A userspace lookup on an ARRAY_OF_MAPS returns the inner map's **id**, so this
+allocates a new fd through `bpf_map_get_fd_by_id()`. The returned `ShadowMap`
+owns and closes it. Handles must be resolved per operation, never cached across
+a flip.
+
+- [ ] **Step 1: Write the failing test** — resolve a populated slot and read a
+      key back through the returned handle; assert an unpopulated slot errors.
+- [ ] **Step 2: Run it, confirm it fails to compile** (`live_policy_map_from_fds` undeclared).
+- [ ] **Step 3: Implement** — read `active_slot`, `bpf_map_lookup_elem(outer, &slot, &inner_id)`,
+      then `bpf_map_get_fd_by_id(inner_id)`; wrap in `ShadowMap`.
+- [ ] **Step 4: Run tests, confirm pass.**
+- [ ] **Step 5: Commit.**
+
+---
+
+### Task 6b: Carry runtime-added rules across a reload  *(added during execution)*
+
+**Why added:** `aegis block` and the cgroup/network CLIs write into the live map
+and survive a non-reset reload today. A freshly built inner map would discard
+them, so an operator's emergency block would vanish at the next reload.
+
+**Files:**
+- Modify: `src/ttl_registry.hpp`, `src/ttl_registry.cpp`, `src/policy_runtime.cpp`
+- Test: `tests/test_ttl_registry.cpp`
+
+**Interfaces:**
+- Produces: registry entries for non-TTL runtime rules (expiry 0 = never), and a
+  replay step in the reload path between population and verification.
+
+- [ ] **Step 1: Write the failing test** — add a non-TTL rule, run a reload,
+      assert the rule is still enforced afterwards.
+- [ ] **Step 2: Run it, confirm it fails** (rule discarded).
+- [ ] **Step 3: Implement** — record non-TTL runtime rules in the registry;
+      replay the registry into new inner maps after policy-file population and
+      before verification.
+- [ ] **Step 4: Confirm TTL expiry still reaps from both map and registry.**
+- [ ] **Step 5: Commit.**
+
+---
+
 ### Task 4: Vertical slice — convert `deny_inode_map` to a slotted map
 
 Convert exactly one map end-to-end before touching the other fifteen. This proves the whole mechanism (declaration, hot path, population, flip) against a real hook with real enforcement.
