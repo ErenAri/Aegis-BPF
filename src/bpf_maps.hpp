@@ -56,6 +56,16 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state);
 size_t map_fd_entry_count(int fd, size_t key_size);
 Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
 
+/// True when the kernel accepts an inner map whose max_entries differs from the
+/// outer map's template. The kernel stopped comparing max_entries in
+/// bpf_map_meta_equal() in 5.11; below that, inner maps must be created at the
+/// template's size. Probed once on first call, then cached.
+///
+/// Returns false when map creation is not permitted (no CAP_BPF) as well as
+/// when the kernel lacks support. Both collapse to the same safe fallback:
+/// template-sized inner maps, which costs memory but never correctness.
+bool supports_variable_inner_max_entries();
+
 struct MapPressure {
     std::string name;
     size_t entry_count;

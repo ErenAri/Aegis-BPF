@@ -10,7 +10,9 @@
 // the sentinel pointers below are never dereferenced or freed.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
+#include "bpf_maps.hpp"
 #include "bpf_ops.hpp"
 
 using namespace aegis;
@@ -74,4 +76,23 @@ TEST(BpfStateMove, MoveAssignTransfersStateAndResetsSource)
     EXPECT_EQ(a.deny_ipv4, nullptr); // NOLINT(bugprone-use-after-move)
     EXPECT_FALSE(a.deny_ipv4_reused);
     EXPECT_FALSE(a.socket_connect_hook_attached);
+}
+
+// Probes whether this kernel accepts an inner map whose max_entries differs
+// from the outer map's template (relaxed in 5.11). The answer decides whether
+// policy inner maps can be right-sized; the probe must be stable and cached.
+TEST(BpfMapProbe, VariableInnerMaxEntriesIsStableAndCached)
+{
+    const bool first = aegis::supports_variable_inner_max_entries();
+    const bool second = aegis::supports_variable_inner_max_entries();
+    EXPECT_EQ(first, second);
+
+    // Unprivileged runs cannot create BPF maps at all, so the probe reports
+    // false for want of CAP_BPF rather than for want of kernel support. Only
+    // a privileged run can assert the real answer -- without this skip the
+    // test would pass trivially and never exercise the probe.
+    if (geteuid() != 0) {
+        GTEST_SKIP() << "requires privileges to create BPF maps";
+    }
+    EXPECT_TRUE(first) << "kernel " << "5.11+ should accept variable-size inner maps";
 }

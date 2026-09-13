@@ -84,6 +84,57 @@ ShadowMap& ShadowMap::operator=(ShadowMap&& o) noexcept
     return *this;
 }
 
+namespace {
+
+// Creates a throwaway outer/inner pair and tries to insert an inner map whose
+// max_entries differs from the template. Succeeds only on kernels where
+// bpf_map_meta_equal() ignores max_entries (5.11+). All fds are closed before
+// returning; nothing is pinned.
+bool probe_variable_inner_max_entries()
+{
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+
+    int tmpl = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_tmpl", 4, 1, 16, &opts);
+    if (tmpl < 0) {
+        return false;
+    }
+
+    struct bpf_map_create_opts outer_opts = {};
+    outer_opts.sz = sizeof(outer_opts);
+    outer_opts.inner_map_fd = static_cast<__u32>(tmpl);
+    int outer = bpf_map_create(BPF_MAP_TYPE_ARRAY_OF_MAPS, "aegis_probe", 4, 4, 1, &outer_opts);
+    if (outer < 0) {
+        close(tmpl);
+        return false;
+    }
+
+    // Deliberately a different max_entries than the template.
+    int big = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_big", 4, 1, 64, &opts);
+    if (big < 0) {
+        close(outer);
+        close(tmpl);
+        return false;
+    }
+
+    __u32 key = 0;
+    __u32 value = static_cast<__u32>(big);
+    const bool ok = bpf_map_update_elem(outer, &key, &value, BPF_ANY) == 0;
+
+    close(big);
+    close(outer);
+    close(tmpl);
+    return ok;
+}
+
+} // namespace
+
+bool supports_variable_inner_max_entries()
+{
+    static const bool cached = probe_variable_inner_max_entries();
+    return cached;
+}
+
 Result<ShadowMap> create_shadow_map(bpf_map* live_map)
 {
     if (!live_map) {
