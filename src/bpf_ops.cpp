@@ -138,6 +138,31 @@ Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused)
     if (fd < 0) {
         return {};
     }
+
+    // A pin left by a different agent version may have an entirely different
+    // layout -- deny_inode, for instance, went from HASH to ARRAY_OF_MAPS.
+    // bpf_map__reuse_fd() does not reject that; it binds happily and the load
+    // then fails deep in the verifier with an opaque type error. Check here so
+    // an in-place upgrade replaces the stale pin instead of failing to start.
+    if (!pinned_map_layout_matches(fd, bpf_map__type(map), bpf_map__key_size(map), bpf_map__value_size(map))) {
+        close(fd);
+        logger().log(SLOG_WARN("Pinned map layout differs from this build; replacing stale pin")
+                         .field("path", path)
+                         .field("expected_type", static_cast<int64_t>(bpf_map__type(map)))
+                         .field("expected_key_size", static_cast<int64_t>(bpf_map__key_size(map)))
+                         .field("expected_value_size", static_cast<int64_t>(bpf_map__value_size(map))));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        if (ec) {
+            return Error(ErrorCode::BpfLoadFailed, "Incompatible pinned map could not be removed",
+                         std::string(path) + ": " + ec.message());
+        }
+        // Not reused: the caller creates and pins a fresh map. Policy content is
+        // re-applied from the policy file, so nothing durable is lost.
+        reused = false;
+        return {};
+    }
+
     int err = bpf_map__reuse_fd(map, fd);
     if (err) {
         close(fd);

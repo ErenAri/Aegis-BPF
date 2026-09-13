@@ -70,6 +70,15 @@ size_t map_fd_entry_count(int fd, size_t key_size);
 /// entries live in an inner map reached through live_policy_map().
 Result<void> clear_map_fd_entries(int fd, size_t key_size);
 Result<void> verify_map_fd_entry_count(int fd, size_t key_size, size_t expected);
+
+/// True when the already-created map behind `fd` has the given layout.
+///
+/// bpf_map__reuse_fd() does NOT reject a type mismatch, so a pin left behind by
+/// a different agent version binds silently and only fails much later inside
+/// the verifier with an opaque message. Compares type, key size and value size;
+/// deliberately NOT max_entries, which legitimately varies (runtime tuning and
+/// right-sized inner maps).
+bool pinned_map_layout_matches(int fd, uint32_t type, uint32_t key_size, uint32_t value_size);
 Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
 
 /// True when the kernel accepts an inner map whose max_entries differs from the

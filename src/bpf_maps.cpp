@@ -46,6 +46,19 @@ Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
     return {};
 }
 
+bool pinned_map_layout_matches(int fd, uint32_t type, uint32_t key_size, uint32_t value_size)
+{
+    if (fd < 0) {
+        return false;
+    }
+    struct bpf_map_info info = {};
+    __u32 len = sizeof(info);
+    if (bpf_obj_get_info_by_fd(fd, &info, &len) != 0) {
+        return false;
+    }
+    return info.type == type && info.key_size == key_size && info.value_size == value_size;
+}
+
 Result<void> clear_map_fd_entries(int fd, size_t key_size)
 {
     if (fd < 0) {

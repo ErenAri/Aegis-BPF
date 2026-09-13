@@ -116,4 +116,47 @@ TEST(PolicySlots, UnpopulatedSlotIsAnError)
     close(tmpl);
 }
 
+// A pin left behind by a different agent version can have a different map type
+// entirely. bpf_map__reuse_fd() does NOT reject that, so the mismatch surfaces
+// much later as an opaque verifier error ("R1 type=map_value expected=map_ptr").
+// The layout check exists to catch it at reuse time instead.
+TEST(PinCompat, DetectsLayoutMismatch)
+{
+    if (needs_root()) {
+        GTEST_SKIP() << "requires privileges to create BPF maps";
+    }
+
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    const int hash = bpf_map_create(BPF_MAP_TYPE_HASH, "t_hash", 16, 1, 64, &opts);
+    ASSERT_GE(hash, 0);
+
+    // Same layout: compatible.
+    EXPECT_TRUE(pinned_map_layout_matches(hash, BPF_MAP_TYPE_HASH, 16, 1));
+
+    // The real upgrade case: a HASH pin where an ARRAY_OF_MAPS is now declared.
+    EXPECT_FALSE(pinned_map_layout_matches(hash, BPF_MAP_TYPE_ARRAY_OF_MAPS, 4, 4));
+
+    // Same type but a different key width is also incompatible.
+    EXPECT_FALSE(pinned_map_layout_matches(hash, BPF_MAP_TYPE_HASH, 8, 1));
+
+    close(hash);
+}
+
+// max_entries legitimately varies (try_set_max tuning, right-sized inner maps),
+// so it must NOT be part of the compatibility decision.
+TEST(PinCompat, IgnoresMaxEntries)
+{
+    if (needs_root()) {
+        GTEST_SKIP() << "requires privileges to create BPF maps";
+    }
+
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    const int small = bpf_map_create(BPF_MAP_TYPE_HASH, "t_small", 16, 1, 64, &opts);
+    ASSERT_GE(small, 0);
+    EXPECT_TRUE(pinned_map_layout_matches(small, BPF_MAP_TYPE_HASH, 16, 1));
+    close(small);
+}
+
 } // namespace aegis
