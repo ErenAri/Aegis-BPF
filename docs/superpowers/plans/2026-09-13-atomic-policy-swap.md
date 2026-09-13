@@ -18,6 +18,7 @@
 - A failed reload must leave the previous policy enforcing. Never degrade to audit.
 - Do not convert stats/state maps or `survival_allowlist` (see spec).
 - Existing style: BTF-defined maps in `bpf/aegis_common.h`, `Result<T>` error handling, `TRY(...)` macro, `clang-format` per `.clang-format`.
+- Unit tests use **GoogleTest** (`#include <gtest/gtest.h>`, `TEST(Suite, Name)`, `EXPECT_*`/`ASSERT_*`). Not Catch2.
 - Build: `cmake -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j`. Test: `ctest --test-dir build --output-on-failure`.
 
 ---
@@ -37,13 +38,13 @@
 Add to `tests/test_bpf_state.cpp`:
 
 ```cpp
-TEST_CASE("variable inner max_entries probe is stable and cached")
+TEST(BpfMapProbe, VariableInnerMaxEntriesIsStableAndCached)
 {
     // The probe must not crash, must be callable repeatedly, and must
     // return the same answer every time (it is cached).
     const bool first = aegis::supports_variable_inner_max_entries();
     const bool second = aegis::supports_variable_inner_max_entries();
-    REQUIRE(first == second);
+    EXPECT_EQ(first, second);
 }
 ```
 
@@ -144,26 +145,26 @@ git commit -m "feat(bpf): probe kernel support for variable-size inner maps"
 Add to `tests/test_bpf_state.cpp`:
 
 ```cpp
-TEST_CASE("create_shadow_map honours a max_entries override")
+TEST(ShadowMap, HonoursMaxEntriesOverride)
 {
     // Build a small live-like map to clone from.
     struct bpf_map_create_opts opts = {};
     opts.sz = sizeof(opts);
     int live = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_live", 4, 1, 4096, &opts);
-    REQUIRE(live >= 0);
+    ASSERT_TRUE(live >= 0);
 
     // Override to a much smaller size; verify via map info.
     auto shadow = aegis::create_shadow_map_from_fd(live, 64);
-    REQUIRE(static_cast<bool>(shadow));
+    ASSERT_TRUE(static_cast<bool>(shadow));
 
     struct bpf_map_info info = {};
     __u32 len = sizeof(info);
-    REQUIRE(bpf_obj_get_info_by_fd(shadow->fd(), &info, &len) == 0);
+    EXPECT_EQ(bpf_obj_get_info_by_fd(shadow->fd(), &info, &len), 0);
 
     if (aegis::supports_variable_inner_max_entries()) {
-        REQUIRE(info.max_entries == 64);
+        EXPECT_EQ(info.max_entries, 64);
     } else {
-        REQUIRE(info.max_entries == 4096);
+        EXPECT_EQ(info.max_entries, 4096);
     }
     close(live);
 }
@@ -264,14 +265,14 @@ git commit -m "feat(bpf): allow right-sizing shadow maps via max_entries overrid
 Add to `tests/test_bpf_integrity.cpp`:
 
 ```cpp
-TEST_CASE("BPF object declares active_slot policy map")
+TEST(BpfIntegrity, DeclaresActiveSlotPolicyMap)
 {
     // The skeleton must expose active_slot so userspace can flip generations.
     // Guards against the map being dropped or renamed.
     const std::string src = read_file("bpf/aegis_common.h");
-    REQUIRE(src.find("} active_slot SEC(\".maps\");") != std::string::npos);
-    REQUIRE(src.find("policy_active_slot") != std::string::npos);
-    REQUIRE(src.find("policy_inner") != std::string::npos);
+    ASSERT_TRUE(src.find("} active_slot SEC(\".maps\");") != std::string::npos);
+    ASSERT_TRUE(src.find("policy_active_slot") != std::string::npos);
+    ASSERT_TRUE(src.find("policy_inner") != std::string::npos);
 }
 ```
 
@@ -370,15 +371,15 @@ Convert exactly one map end-to-end before touching the other fifteen. This prove
 Add to `tests/test_bpf_integrity.cpp`:
 
 ```cpp
-TEST_CASE("deny_inode is a slotted outer map with two slots")
+TEST(BpfIntegrity, DenyInodeIsSlotted)
 {
     const std::string src = read_file("bpf/aegis_common.h");
-    REQUIRE(src.find("} deny_inode_outer SEC(\".maps\");") != std::string::npos);
-    REQUIRE(src.find("struct deny_inode_inner") != std::string::npos);
+    ASSERT_TRUE(src.find("} deny_inode_outer SEC(\".maps\");") != std::string::npos);
+    ASSERT_TRUE(src.find("struct deny_inode_inner") != std::string::npos);
 
     // The hook must resolve through the slot, not the bare map.
     const std::string hook = read_file("bpf/aegis_file.bpf.h");
-    REQUIRE(hook.find("&deny_inode_map") == std::string::npos);
+    EXPECT_EQ(hook.find("&deny_inode_map"), std::string::npos);
 }
 ```
 
@@ -485,7 +486,7 @@ Create `tests/test_policy_slots.cpp`:
 
 #include <bpf/bpf.h>
 
-#include "catch_amalgamated.hpp"
+#include <gtest/gtest.h>
 
 using namespace aegis;
 
@@ -515,60 +516,60 @@ int make_active_slot()
 
 } // namespace
 
-TEST_CASE("inner_size_for applies a floor and doubles the rule count")
+TEST(PolicySlots, InnerSizeForAppliesFloorAndDoubles)
 {
-    REQUIRE(inner_size_for(0) == 64);
-    REQUIRE(inner_size_for(10) == 64);
-    REQUIRE(inner_size_for(100) == 200);
+    EXPECT_EQ(inner_size_for(0), 64);
+    EXPECT_EQ(inner_size_for(10), 64);
+    EXPECT_EQ(inner_size_for(100), 200);
 }
 
-TEST_CASE("commit flips active_slot exactly once and populates the new slot")
+TEST(PolicySlots, CommitFlipsActiveSlotOnce)
 {
     int tmpl = make_hash_map(64);
-    REQUIRE(tmpl >= 0);
+    ASSERT_TRUE(tmpl >= 0);
     int outer = make_outer(tmpl);
-    REQUIRE(outer >= 0);
+    ASSERT_TRUE(outer >= 0);
     int slot_fd = make_active_slot();
-    REQUIRE(slot_fd >= 0);
+    ASSERT_TRUE(slot_fd >= 0);
 
     // Slot starts at 0, so the builder must target slot 1.
     SlotBuilder builder;
-    REQUIRE(builder.add_map("deny_inode", outer, 10, tmpl));
+    ASSERT_TRUE(builder.add_map("deny_inode", outer, 10, tmpl));
     auto fd = builder.inner_fd("deny_inode");
-    REQUIRE(fd);
+    ASSERT_TRUE(fd);
 
     // Put a rule in the new inner map before committing.
     uint32_t key = 42;
     uint8_t val = 1;
-    REQUIRE(bpf_map_update_elem(*fd, &key, &val, BPF_ANY) == 0);
+    EXPECT_EQ(bpf_map_update_elem(*fd, &key, &val, BPF_ANY), 0);
 
-    REQUIRE(builder.commit(slot_fd));
+    ASSERT_TRUE(builder.commit(slot_fd));
 
     uint32_t zero = 0;
     uint32_t live = 0;
-    REQUIRE(bpf_map_lookup_elem(slot_fd, &zero, &live) == 0);
-    REQUIRE(live == 1);
+    EXPECT_EQ(bpf_map_lookup_elem(slot_fd, &zero, &live), 0);
+    EXPECT_EQ(live, 1);
 }
 
-TEST_CASE("commit does not flip when an inner map is missing")
+TEST(PolicySlots, CommitDoesNotFlipOnStagingFailure)
 {
     int tmpl = make_hash_map(64);
     int outer = make_outer(tmpl);
     int slot_fd = make_active_slot();
-    REQUIRE(tmpl >= 0);
-    REQUIRE(outer >= 0);
-    REQUIRE(slot_fd >= 0);
+    ASSERT_TRUE(tmpl >= 0);
+    ASSERT_TRUE(outer >= 0);
+    ASSERT_TRUE(slot_fd >= 0);
 
     // An outer fd of -1 makes the slot insert fail.
     SlotBuilder builder;
-    REQUIRE(builder.add_map("bad", -1, 10, tmpl));
-    REQUIRE_FALSE(builder.commit(slot_fd));
+    ASSERT_TRUE(builder.add_map("bad", -1, 10, tmpl));
+    EXPECT_FALSE(builder.commit(slot_fd));
 
     // The live slot must still be the original one: fail-safe.
     uint32_t zero = 0;
     uint32_t live = 99;
-    REQUIRE(bpf_map_lookup_elem(slot_fd, &zero, &live) == 0);
-    REQUIRE(live == 0);
+    EXPECT_EQ(bpf_map_lookup_elem(slot_fd, &zero, &live), 0);
+    EXPECT_EQ(live, 0);
 }
 ```
 
@@ -734,21 +735,21 @@ git commit -m "feat(policy): add slot builder with atomic commit and fail-safe a
 Add to `tests/test_policy.cpp`:
 
 ```cpp
-TEST_CASE("a failed policy apply leaves the previous generation live")
+TEST(PolicyApply, FailedApplyLeavesPreviousGenerationLive)
 {
     // Fail-safe contract: if staging fails, active_slot must not move.
     // Regression guard for the removed direct-apply fallback.
     SlotBuilder builder;
     int slot_fd = make_active_slot_for_test();
-    REQUIRE(slot_fd >= 0);
+    ASSERT_TRUE(slot_fd >= 0);
 
-    REQUIRE(builder.add_map("broken", -1, 4, make_hash_map_for_test(64)));
-    REQUIRE_FALSE(builder.commit(slot_fd));
+    ASSERT_TRUE(builder.add_map("broken", -1, 4, make_hash_map_for_test(64)));
+    EXPECT_FALSE(builder.commit(slot_fd));
 
     uint32_t zero = 0;
     uint32_t live = 123;
-    REQUIRE(bpf_map_lookup_elem(slot_fd, &zero, &live) == 0);
-    REQUIRE(live == 0);
+    EXPECT_EQ(bpf_map_lookup_elem(slot_fd, &zero, &live), 0);
+    EXPECT_EQ(live, 0);
 }
 ```
 
@@ -942,13 +943,13 @@ required by the cross-domain atomicity goal.
 Add to `tests/test_bpf_integrity.cpp`:
 
 ```cpp
-TEST_CASE("all file and exec policy maps are slotted")
+TEST(BpfIntegrity, FileAndExecPolicyMapsAreSlotted)
 {
     const std::string src = read_file("bpf/aegis_common.h");
     for (const char* name : {"deny_path_outer", "deny_comm_outer", "allow_cgroup_outer",
                              "allow_exec_inode_outer", "trusted_exec_hash_outer"}) {
-        INFO("missing outer map: " << name);
-        REQUIRE(src.find(std::string("} ") + name + " SEC(\".maps\");") != std::string::npos);
+        SCOPED_TRACE("missing outer map: " << name);
+        ASSERT_TRUE(src.find(std::string("} ") + name + " SEC(\".maps\");") != std::string::npos);
     }
 }
 ```
@@ -1014,7 +1015,7 @@ in Task 12.
 Add to `tests/test_bpf_integrity.cpp`:
 
 ```cpp
-TEST_CASE("all network and cgroup policy maps are slotted")
+TEST(BpfIntegrity, NetworkAndCgroupPolicyMapsAreSlotted)
 {
     const std::string src = read_file("bpf/aegis_common.h");
     for (const char* name : {"deny_ipv4_outer", "deny_ipv6_outer", "deny_port_outer",
@@ -1022,8 +1023,8 @@ TEST_CASE("all network and cgroup policy maps are slotted")
                              "deny_cidr_v4_outer", "deny_cidr_v6_outer",
                              "deny_cgroup_inode_outer", "deny_cgroup_ipv4_outer",
                              "deny_cgroup_port_outer"}) {
-        INFO("missing outer map: " << name);
-        REQUIRE(src.find(std::string("} ") + name + " SEC(\".maps\");") != std::string::npos);
+        SCOPED_TRACE("missing outer map: " << name);
+        ASSERT_TRUE(src.find(std::string("} ") + name + " SEC(\".maps\");") != std::string::npos);
     }
 }
 ```
@@ -1166,18 +1167,18 @@ machinery.
 Add to `tests/test_bpf_integrity.cpp`:
 
 ```cpp
-TEST_CASE("no policy-generation audit fallback remains")
+TEST(BpfIntegrity, NoPolicyGenerationAuditFallback)
 {
     // The reload audit window is gone; enforcing must never depend on a
     // generation match. Regression guard against reintroducing the hole.
     const std::string src = read_file("bpf/aegis_common.h");
-    REQUIRE(src.find("is_policy_consistent") == std::string::npos);
+    EXPECT_EQ(src.find("is_policy_consistent"), std::string::npos);
 }
 
-TEST_CASE("no bulk direct-apply fallback remains")
+TEST(PolicyApply, NoBulkDirectApplyFallback)
 {
     const std::string src = read_file("src/policy_runtime.cpp");
-    REQUIRE(src.find("falling back to direct apply") == std::string::npos);
+    EXPECT_EQ(src.find("falling back to direct apply"), std::string::npos);
 }
 ```
 
@@ -1316,12 +1317,12 @@ git commit -m "docs(spec): record measured verifier, matrix, and memory results"
 - [ ] **Step 1: Write the failing test**
 
 ```cpp
-TEST_CASE("outer policy maps and active_slot are pinned")
+TEST(BpfLinkPin, OuterPolicyMapsArePinned)
 {
     // Policy must survive an agent restart: the pinned outer maps keep the
     // inner maps alive via refcount, so enforcement continues uninterrupted.
-    REQUIRE(std::string(aegis::kActiveSlotPin) == "/sys/fs/bpf/aegisbpf/active_slot");
-    REQUIRE(std::string(aegis::kDenyInodeOuterPin) == "/sys/fs/bpf/aegisbpf/deny_inode_outer");
+    EXPECT_EQ(std::string(aegis::kActiveSlotPin), "/sys/fs/bpf/aegisbpf/active_slot");
+    EXPECT_EQ(std::string(aegis::kDenyInodeOuterPin), "/sys/fs/bpf/aegisbpf/deny_inode_outer");
 }
 ```
 
