@@ -148,6 +148,55 @@ before the flip, not after — otherwise a window exists where hints describe th
 old generation. This is the highest-risk detail in the change: inverting it
 turns an allowlist into an allow-all.
 
+### Policy map accessor layer
+
+The reload path is not the only consumer of policy maps. Roughly 117 call
+sites across `network_ops.cpp` (15), `commands_cgroup.cpp` (9),
+`policy_runtime.cpp` (5), `bpf_ops.cpp` (4), `commands_block_allow.cpp` (2) and
+`daemon.cpp` (2) — 39 direct `bpf_map__fd(state.<map>)` accesses plus 78
+handle-based `map_entry_count` / `clear_map_entries` / `verify_map_entry_count`
+uses — treat these maps as directly addressable.
+
+Once a map is slotted, its handle no longer holds entries; the inner map does.
+Every one of those sites must resolve through the live slot. A single accessor
+provides that, and **must land before any map is converted**:
+
+```cpp
+/// Resolve the currently-live inner map fd for a slotted policy map.
+/// Returns an error when the slot is unpopulated.
+Result<int> live_policy_fd(const BpfState& state, bpf_map* outer);
+```
+
+Call sites change from `bpf_map__fd(state.deny_inode)` to
+`TRY(live_policy_fd(state, state.deny_inode_outer))`. The fd is borrowed and
+must not be closed; it is valid only until the next flip, so callers must not
+cache it across a reload.
+
+### Runtime-added rules
+
+`aegis block`, and the cgroup and network rule CLIs, write single elements into
+the live map at runtime. Today those entries survive a non-reset reload, because
+`sync_from_shadow()` adds into the live map without clearing it. A freshly built
+inner map contains only what the policy file specifies, so without action those
+rules would be silently discarded on the next reload.
+
+That is unacceptable: an operator's emergency `block` disappearing at the next
+config reload is exactly the class of surprise this change exists to remove.
+
+Runtime-added rules are therefore **carried forward**. The existing TTL registry
+(`src/ttl_registry.hpp`, persisted at `kTtlDbPath`) is extended to record
+non-TTL runtime rules as well, and the reload path replays the registry into the
+new inner maps after populating from the policy file and before verification:
+
+```
+3.  populate inner maps from the policy file
+3b. replay the runtime-rule registry into the inner maps   <-- preserves
+4.  verify entry counts                                        operator blocks
+```
+
+Expiry semantics are unchanged: TTL entries still reap on schedule, and reaping
+removes the rule from both the live inner map and the registry.
+
 ### Commit protocol
 
 ```
