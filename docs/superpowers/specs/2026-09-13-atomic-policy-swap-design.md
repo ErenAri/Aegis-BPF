@@ -161,16 +161,30 @@ Once a map is slotted, its handle no longer holds entries; the inner map does.
 Every one of those sites must resolve through the live slot. A single accessor
 provides that, and **must land before any map is converted**:
 
+A userspace lookup on an `ARRAY_OF_MAPS` returns the inner map's **id**, not a
+file descriptor (confirmed: `bpftool map dump` reports `inner_map_id: <n>`).
+Resolving therefore allocates a fresh fd via `bpf_map_get_fd_by_id()`, which the
+caller owns and must close. The accessor returns an owning handle so that
+closing is not left to the call site:
+
 ```cpp
-/// Resolve the currently-live inner map fd for a slotted policy map.
-/// Returns an error when the slot is unpopulated.
-Result<int> live_policy_fd(const BpfState& state, bpf_map* outer);
+/// Resolve the currently-live inner map of a slotted policy map.
+///
+/// Userspace lookups on an ARRAY_OF_MAPS yield the inner map's id, so this
+/// allocates a new fd; the returned handle owns and closes it. Returns an
+/// error when the slot is unpopulated.
+Result<ShadowMap> live_policy_map(const BpfState& state, bpf_map* outer);
 ```
 
-Call sites change from `bpf_map__fd(state.deny_inode)` to
-`TRY(live_policy_fd(state, state.deny_inode_outer))`. The fd is borrowed and
-must not be closed; it is valid only until the next flip, so callers must not
-cache it across a reload.
+Call sites change from `bpf_map__fd(state.deny_inode)` to a scoped handle:
+
+```cpp
+auto live = TRY(live_policy_map(state, state.deny_inode_outer));
+bpf_map_update_elem(live.fd(), &key, &value, BPF_ANY);
+```
+
+The handle is valid only until the next flip, so it must be resolved per
+operation and never cached across a reload.
 
 ### Runtime-added rules
 
