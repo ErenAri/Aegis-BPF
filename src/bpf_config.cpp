@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "bpf_ops.hpp"
+#include "policy_slots.hpp"
 
 namespace aegis {
 
@@ -41,7 +42,10 @@ AgentConfig default_agent_config()
 
 bool file_policy_maps_empty(const BpfState& state)
 {
-    return map_is_empty(state.deny_inode) && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
+    // deny_inode is slotted: emptiness is a property of the live inner map,
+    // not of the outer array that holds the slots.
+    const auto inode_stats = live_policy_stats(state, state.deny_inode);
+    return inode_stats.entries == 0 && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
 }
 
 bool net_policy_maps_empty(const BpfState& state)

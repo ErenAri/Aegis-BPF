@@ -13,6 +13,7 @@
 
 #include "bpf_ops.hpp"
 #include "logging.hpp"
+#include "policy_slots.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -165,7 +166,15 @@ int cmd_block_list()
     auto db = read_deny_db();
     InodeId key{};
     InodeId next_key{};
-    int rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), nullptr, &key);
+    // deny_inode is slotted; iterate the live inner map, resolved once for
+    // this listing. A concurrent flip would retire this fd, which is fine:
+    // the listing is a point-in-time snapshot either way.
+    auto live_inode = live_policy_map(state, state.deny_inode.outer);
+    if (!live_inode) {
+        return 0; // no live policy generation: nothing to list
+    }
+    const int deny_inode_fd = live_inode->fd();
+    int rc = bpf_map_get_next_key(deny_inode_fd, nullptr, &key);
     while (!rc) {
         auto it = db.find(key);
         if (it != db.end() && !it->second.empty()) {
@@ -173,7 +182,7 @@ int cmd_block_list()
         } else {
             std::cout << inode_to_string(key) << '\n';
         }
-        rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), &key, &next_key);
+        rc = bpf_map_get_next_key(deny_inode_fd, &key, &next_key);
         key = next_key;
     }
 

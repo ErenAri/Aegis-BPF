@@ -23,7 +23,7 @@ Result<SelftestResult> run_startup_selftests(const BpfState& state)
     };
     const MapCheck checks[] = {
         {"events", state.events},
-        {"deny_inode", state.deny_inode},
+        {"deny_inode", state.deny_inode.outer},
         {"deny_path", state.deny_path},
         {"allow_cgroup", state.allow_cgroup},
         {"block_stats", state.block_stats},

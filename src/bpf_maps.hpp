@@ -58,8 +58,18 @@ Result<ShadowMap> create_shadow_map(bpf_map* live_map, uint32_t max_entries_over
 /// max_entries_override of 0 means "clone the source size". A non-zero value is
 /// honoured only where supports_variable_inner_max_entries() is true.
 Result<ShadowMap> create_shadow_map_from_fd(int live_fd, uint32_t max_entries_override = 0);
-Result<ShadowMapSet> create_shadow_map_set(const BpfState& state);
+/// Rule counts used to right-size slotted inner maps. Zero means "use the
+/// template size"; non-zero sizes the new inner map to the policy.
+struct ShadowSizeHints {
+    uint32_t deny_inode_rules = 0;
+};
+
+Result<ShadowMapSet> create_shadow_map_set(const BpfState& state, const ShadowSizeHints& hints = {});
 size_t map_fd_entry_count(int fd, size_t key_size);
+/// fd-based variants of the handle helpers above, for slotted policy maps whose
+/// entries live in an inner map reached through live_policy_map().
+Result<void> clear_map_fd_entries(int fd, size_t key_size);
+Result<void> verify_map_fd_entry_count(int fd, size_t key_size, size_t expected);
 Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
 
 /// True when the kernel accepts an inner map whose max_entries differs from the

@@ -44,10 +44,41 @@ struct PinnedHook {
  * dropped from the move path — the footgun behind the `policy_generation` and
  * `deny_comm` unpinned-map regressions. **Add new maps/flags here.**
  */
+/// Handle to a policy map that lives behind an ARRAY_OF_MAPS slot.
+///
+/// Trivially copyable so it still moves wholesale with BpfMapState, but not
+/// convertible to bpf_map*, which is the point: the conversion from "handle you
+/// can read" to "handle you must resolve" is enforced by the compiler.
+struct SlottedMap {
+    bpf_map* outer = nullptr;
+
+    // Inner-map geometry, captured right after bpf_object__open() while
+    // bpf_map__inner_map() is still valid -- it returns NULL once the object is
+    // loaded, and new inner maps are created later, at policy-apply time.
+    uint32_t inner_type = 0;
+    uint32_t inner_key_size = 0;
+    uint32_t inner_value_size = 0;
+    uint32_t inner_max_entries = 0;
+    uint32_t inner_flags = 0;
+
+    [[nodiscard]] explicit operator bool() const { return outer != nullptr; }
+};
+
+/// Capture a slotted map's inner-map template geometry. Must be called after
+/// bpf_object__open() and before bpf_object__load().
+void capture_inner_geometry(SlottedMap& m);
+
 struct BpfMapState {
     // BPF maps (borrowed; owned by BpfState::obj)
     bpf_map* events = nullptr;
-    bpf_map* deny_inode = nullptr;
+    // Slotted policy map. Deliberately NOT a bpf_map*: the handle refers to the
+    // OUTER ARRAY_OF_MAPS, which holds no policy entries -- those live in the
+    // inner map named by active_slot. Using a distinct type means every call
+    // site that treated this as a directly addressable map fails to COMPILE
+    // rather than silently reading the outer array at runtime.
+    // Resolve entries with live_policy_map(state, <map>.outer).
+    SlottedMap deny_inode;
+    bpf_map* active_slot = nullptr;
     bpf_map* deny_path = nullptr;
     bpf_map* deny_comm = nullptr;
     bpf_map* allow_cgroup = nullptr;
@@ -107,6 +138,7 @@ struct BpfMapState {
     bool agent_meta_reused = false;
     bool config_map_reused = false;
     bool policy_generation_reused = false;
+    bool active_slot_reused = false;
     bool survival_allowlist_reused = false;
     bool deny_ipv4_reused = false;
     bool deny_ipv6_reused = false;

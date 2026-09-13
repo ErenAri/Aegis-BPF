@@ -13,6 +13,10 @@ SEC("lsm/file_open")
 int BPF_PROG(handle_file_open, struct file *file)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* Read the live policy slot once for this invocation; every policy map
+     * consulted below must use this same value or a concurrent flip could mix
+     * generations. */
+    const __u32 slot = policy_active_slot();
     if (!file) {
         record_hook_latency(HOOK_FILE_OPEN, _start_ns);
         return 0;
@@ -40,7 +44,8 @@ int BPF_PROG(handle_file_open, struct file *file)
     __u8 cg_rule = cgroup_inode_denied(cgid, &key);
 
     /* Then check global deny list */
-    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    void *deny_inode = policy_inner(&deny_inode_outer, slot);
+    __u8 *rule = deny_inode ? bpf_map_lookup_elem(deny_inode, &key) : NULL;
 
     if (!rule && !cg_rule) {
         record_hook_latency(HOOK_FILE_OPEN, _start_ns);
@@ -164,6 +169,8 @@ int BPF_PROG(handle_file_open, struct file *file)
 
 static __always_inline int handle_inode_permission_impl(struct inode *inode, int mask)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     if (!inode)
         return 0;
     (void)mask;
@@ -181,7 +188,8 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     __u8 cg_rule = cgroup_inode_denied(cgid, &key);
 
     /* Then check global deny list */
-    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    void *deny_inode = policy_inner(&deny_inode_outer, slot);
+    __u8 *rule = deny_inode ? bpf_map_lookup_elem(deny_inode, &key) : NULL;
 
     if (!rule && !cg_rule)
         return 0;

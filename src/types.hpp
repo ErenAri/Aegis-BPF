@@ -28,6 +28,10 @@ inline constexpr const char* kDenyPathStatsPin = "/sys/fs/bpf/aegisbpf/deny_path
 inline constexpr const char* kAgentMetaPin = "/sys/fs/bpf/aegisbpf/agent_meta";
 inline constexpr const char* kAgentConfigPin = "/sys/fs/bpf/aegisbpf/agent_config";
 inline constexpr const char* kPolicyGenerationPin = "/sys/fs/bpf/aegisbpf/policy_generation";
+// active_slot MUST be pinned: it names which slot holds the live policy. An
+// unpinned active_slot means every new process starts at slot 0 while the
+// policy may live in slot 1, silently enforcing nothing.
+inline constexpr const char* kActiveSlotPin = "/sys/fs/bpf/aegisbpf/active_slot";
 inline constexpr const char* kSurvivalAllowlistPin = "/sys/fs/bpf/aegisbpf/survival_allowlist";
 inline constexpr const char* kBpfObjInstallPath = "/usr/lib/aegisbpf/aegis.bpf.o";
 

@@ -12,6 +12,7 @@
 #include "logging.hpp"
 #include "network_ops.hpp"
 #include "policy.hpp"
+#include "policy_slots.hpp"
 #include "rust_parse_shadow.hpp"
 #include "rust_policy_build.hpp"
 #include "sha256.hpp"
@@ -120,7 +121,9 @@ Result<void> record_applied_policy(const std::string& path, const std::string& h
 // cppcheck-suppress constParameterReference
 Result<void> reset_policy_maps(BpfState& state)
 {
-    TRY(clear_map_entries(state.deny_inode));
+    // deny_inode is slotted: a reload builds a fresh, empty inner map, so
+    // there is nothing to clear here. Clearing the live map would degrade
+    // enforcement, which is exactly what the slot design removes.
     TRY(clear_map_entries(state.deny_path));
     TRY(clear_map_entries(state.allow_cgroup));
     TRY(clear_map_entries(state.allow_exec_inode));
@@ -479,8 +482,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
         {
             ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
-            size_t shadow_inode_count =
-                map_fd_entry_count(shadows.deny_inode.fd(), bpf_map__key_size(state.deny_inode));
+            size_t shadow_inode_count = map_fd_entry_count(shadows.deny_inode.fd(), inner_key_size(state.deny_inode));
             if (shadow_inode_count != entries.size()) {
                 Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_inode",
                           "expected=" + std::to_string(entries.size()) +
@@ -530,7 +532,10 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 TRY(reset_policy_maps(state));
             }
 
-            TRY(sync_from_shadow(state.deny_inode, shadows.deny_inode.fd()));
+            // deny_inode is slotted: instead of copying entries into the live
+            // map (which cannot be atomic, and is why the old code dropped to
+            // audit mode), install the freshly built inner map with a single
+            // atomic flip below.
             TRY(sync_from_shadow(state.deny_path, shadows.deny_path.fd()));
             TRY(sync_from_shadow(state.deny_comm, shadows.deny_comm.fd()));
             TRY(sync_from_shadow(state.allow_cgroup, shadows.allow_cgroup.fd()));
@@ -551,6 +556,14 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 TRY(sync_from_shadow(state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()));
                 TRY(sync_from_shadow(state.deny_cgroup_port, shadows.deny_cgroup_port.fd()));
             }
+
+            // Atomic commit for the slotted maps. Everything above still uses
+            // the copy-based path and keeps its generation guard until those
+            // maps are slotted too; this flip covers deny_inode.
+            //
+            // On failure nothing is installed and the previous generation stays
+            // live and enforcing.
+            TRY(commit_policy_slot(state, {{state.deny_inode.outer, shadows.deny_inode.fd()}}));
 
             logger().log(SLOG_INFO("Shadow maps synced to live maps"));
         }
@@ -643,8 +656,13 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 }
             }
             for (const auto& protect_path : policy.protect_paths) {
-                auto result = add_rule_path_to_fds(bpf_map__fd(state.deny_inode), bpf_map__fd(state.deny_path),
-                                                   protect_path, kRuleFlagProtectByVerifiedExec, entries);
+                auto live_inode = live_policy_map(state, state.deny_inode.outer);
+                if (!live_inode) {
+                    span.fail(live_inode.error().to_string());
+                    return fail(live_inode.error());
+                }
+                auto result = add_rule_path_to_fds(live_inode->fd(), bpf_map__fd(state.deny_path), protect_path,
+                                                   kRuleFlagProtectByVerifiedExec, entries);
                 if (!result) {
                     span.fail(result.error().to_string());
                     return fail(result.error());
@@ -802,7 +820,11 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     {
         ScopedSpan span("policy.verify_maps", root_span.trace_id(), root_span.span_id());
 
-        auto verify_deny_inode = verify_map_entry_count(state.deny_inode, entries.size());
+        auto live_inode_for_verify = live_policy_map(state, state.deny_inode.outer);
+        auto verify_deny_inode = live_inode_for_verify
+                                     ? verify_map_fd_entry_count(live_inode_for_verify->fd(),
+                                                                 inner_key_size(state.deny_inode), entries.size())
+                                     : Result<void>(live_inode_for_verify.error());
         if (!verify_deny_inode) {
             span.fail(verify_deny_inode.error().to_string());
             logger().log(SLOG_ERROR("Post-apply verification failed for deny_inode map")
@@ -1214,7 +1236,8 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
                     bool snapshot_ok = true;
                     for (const auto& [inode_id, path_str] : pre_apply_snapshot) {
                         uint8_t one = 1;
-                        if (bpf_map_update_elem(bpf_map__fd(rollback_state.deny_inode), &inode_id, &one, BPF_ANY)) {
+                        auto rb_live = live_policy_map(rollback_state, rollback_state.deny_inode.outer);
+                        if (!rb_live || bpf_map_update_elem(rb_live->fd(), &inode_id, &one, BPF_ANY)) {
                             snapshot_ok = false;
                             break;
                         }

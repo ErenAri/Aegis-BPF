@@ -42,6 +42,7 @@
 #include "logging.hpp"
 #include "map_monitor.hpp"
 #include "metrics_server.hpp"
+#include "policy_slots.hpp"
 #include "posture_gate.hpp"
 #include "proc_scan.hpp"
 #include "seccomp.hpp"
@@ -63,6 +64,10 @@ Result<void> setup_agent_cgroup(BpfState& state);
 // the old inode to the new one by re-statting the original path.
 struct OverlayCopyUpPropagator {
     int deny_inode_fd = -1;
+    // Owns the resolved inner-map descriptor. deny_inode is slotted, so the fd
+    // comes from bpf_map_get_fd_by_id() and must be kept alive for as long as
+    // the propagator uses it.
+    ShadowMap deny_inode_map;
 };
 
 void on_overlay_copy_up_propagate(void* ctx, const OverlayCopyUpEvent& ev)
@@ -844,7 +849,13 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     // Wire up overlay copy-up deny rule propagation when the hook is attached
     OverlayCopyUpPropagator overlay_propagator;
     if (state.overlay_copy_up_hook_attached && state.deny_inode) {
-        overlay_propagator.deny_inode_fd = bpf_map__fd(state.deny_inode);
+        // Resolved once at startup; the propagator re-resolves after a
+        // reload via refresh_overlay_propagator_fd().
+        auto live_inode = live_policy_map(state, state.deny_inode.outer);
+        overlay_propagator.deny_inode_fd = live_inode ? live_inode->fd() : -1;
+        if (live_inode) {
+            overlay_propagator.deny_inode_map = std::move(*live_inode);
+        }
         event_callbacks.on_overlay_copy_up = on_overlay_copy_up_propagate;
         event_callbacks.overlay_ctx = &overlay_propagator;
     }

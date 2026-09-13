@@ -27,6 +27,7 @@
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "policy_slots.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
 
@@ -333,7 +334,11 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         ScopedSpan span("bpf.find_maps", trace_id, root_span.span_id());
 
         state.events = bpf_object__find_map_by_name(state.obj, "events");
-        state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
+        state.deny_inode.outer = bpf_object__find_map_by_name(state.obj, "deny_inode_outer");
+        state.active_slot = bpf_object__find_map_by_name(state.obj, "active_slot");
+        // Must happen pre-load: bpf_map__inner_map() stops returning the
+        // template once the object is loaded.
+        capture_inner_geometry(state.deny_inode);
         state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
         state.deny_comm = bpf_object__find_map_by_name(state.obj, "deny_comm_map");
         state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
@@ -439,12 +444,10 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         uint32_t max_paths = g_max_deny_paths.load(std::memory_order_relaxed);
         uint32_t max_net = g_max_network_entries.load(std::memory_order_relaxed);
 
-        auto r = try_set_max(state.deny_inode, max_inodes, "deny_inode");
-        if (!r) {
-            span.fail(r.error().to_string());
-            return fail(r.error());
-        }
-        r = try_set_max(state.allow_exec_inode, max_inodes, "allow_exec_inode");
+        // deny_inode is slotted: its outer map has exactly two slots and the
+        // inner maps are right-sized per reload, so there is no max_entries to
+        // tune here. max_inodes is applied when the inner map is built.
+        auto r = try_set_max(state.allow_exec_inode, max_inodes, "allow_exec_inode");
         if (!r) {
             span.fail(r.error().to_string());
             return fail(r.error());
@@ -523,7 +526,8 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             return fail(result.error());
         };
 
-        TRY(check(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_reuse(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_reuse_optional(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
         TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         // deny_comm (comm-based exec deny) must be pinned/reused like the other deny
         // maps so a separate `policy apply` process and the running daemon share ONE
@@ -743,7 +747,10 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             return fail(result.error());
         };
 
-        TRY(check(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_pin(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
+        if (state.active_slot) {
+            TRY(check(try_pin(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
+        }
         TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         if (state.deny_comm) {
             TRY(check(try_pin(state.deny_comm, kDenyCommPin, state.deny_comm_reused)));
@@ -1284,15 +1291,39 @@ Result<bool> check_prereqs()
     return kernel_bpf_lsm_enabled();
 }
 
+void capture_inner_geometry(SlottedMap& m)
+{
+    if (!m.outer) {
+        return;
+    }
+    const struct bpf_map* inner = bpf_map__inner_map(m.outer);
+    if (!inner) {
+        return;
+    }
+    m.inner_type = bpf_map__type(inner);
+    m.inner_key_size = bpf_map__key_size(inner);
+    m.inner_value_size = bpf_map__value_size(inner);
+    m.inner_max_entries = bpf_map__max_entries(inner);
+    m.inner_flags = bpf_map__map_flags(inner);
+}
+
 Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& entries)
 {
-    return add_rule_inode_to_fd(bpf_map__fd(state.deny_inode), id, kRuleFlagDenyAlways, entries);
+    // Resolve per operation: the handle is valid only until the next flip.
+    auto live = live_policy_map(state, state.deny_inode.outer);
+    if (!live) {
+        return live.error();
+    }
+    return add_rule_inode_to_fd(live->fd(), id, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries)
 {
-    return add_rule_path_to_fds(bpf_map__fd(state.deny_inode), bpf_map__fd(state.deny_path), path, kRuleFlagDenyAlways,
-                                entries);
+    auto live = live_policy_map(state, state.deny_inode.outer);
+    if (!live) {
+        return live.error();
+    }
+    return add_rule_path_to_fds(live->fd(), bpf_map__fd(state.deny_path), path, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid)

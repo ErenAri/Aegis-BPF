@@ -458,12 +458,22 @@ struct {
     __type(value, struct agent_meta);
 } agent_meta_map SEC(".maps");
 
-struct {
+/* Inner-map template for the slotted deny-inode policy map.  Userspace creates
+ * inner maps right-sized to the actual rule count; only the type, key size,
+ * value size and flags must match this template. */
+struct deny_inode_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_INODE_ENTRIES);
     __type(key, struct inode_id);
     __type(value, __u8);
-} deny_inode_map SEC(".maps");
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_inode_inner);
+} deny_inode_outer SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -634,13 +644,20 @@ static __always_inline __u32 policy_active_slot(void)
 
 /* Resolve an outer ARRAY_OF_MAPS slot to its inner policy map.
  *
- * Returns NULL when the slot is unpopulated, which callers MUST treat exactly
+ * Deliberately a macro, not a function. Passing the outer map through a
+ * `void *` parameter erases the map-in-map relationship, and the verifier then
+ * types the result as map_value (data) instead of map_ptr, rejecting the inner
+ * lookup with "R1 type=map_value expected=map_ptr". The map reference must be
+ * textually present at the bpf_map_lookup_elem() call site.
+ *
+ * Yields NULL when the slot is unpopulated, which callers MUST treat exactly
  * as they treat an empty map -- never as "deny everything" and never as
  * "allow everything" beyond what an empty map already means. */
-static __always_inline void *policy_inner(void *outer, __u32 slot)
-{
-    return bpf_map_lookup_elem(outer, &slot);
-}
+#define policy_inner(outer, slot_value)                                                                                \
+    ({                                                                                                                 \
+        __u32 __aegis_slot = (slot_value);                                                                             \
+        bpf_map_lookup_elem((outer), &__aegis_slot);                                                                   \
+    })
 
 /* ============================================================================
  * Network Maps

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "bpf_ops.hpp"
+#include "policy_slots.hpp"
 
 namespace aegis {
 
@@ -38,6 +39,34 @@ Result<void> verify_map_entry_count(bpf_map* map, size_t expected)
         return Error(ErrorCode::BpfMapOperationFailed, "Map is null but expected entries", std::to_string(expected));
     }
     size_t actual = map_entry_count(map);
+    if (actual != expected) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Map entry count mismatch",
+                     "expected=" + std::to_string(expected) + " actual=" + std::to_string(actual));
+    }
+    return {};
+}
+
+Result<void> clear_map_fd_entries(int fd, size_t key_size)
+{
+    if (fd < 0) {
+        return Error(ErrorCode::InvalidArgument, "Invalid fd clearing map entries");
+    }
+    std::vector<uint8_t> key(key_size);
+    std::vector<uint8_t> next_key(key_size);
+    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
+    while (!rc) {
+        rc = bpf_map_get_next_key(fd, key.data(), next_key.data());
+        bpf_map_delete_elem(fd, key.data());
+        if (!rc) {
+            key.swap(next_key);
+        }
+    }
+    return {};
+}
+
+Result<void> verify_map_fd_entry_count(int fd, size_t key_size, size_t expected)
+{
+    const size_t actual = map_fd_entry_count(fd, key_size);
     if (actual != expected) {
         return Error(ErrorCode::BpfMapOperationFailed, "Map entry count mismatch",
                      "expected=" + std::to_string(expected) + " actual=" + std::to_string(actual));
@@ -186,7 +215,7 @@ Result<ShadowMap> create_shadow_map_from_fd(int live_fd, uint32_t max_entries_ov
                               info.max_entries, info.map_flags, max_entries_override);
 }
 
-Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
+Result<ShadowMapSet> create_shadow_map_set(const BpfState& state, const ShadowSizeHints& hints)
 {
     ShadowMapSet set;
 
@@ -197,7 +226,13 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
         return create_shadow_map(m);
     };
 
-    auto r = mk(state.deny_inode);
+    // deny_inode is slotted: its "shadow" IS the next generation's inner map, so
+    // it is cloned from the outer map's inner template and right-sized to the
+    // policy rather than allocated at the template maximum.
+    if (!state.deny_inode.outer) {
+        return Error(ErrorCode::BpfMapOperationFailed, "deny_inode outer map not available");
+    }
+    auto r = create_inner_map(state.deny_inode, inner_size_for(hints.deny_inode_rules));
     if (!r) {
         return r.error();
     }
@@ -354,7 +389,6 @@ Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
 
 MapPressureReport check_map_pressure(const BpfState& state)
 {
-    static constexpr size_t kMaxDenyInodes = 65536;
     static constexpr size_t kMaxDenyPaths = 16384;
     static constexpr size_t kMaxAllowCgroups = 1024;
     static constexpr size_t kMaxAllowExecInodes = 65536;
@@ -370,6 +404,21 @@ MapPressureReport check_map_pressure(const BpfState& state)
     report.any_warning = false;
     report.any_critical = false;
     report.any_full = false;
+
+    // Shared tail for both directly-addressable and slotted maps.
+    auto add_fd_map = [&](const char* name, size_t count, size_t max_entries) {
+        double util = max_entries > 0 ? static_cast<double>(count) / static_cast<double>(max_entries) : 0.0;
+        report.maps.push_back({name, count, max_entries, util});
+        if (util >= 1.0) {
+            report.any_full = true;
+        }
+        if (util >= 0.95) {
+            report.any_critical = true;
+        }
+        if (util >= 0.80) {
+            report.any_warning = true;
+        }
+    };
 
     auto add_map = [&](const char* name, bpf_map* map, size_t max_entries) {
         if (!map) {
@@ -389,7 +438,10 @@ MapPressureReport check_map_pressure(const BpfState& state)
         }
     };
 
-    add_map("deny_inode", state.deny_inode, kMaxDenyInodes);
+    // deny_inode is slotted; pressure is measured on the live inner map.
+    if (const auto live = live_policy_stats(state, state.deny_inode); live.resolved) {
+        add_fd_map("deny_inode", live.entries, live.capacity);
+    }
     add_map("deny_path", state.deny_path, kMaxDenyPaths);
     add_map("allow_cgroup", state.allow_cgroup, kMaxAllowCgroups);
     add_map("allow_exec_inode", state.allow_exec_inode, kMaxAllowExecInodes);

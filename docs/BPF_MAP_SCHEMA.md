@@ -149,20 +149,31 @@ agent itself.
 
 ## File Deny Rules
 
-### `deny_inode_map`
+### `deny_inode_outer`
 
 | Property       | Value |
 |----------------|-------|
-| Type           | `BPF_MAP_TYPE_HASH` |
-| Key            | `struct inode_id` (16 bytes) |
-| Value          | `__u8` (rule flags) |
-| Max entries    | 65,536 |
+| Type           | `BPF_MAP_TYPE_ARRAY_OF_MAPS` |
+| Key            | `__u32` (slot index, 0 or 1) |
+| Value          | inner map (`struct deny_inode_inner`) |
+| Max entries    | 2 (slots) |
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_inode` |
-| Access         | BPF: read; Userspace: read/write |
-| Lifecycle      | Managed by policy apply / block add/del |
+| Access         | BPF: read via `policy_inner()`; Userspace: read/write |
+| Lifecycle      | Outer map persists; inner maps are replaced per policy apply |
 
-Primary file access control map. Lookup is O(1) per file_open/inode_permission.
-Value flags: `RULE_FLAG_DENY_ALWAYS=1`, `RULE_FLAG_PROTECT_VERIFIED_EXEC=2`.
+Slotted deny-inode policy map. The outer map holds **no policy entries** — those
+live in the inner map named by [`active_slot`](#active_slot). Inner maps are
+`BPF_MAP_TYPE_HASH` keyed by `struct inode_id` with a `__u8` rule-flag value,
+matching the `deny_inode_inner` template.
+
+Userspace builds a complete new inner map, right-sized to the rule count rather
+than preallocated at the template maximum, installs it into the inactive slot,
+and then flips `active_slot`. The old inner map is released and RCU-freed. A
+failed apply never flips, so the previous generation stays live and enforcing.
+
+BPF hooks read the slot once per invocation via `policy_active_slot()` and
+resolve the inner map with `policy_inner(&deny_inode_outer, slot)`; a NULL inner
+map is treated exactly as an empty map.
 
 ### `deny_path_map`
 
