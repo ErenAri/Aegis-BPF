@@ -583,6 +583,29 @@ Per-port block counts.
 
 ## Agent Configuration
 
+### `active_slot`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_ARRAY` |
+| Key            | `__u32` (always 0) |
+| Value          | `__u32` (live slot index, 0 or 1) |
+| Max entries    | 1 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/active_slot` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Written once per successful policy apply |
+
+Single commit point for atomic policy swaps. Every slotted policy map is an
+`ARRAY_OF_MAPS` with two slots; userspace builds a complete new generation in
+the inactive slot — writes no hook observes, because `active_slot` still names
+the other one — and then writes the new index here. That one `__u32` write is
+the only observable transition, so file, network and cgroup rules all switch
+generations together and a reload can never be seen half-applied.
+
+Replaces the former generation-mismatch scheme, which degraded enforcement to
+audit-only for the duration of every reload. A failed apply simply never writes
+here, leaving the previous generation live and enforcing.
+
 ### `agent_meta_map`
 
 | Property       | Value |
