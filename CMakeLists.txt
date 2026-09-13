@@ -373,6 +373,7 @@ set(AEGIS_SOURCES
     src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
+    src/policy_slots.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
@@ -570,6 +571,7 @@ set(AEGIS_LIB_SOURCES
     src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
+    src/policy_slots.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
@@ -697,6 +699,7 @@ if(BUILD_TESTING)
         tests/test_result.cpp
         tests/test_sha256.cpp
         tests/test_policy.cpp
+        tests/test_policy_slots.cpp
         tests/test_network.cpp
         tests/test_json_scan.cpp
         tests/test_metrics.cpp
