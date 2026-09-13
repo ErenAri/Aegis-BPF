@@ -9,6 +9,8 @@
 // Map handles are borrowed (owned by BpfState::obj, which stays null here), so
 // the sentinel pointers below are never dereferenced or freed.
 
+#include <bpf/bpf.h>
+
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -95,4 +97,55 @@ TEST(BpfMapProbe, VariableInnerMaxEntriesIsStableAndCached)
         GTEST_SKIP() << "requires privileges to create BPF maps";
     }
     EXPECT_TRUE(first) << "kernel " << "5.11+ should accept variable-size inner maps";
+}
+
+// Right-sizing contract: a non-zero override shrinks the clone when the kernel
+// allows it, and is ignored (falling back to the source size) when it does not.
+TEST(ShadowMap, HonoursMaxEntriesOverride)
+{
+    if (geteuid() != 0) {
+        GTEST_SKIP() << "requires privileges to create BPF maps";
+    }
+
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    int live = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_live", 4, 1, 4096, &opts);
+    ASSERT_GE(live, 0);
+
+    auto shadow = aegis::create_shadow_map_from_fd(live, 64);
+    ASSERT_TRUE(static_cast<bool>(shadow));
+
+    struct bpf_map_info info = {};
+    __u32 len = sizeof(info);
+    ASSERT_EQ(bpf_obj_get_info_by_fd(shadow->fd(), &info, &len), 0);
+
+    if (aegis::supports_variable_inner_max_entries()) {
+        EXPECT_EQ(info.max_entries, 64u);
+    } else {
+        EXPECT_EQ(info.max_entries, 4096u);
+    }
+    close(live);
+}
+
+// A zero override means "clone the source size", which is what every existing
+// create_shadow_map call site relies on.
+TEST(ShadowMap, ZeroOverrideClonesSourceSize)
+{
+    if (geteuid() != 0) {
+        GTEST_SKIP() << "requires privileges to create BPF maps";
+    }
+
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    int live = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_live2", 4, 1, 512, &opts);
+    ASSERT_GE(live, 0);
+
+    auto shadow = aegis::create_shadow_map_from_fd(live, 0);
+    ASSERT_TRUE(static_cast<bool>(shadow));
+
+    struct bpf_map_info info = {};
+    __u32 len = sizeof(info);
+    ASSERT_EQ(bpf_obj_get_info_by_fd(shadow->fd(), &info, &len), 0);
+    EXPECT_EQ(info.max_entries, 512u);
+    close(live);
 }

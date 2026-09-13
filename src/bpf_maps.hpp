@@ -51,7 +51,13 @@ struct ShadowMapSet {
     ShadowMap deny_cgroup_port;
 };
 
-Result<ShadowMap> create_shadow_map(bpf_map* live_map);
+Result<ShadowMap> create_shadow_map(bpf_map* live_map, uint32_t max_entries_override = 0);
+/// Same as create_shadow_map but clones from a raw fd rather than a libbpf map
+/// handle. Used by the policy slot builder, which works in fds.
+///
+/// max_entries_override of 0 means "clone the source size". A non-zero value is
+/// honoured only where supports_variable_inner_max_entries() is true.
+Result<ShadowMap> create_shadow_map_from_fd(int live_fd, uint32_t max_entries_override = 0);
 Result<ShadowMapSet> create_shadow_map_set(const BpfState& state);
 size_t map_fd_entry_count(int fd, size_t key_size);
 Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);

@@ -135,32 +135,55 @@ bool supports_variable_inner_max_entries()
     return cached;
 }
 
-Result<ShadowMap> create_shadow_map(bpf_map* live_map)
-{
-    if (!live_map) {
-        return Error(ErrorCode::InvalidArgument, "Cannot create shadow for null map");
-    }
+namespace {
 
-    const auto type = static_cast<enum bpf_map_type>(bpf_map__type(live_map));
-    const auto key_size = bpf_map__key_size(live_map);
-    const auto value_size = bpf_map__value_size(live_map);
-    const auto max_entries = bpf_map__max_entries(live_map);
-    const auto flags = bpf_map__map_flags(live_map);
+Result<ShadowMap> create_shadow_like(enum bpf_map_type type, uint32_t key_size, uint32_t value_size,
+                                     uint32_t max_entries, uint32_t flags, uint32_t max_entries_override)
+{
+    uint32_t entries = max_entries;
+    if (max_entries_override > 0 && supports_variable_inner_max_entries()) {
+        entries = max_entries_override;
+    }
 
     int fd = -1;
 #ifdef bpf_map_create_opts__last_field
     struct bpf_map_create_opts opts = {};
     opts.sz = sizeof(opts);
     opts.map_flags = flags;
-    fd = bpf_map_create(type, "shadow", key_size, value_size, max_entries, &opts);
+    fd = bpf_map_create(type, "shadow", key_size, value_size, entries, &opts);
 #else
     fd = bpf_create_map_name(type, "shadow", static_cast<int>(key_size), static_cast<int>(value_size),
-                             static_cast<int>(max_entries), flags);
+                             static_cast<int>(entries), flags);
 #endif
     if (fd < 0) {
         return Error::system(errno, "Failed to create shadow map");
     }
     return ShadowMap(fd);
+}
+
+} // namespace
+
+Result<ShadowMap> create_shadow_map(bpf_map* live_map, uint32_t max_entries_override)
+{
+    if (!live_map) {
+        return Error(ErrorCode::InvalidArgument, "Cannot create shadow for null map");
+    }
+
+    return create_shadow_like(static_cast<enum bpf_map_type>(bpf_map__type(live_map)), bpf_map__key_size(live_map),
+                              bpf_map__value_size(live_map), bpf_map__max_entries(live_map),
+                              bpf_map__map_flags(live_map), max_entries_override);
+}
+
+Result<ShadowMap> create_shadow_map_from_fd(int live_fd, uint32_t max_entries_override)
+{
+    struct bpf_map_info info = {};
+    __u32 len = sizeof(info);
+    if (bpf_obj_get_info_by_fd(live_fd, &info, &len) != 0) {
+        return Error::system(errno, "Failed to read map info for shadow clone");
+    }
+
+    return create_shadow_like(static_cast<enum bpf_map_type>(info.type), info.key_size, info.value_size,
+                              info.max_entries, info.map_flags, max_entries_override);
 }
 
 Result<ShadowMapSet> create_shadow_map_set(const BpfState& state)
