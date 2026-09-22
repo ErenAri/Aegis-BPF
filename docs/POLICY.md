@@ -48,6 +48,81 @@ not available.
 
 This section is an explicit bypass control: matching cgroups skip deny rules.
 
+### Network sections (version 2+)
+
+The four network sections below share one textual grammar. It is the single
+canonical form: the daemon parser (`src/policy_parse.cpp`), the Rust mirror
+(`rust/aegis-parser/src/policy.rs`) and the Kubernetes operator
+(`operator/internal/policy/grammar.go`) all produce and accept exactly this
+and nothing else. There are no aliases.
+
+#### [deny_ip]
+One exact IPv4 or IPv6 address per line, unbracketed.
+
+```
+192.168.1.100
+2001:db8::1
+```
+
+#### [deny_cidr]
+One IPv4 or IPv6 CIDR range per line.
+
+```
+10.0.0.0/8
+fd00::/8
+```
+
+#### [deny_port]
+
+```
+<port>[:<protocol>[:<direction>]]
+```
+
+- `port` — 1-65535. Required.
+- `protocol` — `tcp`, `udp` or `any`. Optional; **defaults to `any`**.
+- `direction` — `egress`, `connect`, `bind` or `both`. Optional;
+  **defaults to `both`**. `egress` and `connect` are the same value.
+
+`direction` is **socket-operation** semantics, not packet direction:
+`egress`/`connect` covers `connect()` and `sendmsg()`, `bind` covers `bind()`
+and `listen()`. A future packet-level program must not reinterpret this field.
+
+```
+22:tcp:bind
+443:tcp:egress
+53:any:both
+```
+
+#### [deny_ip_port]
+
+```
+<ip>:<port>[:<protocol>]
+```
+
+- `ip` — an exact IPv4 or IPv6 address. IPv6 **must be bracketed**.
+- `port` — 1-65535. Required.
+- `protocol` — `tcp`, `udp` or `any`. Optional; defaults to `any`.
+
+There is **no direction field**: an `ip:port` rule applies wherever a remote
+tuple is evaluated.
+
+Bracketing IPv6 is not cosmetic. `::1:443` is itself a valid IPv6 address as
+well as a plausible spelling of `::1` port `443`; the parser resolves the
+unbracketed form by treating the final colon-separated component as the port,
+so `[::1]:443` is the only unambiguous way to write it.
+
+```
+10.0.0.5:443:tcp
+[2001:db8::5]:8443:udp
+```
+
+#### Sections that do not exist
+
+There is no `[allow_ip]`, `[allow_cidr]`, `[allow_port]`, `[allow_ip_port]`
+or `[allow_path]`. An unknown section is a hard error that fails the whole
+policy file, so a producer must never emit one. `[allow_binary_hash]` and
+`[allow_cgroup]` are the only allow-shaped sections the daemon implements.
+
 ### [deny_ptrace]
 Flag section with no entries. When present, ptrace attempts are blocked through
 the kernel ptrace LSM hook when the hook is available.

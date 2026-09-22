@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1alpha1 "github.com/ErenAri/aegis-operator/api/v1alpha1"
+	"github.com/ErenAri/aegis-operator/internal/policy"
 	"github.com/ErenAri/aegis-operator/internal/selector"
 )
 
@@ -197,34 +198,42 @@ func validateNetworkRules(nr *v1alpha1.NetworkRules) []string {
 }
 
 // networkRuleKey returns a stable key identifying the literal target of a
-// network rule, mirroring the INI section the translator would emit. Rules
-// that don't have a recognisable target return "".
+// network rule.
+//
+// The key is built from the same canonical renderer the translator uses
+// (policy.CanonicalPortRule / policy.CanonicalIPPortRule) so that two rules
+// collide here exactly when they would collide in the generated policy.
+// That matters for Allow > Block: the merge sweep subtracts on literal
+// equality, so a conflict the webhook cannot see is a conflict the sweep
+// cannot resolve.
+//
+// In particular an ip+port key carries no direction, because the daemon's
+// IpPortRule has no direction field — "10.0.0.2:8080 inbound" and
+// "10.0.0.2:8080 outbound" are one and the same rule once lowered.
+//
+// Rules with no recognisable target, or whose fields the canonical
+// renderer rejects, return "" and are skipped; field-level validation
+// reports those separately.
 func networkRuleKey(r v1alpha1.NetworkRule) string {
 	switch {
 	case r.IP != "" && r.Port > 0:
-		return fmt.Sprintf("ip_port:%s:%s:%d:%s", r.IP, defaultProto(r.Protocol), r.Port, defaultDir(r.Direction))
+		literal, err := policy.CanonicalIPPortRule(r.IP, r.Port, r.Protocol)
+		if err != nil {
+			return ""
+		}
+		return "ip_port:" + literal
 	case r.IP != "":
 		return "ip:" + r.IP
 	case r.CIDR != "":
 		return "cidr:" + r.CIDR
 	case r.Port > 0:
-		return fmt.Sprintf("port:%s:%d:%s", defaultProto(r.Protocol), r.Port, defaultDir(r.Direction))
+		literal, err := policy.CanonicalPortRule(r.Port, r.Protocol, r.Direction)
+		if err != nil {
+			return ""
+		}
+		return "port:" + literal
 	}
 	return ""
-}
-
-func defaultProto(p string) string {
-	if p == "" {
-		return "tcp"
-	}
-	return p
-}
-
-func defaultDir(d string) string {
-	if d == "" {
-		return "outbound"
-	}
-	return d
 }
 
 func validateExecRules(er *v1alpha1.ExecRules) []string {

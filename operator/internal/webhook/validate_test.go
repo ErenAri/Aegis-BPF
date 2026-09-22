@@ -424,3 +424,43 @@ func TestValidateRejectsInvalidNamespaceName(t *testing.T) {
 		t.Fatal("expected error for invalid DNS-1123 namespace name")
 	}
 }
+
+// TestValidateDetectsIPPortCollisionAcrossDirections covers a hole the old
+// conflict key had: it embedded the CRD direction, but the daemon's
+// IpPortRule carries no direction field. Two rules differing only in
+// direction therefore looked distinct to the webhook while lowering to one
+// and the same daemon rule — an Allow that could never cancel its Block.
+func TestValidateDetectsIPPortCollisionAcrossDirections(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		NetworkRules: &v1alpha1.NetworkRules{
+			Deny: []v1alpha1.NetworkRule{
+				{IP: "10.0.0.2", Port: 8080, Protocol: "tcp", Direction: "outbound", Action: v1alpha1.RuleActionAllow},
+				{IP: "10.0.0.2", Port: 8080, Protocol: "tcp", Direction: "inbound", Action: v1alpha1.RuleActionBlock},
+			},
+		},
+	}
+	if errs := validateSpec(spec, ""); len(errs) == 0 {
+		t.Fatal("expected a collision error: both rules lower to the single daemon rule 10.0.0.2:8080:tcp")
+	}
+}
+
+// TestValidatePortRulesDifferingByDirectionDoNotCollide is the companion:
+// port rules DO carry a direction in the daemon grammar, so outbound and
+// inbound really are distinct targets and must not be reported as a clash.
+func TestValidatePortRulesDifferingByDirectionDoNotCollide(t *testing.T) {
+	spec := v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		NetworkRules: &v1alpha1.NetworkRules{
+			Deny: []v1alpha1.NetworkRule{
+				{Port: 8080, Protocol: "tcp", Direction: "outbound", Action: v1alpha1.RuleActionAllow},
+				{Port: 8080, Protocol: "tcp", Direction: "inbound", Action: v1alpha1.RuleActionBlock},
+			},
+		},
+	}
+	for _, e := range validateSpec(spec, "") {
+		if strings.Contains(e, "Allow and Block") {
+			t.Errorf("port rules differing by direction are distinct daemon rules; got %q", e)
+		}
+	}
+}

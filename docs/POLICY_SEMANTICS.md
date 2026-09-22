@@ -240,30 +240,47 @@ without changing the daemon contract:
 ### Per-rule Action and Allow > Block precedence
 
 Rules with `action: Block` (or no action) lower to the corresponding
-`[deny_*]` section. Rules with `action: Allow` lower to the matching
-`[allow_*]` section:
+`[deny_*]` section:
 
-| Rule shape          | Block section       | Allow section        |
-|---------------------|---------------------|----------------------|
-| `path`              | `[deny_path]`       | `[allow_path]`       |
-| `ip` only           | `[deny_ip]`         | `[allow_ip]`         |
-| `cidr`              | `[deny_cidr]`       | `[allow_cidr]`       |
-| `port` only         | `[deny_port]`       | `[allow_port]`       |
-| `ip` + `port`       | `[deny_ip_port]`    | `[allow_ip_port]`    |
-| `binaryHash`        | `[deny_binary_hash]`| `[allow_binary_hash]`|
+| Rule shape          | Block section       | Allow handling                |
+|---------------------|---------------------|-------------------------------|
+| `path`              | `[deny_path]`       | operator-side override        |
+| `ip` only           | `[deny_ip]`         | operator-side override        |
+| `cidr`              | `[deny_cidr]`       | operator-side override        |
+| `port` only         | `[deny_port]`       | operator-side override        |
+| `ip` + `port`       | `[deny_ip_port]`    | operator-side override        |
+| `binaryHash`        | `[deny_binary_hash]`| `[allow_binary_hash]` section |
+
+**Allow has no INI representation for path, ip, cidr, port or ip:port.**
+The daemon's `valid_sections` list (`src/policy_parse.cpp`) contains no
+`[allow_path]`, `[allow_ip]`, `[allow_cidr]`, `[allow_port]` or
+`[allow_ip_port]`, and an unknown section fails the entire policy file.
+`[allow_binary_hash]` is the one allow section the daemon implements.
+
+Allow is therefore resolved **inside the operator**, before anything is
+written to a ConfigMap. `TranslateToINI` records each Allow rule in
+`TranslateResult.AllowOverrides` — keyed by the deny section it exempts,
+carrying the canonical rule literal — and emits no allow section.
+
+When the operator merges all applicable policies into a single
+`aegis-merged-policy` ConfigMap, it applies an **Allow > Block
+precedence sweep**: any literal exempted by an Allow rule in any
+contributing policy is removed from the corresponding `[deny_*]`
+section. Sections that become empty after the sweep are dropped from the
+merged output. This mirrors Tetragon and KubeArmor merge semantics.
+
+Because the sweep matches on literal equality, an Allow rule and the
+Block rule it cancels must render to byte-identical text. Both go
+through `policy.CanonicalPortRule` / `policy.CanonicalIPPortRule`, and
+the admission webhook builds its conflict keys from the same functions,
+so a collision the webhook reports is exactly a collision the sweep can
+resolve.
 
 `Action: Allow` is **rejected** by the admission webhook in two cases
 where the daemon has no matching allow path:
 
 - `FileRule.inode` (no `[allow_inode]` section in the daemon)
 - `FileRule` inside `protect:` (protect always implies Block)
-
-When the operator merges all applicable policies into a single
-`aegis-merged-policy` ConfigMap, it applies an **Allow > Block
-precedence sweep**: any literal that appears in an `[allow_*]` section
-is removed from the corresponding `[deny_*]` section. Sections that
-become empty after the sweep are dropped from the merged output. This
-mirrors Tetragon and KubeArmor merge semantics.
 
 The precedence sweep operates on **literal target equality**, not on
 range containment. An `allow_ip: 198.51.100.42` does **not** override a

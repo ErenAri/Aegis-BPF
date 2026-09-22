@@ -86,8 +86,13 @@ func TestTranslateNetworkRules(t *testing.T) {
 	if !strings.Contains(result.INI, "[deny_ip_port]") {
 		t.Error("missing [deny_ip_port] section")
 	}
-	if !strings.Contains(result.INI, "10.0.0.2:tcp:8080:outbound") {
-		t.Error("missing ip:port entry")
+	// Canonical daemon grammar: PORT:PROTOCOL:DIRECTION for [deny_port],
+	// IP:PORT:PROTOCOL for [deny_ip_port]. See grammar.go.
+	if !strings.Contains(result.INI, "4444:tcp:egress") {
+		t.Error("missing canonical port entry 4444:tcp:egress")
+	}
+	if !strings.Contains(result.INI, "10.0.0.2:8080:tcp") {
+		t.Error("missing canonical ip:port entry 10.0.0.2:8080:tcp")
 	}
 }
 
@@ -152,9 +157,11 @@ func TestTranslateDefaultProtocolAndDirection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Defaults: protocol=tcp, direction=outbound
-	if !strings.Contains(result.INI, "tcp:9999:outbound") {
-		t.Error("expected default tcp:9999:outbound")
+	// Defaults: protocol=tcp, direction=outbound, rendered fully qualified
+	// in the daemon's vocabulary so the meaning never depends on which
+	// side's default applies.
+	if !strings.Contains(result.INI, "9999:tcp:egress") {
+		t.Error("expected default to render as 9999:tcp:egress")
 	}
 }
 
@@ -260,20 +267,24 @@ func TestTranslateMixedActions(t *testing.T) {
 		t.Error("missing explicit-block path entry")
 	}
 
-	// Allow-action paths land in [allow_path].
-	if !strings.Contains(result.INI, "[allow_path]") {
-		t.Error("missing [allow_path] section")
+	// Allow-action rules must NOT reach the daemon as INI: it has no
+	// [allow_path]/[allow_ip] sections and rejects the whole file on an
+	// unknown section. They are carried as structured overrides instead.
+	for _, unsupported := range []string{"[allow_path]", "[allow_ip]", "[allow_cidr]", "[allow_port]", "[allow_ip_port]"} {
+		if strings.Contains(result.INI, unsupported) {
+			t.Errorf("emitted %s, which the daemon parser rejects as an unknown section", unsupported)
+		}
 	}
-	if !strings.Contains(result.INI, "/usr/bin/curl") {
-		t.Error("missing allow path entry")
+	if got := result.AllowOverrides["deny_path"]; len(got) != 1 || got[0] != "/usr/bin/curl" {
+		t.Errorf("deny_path override = %v, want [/usr/bin/curl]", got)
 	}
 
-	// Network rules: [deny_ip] for default, [allow_ip] for explicit Allow.
+	// Network rules: [deny_ip] for default Block, override for Allow.
 	if !strings.Contains(result.INI, "[deny_ip]") || !strings.Contains(result.INI, "10.0.0.1") {
 		t.Error("missing deny_ip entry for default-Block rule")
 	}
-	if !strings.Contains(result.INI, "[allow_ip]") || !strings.Contains(result.INI, "10.0.0.2") {
-		t.Error("missing allow_ip entry for explicit-Allow rule")
+	if got := result.AllowOverrides["deny_ip"]; len(got) != 1 || got[0] != "10.0.0.2" {
+		t.Errorf("deny_ip override = %v, want [10.0.0.2]", got)
 	}
 }
 
@@ -323,62 +334,109 @@ func TestTranslateDeterministicOrdering(t *testing.T) {
 	}
 }
 
+// allowSpec builds a spec whose single file rule carries the given action.
+func filePolicy(t *testing.T, path string, action v1alpha1.RuleAction) TranslateResult {
+	t.Helper()
+	res, err := TranslateToINI(v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		FileRules: &v1alpha1.FileRules{
+			Deny: []v1alpha1.FileRule{{Path: path, Action: action}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("translate %s: %v", path, err)
+	}
+	return res
+}
+
+// sectionBody returns the entries of one INI section of the merged policy.
+func sectionBody(ini, section string) string {
+	idx := strings.Index(ini, section)
+	if idx < 0 {
+		return ""
+	}
+	rest := ini[idx:]
+	next := strings.Index(rest[1:], "[")
+	if next == -1 {
+		return rest
+	}
+	return rest[:next+1]
+}
+
+// TestMergePoliciesAllowOverridesDeny drives the sweep through the real
+// translator rather than hand-written INI: Allow no longer has an INI
+// representation, so a test that fabricates [allow_path] would be testing
+// a format the daemon rejects.
 func TestMergePoliciesAllowOverridesDeny(t *testing.T) {
-	// Policy A denies both /usr/bin/curl and /usr/bin/xmrig.
-	denyPolicy := TranslateResult{
-		INI:    "version=5\n[deny_path]\n/usr/bin/curl\n/usr/bin/xmrig\n\n",
-		SHA256: "a",
+	denyPolicy, err := TranslateToINI(v1alpha1.AegisPolicySpec{
+		Mode: "enforce",
+		FileRules: &v1alpha1.FileRules{
+			Deny: []v1alpha1.FileRule{
+				{Path: "/usr/bin/curl"},
+				{Path: "/usr/bin/xmrig"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("translate deny policy: %v", err)
 	}
-	// Policy B allows /usr/bin/curl. After merge, curl should disappear
-	// from [deny_path] but xmrig should remain.
-	allowPolicy := TranslateResult{
-		INI:    "version=5\n[allow_path]\n/usr/bin/curl\n\n",
-		SHA256: "b",
-	}
+	allowPolicy := filePolicy(t, "/usr/bin/curl", v1alpha1.RuleActionAllow)
+
 	merged := MergePolicies([]TranslateResult{denyPolicy, allowPolicy})
 
-	if !strings.Contains(merged.INI, "[allow_path]") {
-		t.Error("merged INI missing [allow_path]")
-	}
 	if !strings.Contains(merged.INI, "/usr/bin/xmrig") {
 		t.Error("non-overridden deny entry should remain")
 	}
-	// Locate the [deny_path] section and assert curl is NOT inside it.
-	denyIdx := strings.Index(merged.INI, "[deny_path]")
-	if denyIdx < 0 {
-		t.Fatal("[deny_path] section missing — should still contain /usr/bin/xmrig")
+	if strings.Contains(merged.INI, "[allow_path]") {
+		t.Error("merged INI must not contain [allow_path]; the daemon rejects it")
 	}
-	rest := merged.INI[denyIdx:]
-	nextIdx := strings.Index(rest[1:], "[")
-	var denySection string
-	if nextIdx == -1 {
-		denySection = rest
-	} else {
-		denySection = rest[:nextIdx+1]
+	deny := sectionBody(merged.INI, "[deny_path]")
+	if deny == "" {
+		t.Fatal("[deny_path] section missing - should still contain /usr/bin/xmrig")
 	}
-	if strings.Contains(denySection, "/usr/bin/curl") {
-		t.Error("/usr/bin/curl should be removed from [deny_path] when [allow_path] overrides it")
+	if strings.Contains(deny, "/usr/bin/curl") {
+		t.Error("/usr/bin/curl should be removed from [deny_path] when an Allow rule overrides it")
 	}
 }
 
 func TestMergePoliciesAllowEmptiesSection(t *testing.T) {
-	// Policy A denies /usr/bin/curl (only entry). Policy B allows it.
-	// The deny_path section should disappear from the merged output.
-	denyPolicy := TranslateResult{
-		INI:    "version=5\n[deny_path]\n/usr/bin/curl\n\n",
-		SHA256: "a",
-	}
-	allowPolicy := TranslateResult{
-		INI:    "version=5\n[allow_path]\n/usr/bin/curl\n\n",
-		SHA256: "b",
-	}
+	denyPolicy := filePolicy(t, "/usr/bin/curl", v1alpha1.RuleActionBlock)
+	allowPolicy := filePolicy(t, "/usr/bin/curl", v1alpha1.RuleActionAllow)
+
 	merged := MergePolicies([]TranslateResult{denyPolicy, allowPolicy})
 
 	if strings.Contains(merged.INI, "[deny_path]") {
-		t.Error("[deny_path] section should be omitted when fully overridden by [allow_path]")
+		t.Error("[deny_path] should be omitted when fully overridden by an Allow rule")
 	}
-	if !strings.Contains(merged.INI, "[allow_path]") {
-		t.Error("[allow_path] should still be present")
+	if strings.Contains(merged.INI, "[allow_path]") {
+		t.Error("merged INI must not contain [allow_path]; the daemon rejects it")
+	}
+}
+
+// TestMergePoliciesAllowOverridesNetworkRule covers the network half of the
+// sweep, where the override literal must match the canonical deny literal
+// byte-for-byte or the subtraction silently does nothing.
+func TestMergePoliciesAllowOverridesNetworkRule(t *testing.T) {
+	net := func(action v1alpha1.RuleAction) TranslateResult {
+		res, err := TranslateToINI(v1alpha1.AegisPolicySpec{
+			Mode: "enforce",
+			NetworkRules: &v1alpha1.NetworkRules{
+				Deny: []v1alpha1.NetworkRule{
+					{Port: 4444, Protocol: "tcp", Direction: "outbound", Action: action},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("translate: %v", err)
+		}
+		return res
+	}
+	merged := MergePolicies([]TranslateResult{net(v1alpha1.RuleActionBlock), net(v1alpha1.RuleActionAllow)})
+	if strings.Contains(merged.INI, "4444:tcp:egress") {
+		t.Error("Allow rule should have removed 4444:tcp:egress from [deny_port]")
+	}
+	if strings.Contains(merged.INI, "[allow_port]") {
+		t.Error("merged INI must not contain [allow_port]; the daemon rejects it")
 	}
 }
 
