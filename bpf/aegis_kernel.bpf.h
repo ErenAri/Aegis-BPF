@@ -23,6 +23,8 @@ SEC("lsm/ptrace_access_check")
 int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int mode)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
 
     const volatile struct agent_config *cfg = &agent_cfg;
     if (!cfg->deny_ptrace) {
@@ -33,7 +35,7 @@ int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups (e.g. aegis agent's own cgroup) */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_PTRACE, _start_ns);
         return 0;
     }
@@ -98,6 +100,8 @@ SEC("lsm/locked_down")
 int BPF_PROG(handle_locked_down, enum lockdown_reason what)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
 
     const volatile struct agent_config *cfg = &agent_cfg;
     if (!cfg->deny_module_load) {
@@ -117,7 +121,7 @@ int BPF_PROG(handle_locked_down, enum lockdown_reason what)
 
     __u64 cgid = bpf_get_current_cgroup_id();
 
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
         return 0;
     }
@@ -168,10 +172,10 @@ int BPF_PROG(handle_locked_down, enum lockdown_reason what)
  * confirmed deny_module_load is set and that this is a module-load operation.
  * Emits an EVENT_KERNEL_MODULE_BLOCK and returns -EPERM in enforce mode.
  */
-static __always_inline int apply_module_load_policy(__u64 _start_ns)
+static __always_inline int apply_module_load_policy(__u32 slot, __u64 _start_ns)
 {
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_MODULE_LOAD, _start_ns);
         return 0;
     }
@@ -231,6 +235,8 @@ SEC("lsm/kernel_read_file")
 int BPF_PROG(handle_kernel_read_file, struct file *file, enum kernel_read_file_id id, bool contents)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     (void)file;
     (void)contents;
 
@@ -246,7 +252,7 @@ int BPF_PROG(handle_kernel_read_file, struct file *file, enum kernel_read_file_i
         return 0;
     }
 
-    return apply_module_load_policy(_start_ns);
+    return apply_module_load_policy(slot, _start_ns);
 }
 
 /*
@@ -261,6 +267,8 @@ SEC("lsm/kernel_load_data")
 int BPF_PROG(handle_kernel_load_data, enum kernel_load_data_id id, bool contents)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     (void)contents;
 
     if (!agent_cfg.deny_module_load) {
@@ -274,7 +282,7 @@ int BPF_PROG(handle_kernel_load_data, enum kernel_load_data_id id, bool contents
         return 0;
     }
 
-    return apply_module_load_policy(_start_ns);
+    return apply_module_load_policy(slot, _start_ns);
 }
 
 /*
@@ -293,6 +301,8 @@ SEC("lsm/bpf")
 int BPF_PROG(handle_bpf, int cmd, union bpf_attr *attr, unsigned int size)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
 
     const volatile struct agent_config *cfg = &agent_cfg;
     if (!cfg->deny_bpf) {
@@ -315,7 +325,7 @@ int BPF_PROG(handle_bpf, int cmd, union bpf_attr *attr, unsigned int size)
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Always allow the agent's own cgroup */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_BPF, _start_ns);
         return 0;
     }

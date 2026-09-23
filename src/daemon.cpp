@@ -199,7 +199,7 @@ Result<void> setup_agent_cgroup(BpfState& state)
     TRY(bump_memlock_rlimit());
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.allow_cgroup.live_fd(), &cgid, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update allow_cgroup_map");
     }
 
@@ -997,7 +997,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
     }
 
-    bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
+    bool network_enabled = lsm_enabled && (static_cast<bool>(state.deny_ipv4) || static_cast<bool>(state.deny_ipv6));
     RuntimeStateTracker runtime_state = snapshot_runtime_state();
     logger().log(
         SLOG_INFO("Agent started")

@@ -96,19 +96,20 @@ void append_metric_sample(std::ostringstream& oss, const std::string& name,
     oss << " " << std::fixed << std::setprecision(6) << value << "\n";
 }
 
-size_t safe_map_entry_count(bpf_map* map)
+
+size_t safe_map_entry_count(const SlottedMap& m)
 {
-    return map ? map_entry_count(map) : 0;
+    return m ? map_entry_count(m) : 0;
 }
 
-double calculate_map_utilization(bpf_map* map, uint64_t max_entries)
+double calculate_map_utilization(const SlottedMap& m, uint64_t max_entries)
 {
-    if (!map || max_entries == 0) {
+    if (!m || max_entries == 0) {
         return 0.0;
     }
-    uint64_t current = map_entry_count(map);
-    return static_cast<double>(current) / static_cast<double>(max_entries);
+    return static_cast<double>(map_entry_count(m)) / static_cast<double>(max_entries);
 }
+
 
 std::string env_path_or_default(const char* env_name, const char* fallback)
 {

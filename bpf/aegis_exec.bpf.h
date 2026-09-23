@@ -171,6 +171,8 @@ static __always_inline __u8 exec_identity_mode_enabled(void)
 SEC("lsm/bprm_check_security")
 int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!bprm) {
         record_hook_latency(HOOK_BPRM_CHECK, _start_ns);
@@ -203,7 +205,7 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
                 if (base_off > 49)
                     base_off = 49;
                 __builtin_memcpy(ck.comm, &fn[base_off], 15);
-                if (bpf_map_lookup_elem(&deny_comm_map, &ck)) {
+                if (policy_lookup(&deny_comm_map_outer, slot, &ck)) {
                     __u32 _pid = bpf_get_current_pid_tgid() >> 32;
                     struct task_struct *_task = bpf_get_current_task_btf();
                     __u8 _audit = get_effective_audit_mode();
@@ -334,12 +336,12 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
     }
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_BPRM_CHECK, _start_ns);
         return 0;
     }
 
-    if (bpf_map_lookup_elem(&allow_exec_inode_map, &key)) {
+    if (policy_lookup(&allow_exec_inode_map_outer, slot, &key)) {
         record_hook_latency(HOOK_BPRM_CHECK, _start_ns);
         return 0;
     }
@@ -426,6 +428,8 @@ int BPF_PROG(handle_bprm_check_security, struct linux_binprm *bprm)
 SEC("lsm/mmap_file")
 int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigned long prot, unsigned long flags)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     (void)reqprot;
     (void)flags;
@@ -446,7 +450,7 @@ int BPF_PROG(handle_file_mmap, struct file *file, unsigned long reqprot, unsigne
     }
 
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_FILE_MMAP, _start_ns);
         return 0;
     }

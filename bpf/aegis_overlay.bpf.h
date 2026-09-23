@@ -89,7 +89,7 @@ int BPF_PROG(handle_inode_copy_up, struct dentry *src, struct cred **new_cred)
     /* Allowed cgroups bypass the global deny (per-workload allowlist
      * still applies to cgroup-scoped rules, but those use the
      * cgroup_inode_denied map; copy-up only consults global rules). */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_INODE_COPY_UP, _start_ns);
         return 0;
     }

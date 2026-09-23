@@ -95,16 +95,10 @@ MapUsageReport check_map_capacity(const BpfState& state, double warn_threshold)
         bpf_map* map;
     };
 
+    // Only non-slotted maps are directly addressable here. Every policy map is
+    // slotted and reported below, where usage is read from the live inner map.
     const MapInfo maps[] = {
-        {"deny_path", state.deny_path},
-        {"allow_cgroup", state.allow_cgroup},
-        {"allow_exec_inode", state.allow_exec_inode},
         {"survival_allowlist", state.survival_allowlist},
-        {"deny_ipv4", state.deny_ipv4},
-        {"deny_ipv6", state.deny_ipv6},
-        {"deny_port", state.deny_port},
-        {"deny_ip_port_v4", state.deny_ip_port_v4},
-        {"deny_ip_port_v6", state.deny_ip_port_v6},
         {"dead_processes", state.dead_processes},
     };
 
@@ -116,9 +110,13 @@ MapUsageReport check_map_capacity(const BpfState& state, double warn_threshold)
 
     // Slotted maps are not directly addressable: usage is a property of the
     // live inner map, whose capacity is right-sized per reload.
-    if (const auto live = live_policy_stats(state, state.deny_inode); live.resolved) {
+    for (const SlottedMap* sm : all_slotted_maps(const_cast<BpfState&>(state))) {
+        const auto live = live_policy_stats(state, *sm);
+        if (!live.resolved) {
+            continue;
+        }
         MapUsageEntry e{};
-        e.name = "deny_inode";
+        e.name = bpf_map__name(sm->outer);
         e.current_entries = static_cast<uint32_t>(live.entries);
         e.max_entries = static_cast<uint32_t>(live.capacity);
         e.usage_ratio =

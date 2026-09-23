@@ -181,13 +181,13 @@ HealthReport collect_health_report(const std::string& trace_id, const std::strin
     report.required_pins_ok = true;
 
     const std::array<std::pair<bpf_map*, const char*>, 10> optional_network_maps = {{
-        {state.deny_ipv4, kDenyIpv4Pin},
-        {state.deny_ipv6, kDenyIpv6Pin},
-        {state.deny_port, kDenyPortPin},
-        {state.deny_ip_port_v4, kDenyIpPortV4Pin},
-        {state.deny_ip_port_v6, kDenyIpPortV6Pin},
-        {state.deny_cidr_v4, kDenyCidrV4Pin},
-        {state.deny_cidr_v6, kDenyCidrV6Pin},
+        {state.deny_ipv4.outer, kDenyIpv4Pin},
+        {state.deny_ipv6.outer, kDenyIpv6Pin},
+        {state.deny_port.outer, kDenyPortPin},
+        {state.deny_ip_port_v4.outer, kDenyIpPortV4Pin},
+        {state.deny_ip_port_v6.outer, kDenyIpPortV6Pin},
+        {state.deny_cidr_v4.outer, kDenyCidrV4Pin},
+        {state.deny_cidr_v6.outer, kDenyCidrV6Pin},
         {state.net_block_stats, kNetBlockStatsPin},
         {state.net_ip_stats, kNetIpStatsPin},
         {state.net_port_stats, kNetPortStatsPin},

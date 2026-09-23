@@ -607,10 +607,11 @@ Result<void> atomic_write_stream(const std::string& target_path, const std::func
     return {};
 }
 
-DenyEntries read_deny_db()
+namespace {
+DenyEntries read_deny_entries_file(const char* path)
 {
     DenyEntries entries;
-    std::ifstream in(kDenyDbPath);
+    std::ifstream in(path);
     if (!in.is_open()) {
         return entries;
     }
@@ -634,13 +635,13 @@ DenyEntries read_deny_db()
     return entries;
 }
 
-Result<void> write_deny_db(const DenyEntries& entries)
+Result<void> write_deny_entries_file(const char* file, const DenyEntries& entries)
 {
     auto db_result = ensure_db_dir();
     if (!db_result) {
         return db_result.error();
     }
-    return atomic_write_stream(kDenyDbPath, [&](std::ostream& out) -> bool {
+    return atomic_write_stream(file, [&](std::ostream& out) -> bool {
         for (const auto& kv : entries) {
             out << kv.first.dev << " " << kv.first.ino;
             if (!kv.second.empty()) {
@@ -650,6 +651,55 @@ Result<void> write_deny_db(const DenyEntries& entries)
         }
         return out.good();
     });
+}
+} // namespace
+
+DenyEntries read_deny_db()
+{
+    return read_deny_entries_file(kDenyDbPath);
+}
+
+Result<void> write_deny_db(const DenyEntries& entries)
+{
+    return write_deny_entries_file(kDenyDbPath, entries);
+}
+
+DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
+                                      const std::function<void(const std::string&, const std::string&)>& on_drop)
+{
+    DenyEntries kept;
+    dropped = 0;
+    for (const auto& [id, path] : rules) {
+        struct stat st{};
+        if (::stat(path.c_str(), &st) != 0) {
+            ++dropped;
+            if (on_drop) {
+                on_drop(path, std::string("path no longer exists: ") + std::strerror(errno));
+            }
+            continue;
+        }
+        // dev is stored encoded (encode_dev), not as a raw st_dev.
+        if (st.st_ino != id.ino || encode_dev(st.st_dev) != id.dev) {
+            ++dropped;
+            if (on_drop) {
+                on_drop(path, "path now resolves to a different inode (" + std::to_string(id.ino) + " -> " +
+                                  std::to_string(st.st_ino) + ")");
+            }
+            continue;
+        }
+        kept.emplace(id, path);
+    }
+    return kept;
+}
+
+DenyEntries read_runtime_rules()
+{
+    return read_deny_entries_file(kRuntimeRulesPath);
+}
+
+Result<void> write_runtime_rules(const DenyEntries& entries)
+{
+    return write_deny_entries_file(kRuntimeRulesPath, entries);
 }
 
 std::string build_exec_id(uint32_t pid, uint64_t start_time)

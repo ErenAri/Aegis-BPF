@@ -63,6 +63,8 @@ inline constexpr const char* kBreakGlassTokenPath = "/etc/aegisbpf/break_glass.t
 inline constexpr const char* kVersionCounterPath = "/var/lib/aegisbpf/version_counter";
 inline constexpr const char* kDenyDbDir = "/var/lib/aegisbpf";
 inline constexpr const char* kDenyDbPath = "/var/lib/aegisbpf/deny.db";
+// Runtime (CLI-added) deny rules only -- see read_runtime_rules().
+inline constexpr const char* kRuntimeRulesPath = "/var/lib/aegisbpf/runtime_rules.db";
 inline constexpr const char* kTtlDbPath = "/var/lib/aegisbpf/deny_ttl.db";
 inline constexpr const char* kPolicyAppliedPath = "/var/lib/aegisbpf/policy.applied";
 inline constexpr const char* kPolicyAppliedPrevPath = "/var/lib/aegisbpf/policy.applied.prev";

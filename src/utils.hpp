@@ -56,6 +56,33 @@ Result<void> atomic_write_stream(const std::string& target_path, const std::func
 DenyEntries read_deny_db();
 Result<void> write_deny_db(const DenyEntries& entries);
 
+/// Runtime deny rules: the subset added at runtime via `aegis block add`,
+/// tracked separately from the deny database.
+///
+/// deny.db records everything currently installed, policy-derived rules
+/// included, so it cannot answer "which rules did an operator add by hand?".
+/// A policy reload builds a brand new generation and must re-install exactly
+/// the hand-added rules while letting the previous generation's policy rules
+/// go. That needs provenance, which this registry supplies.
+///
+/// Absent file means "no runtime rules", which is also the correct reading for
+/// a daemon upgraded from a build that did not maintain it.
+/// Re-validate runtime deny rules against the filesystem.
+///
+/// Returns the subset still naming the same object, and reports how many were
+/// dropped. A rule is dropped when its path no longer exists, or now resolves
+/// to a different (device, inode) -- re-installing that would block whatever
+/// has since taken the inode number.
+///
+/// Dropping never fails a reload: a blocked temp file that has been deleted is
+/// not a policy error, and failing would wedge every future reload behind a
+/// file that will not return. Each drop is reported by the caller.
+DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
+                                      const std::function<void(const std::string&, const std::string&)>& on_drop);
+
+DenyEntries read_runtime_rules();
+Result<void> write_runtime_rules(const DenyEntries& entries);
+
 // Exec ID generation
 std::string build_exec_id(uint32_t pid, uint64_t start_time);
 

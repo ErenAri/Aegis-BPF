@@ -8,7 +8,14 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+
+#include <fstream>
+#include <string>
+#include <vector>
+
 #include "policy_slots.hpp"
+#include "utils.hpp"
 
 namespace aegis {
 namespace {
@@ -160,3 +167,109 @@ TEST(PinCompat, IgnoresMaxEntries)
 }
 
 } // namespace aegis
+
+using aegis::DenyEntries;
+using aegis::encode_dev;
+using aegis::InodeId;
+using aegis::prune_stale_runtime_rules;
+
+// --- runtime-rule carry-forward -------------------------------------------
+//
+// A reload builds a brand new generation, so a rule added with
+// `aegis block add` only survives if it is deliberately re-installed. These
+// cover the validation that decides which rules are worth re-installing.
+
+namespace {
+
+InodeId inode_of(const std::string& path)
+{
+    struct stat st{};
+    EXPECT_EQ(::stat(path.c_str(), &st), 0) << path;
+    InodeId id{};
+    id.ino = st.st_ino;
+    id.dev = encode_dev(st.st_dev);
+    return id;
+}
+
+std::string make_temp_file(const std::string& name)
+{
+    std::string path = std::string(::getenv("TMPDIR") ? ::getenv("TMPDIR") : "/tmp") + "/" + name;
+    std::ofstream out(path);
+    out << "x";
+    out.close();
+    return path;
+}
+
+} // namespace
+
+TEST(RuntimeRuleCarryForward, KeepsRuleWhosePathStillResolvesToTheSameInode)
+{
+    const std::string path = make_temp_file("aegis_rr_live");
+    DenyEntries rules{{inode_of(path), path}};
+
+    size_t dropped = 0;
+    auto kept = prune_stale_runtime_rules(rules, dropped, nullptr);
+
+    EXPECT_EQ(dropped, 0u);
+    ASSERT_EQ(kept.size(), 1u);
+    EXPECT_EQ(kept.begin()->second, path);
+    ::unlink(path.c_str());
+}
+
+TEST(RuntimeRuleCarryForward, DropsRuleWhosePathNoLongerExists)
+{
+    const std::string path = make_temp_file("aegis_rr_vanish");
+    DenyEntries rules{{inode_of(path), path}};
+    ::unlink(path.c_str());
+
+    std::vector<std::string> reasons;
+    size_t dropped = 0;
+    auto kept = prune_stale_runtime_rules(rules, dropped,
+                                          [&](const std::string&, const std::string& why) { reasons.push_back(why); });
+
+    EXPECT_EQ(dropped, 1u);
+    EXPECT_TRUE(kept.empty());
+    ASSERT_EQ(reasons.size(), 1u);
+    EXPECT_NE(reasons[0].find("no longer exists"), std::string::npos);
+}
+
+TEST(RuntimeRuleCarryForward, DropsRuleWhosePathNowNamesADifferentInode)
+{
+    // The dangerous case: the path exists, so a naive existence check would
+    // re-install the rule -- against whatever object has since taken that
+    // path. The recorded inode is set explicitly rather than by deleting and
+    // recreating the file, because a filesystem is free to hand the same inode
+    // number straight back, which would silently make this test vacuous.
+    const std::string path = make_temp_file("aegis_rr_replaced");
+    InodeId recorded = inode_of(path);
+    recorded.ino += 1; // the path now names a different object than recorded
+    DenyEntries rules{{recorded, path}};
+    ASSERT_NE(inode_of(path).ino, recorded.ino);
+
+    std::vector<std::string> reasons;
+    size_t dropped = 0;
+    auto kept = prune_stale_runtime_rules(rules, dropped,
+                                          [&](const std::string&, const std::string& why) { reasons.push_back(why); });
+
+    EXPECT_EQ(dropped, 1u);
+    EXPECT_TRUE(kept.empty()) << "a recycled inode must not inherit someone else's deny rule";
+    ASSERT_EQ(reasons.size(), 1u);
+    EXPECT_NE(reasons[0].find("different inode"), std::string::npos);
+    ::unlink(path.c_str());
+}
+
+TEST(RuntimeRuleCarryForward, PartitionsAMixedSet)
+{
+    const std::string live = make_temp_file("aegis_rr_mixed_live");
+    const std::string gone = make_temp_file("aegis_rr_mixed_gone");
+    DenyEntries rules{{inode_of(live), live}, {inode_of(gone), gone}};
+    ::unlink(gone.c_str());
+
+    size_t dropped = 0;
+    auto kept = prune_stale_runtime_rules(rules, dropped, nullptr);
+
+    EXPECT_EQ(dropped, 1u);
+    ASSERT_EQ(kept.size(), 1u);
+    EXPECT_EQ(kept.begin()->second, live);
+    ::unlink(live.c_str());
+}

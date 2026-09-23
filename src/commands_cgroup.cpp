@@ -93,7 +93,7 @@ int cmd_cgroup_deny_add_inode(const std::string& cgroup, const std::string& inod
         return fail_span(span, "deny_cgroup_inode map not available");
     }
 
-    auto add_result = add_cgroup_deny_inode_to_fd(bpf_map__fd(state.deny_cgroup_inode), *cgid_result, inode);
+    auto add_result = add_cgroup_deny_inode_to_fd(state.deny_cgroup_inode.live_fd(), *cgid_result, inode);
     if (!add_result) {
         logger().log(SLOG_ERROR("Failed to add cgroup deny inode")
                          .field("cgroup", cgroup)
@@ -147,7 +147,7 @@ int cmd_cgroup_deny_add_ip(const std::string& cgroup, const std::string& ip)
         return fail_span(span, "deny_cgroup_ipv4 map not available");
     }
 
-    auto add_result = add_cgroup_deny_ipv4_to_fd(bpf_map__fd(state.deny_cgroup_ipv4), *cgid_result, ip);
+    auto add_result = add_cgroup_deny_ipv4_to_fd(state.deny_cgroup_ipv4.live_fd(), *cgid_result, ip);
     if (!add_result) {
         logger().log(SLOG_ERROR("Failed to add cgroup deny IP")
                          .field("cgroup", cgroup)
@@ -215,7 +215,7 @@ int cmd_cgroup_deny_add_port(const std::string& cgroup, uint16_t port, const std
     rule.protocol = protocol;
     rule.direction = direction;
 
-    auto add_result = add_cgroup_deny_port_to_fd(bpf_map__fd(state.deny_cgroup_port), *cgid_result, rule);
+    auto add_result = add_cgroup_deny_port_to_fd(state.deny_cgroup_port.live_fd(), *cgid_result, rule);
     if (!add_result) {
         logger().log(SLOG_ERROR("Failed to add cgroup deny port")
                          .field("cgroup", cgroup)
@@ -280,7 +280,7 @@ int cmd_cgroup_deny_del_inode(const std::string& cgroup, const std::string& inod
     CgroupInodeKey key{};
     key.cgid = *cgid_result;
     key.inode = inode;
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_cgroup_inode), &key)) {
+    if (bpf_map_delete_elem(state.deny_cgroup_inode.live_fd(), &key)) {
         logger().log(SLOG_ERROR("Failed to delete cgroup deny inode")
                          .field("cgroup", cgroup)
                          .field("inode", inode_str)
@@ -340,7 +340,7 @@ int cmd_cgroup_deny_del_ip(const std::string& cgroup, const std::string& ip)
     key.cgid = *cgid_result;
     key.addr = ip_be;
     key._pad = 0;
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_cgroup_ipv4), &key)) {
+    if (bpf_map_delete_elem(state.deny_cgroup_ipv4.live_fd(), &key)) {
         logger().log(SLOG_ERROR("Failed to delete cgroup deny IP")
                          .field("cgroup", cgroup)
                          .field("ip", ip)
@@ -404,7 +404,7 @@ int cmd_cgroup_deny_del_port(const std::string& cgroup, uint16_t port, const std
     key.protocol = protocol;
     key.direction = direction;
     key._pad = 0;
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_cgroup_port), &key)) {
+    if (bpf_map_delete_elem(state.deny_cgroup_port.live_fd(), &key)) {
         logger().log(SLOG_ERROR("Failed to delete cgroup deny port")
                          .field("cgroup", cgroup)
                          .field("port", static_cast<int64_t>(port))
@@ -437,7 +437,7 @@ int cmd_cgroup_deny_list()
 
     std::cout << "Cgroup Denied Inodes:" << '\n';
     if (state.deny_cgroup_inode) {
-        int fd = bpf_map__fd(state.deny_cgroup_inode);
+        int fd = state.deny_cgroup_inode.live_fd();
         CgroupInodeKey key{};
         CgroupInodeKey next{};
         uint8_t value = 0;
@@ -453,7 +453,7 @@ int cmd_cgroup_deny_list()
 
     std::cout << "\nCgroup Denied IPs:" << '\n';
     if (state.deny_cgroup_ipv4) {
-        int fd = bpf_map__fd(state.deny_cgroup_ipv4);
+        int fd = state.deny_cgroup_ipv4.live_fd();
         CgroupIpv4Key key{};
         CgroupIpv4Key next{};
         uint8_t value = 0;
@@ -469,7 +469,7 @@ int cmd_cgroup_deny_list()
 
     std::cout << "\nCgroup Denied Ports:" << '\n';
     if (state.deny_cgroup_port) {
-        int fd = bpf_map__fd(state.deny_cgroup_port);
+        int fd = state.deny_cgroup_port.live_fd();
         CgroupPortKey key{};
         CgroupPortKey next{};
         uint8_t value = 0;

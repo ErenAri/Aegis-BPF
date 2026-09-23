@@ -11,23 +11,10 @@ namespace aegis {
 
 namespace {
 
-bool map_is_empty(bpf_map* map)
+
+bool map_is_empty(const SlottedMap& m)
 {
-    if (!map) {
-        return true;
-    }
-    int fd = bpf_map__fd(map);
-    if (fd < 0) {
-        return false;
-    }
-    const size_t key_sz = bpf_map__key_size(map);
-    std::vector<uint8_t> key(key_sz);
-    errno = 0;
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    if (rc == 0) {
-        return false;
-    }
-    return errno == ENOENT;
+    return map_entry_count(m) == 0;
 }
 
 AgentConfig default_agent_config()

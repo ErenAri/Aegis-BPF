@@ -232,7 +232,7 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state, const ShadowSi
 {
     ShadowMapSet set;
 
-    auto mk = [](bpf_map* m) -> Result<ShadowMap> {
+    auto mk = [](auto&& m) -> Result<ShadowMap> {
         if (!m) {
             return ShadowMap();
         }
@@ -268,6 +268,12 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state, const ShadowSi
         return r.error();
     }
     set.allow_cgroup = std::move(*r);
+
+    r = mk(state.trusted_exec_hash);
+    if (!r) {
+        return r.error();
+    }
+    set.trusted_exec_hash = std::move(*r);
 
     r = mk(state.allow_exec_inode);
     if (!r) {
@@ -433,7 +439,9 @@ MapPressureReport check_map_pressure(const BpfState& state)
         }
     };
 
-    auto add_map = [&](const char* name, bpf_map* map, size_t max_entries) {
+    // Generic so it accepts both plain maps and slotted ones; map_entry_count()
+    // overloads to the live inner map for the latter.
+    auto add_map = [&](const char* name, auto&& map, size_t max_entries) {
         if (!map) {
             return;
         }

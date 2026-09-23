@@ -51,7 +51,32 @@ Result<ShadowMap> create_inner_map(const SlottedMap& m, uint32_t max_entries);
 /// returns an error WITHOUT flipping, leaving the previous generation live and
 /// enforcing. After a successful flip the retired slot is cleared so the kernel
 /// can RCU-free the old inner maps.
-Result<void> commit_policy_slot(const BpfState& state, const std::vector<std::pair<bpf_map*, int>>& staged);
+Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<SlottedMap*, int>>& staged);
+
+/// Every slotted policy map bound on this state, in a stable order.
+///
+/// This is the completeness set for a commit: active_slot is ONE u32 shared by
+/// every outer map, so flipping it switches all of them at once. A map left
+/// out of a commit has nothing in the target slot, and after the flip its
+/// policy_inner() resolves to NULL -- which hooks read as an empty map. For a
+/// deny map that silently drops every rule; for trusted_exec_hash under
+/// ima_fail_closed it would deny everything. commit_policy_slot() therefore
+/// refuses to flip unless the staged set covers this list.
+std::vector<SlottedMap*> all_slotted_maps(BpfState& state);
+
+/// Ensure every slotted map has an inner map in the currently-active slot.
+///
+/// At first load the outer arrays are empty, so policy_inner() resolves to
+/// NULL and every userspace write lands on fd -1. Nothing can be written --
+/// not even the agent's own cgroup allowlist entry -- until a generation
+/// exists, and the first policy apply is far too late for that.
+///
+/// Bootstrap therefore installs an empty generation: create an inner map for
+/// any slotted map whose active slot is unpopulated, then resolve the cached
+/// read handles. On a restart that reused pinned outers the active slot is
+/// already populated and those maps are left untouched, which is what carries
+/// the previous generation across a daemon restart.
+Result<void> bootstrap_policy_slots(BpfState& state);
 
 /// Entry count and capacity of a slotted map's currently-live inner map.
 ///

@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "bpf_ops.hpp"
+#include "logging.hpp"
 
 namespace aegis {
 
@@ -85,12 +86,148 @@ uint32_t inner_size_for(uint32_t rule_count)
     return doubled > 64u ? doubled : 64u;
 }
 
-Result<void> commit_policy_slot(const BpfState& state, const std::vector<std::pair<bpf_map*, int>>& staged)
+// --- SlottedMap self-resolution and helper overloads ----------------------
+//
+// These let code written against plain bpf_map* keep its call shape while
+// operating on the live inner map of the current generation.
+
+Result<ShadowMap> SlottedMap::live() const
+{
+    if (!outer || !slot_map) {
+        return Error(ErrorCode::BpfMapOperationFailed, "Slotted map not bound (outer or active_slot missing)");
+    }
+    return live_policy_map_from_fds(bpf_map__fd(outer), bpf_map__fd(slot_map));
+}
+
+Result<void> SlottedMap::refresh_live()
+{
+    auto resolved = live();
+    if (!resolved) {
+        live_handle = ShadowMap();
+        return resolved.error();
+    }
+    live_handle = std::move(*resolved);
+    return {};
+}
+
+size_t map_entry_count(const SlottedMap& m)
+{
+    auto live = m.live();
+    if (!live) {
+        return 0;
+    }
+    return map_fd_entry_count(live->fd(), inner_key_size(m));
+}
+
+Result<void> clear_map_entries(const SlottedMap& m)
+{
+    auto live = m.live();
+    if (!live) {
+        // An unpopulated slot has nothing to clear; that is not an error.
+        return {};
+    }
+    return clear_map_fd_entries(live->fd(), inner_key_size(m));
+}
+
+Result<void> verify_map_entry_count(const SlottedMap& m, size_t expected)
+{
+    auto live = m.live();
+    if (!live) {
+        return live.error();
+    }
+    return verify_map_fd_entry_count(live->fd(), inner_key_size(m), expected);
+}
+
+Result<ShadowMap> create_shadow_map(const SlottedMap& m, uint32_t max_entries_override)
+{
+    // A slotted map's shadow IS the next generation's inner map, so it is built
+    // from the captured template rather than cloned from a live map.
+    return create_inner_map(m, max_entries_override);
+}
+
+std::vector<SlottedMap*> all_slotted_maps(BpfState& state)
+{
+    std::vector<SlottedMap*> maps;
+    for (SlottedMap* m : {&state.deny_inode, &state.deny_path, &state.deny_comm, &state.allow_cgroup,
+                          &state.allow_exec_inode, &state.trusted_exec_hash, &state.deny_ipv4, &state.deny_ipv6,
+                          &state.deny_cidr_v4, &state.deny_cidr_v6, &state.deny_port, &state.deny_ip_port_v4,
+                          &state.deny_ip_port_v6, &state.deny_cgroup_inode, &state.deny_cgroup_ipv4,
+                          &state.deny_cgroup_port}) {
+        if (m->outer) {
+            maps.push_back(m);
+        }
+    }
+    return maps;
+}
+
+Result<void> bootstrap_policy_slots(BpfState& state)
 {
     if (!state.active_slot) {
         return Error(ErrorCode::BpfMapOperationFailed, "active_slot map not available");
     }
     const int slot_fd = bpf_map__fd(state.active_slot);
+
+    uint32_t key = 0;
+    uint32_t active = 0;
+    if (bpf_map_lookup_elem(slot_fd, &key, &active) != 0) {
+        // An ARRAY map always has element 0, so a failure here is real.
+        return Error::system(errno, "Failed to read active_slot during bootstrap");
+    }
+    active &= 1u;
+
+    size_t created = 0;
+    for (SlottedMap* m : all_slotted_maps(state)) {
+        // Populated already (reused pin after a restart): keep that generation.
+        if (auto existing = m->live(); existing) {
+            m->live_handle = std::move(*existing);
+            continue;
+        }
+        auto inner = create_inner_map(*m, 0);
+        if (!inner) {
+            return inner.error();
+        }
+        uint32_t value = static_cast<uint32_t>(inner->fd());
+        if (bpf_map_update_elem(bpf_map__fd(m->outer), &active, &value, BPF_ANY) != 0) {
+            return Error::system(errno, std::string("Failed to bootstrap slot for ") + bpf_map__name(m->outer));
+        }
+        ++created;
+        auto resolved = m->refresh_live();
+        if (!resolved) {
+            return resolved.error();
+        }
+    }
+
+    logger().log(SLOG_INFO("Policy slots bootstrapped")
+                     .field("active_slot", static_cast<int64_t>(active))
+                     .field("inner_maps_created", static_cast<int64_t>(created)));
+    return {};
+}
+
+Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<SlottedMap*, int>>& staged)
+{
+    if (!state.active_slot) {
+        return Error(ErrorCode::BpfMapOperationFailed, "active_slot map not available");
+    }
+    const int slot_fd = bpf_map__fd(state.active_slot);
+
+    // Completeness gate. One u32 switches every outer map, so a map missing
+    // from `staged` would resolve to an empty inner after the flip. Refusing
+    // here turns a silent policy hole into a failed reload that leaves the
+    // previous generation enforcing.
+    for (SlottedMap* bound : all_slotted_maps(state)) {
+        bool covered = false;
+        for (const auto& [m, fd] : staged) {
+            if (m == bound) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered) {
+            return Error(ErrorCode::InvalidArgument,
+                         "Policy commit does not cover every slotted map; refusing to flip",
+                         bound->outer ? bpf_map__name(bound->outer) : "<unnamed>");
+        }
+    }
 
     uint32_t key = 0;
     uint32_t live = 0;
@@ -102,26 +239,37 @@ Result<void> commit_policy_slot(const BpfState& state, const std::vector<std::pa
 
     // Stage into the inactive slot. These writes are individually non-atomic,
     // but no hook can observe them: active_slot still names the other slot.
-    for (const auto& [outer, inner_fd] : staged) {
-        if (!outer || inner_fd < 0) {
+    for (const auto& [m, inner_fd] : staged) {
+        if (!m || !m->outer || inner_fd < 0) {
             return Error(ErrorCode::InvalidArgument, "Invalid staged policy map");
         }
         uint32_t value = static_cast<uint32_t>(inner_fd);
-        if (bpf_map_update_elem(bpf_map__fd(outer), &target, &value, BPF_ANY) != 0) {
+        if (bpf_map_update_elem(bpf_map__fd(m->outer), &target, &value, BPF_ANY) != 0) {
             // Fail-safe: no flip, so the previous generation stays live.
             return Error::system(errno, "Failed to stage inner map into inactive slot");
         }
     }
 
-    // The single atomic commit. Every staged domain switches generation here.
+    // The single atomic commit. Every slotted domain switches generation here.
     if (bpf_map_update_elem(slot_fd, &key, &target, BPF_ANY) != 0) {
         return Error::system(errno, "Failed to flip active_slot");
     }
 
+    // Re-point the cached read handles at the generation that is now live.
+    // Done here, inside the commit, so it cannot be forgotten by a caller.
+    for (SlottedMap* m : all_slotted_maps(state)) {
+        auto refreshed = m->refresh_live();
+        if (!refreshed) {
+            logger().log(SLOG_WARN("Failed to refresh live handle after commit")
+                             .field("map", bpf_map__name(m->outer))
+                             .field("error", refreshed.error().to_string()));
+        }
+    }
+
     // Retire the previous generation so the kernel can RCU-free it.
-    for (const auto& [outer, inner_fd] : staged) {
+    for (const auto& [m, inner_fd] : staged) {
         (void)inner_fd;
-        bpf_map_delete_elem(bpf_map__fd(outer), &live);
+        bpf_map_delete_elem(bpf_map__fd(m->outer), &live);
     }
     return {};
 }

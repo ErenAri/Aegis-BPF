@@ -14,6 +14,7 @@ class BpfState;
 
 size_t map_entry_count(bpf_map* map);
 Result<void> clear_map_entries(bpf_map* map);
+
 Result<void> verify_map_entry_count(bpf_map* map, size_t expected);
 
 class ShadowMap {
@@ -38,6 +39,7 @@ struct ShadowMapSet {
     ShadowMap deny_comm;
     ShadowMap allow_cgroup;
     ShadowMap allow_exec_inode;
+    ShadowMap trusted_exec_hash;
     ShadowMap deny_ipv4;
     ShadowMap deny_ipv6;
     ShadowMap deny_port;
@@ -58,6 +60,14 @@ Result<ShadowMap> create_shadow_map(bpf_map* live_map, uint32_t max_entries_over
 /// max_entries_override of 0 means "clone the source size". A non-zero value is
 /// honoured only where supports_variable_inner_max_entries() is true.
 Result<ShadowMap> create_shadow_map_from_fd(int live_fd, uint32_t max_entries_override = 0);
+// Slotted-map overloads. Each resolves the live inner map for the current
+// generation and operates on that, so a caller written against the plain maps
+// keeps working and keeps meaning the same thing.
+struct SlottedMap;
+size_t map_entry_count(const SlottedMap& m);
+Result<void> clear_map_entries(const SlottedMap& m);
+Result<void> verify_map_entry_count(const SlottedMap& m, size_t expected);
+Result<ShadowMap> create_shadow_map(const SlottedMap& m, uint32_t max_entries_override = 0);
 /// Rule counts used to right-size slotted inner maps. Zero means "use the
 /// template size"; non-zero sizes the new inner map to the policy.
 struct ShadowSizeHints {

@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
 
 namespace {
@@ -75,6 +76,15 @@ bool has_cap_bpf()
 
 class BpfProgRunTest : public ::testing::Test {
   protected:
+    struct InnerGeometry {
+        uint32_t type = 0;
+        uint32_t key_size = 0;
+        uint32_t value_size = 0;
+        uint32_t max_entries = 0;
+        uint32_t map_flags = 0;
+    };
+    static std::map<std::string, InnerGeometry> inner_geometry_;
+
     static void SetUpTestSuite()
     {
         bpf_obj_path_ = find_bpf_object();
@@ -95,6 +105,31 @@ class BpfProgRunTest : public ::testing::Test {
         if (!obj_) {
             skip_reason_ = "Failed to open BPF object: " + std::string(strerror(errno));
             return;
+        }
+
+        // Capture every slotted map's inner-map template BEFORE load.
+        // bpf_map__inner_map() returns NULL once the object is loaded, so a
+        // test that asks afterwards silently sees no geometry at all -- the
+        // same constraint the daemon works around in capture_inner_geometry().
+        {
+            struct bpf_map* m = nullptr;
+            bpf_object__for_each_map(m, obj_) {
+                const char* mname = bpf_map__name(m);
+                if (!mname || bpf_map__type(m) != BPF_MAP_TYPE_ARRAY_OF_MAPS) {
+                    continue;
+                }
+                struct bpf_map* tmpl = bpf_map__inner_map(m);
+                if (!tmpl) {
+                    continue;
+                }
+                InnerGeometry g{};
+                g.type = bpf_map__type(tmpl);
+                g.key_size = bpf_map__key_size(tmpl);
+                g.value_size = bpf_map__value_size(tmpl);
+                g.max_entries = bpf_map__max_entries(tmpl);
+                g.map_flags = bpf_map__map_flags(tmpl);
+                inner_geometry_[mname] = g;
+            }
         }
 
         int err = bpf_object__load(obj_);
@@ -160,12 +195,60 @@ class BpfProgRunTest : public ::testing::Test {
         return map ? bpf_map__fd(map) : -1;
     }
 
+    // Policy rules do not live in the map the object declares -- that is the
+    // two-slot OUTER array. They live in an inner map installed into the slot
+    // active_slot names. This installs one, exactly as the daemon's
+    // bootstrap_policy_slots() does, and returns its fd so a test can insert
+    // and look up through the real slotted path.
+    //
+    // The returned fd is owned by inner_fds_ and closed in TearDownTestSuite.
+    static int slotted_inner_fd(const char* outer_name)
+    {
+        struct bpf_map* outer = find_map(outer_name);
+        if (!outer) {
+            return -1;
+        }
+        auto it = inner_fds_.find(outer_name);
+        if (it != inner_fds_.end()) {
+            return it->second;
+        }
+
+        auto geo = inner_geometry_.find(outer_name);
+        if (geo == inner_geometry_.end()) {
+            return -1;
+        }
+        LIBBPF_OPTS(bpf_map_create_opts, opts, .map_flags = geo->second.map_flags);
+        int inner = bpf_map_create(static_cast<enum bpf_map_type>(geo->second.type), nullptr, geo->second.key_size,
+                                   geo->second.value_size, geo->second.max_entries, &opts);
+        if (inner < 0) {
+            return -1;
+        }
+
+        uint32_t slot = 0;
+        if (int slot_fd = map_fd("active_slot"); slot_fd >= 0) {
+            uint32_t key = 0;
+            (void)bpf_map_lookup_elem(slot_fd, &key, &slot);
+            slot &= 1u;
+        }
+        uint32_t value = static_cast<uint32_t>(inner);
+        if (bpf_map_update_elem(bpf_map__fd(outer), &slot, &value, BPF_ANY) != 0) {
+            close(inner);
+            return -1;
+        }
+        inner_fds_[outer_name] = inner;
+        return inner;
+    }
+
+    static std::map<std::string, int> inner_fds_;
+
     static std::string bpf_obj_path_;
     static std::string skip_reason_;
     static struct bpf_object* obj_;
     static bool loaded_;
 };
 
+std::map<std::string, int> BpfProgRunTest::inner_fds_;
+std::map<std::string, BpfProgRunTest::InnerGeometry> BpfProgRunTest::inner_geometry_;
 std::string BpfProgRunTest::bpf_obj_path_;
 std::string BpfProgRunTest::skip_reason_;
 struct bpf_object* BpfProgRunTest::obj_ = nullptr;
@@ -204,13 +287,33 @@ TEST_F(BpfProgRunTest, AllExpectedProgramsExist)
 
 TEST_F(BpfProgRunTest, AllExpectedMapsExist)
 {
+    // Policy maps are slotted: the object declares the two-slot OUTER array,
+    // and the rules live in the inner map that active_slot names. The outer is
+    // the stable, pinnable identity, so that is what must exist here.
     const char* expected_maps[] = {
-        "process_tree",   "allow_cgroup_map",   "allow_exec_inode_map",
-        "deny_inode_map", "deny_path_map",      "deny_ipv4",
-        "deny_ipv6",      "deny_port",          "deny_cidr_v4",
-        "deny_cidr_v6",   "deny_ip_port_v4",    "deny_ip_port_v6",
-        "block_stats",    "net_block_stats",    "events",
-        "agent_meta_map", "survival_allowlist",
+        "process_tree",
+        "block_stats",
+        "net_block_stats",
+        "events",
+        "agent_meta_map",
+        "survival_allowlist",
+        "active_slot",
+        "allow_cgroup_map_outer",
+        "allow_exec_inode_map_outer",
+        "trusted_exec_hash_outer",
+        "deny_inode_outer",
+        "deny_path_map_outer",
+        "deny_comm_map_outer",
+        "deny_ipv4_outer",
+        "deny_ipv6_outer",
+        "deny_port_outer",
+        "deny_cidr_v4_outer",
+        "deny_cidr_v6_outer",
+        "deny_ip_port_v4_outer",
+        "deny_ip_port_v6_outer",
+        "deny_cgroup_inode_outer",
+        "deny_cgroup_ipv4_outer",
+        "deny_cgroup_port_outer",
     };
 
     for (const char* name : expected_maps) {
@@ -228,16 +331,21 @@ TEST_F(BpfProgRunTest, RingBufferMapHasCorrectSize)
 
 TEST_F(BpfProgRunTest, DenyInodeMapHasExpectedCapacity)
 {
-    struct bpf_map* map = find_map("deny_inode_map");
-    ASSERT_NE(map, nullptr);
-    EXPECT_EQ(bpf_map__max_entries(map), 65536U);
+    struct bpf_map* outer = find_map("deny_inode_outer");
+    ASSERT_NE(outer, nullptr);
+    // The outer array holds slots, not rules; capacity is the inner template's.
+    EXPECT_EQ(bpf_map__max_entries(outer), 2U);
+    ASSERT_TRUE(inner_geometry_.count("deny_inode_outer"));
+    EXPECT_EQ(inner_geometry_["deny_inode_outer"].max_entries, 65536U);
 }
 
 TEST_F(BpfProgRunTest, AllowCgroupMapHasExpectedCapacity)
 {
-    struct bpf_map* map = find_map("allow_cgroup_map");
-    ASSERT_NE(map, nullptr);
-    EXPECT_EQ(bpf_map__max_entries(map), 1024U);
+    struct bpf_map* outer = find_map("allow_cgroup_map_outer");
+    ASSERT_NE(outer, nullptr);
+    EXPECT_EQ(bpf_map__max_entries(outer), 2U);
+    ASSERT_TRUE(inner_geometry_.count("allow_cgroup_map_outer"));
+    EXPECT_EQ(inner_geometry_["allow_cgroup_map_outer"].max_entries, 1024U);
 }
 
 // ============================================================================
@@ -246,7 +354,7 @@ TEST_F(BpfProgRunTest, AllowCgroupMapHasExpectedCapacity)
 
 TEST_F(BpfProgRunTest, DenyInodeMapCanInsertAndLookup)
 {
-    int fd = map_fd("deny_inode_map");
+    int fd = slotted_inner_fd("deny_inode_outer");
     ASSERT_GE(fd, 0);
 
     // inode_id: { ino=12345, dev=1, pad=0 }
@@ -271,7 +379,7 @@ TEST_F(BpfProgRunTest, DenyInodeMapCanInsertAndLookup)
 
 TEST_F(BpfProgRunTest, DenyIpv4MapCanInsertAndLookup)
 {
-    int fd = map_fd("deny_ipv4");
+    int fd = slotted_inner_fd("deny_ipv4_outer");
     ASSERT_GE(fd, 0);
 
     // 192.168.1.1 in network byte order
@@ -289,7 +397,7 @@ TEST_F(BpfProgRunTest, DenyIpv4MapCanInsertAndLookup)
 
 TEST_F(BpfProgRunTest, DenyPortMapCanInsertAndLookup)
 {
-    int fd = map_fd("deny_port");
+    int fd = slotted_inner_fd("deny_port_outer");
     ASSERT_GE(fd, 0);
 
     // port_key: { port=443, protocol=6(tcp), direction=0(egress) }
@@ -385,7 +493,7 @@ TEST_F(BpfProgRunTest, TracepointProgramsHaveCorrectType)
 
 TEST_F(BpfProgRunTest, CidrV4LpmTrieMatchesSubnet)
 {
-    int fd = map_fd("deny_cidr_v4");
+    int fd = slotted_inner_fd("deny_cidr_v4_outer");
     ASSERT_GE(fd, 0);
 
     // Insert 10.0.0.0/8
@@ -424,7 +532,7 @@ TEST_F(BpfProgRunTest, CidrV4LpmTrieMatchesSubnet)
 
 TEST_F(BpfProgRunTest, IpPortV4MapSupportsCompositeKeys)
 {
-    int fd = map_fd("deny_ip_port_v4");
+    int fd = slotted_inner_fd("deny_ip_port_v4_outer");
     ASSERT_GE(fd, 0);
 
     // Block 1.2.3.4:443/tcp

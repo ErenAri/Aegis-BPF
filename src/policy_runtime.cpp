@@ -1,10 +1,13 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <unordered_set>
+
+#include <sys/stat.h>
 
 #include "binary_scan.hpp"
 #include "bpf_config.hpp"
@@ -262,9 +265,55 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     DenyEntries entries;
+    // Runtime deny rules that survived from the previous generation and must be
+    // re-installed into the new one. Populated below; written into the shadow
+    // maps once they exist.
+    DenyEntries carried_runtime_rules;
+    size_t dropped_stale_runtime_rules = 0;
     {
         ScopedSpan span("policy.prepare_entries", root_span.trace_id(), root_span.span_id());
         entries = reset ? DenyEntries{} : read_deny_db();
+
+        // Runtime-rule carry-forward.
+        //
+        // `aegis block add` writes straight into the live generation and
+        // persists the rule in the deny database. A reload builds a BRAND NEW
+        // inner map, so unlike the old copy-into-live path there is nothing for
+        // those rules to survive in: every one has to be re-installed, or the
+        // reload silently un-blocks whatever an operator blocked by hand.
+        //
+        // Each carried rule is re-validated against the filesystem rather than
+        // trusted. A recorded (device, inode) that no longer resolves to the
+        // recorded path names something that no longer exists, or a different
+        // file that has since taken the inode number -- re-installing it would
+        // block the wrong object. Those are DROPPED, counted and logged, and
+        // the pruned set is what gets persisted.
+        //
+        // Dropping rather than failing is deliberate. A vanished temp file is
+        // not a policy error, and failing the commit would wedge every future
+        // reload behind a file that will never come back -- a state this
+        // codebase has already been observed to reach in practice.
+        if (!reset) {
+            carried_runtime_rules = prune_stale_runtime_rules(
+                read_runtime_rules(), dropped_stale_runtime_rules,
+                [](const std::string& path, const std::string& reason) {
+                    logger().log(
+                        SLOG_WARN("Dropping stale runtime deny rule").field("path", path).field("reason", reason));
+                });
+            // The accounting set must match what will actually be installed.
+            // Previous-generation POLICY rules are deliberately not carried:
+            // replacing them is what a reload is for. Only hand-added runtime
+            // rules survive.
+            entries = carried_runtime_rules;
+            if (dropped_stale_runtime_rules > 0) {
+                (void)write_runtime_rules(carried_runtime_rules);
+            }
+            if (dropped_stale_runtime_rules > 0) {
+                logger().log(SLOG_WARN("Pruned stale runtime deny rules during policy reload")
+                                 .field("dropped", static_cast<int64_t>(dropped_stale_runtime_rules))
+                                 .field("carried", static_cast<int64_t>(carried_runtime_rules.size())));
+            }
+        }
     }
 
     std::vector<BinaryScanResult> allow_binary_matches;
@@ -311,6 +360,23 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     if (use_shadow) {
         {
             ScopedSpan span("policy.populate_shadows", root_span.trace_id(), root_span.span_id());
+
+            // Re-install carried runtime rules FIRST, so a policy rule naming
+            // the same inode simply overwrites the entry rather than colliding
+            // with it, and so the new generation is never briefly missing a
+            // rule an operator added by hand.
+            for (const auto& [id, path] : carried_runtime_rules) {
+                auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
+                if (!result) {
+                    span.fail(result.error().to_string());
+                    return fail(result.error());
+                }
+            }
+            if (!carried_runtime_rules.empty()) {
+                logger().log(SLOG_INFO("Carried runtime deny rules into the new policy generation")
+                                 .field("count", static_cast<int64_t>(carried_runtime_rules.size())));
+            }
+
             for (const auto& deny_path : policy.deny_paths) {
                 auto result = add_deny_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), deny_path, entries);
                 if (!result) {
@@ -494,7 +560,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 return fail(err);
             }
 
-            size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), bpf_map__key_size(state.deny_path));
+            size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), inner_key_size(state.deny_path));
             const size_t expected_min_path_rules = policy.deny_paths.size() + policy.protect_paths.size();
             if (shadow_path_count < expected_min_path_rules) {
                 Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_path",
@@ -506,7 +572,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
             if (!allow_binary_matches.empty()) {
                 size_t shadow_allow_exec_count =
-                    map_fd_entry_count(shadows.allow_exec_inode.fd(), bpf_map__key_size(state.allow_exec_inode));
+                    map_fd_entry_count(shadows.allow_exec_inode.fd(), inner_key_size(state.allow_exec_inode));
                 if (shadow_allow_exec_count < expected_allow_exec_inode_entries) {
                     Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for allow_exec_inode",
                               "expected>=" + std::to_string(expected_allow_exec_inode_entries) +
@@ -517,13 +583,27 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
         }
 
-        // Bump policy generation BEFORE syncing shadows → live.
-        // This causes BPF hooks to see a generation mismatch and fall
-        // back to audit mode during the map transition window.
-        auto gen_result = bump_policy_generation(state);
-        if (gen_result) {
-            pending_generation = *gen_result;
-        }
+        // NO generation bump on this path, and that is the whole point.
+        //
+        // The generation guard works by making hooks see a mismatch and fall
+        // back to AUDIT-ONLY for the duration of a reload. That was the only
+        // option while a reload copied entries into live maps one at a time:
+        // enforcement had to be suspended because the maps were briefly
+        // inconsistent. It is also a real hole -- for the length of every
+        // reload, nothing was enforced.
+        //
+        // This path no longer mutates live maps at all. Each generation is
+        // built in inner maps no hook can reach, and becomes authoritative at
+        // a single active_slot write. There is no inconsistent interval to
+        // protect, so suspending enforcement would only re-open the hole the
+        // slot design exists to close.
+        //
+        // Measured, not assumed: with the bump still in place a 254-reload
+        // concurrency stress run recorded 100 accesses that BOTH policies
+        // deny; with it removed, zero. See scripts/policy_swap_stress.sh.
+        //
+        // The direct-apply fallback below DOES still write live maps in place,
+        // and keeps the guard for exactly that reason.
 
         {
             ScopedSpan span("policy.sync_shadows_to_live", root_span.trace_id(), root_span.span_id());
@@ -532,40 +612,39 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                 TRY(reset_policy_maps(state));
             }
 
-            // deny_inode is slotted: instead of copying entries into the live
-            // map (which cannot be atomic, and is why the old code dropped to
-            // audit mode), install the freshly built inner map with a single
-            // atomic flip below.
-            TRY(sync_from_shadow(state.deny_path, shadows.deny_path.fd()));
-            TRY(sync_from_shadow(state.deny_comm, shadows.deny_comm.fd()));
-            TRY(sync_from_shadow(state.allow_cgroup, shadows.allow_cgroup.fd()));
-            TRY(sync_from_shadow(state.allow_exec_inode, shadows.allow_exec_inode.fd()));
-
-            if (policy.network.enabled) {
-                TRY(sync_from_shadow(state.deny_ipv4, shadows.deny_ipv4.fd()));
-                TRY(sync_from_shadow(state.deny_ipv6, shadows.deny_ipv6.fd()));
-                TRY(sync_from_shadow(state.deny_port, shadows.deny_port.fd()));
-                TRY(sync_from_shadow(state.deny_ip_port_v4, shadows.deny_ip_port_v4.fd()));
-                TRY(sync_from_shadow(state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()));
-                TRY(sync_from_shadow(state.deny_cidr_v4, shadows.deny_cidr_v4.fd()));
-                TRY(sync_from_shadow(state.deny_cidr_v6, shadows.deny_cidr_v6.fd()));
-            }
-
-            if (policy.cgroup.enabled) {
-                TRY(sync_from_shadow(state.deny_cgroup_inode, shadows.deny_cgroup_inode.fd()));
-                TRY(sync_from_shadow(state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()));
-                TRY(sync_from_shadow(state.deny_cgroup_port, shadows.deny_cgroup_port.fd()));
-            }
-
-            // Atomic commit for the slotted maps. Everything above still uses
-            // the copy-based path and keeps its generation guard until those
-            // maps are slotted too; this flip covers deny_inode.
+            // Every policy map is slotted, so nothing is copied into a live
+            // map here. The freshly built inner maps are staged into the
+            // inactive slot and become authoritative together, at the single
+            // active_slot write inside commit_policy_slot().
             //
-            // On failure nothing is installed and the previous generation stays
-            // live and enforcing.
-            TRY(commit_policy_slot(state, {{state.deny_inode.outer, shadows.deny_inode.fd()}}));
+            // Each domain is staged unconditionally, including the ones whose
+            // policy section is empty: a map omitted from the commit would
+            // resolve to an empty inner map after the flip, silently dropping
+            // its rules. An empty shadow is the correct representation of an
+            // empty section; an absent one is not.
+            //
+            // On any failure before the flip nothing is installed and the
+            // previous generation stays live and enforcing.
+            TRY(commit_policy_slot(state, {
+                                              {&state.deny_inode, shadows.deny_inode.fd()},
+                                              {&state.deny_path, shadows.deny_path.fd()},
+                                              {&state.deny_comm, shadows.deny_comm.fd()},
+                                              {&state.allow_cgroup, shadows.allow_cgroup.fd()},
+                                              {&state.allow_exec_inode, shadows.allow_exec_inode.fd()},
+                                              {&state.trusted_exec_hash, shadows.trusted_exec_hash.fd()},
+                                              {&state.deny_ipv4, shadows.deny_ipv4.fd()},
+                                              {&state.deny_ipv6, shadows.deny_ipv6.fd()},
+                                              {&state.deny_port, shadows.deny_port.fd()},
+                                              {&state.deny_ip_port_v4, shadows.deny_ip_port_v4.fd()},
+                                              {&state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()},
+                                              {&state.deny_cidr_v4, shadows.deny_cidr_v4.fd()},
+                                              {&state.deny_cidr_v6, shadows.deny_cidr_v6.fd()},
+                                              {&state.deny_cgroup_inode, shadows.deny_cgroup_inode.fd()},
+                                              {&state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()},
+                                              {&state.deny_cgroup_port, shadows.deny_cgroup_port.fd()},
+                                          }));
 
-            logger().log(SLOG_INFO("Shadow maps synced to live maps"));
+            logger().log(SLOG_INFO("Policy generation committed atomically"));
         }
     } else {
         // Direct-apply path mutates live maps in place. Bump the generation now,
@@ -611,7 +690,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     span.fail(clear_ima.error().to_string());
                     return fail(clear_ima.error());
                 }
-                const int tfd = bpf_map__fd(state.trusted_exec_hash);
+                const int tfd = state.trusted_exec_hash.live_fd();
                 auto nibble = [](char c) -> int {
                     if (c >= '0' && c <= '9')
                         return c - '0';
@@ -661,7 +740,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     span.fail(live_inode.error().to_string());
                     return fail(live_inode.error());
                 }
-                auto result = add_rule_path_to_fds(live_inode->fd(), bpf_map__fd(state.deny_path), protect_path,
+                auto result = add_rule_path_to_fds(live_inode->fd(), state.deny_path.live_fd(), protect_path,
                                                    kRuleFlagProtectByVerifiedExec, entries);
                 if (!result) {
                     span.fail(result.error().to_string());
@@ -772,7 +851,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                     continue;
                 }
                 auto result =
-                    add_cgroup_deny_inode_to_fd(bpf_map__fd(state.deny_cgroup_inode), *cgid_result, rule.inode);
+                    add_cgroup_deny_inode_to_fd(state.deny_cgroup_inode.live_fd(), *cgid_result, rule.inode);
                 if (!result) {
                     logger().log(SLOG_WARN("Failed to add cgroup deny inode")
                                      .field("cgroup", rule.cgroup)
@@ -787,7 +866,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                                      .field("error", cgid_result.error().message()));
                     continue;
                 }
-                auto result = add_cgroup_deny_ipv4_to_fd(bpf_map__fd(state.deny_cgroup_ipv4), *cgid_result, rule.ip);
+                auto result = add_cgroup_deny_ipv4_to_fd(state.deny_cgroup_ipv4.live_fd(), *cgid_result, rule.ip);
                 if (!result) {
                     logger().log(SLOG_WARN("Failed to add cgroup deny IPv4")
                                      .field("cgroup", rule.cgroup)
@@ -803,7 +882,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                                      .field("error", cgid_result.error().message()));
                     continue;
                 }
-                auto result = add_cgroup_deny_port_to_fd(bpf_map__fd(state.deny_cgroup_port), *cgid_result, rule.port);
+                auto result = add_cgroup_deny_port_to_fd(state.deny_cgroup_port.live_fd(), *cgid_result, rule.port);
                 if (!result) {
                     logger().log(SLOG_WARN("Failed to add cgroup deny port")
                                      .field("cgroup", rule.cgroup)
@@ -1244,7 +1323,7 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
                         if (!path_str.empty() && path_str.size() < kDenyPathMax) {
                             PathKey pk{};
                             fill_path_key(path_str, pk);
-                            bpf_map_update_elem(bpf_map__fd(rollback_state.deny_path), &pk, &one, BPF_ANY);
+                            bpf_map_update_elem(rollback_state.deny_path.live_fd(), &pk, &one, BPF_ANY);
                         }
                     }
                     if (snapshot_ok) {

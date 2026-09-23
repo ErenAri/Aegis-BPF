@@ -176,6 +176,97 @@ see `docs/THREAT_MODEL.md`.
 | Privileged container (`CAP_SYS_ADMIN`) | All surfaces | Treat as trust boundary breach |
 | Kernel module / root compromise | All surfaces | Out of scope (see THREAT_MODEL.md) |
 
+## Policy reload atomicity
+
+**A policy reload never exposes a partially-applied policy.**
+
+Every enforcement decision is taken against exactly one policy generation.
+Before a reload, decisions see the old policy; after it, the new one. There is
+no interval in which one rule has been applied and another has not, and no
+interval in which enforcement is suspended.
+
+### How a generation is committed
+
+Each of the 16 policy maps is a two-slot `BPF_MAP_TYPE_ARRAY_OF_MAPS`. The
+rules live in the inner map named by a single shared `active_slot` value:
+
+1. The inactive slot is determined (`target = live XOR 1`).
+2. A new inner map is built for every policy domain and fully populated.
+   No hook can observe these: `active_slot` still names the other slot.
+3. The new generation is validated and shadow-verified.
+4. Runtime rules are carried into it (see below).
+5. Each inner map is staged into the inactive slot.
+6. **Single commit point** — one `active_slot` write switches every domain
+   together.
+7. The retired slot is cleared so the kernel can free the old inner maps.
+
+Any failure before step 6 aborts the reload with the previous generation still
+live and still enforcing. The commit refuses to proceed unless *every* slotted
+map is part of it, because one `active_slot` governs them all: a map left out
+would resolve to an empty inner map after the flip and silently lose its rules.
+
+### What atomicity does and does not mean
+
+**Guaranteed:**
+
+- *Per decision.* Each BPF program reads `active_slot` once on entry and
+  threads that value through every policy lookup it makes, so a single
+  `file_open`, `connect` or `execve` decision cannot mix generations even if a
+  commit lands while it runs.
+- *Across maps.* File, exec, network and cgroup rules switch together. A
+  decision cannot see the new network policy alongside the old file policy.
+- *Across CPUs.* The commit is a single map update on a one-element array.
+  Readers on other CPUs observe the old value or the new one, never a
+  partial write.
+- *On reload failure.* A failed reload leaves the previous generation intact.
+- *Across daemon restart.* The outer maps and `active_slot` are pinned, so a
+  restarting daemon adopts the generation that was live and does not rebuild
+  it. A daemon killed mid-reload leaves the previous generation live, because
+  the flip had not happened.
+
+**Not guaranteed:**
+
+- *Decisions already in flight.* A decision that read the slot microseconds
+  before the commit completes under the old generation. This is inherent: the
+  syscall was admitted before the new policy existed.
+- *Enforcement while no agent is running.* The BPF links are owned by the
+  daemon process. If it exits, the programs detach and nothing is enforced
+  until it restarts. Map contents survive; attachment does not.
+- *The direct-apply fallback.* When shadow maps cannot be created, policy is
+  written into live maps in place. That path is not atomic and still drops
+  hooks to audit-only for the duration, which is the older, weaker behaviour.
+  It is a fallback, not the normal path.
+- *`--reset`.* Clearing maps before applying is an explicit operator request
+  to discard state and is not a generation swap.
+
+### Runtime rule carry-forward
+
+Rules added at runtime with `aegis block add` are not part of any policy file,
+but must survive a reload — a reload builds a brand new generation, so without
+explicit action every hand-added block would silently disappear.
+
+They are tracked in `/var/lib/aegisbpf/runtime_rules.db`, separately from
+`deny.db` (which records everything currently installed, policy rules
+included, and so cannot say which rules an operator added by hand).
+
+On each reload every runtime rule is **re-validated against the filesystem**
+before being re-installed:
+
+| Condition | Action |
+|-----------|--------|
+| Path still resolves to the recorded (device, inode) | Carried into the new generation |
+| Path no longer exists | Dropped, logged with the reason, pruned from the registry |
+| Path now resolves to a different inode | Dropped, logged with both inode numbers, pruned |
+
+Stale rules are dropped rather than failing the reload. A blocked temporary
+file that has since been deleted is not a policy error, and failing the commit
+would wedge every future reload behind a file that will never return. Each
+drop is reported at WARN with the path and the reason, plus a summary count,
+so the loss is visible rather than silent.
+
+Rules from the *previous policy file* are deliberately not carried forward —
+replacing them is what a reload is for.
+
 ## TOCTOU stance
 
 **Inode-based enforcement is atomic.**  The kernel resolves `dentry → inode`

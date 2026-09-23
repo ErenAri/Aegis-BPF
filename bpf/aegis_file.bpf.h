@@ -41,7 +41,7 @@ int BPF_PROG(handle_file_open, struct file *file)
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Check cgroup-scoped deny first (per-workload policy) */
-    __u8 cg_rule = cgroup_inode_denied(cgid, &key);
+    __u8 cg_rule = cgroup_inode_denied(slot, cgid, &key);
 
     /* Then check global deny list */
     void *deny_inode = policy_inner(&deny_inode_outer, slot);
@@ -63,7 +63,7 @@ int BPF_PROG(handle_file_open, struct file *file)
     }
 
     /* Skip allowed cgroups (global bypass -- only for global rules) */
-    if (!cg_rule && is_cgroup_allowed(cgid)) {
+    if (!cg_rule && is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_FILE_OPEN, _start_ns);
         return 0;
     }
@@ -167,10 +167,8 @@ int BPF_PROG(handle_file_open, struct file *file)
     return -EPERM;
 }
 
-static __always_inline int handle_inode_permission_impl(struct inode *inode, int mask)
+static __always_inline int handle_inode_permission_impl(__u32 slot, struct inode *inode, int mask)
 {
-    /* One slot read per invocation -- see policy_active_slot(). */
-    const __u32 slot = policy_active_slot();
     if (!inode)
         return 0;
     (void)mask;
@@ -185,7 +183,7 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Check cgroup-scoped deny first (per-workload policy) */
-    __u8 cg_rule = cgroup_inode_denied(cgid, &key);
+    __u8 cg_rule = cgroup_inode_denied(slot, cgid, &key);
 
     /* Then check global deny list */
     void *deny_inode = policy_inner(&deny_inode_outer, slot);
@@ -203,7 +201,7 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
         return 0;
 
     /* Skip allowed cgroups (global bypass -- only for global rules) */
-    if (!cg_rule && is_cgroup_allowed(cgid))
+    if (!cg_rule && is_cgroup_allowed(slot, cgid))
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -291,8 +289,10 @@ static __always_inline int handle_inode_permission_impl(struct inode *inode, int
 SEC("lsm/inode_permission")
 int BPF_PROG(handle_inode_permission, struct inode *inode, int mask)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
-    int ret = handle_inode_permission_impl(inode, mask);
+    int ret = handle_inode_permission_impl(slot, inode, mask);
     record_hook_latency(HOOK_INODE_PERMISSION, _start_ns);
     return ret;
 }
@@ -324,6 +324,11 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     if (agent_cfg.file_policy_empty)
         return 0;
 
+    /* One slot read per invocation. Placed before the first policy-map
+     * read below so every policy lookup in this tracepoint observes one
+     * generation; the guards above consult only agent_cfg. */
+    const __u32 slot = policy_active_slot();
+
     /* Read path from userspace */
     struct path_key key = {};
     long len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
@@ -331,7 +336,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
         return 0;
 
     /* Check if path is in deny list */
-    if (!bpf_map_lookup_elem(&deny_path_map, &key))
+    if (!policy_lookup(&deny_path_map_outer, slot, &key))
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -340,7 +345,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     __u32 sample_rate = get_event_sample_rate();
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid))
+    if (is_cgroup_allowed(slot, cgid))
         return 0;
 
     /* Update statistics */

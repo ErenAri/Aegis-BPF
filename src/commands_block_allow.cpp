@@ -12,6 +12,8 @@
 #include <iostream>
 
 #include "bpf_ops.hpp"
+#include <sys/stat.h>
+
 #include "logging.hpp"
 #include "policy_slots.hpp"
 #include "tracing.hpp"
@@ -66,6 +68,26 @@ int block_file(const std::string& path)
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return 1;
+    }
+
+    // Record provenance: this rule was added at runtime, so a later policy
+    // reload must re-install it into the new generation. deny.db cannot answer
+    // that on its own -- it also holds policy-derived rules, which a reload is
+    // supposed to replace.
+    {
+        struct stat st{};
+        if (::stat(validated->c_str(), &st) == 0) {
+            InodeId id{};
+            id.ino = st.st_ino;
+            id.dev = encode_dev(st.st_dev);
+            auto runtime = read_runtime_rules();
+            runtime[id] = *validated;
+            auto rr = write_runtime_rules(runtime);
+            if (!rr) {
+                logger().log(SLOG_WARN("Failed to record runtime deny rule; it will not survive a policy reload")
+                                 .field("error", rr.error().to_string()));
+            }
+        }
     }
 
     auto hints_result = refresh_policy_empty_hints(state);
@@ -130,6 +152,12 @@ int cmd_block_del(const std::string& path)
 
     auto entries = read_deny_db();
     entries.erase(id);
+    {
+        auto runtime = read_runtime_rules();
+        if (runtime.erase(id) > 0) {
+            (void)write_runtime_rules(runtime);
+        }
+    }
     auto write_result = write_deny_db(entries);
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
