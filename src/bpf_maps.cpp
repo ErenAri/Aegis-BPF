@@ -1,6 +1,8 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_maps.hpp"
 
+#include "logging.hpp"
+
 #include <unistd.h>
 
 #include <cerrno>
@@ -236,7 +238,14 @@ Result<ShadowMapSet> create_shadow_map_set(const BpfState& state, const ShadowSi
         if (!m) {
             return ShadowMap();
         }
-        return create_shadow_map(m);
+        auto r = create_shadow_map(m);
+        if (!r) {
+            logger().log(SLOG_ERROR("Could not allocate an inner map for the next policy generation")
+                             .field("stage", "allocate_inner_map")
+                             .field("error", r.error().to_string())
+                             .field("active_generation_changed", "no"));
+        }
+        return r;
     };
 
     // deny_inode is slotted: its "shadow" IS the next generation's inner map, so

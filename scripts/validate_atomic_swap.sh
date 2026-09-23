@@ -36,6 +36,19 @@ fi
 # --- kernel primitives the slot design depends on ------------------------
 # Checked directly rather than inferred from a successful daemon start, so a
 # kernel that lacks one is reported precisely instead of as "agent failed".
+# bpftool is built per kernel release, so the host's copy is unusable inside a
+# VM running an older kernel: every query returns nothing and checks built on
+# it report the product as broken when only the tool is missing. Read the state
+# through libbpf instead.
+PROBE="$WORK/slot_probe"
+if ! cc -O2 -o "$PROBE" "$(dirname "$0")/../tools/slot_probe.c" -lbpf 2>"$WORK/probe_build.err"; then
+    bad "could not build tools/slot_probe.c (needs libbpf headers)"
+    sed -n '1,5p' "$WORK/probe_build.err"
+    exit 1
+fi
+VSTAT="$WORK/verifier_stats"
+cc -O2 -o "$VSTAT" "$(dirname "$0")/../tools/verifier_stats.c" -lbpf 2>/dev/null
+
 say "map primitives"
 cat > "$WORK/probe.c" <<'EOF'
 #include <bpf/bpf.h>
@@ -85,12 +98,24 @@ fi
 # --- object load + verifier ---------------------------------------------
 say "BPF object load"
 rm -rf "$PINDIR" 2>/dev/null
-if bpftool prog loadall "$OBJ" /sys/fs/bpf/aegis_validate >/dev/null 2>&1; then
-    ok "all programs pass the verifier"
-    rm -rf /sys/fs/bpf/aegis_validate
+if [ -x "$VSTAT" ]; then
+    # verifier_stats loads every program through libbpf and reports the
+    # verifier's own per-program numbers, so a rejection shows up as missing
+    # output rather than as a tool failure.
+    if "$VSTAT" "$OBJ" > "$WORK/verifier.csv" 2>"$WORK/verifier.err"; then
+        progs=$(grep -c ',' "$WORK/verifier.csv")
+        if [ "$progs" -gt 1 ]; then
+            ok "all programs pass the verifier ($((progs - 2)) programs measured)"
+        else
+            bad "verifier produced no per-program data -- object likely rejected"
+            tail -5 "$WORK/verifier.err"
+        fi
+    else
+        bad "verifier rejected the object"
+        tail -20 "$WORK/verifier.err"
+    fi
 else
-    bad "verifier rejected the object"
-    bpftool prog loadall "$OBJ" /sys/fs/bpf/aegis_validate 2>&1 | tail -20
+    bad "could not build tools/verifier_stats.c; verifier acceptance NOT checked"
 fi
 
 # --- daemon lifecycle ----------------------------------------------------
@@ -121,15 +146,25 @@ cat /tmp/aegis_validate_target >/dev/null 2>&1 \
     && bad "denied file was readable -- enforcement not active" \
     || ok "kernel enforces the applied generation"
 
-before=$(bpftool map dump name active_slot 2>/dev/null | grep -oE '"value": [0-9]+' | head -1)
+before=$("$PROBE" active-slot 2>/dev/null)
+gen_before=$("$PROBE" generation 2>/dev/null)
 "$BIN" policy apply "$WORK/p2.conf" >/dev/null 2>&1
-after=$(bpftool map dump name active_slot 2>/dev/null | grep -oE '"value": [0-9]+' | head -1)
-[ "$before" != "$after" ] && ok "reload flipped active_slot ($before -> $after)" \
-                          || bad "active_slot did not change across a reload"
-
-gen=$(bpftool map dump name slot_generation 2>/dev/null | grep -oE '"value": [0-9]+' | awk '{print $2}' | sort -rn | head -1)
-[ "${gen:-0}" -ge 2 ] && ok "generation oracle advancing (highest id: $gen)" \
-                      || bad "generation oracle did not advance"
+after=$("$PROBE" active-slot 2>/dev/null)
+gen_after=$("$PROBE" generation 2>/dev/null)
+if [ -z "$before" ] || [ -z "$after" ]; then
+    bad "could not read active_slot -- state unreadable, NOT a pass"
+elif [ "$before" != "$after" ]; then
+    ok "reload flipped active_slot ($before -> $after)"
+else
+    bad "active_slot did not change across a reload"
+fi
+if [ -z "$gen_after" ]; then
+    bad "could not read slot_generation -- oracle unreadable, NOT a pass"
+elif [ "${gen_after:-0}" -gt "${gen_before:-0}" ]; then
+    ok "generation oracle advanced ($gen_before -> $gen_after)"
+else
+    bad "generation oracle did not advance ($gen_before -> $gen_after)"
+fi
 
 # A policy larger than the inner-map floor.
 #

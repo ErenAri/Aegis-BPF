@@ -17,12 +17,17 @@ printf 'version=6\n\n[deny_path]\n/tmp/aegis_leak_target\n\n[deny_port]\n4444:tc
 printf 'version=6\n\n[deny_path]\n/tmp/aegis_leak_target\n\n[deny_port]\n5555:tcp:egress\n' > "$WORK/b.conf"
 echo target > /tmp/aegis_leak_target
 
+# bpftool is per-kernel; build the libbpf probe so this works in a VM too.
+PROBE="$WORK/slot_probe"
+cc -O2 -o "$PROBE" "$(dirname "$0")/../tools/slot_probe.c" -lbpf 2>/dev/null || {
+    echo "cannot build tools/slot_probe.c; map counts unavailable"; exit 2; }
+
 pid="$(pgrep -x aegisbpf | head -1)"
 [ -n "$pid" ] || { echo "no agent running"; exit 2; }
 
 sample() {
     local maps rss locked pins
-    maps=$(bpftool map show 2>/dev/null | grep -c '^[0-9]')
+    maps=$("$PROBE" map-count 2>/dev/null || echo -1)
     rss=$(awk '/VmRSS/{print $2}' "/proc/$pid/status" 2>/dev/null || echo 0)
     locked=$(awk '/VmLck/{print $2}' "/proc/$pid/status" 2>/dev/null || echo 0)
     pins=$(find /sys/fs/bpf/aegisbpf -type f 2>/dev/null | wc -l)
@@ -30,6 +35,7 @@ sample() {
 }
 
 read -r m0 r0 l0 p0 <<<"$(sample)"
+[ "$m0" -lt 0 ] && { echo "map count unreadable; refusing to report a leak result"; exit 2; }
 echo "before : bpf_maps=$m0 rss_kb=$r0 locked_kb=$l0 pinned=$p0"
 
 for i in $(seq 1 "$RELOADS"); do

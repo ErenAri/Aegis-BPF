@@ -3,6 +3,7 @@
 #include <bpf/bpf.h>
 
 #include <cerrno>
+#include <cstring>
 #include <cstdint>
 
 #include "bpf_ops.hpp"
@@ -258,9 +259,15 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
             }
         }
         if (!covered) {
+            const char* name = bound->outer ? bpf_map__name(bound->outer) : "<unnamed>";
+            logger().log(SLOG_ERROR("Atomic policy commit is incomplete; refusing to flip")
+                             .field("stage", "completeness_gate")
+                             .field("missing_map", name)
+                             .field("active_generation_changed", "no")
+                             .field("why", "one active_slot governs every slotted map, so an omitted map "
+                                           "would resolve to an empty inner map after the flip"));
             return Error(ErrorCode::InvalidArgument,
-                         "Policy commit does not cover every slotted map; refusing to flip",
-                         bound->outer ? bpf_map__name(bound->outer) : "<unnamed>");
+                         "Policy commit does not cover every slotted map; refusing to flip", name);
         }
     }
 
@@ -280,8 +287,20 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
         }
         uint32_t value = static_cast<uint32_t>(inner_fd);
         if (bpf_map_update_elem(bpf_map__fd(m->outer), &target, &value, BPF_ANY) != 0) {
-            // Fail-safe: no flip, so the previous generation stays live.
-            return Error::system(errno, "Failed to stage inner map into inactive slot");
+            // Fail-safe: no flip, so the previous generation stays live. Name
+            // the map and slot -- "staging failed" alone does not tell an
+            // operator which domain ran out of room.
+            const int saved = errno;
+            logger().log(SLOG_ERROR("Atomic policy staging failed")
+                             .field("stage", "stage_inner_map")
+                             .field("map", bpf_map__name(m->outer))
+                             .field("target_slot", static_cast<int64_t>(target))
+                             .field("errno", std::strerror(saved))
+                             .field("active_slot", static_cast<int64_t>(live))
+                             .field("active_generation_changed", "no"));
+            errno = saved;
+            return Error::system(saved, std::string("Failed to stage inner map into inactive slot: ") +
+                                            bpf_map__name(m->outer));
         }
     }
 
@@ -298,7 +317,14 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
 
     // The single atomic commit. Every slotted domain switches generation here.
     if (bpf_map_update_elem(slot_fd, &key, &target, BPF_ANY) != 0) {
-        return Error::system(errno, "Failed to flip active_slot");
+        const int saved = errno;
+        logger().log(SLOG_ERROR("Atomic policy commit failed at the flip")
+                         .field("stage", "active_slot_commit")
+                         .field("target_slot", static_cast<int64_t>(target))
+                         .field("errno", std::strerror(saved))
+                         .field("active_generation_changed", "no"));
+        errno = saved;
+        return Error::system(saved, "Failed to flip active_slot");
     }
 
     // Re-point the cached read handles at the generation that is now live.

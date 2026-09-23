@@ -185,8 +185,23 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
                                            bool record)
 {
     ScopedSpan root_span("policy.apply_internal", active_policy_trace_id());
+
+    // Which phase of the apply we are in, so a failure says where it happened.
+    // Without this a caller sees only "Apply failed; rolling back", which is
+    // safe but leaves an operator with nothing to act on: the error was
+    // recorded on the trace span and never logged.
+    const char* stage = "start";
+    // Set once the active_slot flip has happened. Before that a failure cannot
+    // have disturbed the live generation, and saying so explicitly is the
+    // single most useful thing the message can carry.
+    bool committed = false;
+
     auto fail = [&](const Error& err) -> Result<void> {
         root_span.fail(err.to_string());
+        logger().log(SLOG_ERROR("Policy apply failed")
+                         .field("stage", stage)
+                         .field("error", err.to_string())
+                         .field("active_generation_changed", committed ? "yes" : "no"));
         return err;
     };
 
@@ -194,6 +209,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
     Policy policy{};
     {
+        stage = "parse";
         ScopedSpan span("policy.parse", root_span.trace_id(), root_span.span_id());
         PolicyIssues issues;
         auto policy_result = parse_policy_file(path, issues);
@@ -237,6 +253,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "bump_memlock";
         ScopedSpan span("policy.bump_memlock", root_span.trace_id(), root_span.span_id());
         auto rlimit_result = bump_memlock_rlimit();
         if (!rlimit_result) {
@@ -247,6 +264,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
     BpfState state;
     {
+        stage = "load_bpf";
         ScopedSpan span("policy.load_bpf", root_span.trace_id(), root_span.span_id());
         auto load_result = load_bpf(true, false, state);
         if (!load_result) {
@@ -256,6 +274,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "ensure_layout_version";
         ScopedSpan span("policy.ensure_layout_version", root_span.trace_id(), root_span.span_id());
         auto version_result = ensure_layout_version(state);
         if (!version_result) {
@@ -271,6 +290,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     DenyEntries carried_runtime_rules;
     size_t dropped_stale_runtime_rules = 0;
     {
+        stage = "prepare_entries";
         ScopedSpan span("policy.prepare_entries", root_span.trace_id(), root_span.span_id());
         entries = reset ? DenyEntries{} : read_deny_db();
 
@@ -318,6 +338,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
 
     std::vector<BinaryScanResult> allow_binary_matches;
     if (!policy.allow_binary_hashes.empty()) {
+        stage = "scan_allow_binary_hashes";
         ScopedSpan span("policy.scan_allow_binary_hashes", root_span.trace_id(), root_span.span_id());
         auto scan_result = scan_for_binary_hashes(policy.allow_binary_hashes, policy.scan_paths);
         if (!scan_result) {
@@ -361,6 +382,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     // non-atomic one, and it is visible.
     ShadowMapSet shadows;
     {
+        stage = "create_shadows";
         ScopedSpan span("policy.create_shadows", root_span.trace_id(), root_span.span_id());
         // Size the inode generation to what will actually go into it.
         //
@@ -394,6 +416,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "populate_shadows";
         ScopedSpan span("policy.populate_shadows", root_span.trace_id(), root_span.span_id());
 
         // Re-install carried runtime rules FIRST, so a policy rule naming
@@ -490,6 +513,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     if (policy.network.enabled) {
+        stage = "populate_shadow_network";
         ScopedSpan span("policy.populate_shadow_network", root_span.trace_id(), root_span.span_id());
         for (const auto& ip : policy.network.deny_ips) {
             auto result = add_deny_ip_to_fds(shadows.deny_ipv4.fd(), shadows.deny_ipv6.fd(), ip);
@@ -528,6 +552,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     if (policy.cgroup.enabled) {
+        stage = "populate_shadow_cgroup";
         ScopedSpan span("policy.populate_shadow_cgroup", root_span.trace_id(), root_span.span_id());
         for (const auto& rule : policy.cgroup.deny_inodes) {
             auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
@@ -582,6 +607,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "verify_shadows";
         ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
         size_t shadow_inode_count = map_fd_entry_count(shadows.deny_inode.fd(), inner_key_size(state.deny_inode));
         if (shadow_inode_count != entries.size()) {
@@ -641,6 +667,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     // and keeps the guard for exactly that reason.
 
     {
+        stage = "sync_shadows_to_live";
         ScopedSpan span("policy.sync_shadows_to_live", root_span.trace_id(), root_span.span_id());
 
         if (reset) {
@@ -683,6 +710,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "verify_maps";
         ScopedSpan span("policy.verify_maps", root_span.trace_id(), root_span.span_id());
 
         auto live_inode_for_verify = live_policy_map(state, state.deny_inode.outer);
@@ -838,6 +866,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "refresh_policy_empty_hints";
         ScopedSpan span("policy.refresh_policy_empty_hints", root_span.trace_id(), root_span.span_id());
         auto hints_result = refresh_policy_empty_hints(state);
         if (!hints_result) {
@@ -847,6 +876,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     }
 
     {
+        stage = "set_exec_identity_mode";
         ScopedSpan span("policy.set_exec_identity_mode", root_span.trace_id(), root_span.span_id());
         size_t allow_exec_count = map_entry_count(state.allow_exec_inode);
         bool exec_identity_enabled = allow_exec_count > 0 || policy.protect_connect || !policy.protect_paths.empty() ||
@@ -896,6 +926,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     // enforcement.  The generation was bumped before shadow sync
     // (causing hooks to fall back to audit during the transition).
     if (pending_generation > 0) {
+        stage = "commit_generation";
         ScopedSpan span("policy.commit_generation", root_span.trace_id(), root_span.span_id());
         auto commit_result = commit_policy_generation(state, pending_generation);
         if (!commit_result) {
@@ -972,8 +1003,16 @@ Result<void> policy_apply(const std::string& path, bool reset, const std::string
     }
     PolicyTraceScope trace_scope(trace_id);
     ScopedSpan root_span("policy.apply", trace_id);
+    // Pre-flight failures (unreadable file, hash mismatch) return before the
+    // apply proper, so they need their own log line: previously they exited
+    // non-zero having printed nothing at all.
     auto fail = [&](const Error& err) -> Result<void> {
         root_span.fail(err.to_string());
+        logger().log(SLOG_ERROR("Policy apply rejected before staging")
+                         .field("stage", "preflight")
+                         .field("path", path)
+                         .field("error", err.to_string())
+                         .field("active_generation_changed", "no"));
         return err;
     };
 
