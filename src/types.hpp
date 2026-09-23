@@ -32,6 +32,7 @@ inline constexpr const char* kPolicyGenerationPin = "/sys/fs/bpf/aegisbpf/policy
 // unpinned active_slot means every new process starts at slot 0 while the
 // policy may live in slot 1, silently enforcing nothing.
 inline constexpr const char* kActiveSlotPin = "/sys/fs/bpf/aegisbpf/active_slot";
+inline constexpr const char* kSlotGenerationPin = "/sys/fs/bpf/aegisbpf/slot_generation";
 inline constexpr const char* kSurvivalAllowlistPin = "/sys/fs/bpf/aegisbpf/survival_allowlist";
 inline constexpr const char* kBpfObjInstallPath = "/usr/lib/aegisbpf/aegis.bpf.o";
 
@@ -65,6 +66,10 @@ inline constexpr const char* kDenyDbDir = "/var/lib/aegisbpf";
 inline constexpr const char* kDenyDbPath = "/var/lib/aegisbpf/deny.db";
 // Runtime (CLI-added) deny rules only -- see read_runtime_rules().
 inline constexpr const char* kRuntimeRulesPath = "/var/lib/aegisbpf/runtime_rules.db";
+// Marker recording that the legacy deny.db -> runtime_rules.db migration ran.
+inline constexpr const char* kRuntimeRulesMigratedPath = "/var/lib/aegisbpf/runtime_rules.migrated";
+// Legacy entries whose provenance could not be decided. Not enforced.
+inline constexpr const char* kRuntimeRulesQuarantinePath = "/var/lib/aegisbpf/runtime_rules.quarantine";
 inline constexpr const char* kTtlDbPath = "/var/lib/aegisbpf/deny_ttl.db";
 inline constexpr const char* kPolicyAppliedPath = "/var/lib/aegisbpf/policy.applied";
 inline constexpr const char* kPolicyAppliedPrevPath = "/var/lib/aegisbpf/policy.applied.prev";

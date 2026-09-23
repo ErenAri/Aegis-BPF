@@ -982,13 +982,41 @@ keyed on path for cases where inode resolution is unavailable.
 | Max entries    | 1 |
 | Pin path       | `/sys/fs/bpf/aegisbpf/policy_generation` |
 | Access         | BPF: read; Userspace: read/write |
-| Lifecycle      | Updated after policy shadow→live sync |
+| Lifecycle      | Vestigial; retained for pin compatibility |
 
-Atomic policy commit marker. Userspace bumps `agent_cfg.policy_generation`
-before syncing shadow maps to live, then writes the matching value here after
-all maps are fully synchronized. BPF hooks compare
-`agent_cfg.policy_generation` against the committed value in this map; a
-mismatch forces audit mode to avoid enforcing a half-written ruleset.
+**No longer read by any BPF hook.** This was the commit marker for the older
+scheme: userspace bumped `agent_cfg.policy_generation` before copying entries
+into the live maps and wrote the matching value here afterwards, and hooks
+dropped to audit-only while the two differed. That suspended enforcement for
+the length of every reload.
+
+Policy is now replaced by building a new generation in unreachable inner maps
+and flipping `active_slot` once, so there is no inconsistent interval to guard.
+The map is kept so a pinned instance from an older build still resolves; use
+`slot_generation` for the generation id.
+
+### `slot_generation`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_ARRAY` |
+| Key            | `__u32` (slot index, 0 or 1) |
+| Value          | `__u64` (monotonic generation id) |
+| Max entries    | 2 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/slot_generation` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Stamped on the target slot before each commit |
+
+Generation oracle. Records which generation each slot holds, so a decision can
+be attributed to an exact policy: resolve `active_slot` once, then read this
+map **with that same slot index**, and the id names the generation whose rules
+were consulted. A single global counter could not prove that — it can change
+between the lookups and the read.
+
+Written before `active_slot` flips, so the id is already correct the instant a
+slot goes live. Ids are derived from the highest value already recorded on
+either slot, so they stay monotonic across daemon restarts and are never
+reused.
 
 ### `priority_events`
 

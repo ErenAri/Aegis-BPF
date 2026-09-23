@@ -174,6 +174,9 @@ struct BpfMapState {
     bpf_map* config_map = nullptr;
     bpf_map* survival_allowlist = nullptr;
     bpf_map* policy_generation_map = nullptr;
+    // Generation id per policy slot -- the generation oracle. See
+    // slot_generation in bpf/aegis_common.h.
+    bpf_map* slot_generation = nullptr;
     SlottedMap deny_cgroup_inode;
     SlottedMap deny_cgroup_ipv4;
     SlottedMap deny_cgroup_port;
@@ -220,6 +223,7 @@ struct BpfMapState {
     bool config_map_reused = false;
     bool policy_generation_reused = false;
     bool active_slot_reused = false;
+    bool slot_generation_reused = false;
     bool survival_allowlist_reused = false;
     bool deny_ipv4_reused = false;
     bool deny_ipv6_reused = false;

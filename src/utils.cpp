@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <fstream>
 #include <sstream>
 
@@ -664,6 +665,170 @@ Result<void> write_deny_db(const DenyEntries& entries)
     return write_deny_entries_file(kDenyDbPath, entries);
 }
 
+namespace {
+
+// Paths a policy file denies directly. Deliberately does NOT try to replay
+// [deny_binary_hash] / [allow_binary_hash], which expand by scanning the
+// filesystem for matching contents: that expansion is not reproducible from
+// the policy text alone, so a deny.db built with it cannot be partitioned
+// reliably. Its presence makes the whole migration ambiguous instead.
+struct AppliedPolicyPaths {
+    std::vector<std::string> paths;
+    bool has_unreplayable_section = false;
+    bool readable = false;
+};
+
+AppliedPolicyPaths read_applied_policy_paths(const std::string& path)
+{
+    AppliedPolicyPaths out;
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return out;
+    }
+    out.readable = true;
+    std::string line;
+    std::string section;
+    while (std::getline(in, line)) {
+        std::string t = trim(line);
+        if (t.empty() || t[0] == '#') {
+            continue;
+        }
+        if (t.front() == '[' && t.back() == ']') {
+            section = trim(t.substr(1, t.size() - 2));
+            if (section == "deny_binary_hash" || section == "allow_binary_hash") {
+                out.has_unreplayable_section = true;
+            }
+            continue;
+        }
+        if (section == "deny_path" || section == "protect_path") {
+            out.paths.push_back(t);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+RuntimeRuleMigration migrate_legacy_runtime_rules()
+{
+    return migrate_legacy_runtime_rules(RuntimeRuleMigrationPaths{kDenyDbPath, kRuntimeRulesPath,
+                                                                  kRuntimeRulesMigratedPath,
+                                                                  kRuntimeRulesQuarantinePath, kPolicyAppliedPath});
+}
+
+RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPaths& paths)
+{
+    RuntimeRuleMigration result;
+    result.quarantine_path = paths.quarantine;
+
+    std::error_code ec;
+    if (std::filesystem::exists(paths.migrated_marker, ec)) {
+        // Already migrated. One case still needs reporting: a downgrade to a
+        // build without the registry, some blocks added there (recorded only
+        // in deny.db), then an upgrade back. The marker suppresses migration,
+        // so those blocks would be silently absent.
+        //
+        // Re-running the partition is not safe -- the ambiguity that made it
+        // a one-time operation has not gone away -- so this reports the drift
+        // instead of guessing at it.
+        const DenyEntries db = read_deny_entries_file(paths.deny_db.c_str());
+        const DenyEntries registry = read_deny_entries_file(paths.runtime_rules.c_str());
+        const AppliedPolicyPaths applied_now = read_applied_policy_paths(paths.applied_policy);
+        std::set<std::pair<uint32_t, uint64_t>> known;
+        for (const auto& kv : registry) {
+            known.insert({kv.first.dev, kv.first.ino});
+        }
+        for (const auto& p : applied_now.paths) {
+            struct stat st{};
+            if (::stat(p.c_str(), &st) == 0) {
+                known.insert({encode_dev(st.st_dev), st.st_ino});
+            }
+        }
+        for (const auto& [id, path] : db) {
+            if (known.count({id.dev, id.ino}) == 0) {
+                ++result.unaccounted;
+            }
+        }
+        return result; // ran stays false
+    }
+    // A registry that already exists without a marker means this build created
+    // it, so there is nothing legacy to migrate.
+    if (std::filesystem::exists(paths.runtime_rules, ec)) {
+        (void)atomic_write_stream(paths.migrated_marker,
+                                  [](std::ostream& out) -> bool { return (out << "1\n").good(); });
+        return result;
+    }
+
+    const DenyEntries legacy = read_deny_entries_file(paths.deny_db.c_str());
+    if (legacy.empty()) {
+        (void)atomic_write_stream(paths.migrated_marker,
+                                  [](std::ostream& out) -> bool { return (out << "1\n").good(); });
+        return result;
+    }
+
+    result.ran = true;
+    const AppliedPolicyPaths applied = read_applied_policy_paths(paths.applied_policy);
+
+    // Ambiguous cases: quarantine everything rather than guess.
+    //
+    // No applied policy on disk means there is nothing to subtract, so every
+    // entry looks hand-added -- but it could equally be the whole of a policy
+    // whose record was lost. A binary-hash section means the policy expanded
+    // into inodes this code cannot re-derive, so the subtraction would leave
+    // policy-derived entries behind and resurrect them as sticky runtime
+    // rules after the operator removed them from policy.
+    if (!applied.readable || applied.has_unreplayable_section) {
+        result.reason = applied.readable
+                            ? "applied policy contains a binary-hash section whose inode expansion cannot be replayed"
+                            : "no applied policy on record to attribute entries against";
+        (void)atomic_write_stream(paths.quarantine, [&](std::ostream& out) -> bool {
+            out << "# Legacy deny.db entries of undecidable provenance. NOT enforced.\n";
+            out << "# Reason: " << result.reason << "\n";
+            out << "# Re-add any that should still apply with: aegis block add <path>\n";
+            for (const auto& kv : legacy) {
+                out << kv.first.dev << " " << kv.first.ino << " " << kv.second << "\n";
+            }
+            return out.good();
+        });
+        result.quarantined = legacy.size();
+        (void)write_deny_entries_file(paths.runtime_rules.c_str(), DenyEntries{});
+        (void)atomic_write_stream(paths.migrated_marker,
+                                  [](std::ostream& out) -> bool { return (out << "1\n").good(); });
+        return result;
+    }
+
+    // Attribute by inode: resolve each applied policy path to what it names
+    // now. A path that no longer resolves contributes nothing, which is
+    // correct -- its deny.db entry then fails re-validation and is dropped
+    // rather than becoming a sticky runtime rule.
+    std::set<std::pair<uint32_t, uint64_t>> policy_derived;
+    for (const auto& p : applied.paths) {
+        struct stat st{};
+        if (::stat(p.c_str(), &st) == 0) {
+            policy_derived.insert({encode_dev(st.st_dev), st.st_ino});
+        }
+    }
+
+    DenyEntries adopted;
+    for (const auto& [id, path] : legacy) {
+        if (policy_derived.count({id.dev, id.ino}) > 0) {
+            ++result.policy_derived;
+            continue;
+        }
+        adopted.emplace(id, path);
+    }
+
+    // Registry first, marker last: an interrupted migration repeats cleanly.
+    if (!write_deny_entries_file(paths.runtime_rules.c_str(), adopted)) {
+        result.ran = true;
+        return result; // no marker written -- will be retried
+    }
+    result.migrated = adopted.size();
+    (void)atomic_write_stream(paths.migrated_marker,
+                              [](std::ostream& out) -> bool { return (out << "1\n").good(); });
+    return result;
+}
+
 DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
                                       const std::function<void(const std::string&, const std::string&)>& on_drop)
 {
@@ -690,6 +855,11 @@ DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
         kept.emplace(id, path);
     }
     return kept;
+}
+
+DenyEntries read_deny_entries_file_for_test(const std::string& path)
+{
+    return read_deny_entries_file(path.c_str());
 }
 
 DenyEntries read_runtime_rules()

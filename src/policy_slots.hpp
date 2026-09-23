@@ -78,6 +78,17 @@ std::vector<SlottedMap*> all_slotted_maps(BpfState& state);
 /// the previous generation across a daemon restart.
 Result<void> bootstrap_policy_slots(BpfState& state);
 
+/// Generation id of the policy currently live, resolved through active_slot.
+///
+/// This is the generation ORACLE: it reports the id recorded on the slot the
+/// hooks are reading, so the id and the rules come from the same place. 0 means
+/// no generation has been committed yet.
+uint64_t live_policy_generation(const BpfState& state);
+
+/// Id to stamp on the next generation: one above the highest recorded on either
+/// slot, so ids are monotonic across daemon restarts and never reused.
+uint64_t next_policy_generation(const BpfState& state);
+
 /// Entry count and capacity of a slotted map's currently-live inner map.
 ///
 /// Capacity is the inner map's own max_entries, which varies because inner maps

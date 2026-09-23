@@ -160,6 +160,41 @@ std::vector<SlottedMap*> all_slotted_maps(BpfState& state)
     return maps;
 }
 
+uint64_t live_policy_generation(const BpfState& state)
+{
+    if (!state.active_slot || !state.slot_generation) {
+        return 0;
+    }
+    uint32_t key = 0;
+    uint32_t slot = 0;
+    if (bpf_map_lookup_elem(bpf_map__fd(state.active_slot), &key, &slot) != 0) {
+        return 0;
+    }
+    slot &= 1u;
+    uint64_t generation = 0;
+    if (bpf_map_lookup_elem(bpf_map__fd(state.slot_generation), &slot, &generation) != 0) {
+        return 0;
+    }
+    return generation;
+}
+
+uint64_t next_policy_generation(const BpfState& state)
+{
+    // Monotonic across restarts: derived from whatever is already recorded in
+    // the pinned maps, never from a process-local counter. Two generations can
+    // therefore never share an id, so an id names an exact policy.
+    uint64_t highest = 0;
+    if (state.slot_generation) {
+        for (uint32_t slot = 0; slot < 2; ++slot) {
+            uint64_t v = 0;
+            if (bpf_map_lookup_elem(bpf_map__fd(state.slot_generation), &slot, &v) == 0 && v > highest) {
+                highest = v;
+            }
+        }
+    }
+    return highest + 1;
+}
+
 Result<void> bootstrap_policy_slots(BpfState& state)
 {
     if (!state.active_slot) {
@@ -247,6 +282,17 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
         if (bpf_map_update_elem(bpf_map__fd(m->outer), &target, &value, BPF_ANY) != 0) {
             // Fail-safe: no flip, so the previous generation stays live.
             return Error::system(errno, "Failed to stage inner map into inactive slot");
+        }
+    }
+
+    // Stamp the generation id on the target slot BEFORE the flip, so the
+    // oracle is already correct the instant the slot becomes live. A reader
+    // that resolves slot -> generation can never see a slot whose id still
+    // belongs to the generation it replaced.
+    const uint64_t generation = next_policy_generation(state);
+    if (state.slot_generation) {
+        if (bpf_map_update_elem(bpf_map__fd(state.slot_generation), &target, &generation, BPF_ANY) != 0) {
+            return Error::system(errno, "Failed to stamp generation id on the staged slot");
         }
     }
 

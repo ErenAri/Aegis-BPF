@@ -910,6 +910,32 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
     }
 
+    // One-time migration of a pre-registry deny database. Runs before any
+    // policy reload, so the first reload already sees the correct runtime set.
+    {
+        auto migration = migrate_legacy_runtime_rules();
+        if (!migration.ran && migration.unaccounted > 0) {
+            logger().log(
+                SLOG_WARN("Deny database holds entries this build cannot account for; they are NOT enforced")
+                    .field("unaccounted", static_cast<int64_t>(migration.unaccounted))
+                    .field("likely_cause", "blocks added while running an older Aegis after this one had migrated")
+                    .field("action", "re-add them with 'aegis block add <path>'"));
+        }
+        if (migration.ran) {
+            if (migration.quarantined > 0) {
+                logger().log(SLOG_WARN("Legacy deny database could not be attributed; entries quarantined, NOT enforced")
+                                 .field("quarantined", static_cast<int64_t>(migration.quarantined))
+                                 .field("reason", migration.reason)
+                                 .field("path", migration.quarantine_path)
+                                 .field("action", "re-add with 'aegis block add <path>' if still required"));
+            } else {
+                logger().log(SLOG_INFO("Migrated legacy deny database into the runtime-rule registry")
+                                 .field("runtime_rules_migrated", static_cast<int64_t>(migration.migrated))
+                                 .field("policy_derived_skipped", static_cast<int64_t>(migration.policy_derived)));
+            }
+        }
+    }
+
     // Run startup self-tests
     {
         auto selftest_result = run_startup_selftests(state);

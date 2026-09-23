@@ -394,6 +394,7 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         }
         state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
         state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
+        state.slot_generation = bpf_object__find_map_by_name(state.obj, "slot_generation");
 
         // Cgroup-scoped deny maps
         state.deny_cgroup_inode.outer = bpf_object__find_map_by_name(state.obj, "deny_cgroup_inode_outer");
@@ -443,6 +444,7 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
         state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
         state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
+        state.slot_generation = bpf_object__find_map_by_name(state.obj, "slot_generation");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
@@ -580,6 +582,8 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
 
         TRY(check(try_reuse(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
         TRY(check(try_reuse_optional(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
+        // Pinned so generation ids stay monotonic across daemon restarts.
+        TRY(check(try_reuse_optional(state.slot_generation, kSlotGenerationPin, state.slot_generation_reused)));
         TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         // deny_comm (comm-based exec deny) must be pinned/reused like the other deny
         // maps so a separate `policy apply` process and the running daemon share ONE
@@ -802,6 +806,9 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         TRY(check(try_pin(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
         if (state.active_slot) {
             TRY(check(try_pin(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
+        }
+        if (state.slot_generation) {
+            TRY(check(try_pin(state.slot_generation, kSlotGenerationPin, state.slot_generation_reused)));
         }
         TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         if (state.deny_comm) {

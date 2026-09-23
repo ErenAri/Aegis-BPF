@@ -3,6 +3,7 @@
 
 #include <sys/types.h>
 
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -79,6 +80,53 @@ Result<void> write_deny_db(const DenyEntries& entries);
 /// file that will not return. Each drop is reported by the caller.
 DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
                                       const std::function<void(const std::string&, const std::string&)>& on_drop);
+
+/// Outcome of migrating a pre-slot installation's deny database.
+struct RuntimeRuleMigration {
+    bool ran = false;          ///< false when already migrated (marker present)
+    size_t migrated = 0;       ///< entries adopted as runtime rules
+    size_t policy_derived = 0; ///< entries attributed to the applied policy
+    size_t quarantined = 0;    ///< entries whose provenance could not be decided
+    size_t unaccounted = 0;    ///< post-migration deny.db entries in neither the registry nor the policy
+    std::string quarantine_path;
+    std::string reason; ///< why entries were quarantined, when any were
+};
+
+/// Migrate a legacy deny database into the runtime-rule registry, once.
+///
+/// Installations from before the registry existed recorded hand-added blocks
+/// only in deny.db, alongside policy-derived rules and with no provenance. An
+/// upgrade that ignored them would silently drop every manual block on the
+/// first reload; one that adopted all of them would resurrect policy rules the
+/// operator had already removed.
+///
+/// Provenance is reconstructed by subtracting the applied policy
+/// (/var/lib/aegisbpf/policy.applied, the exact text last applied) from the
+/// deny database. What remains was not produced by that policy, so it was
+/// added at runtime.
+///
+/// Where that subtraction cannot be trusted the entries are QUARANTINED rather
+/// than guessed at: written to a file, reported, and not enforced. See
+/// docs/GUARANTEES.md for the cases.
+///
+/// Idempotent: a marker file records the completed migration, so a rerun is a
+/// no-op. Crash-safe: the registry is written before the marker, so an
+/// interrupted run repeats rather than half-applies.
+RuntimeRuleMigration migrate_legacy_runtime_rules();
+
+/// Locations the migration reads and writes. Exists so the migration can be
+/// tested against a temporary directory instead of /var/lib/aegisbpf.
+struct RuntimeRuleMigrationPaths {
+    std::string deny_db;
+    std::string runtime_rules;
+    std::string migrated_marker;
+    std::string quarantine;
+    std::string applied_policy;
+};
+RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPaths& paths);
+
+/// Test helper: read a deny-entry file from an arbitrary path.
+DenyEntries read_deny_entries_file_for_test(const std::string& path);
 
 DenyEntries read_runtime_rules();
 Result<void> write_runtime_rules(const DenyEntries& entries);

@@ -342,558 +342,344 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     // its branch. Bumping any earlier (e.g. during shadow population, while the live
     // maps are still untouched) would open an unnecessary enforcement-downgrade window.
 
-    bool use_shadow = false;
+    // Building the next generation is MANDATORY. There is no fallback.
+    //
+    // These maps are not a "shadow copy" of anything: in the slotted design
+    // each one IS generation B's inner map, and the commit installs them.
+    // The only alternative would be to clear and rewrite generation A's inner
+    // maps in place, which cannot be atomic -- it destroys the live policy to
+    // build the new one, and needs the audit-only window to hide the gap.
+    //
+    // That fallback used to exist and was reachable by accident: it triggered
+    // on any transient failure here (memlock pressure, ENOMEM, map limits),
+    // logged a warning, and still reported the apply as successful. An
+    // operator had no way to tell that the reload had silently given up
+    // atomicity and opened an enforcement hole.
+    //
+    // There is exactly one correct response to "generation B cannot be
+    // built": keep generation A. A failed reload is strictly safer than a
+    // non-atomic one, and it is visible.
     ShadowMapSet shadows;
     {
         ScopedSpan span("policy.create_shadows", root_span.trace_id(), root_span.span_id());
-        auto shadow_result = create_shadow_map_set(state);
-        if (shadow_result) {
-            shadows = std::move(*shadow_result);
-            use_shadow = true;
-            logger().log(SLOG_INFO("Shadow maps created for crash-safe policy apply"));
-        } else {
-            logger().log(SLOG_WARN("Shadow map creation failed; falling back to direct apply")
-                             .field("error", shadow_result.error().to_string()));
+        // Size the inode generation to what will actually go into it.
+        //
+        // Only deny_inode is right-sized per reload (every other slotted map
+        // uses its template maximum), so an under-estimate here is not a
+        // performance detail: inserts fail with E2BIG partway through building
+        // the generation and the whole reload aborts. Left at the default the
+        // hint is 0, which floors the map at 64 entries -- so any policy with
+        // more than ~64 inode-producing rules could never be applied.
+        //
+        // Every source that writes into shadows.deny_inode is counted:
+        // explicit inode rules, path rules (resolved to inodes), protect
+        // paths, binary-hash matches, and the runtime rules carried forward.
+        ShadowSizeHints hints;
+        hints.deny_inode_rules = static_cast<uint32_t>(
+            policy.deny_inodes.size() + policy.deny_paths.size() + policy.protect_paths.size() +
+            allow_binary_matches.size() + carried_runtime_rules.size());
+        auto shadow_result = create_shadow_map_set(state, hints);
+        if (!shadow_result) {
+            Error err(ErrorCode::PolicyApplyFailed,
+                      "Cannot build the next policy generation; previous generation left active",
+                      shadow_result.error().to_string());
+            span.fail(err.to_string());
+            logger().log(SLOG_ERROR("Policy apply aborted: next generation could not be allocated")
+                             .field("error", shadow_result.error().to_string())
+                             .field("active_generation", "unchanged"));
+            return fail(err);
+        }
+        shadows = std::move(*shadow_result);
+        logger().log(SLOG_INFO("Next policy generation allocated"));
+    }
+
+    {
+        ScopedSpan span("policy.populate_shadows", root_span.trace_id(), root_span.span_id());
+
+        // Re-install carried runtime rules FIRST, so a policy rule naming
+        // the same inode simply overwrites the entry rather than colliding
+        // with it, and so the new generation is never briefly missing a
+        // rule an operator added by hand.
+        for (const auto& [id, path] : carried_runtime_rules) {
+            auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        if (!carried_runtime_rules.empty()) {
+            logger().log(SLOG_INFO("Carried runtime deny rules into the new policy generation")
+                             .field("count", static_cast<int64_t>(carried_runtime_rules.size())));
+        }
+
+        for (const auto& deny_path : policy.deny_paths) {
+            auto result = add_deny_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), deny_path, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        for (const auto& protect_path : policy.protect_paths) {
+            auto result = add_rule_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), protect_path,
+                                               kRuleFlagProtectByVerifiedExec, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        for (const auto& id : policy.deny_inodes) {
+            auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        if (!policy.deny_binary_hashes.empty()) {
+            auto scan_result = scan_for_binary_hashes(policy.deny_binary_hashes, policy.scan_paths);
+            if (scan_result) {
+                for (const auto& match : *scan_result) {
+                    auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), match.inode, entries);
+                    if (!result) {
+                        logger().log(SLOG_WARN("Failed to add binary hash match to shadow")
+                                         .field("path", match.path)
+                                         .field("hash", match.hash)
+                                         .field("error", result.error().message()));
+                    }
+                }
+            } else {
+                logger().log(SLOG_WARN("Binary hash scan failed").field("error", scan_result.error().to_string()));
+            }
+        }
+
+        for (const auto& comm : policy.deny_comm) {
+            auto result = add_deny_comm_to_fd(shadows.deny_comm.fd(), comm);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add deny comm to shadow")
+                                 .field("comm", comm)
+                                 .field("error", result.error().message()));
+            }
+        }
+
+        for (const auto& cgid : policy.allow_cgroup_ids) {
+            auto result = add_allow_cgroup_to_fd(shadows.allow_cgroup.fd(), cgid);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        for (const auto& cgpath : policy.allow_cgroup_paths) {
+            auto result = add_allow_cgroup_path_to_fd(shadows.allow_cgroup.fd(), cgpath);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+
+        std::unordered_set<InodeId, InodeIdHash> allow_exec_seen;
+        for (const auto& match : allow_binary_matches) {
+            if (!allow_exec_seen.insert(match.inode).second) {
+                continue;
+            }
+            auto result = add_allow_exec_inode_to_fd(shadows.allow_exec_inode.fd(), match.inode);
+            if (!result) {
+                span.fail(result.error().to_string());
+                return fail(result.error());
+            }
+        }
+        expected_allow_exec_inode_entries = allow_exec_seen.size();
+    }
+
+    if (policy.network.enabled) {
+        ScopedSpan span("policy.populate_shadow_network", root_span.trace_id(), root_span.span_id());
+        for (const auto& ip : policy.network.deny_ips) {
+            auto result = add_deny_ip_to_fds(shadows.deny_ipv4.fd(), shadows.deny_ipv6.fd(), ip);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add deny IP to shadow")
+                                 .field("ip", ip)
+                                 .field("error", result.error().message()));
+            }
+        }
+        for (const auto& cidr : policy.network.deny_cidrs) {
+            auto result = add_deny_cidr_to_fds(shadows.deny_cidr_v4.fd(), shadows.deny_cidr_v6.fd(), cidr);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add deny CIDR to shadow")
+                                 .field("cidr", cidr)
+                                 .field("error", result.error().message()));
+            }
+        }
+        for (const auto& port_rule : policy.network.deny_ports) {
+            auto result = add_deny_port_to_fd(shadows.deny_port.fd(), port_rule.port, port_rule.protocol,
+                                              port_rule.direction);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add deny port to shadow")
+                                 .field("port", static_cast<int64_t>(port_rule.port))
+                                 .field("error", result.error().message()));
+            }
+        }
+        for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
+            auto result =
+                add_deny_ip_port_to_fds(shadows.deny_ip_port_v4.fd(), shadows.deny_ip_port_v6.fd(), ip_port_rule);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add deny IP:port to shadow")
+                                 .field("rule", format_ip_port_rule(ip_port_rule))
+                                 .field("error", result.error().message()));
+            }
         }
     }
 
-    if (use_shadow) {
-        {
-            ScopedSpan span("policy.populate_shadows", root_span.trace_id(), root_span.span_id());
-
-            // Re-install carried runtime rules FIRST, so a policy rule naming
-            // the same inode simply overwrites the entry rather than colliding
-            // with it, and so the new generation is never briefly missing a
-            // rule an operator added by hand.
-            for (const auto& [id, path] : carried_runtime_rules) {
-                auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
+    if (policy.cgroup.enabled) {
+        ScopedSpan span("policy.populate_shadow_cgroup", root_span.trace_id(), root_span.span_id());
+        for (const auto& rule : policy.cgroup.deny_inodes) {
+            auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+            if (!cgid_result) {
+                logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_inode")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("error", cgid_result.error().message()));
+                continue;
             }
-            if (!carried_runtime_rules.empty()) {
-                logger().log(SLOG_INFO("Carried runtime deny rules into the new policy generation")
-                                 .field("count", static_cast<int64_t>(carried_runtime_rules.size())));
-            }
-
-            for (const auto& deny_path : policy.deny_paths) {
-                auto result = add_deny_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), deny_path, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& protect_path : policy.protect_paths) {
-                auto result = add_rule_path_to_fds(shadows.deny_inode.fd(), shadows.deny_path.fd(), protect_path,
-                                                   kRuleFlagProtectByVerifiedExec, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& id : policy.deny_inodes) {
-                auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            if (!policy.deny_binary_hashes.empty()) {
-                auto scan_result = scan_for_binary_hashes(policy.deny_binary_hashes, policy.scan_paths);
-                if (scan_result) {
-                    for (const auto& match : *scan_result) {
-                        auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), match.inode, entries);
-                        if (!result) {
-                            logger().log(SLOG_WARN("Failed to add binary hash match to shadow")
-                                             .field("path", match.path)
-                                             .field("hash", match.hash)
-                                             .field("error", result.error().message()));
-                        }
-                    }
-                } else {
-                    logger().log(SLOG_WARN("Binary hash scan failed").field("error", scan_result.error().to_string()));
-                }
-            }
-
-            for (const auto& comm : policy.deny_comm) {
-                auto result = add_deny_comm_to_fd(shadows.deny_comm.fd(), comm);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny comm to shadow")
-                                     .field("comm", comm)
-                                     .field("error", result.error().message()));
-                }
-            }
-
-            for (const auto& cgid : policy.allow_cgroup_ids) {
-                auto result = add_allow_cgroup_to_fd(shadows.allow_cgroup.fd(), cgid);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& cgpath : policy.allow_cgroup_paths) {
-                auto result = add_allow_cgroup_path_to_fd(shadows.allow_cgroup.fd(), cgpath);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-
-            std::unordered_set<InodeId, InodeIdHash> allow_exec_seen;
-            for (const auto& match : allow_binary_matches) {
-                if (!allow_exec_seen.insert(match.inode).second) {
-                    continue;
-                }
-                auto result = add_allow_exec_inode_to_fd(shadows.allow_exec_inode.fd(), match.inode);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            expected_allow_exec_inode_entries = allow_exec_seen.size();
-        }
-
-        if (policy.network.enabled) {
-            ScopedSpan span("policy.populate_shadow_network", root_span.trace_id(), root_span.span_id());
-            for (const auto& ip : policy.network.deny_ips) {
-                auto result = add_deny_ip_to_fds(shadows.deny_ipv4.fd(), shadows.deny_ipv6.fd(), ip);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny IP to shadow")
-                                     .field("ip", ip)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& cidr : policy.network.deny_cidrs) {
-                auto result = add_deny_cidr_to_fds(shadows.deny_cidr_v4.fd(), shadows.deny_cidr_v6.fd(), cidr);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny CIDR to shadow")
-                                     .field("cidr", cidr)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& port_rule : policy.network.deny_ports) {
-                auto result = add_deny_port_to_fd(shadows.deny_port.fd(), port_rule.port, port_rule.protocol,
-                                                  port_rule.direction);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny port to shadow")
-                                     .field("port", static_cast<int64_t>(port_rule.port))
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
-                auto result =
-                    add_deny_ip_port_to_fds(shadows.deny_ip_port_v4.fd(), shadows.deny_ip_port_v6.fd(), ip_port_rule);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny IP:port to shadow")
-                                     .field("rule", format_ip_port_rule(ip_port_rule))
-                                     .field("error", result.error().message()));
-                }
+            auto result = add_cgroup_deny_inode_to_fd(shadows.deny_cgroup_inode.fd(), *cgid_result, rule.inode);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add cgroup deny inode to shadow")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("error", result.error().message()));
             }
         }
+        for (const auto& rule : policy.cgroup.deny_ips) {
+            auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+            if (!cgid_result) {
+                logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_ip")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("error", cgid_result.error().message()));
+                continue;
+            }
+            auto result = add_cgroup_deny_ipv4_to_fd(shadows.deny_cgroup_ipv4.fd(), *cgid_result, rule.ip);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add cgroup deny IPv4 to shadow")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("ip", rule.ip)
+                                 .field("error", result.error().message()));
+            }
+        }
+        for (const auto& rule : policy.cgroup.deny_ports) {
+            auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
+            if (!cgid_result) {
+                logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_port")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("error", cgid_result.error().message()));
+                continue;
+            }
+            auto result = add_cgroup_deny_port_to_fd(shadows.deny_cgroup_port.fd(), *cgid_result, rule.port);
+            if (!result) {
+                logger().log(SLOG_WARN("Failed to add cgroup deny port to shadow")
+                                 .field("cgroup", rule.cgroup)
+                                 .field("error", result.error().message()));
+            }
+        }
+        logger().log(SLOG_INFO("Cgroup-scoped policy populated in shadow")
+                         .field("deny_inodes", static_cast<int64_t>(policy.cgroup.deny_inodes.size()))
+                         .field("deny_ips", static_cast<int64_t>(policy.cgroup.deny_ips.size()))
+                         .field("deny_ports", static_cast<int64_t>(policy.cgroup.deny_ports.size())));
+    }
 
-        if (policy.cgroup.enabled) {
-            ScopedSpan span("policy.populate_shadow_cgroup", root_span.trace_id(), root_span.span_id());
-            for (const auto& rule : policy.cgroup.deny_inodes) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_inode")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result = add_cgroup_deny_inode_to_fd(shadows.deny_cgroup_inode.fd(), *cgid_result, rule.inode);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny inode to shadow")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& rule : policy.cgroup.deny_ips) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_ip")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result = add_cgroup_deny_ipv4_to_fd(shadows.deny_cgroup_ipv4.fd(), *cgid_result, rule.ip);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny IPv4 to shadow")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("ip", rule.ip)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& rule : policy.cgroup.deny_ports) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_port")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result = add_cgroup_deny_port_to_fd(shadows.deny_cgroup_port.fd(), *cgid_result, rule.port);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny port to shadow")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", result.error().message()));
-                }
-            }
-            logger().log(SLOG_INFO("Cgroup-scoped policy populated in shadow")
-                             .field("deny_inodes", static_cast<int64_t>(policy.cgroup.deny_inodes.size()))
-                             .field("deny_ips", static_cast<int64_t>(policy.cgroup.deny_ips.size()))
-                             .field("deny_ports", static_cast<int64_t>(policy.cgroup.deny_ports.size())));
+    {
+        ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
+        size_t shadow_inode_count = map_fd_entry_count(shadows.deny_inode.fd(), inner_key_size(state.deny_inode));
+        if (shadow_inode_count != entries.size()) {
+            Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_inode",
+                      "expected=" + std::to_string(entries.size()) +
+                          " actual=" + std::to_string(shadow_inode_count));
+            span.fail(err.to_string());
+            logger().log(SLOG_ERROR("Shadow verify failed for deny_inode")
+                             .field("expected", static_cast<int64_t>(entries.size()))
+                             .field("actual", static_cast<int64_t>(shadow_inode_count)));
+            return fail(err);
         }
 
-        {
-            ScopedSpan span("policy.verify_shadows", root_span.trace_id(), root_span.span_id());
-            size_t shadow_inode_count = map_fd_entry_count(shadows.deny_inode.fd(), inner_key_size(state.deny_inode));
-            if (shadow_inode_count != entries.size()) {
-                Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_inode",
-                          "expected=" + std::to_string(entries.size()) +
-                              " actual=" + std::to_string(shadow_inode_count));
-                span.fail(err.to_string());
-                logger().log(SLOG_ERROR("Shadow verify failed for deny_inode")
-                                 .field("expected", static_cast<int64_t>(entries.size()))
-                                 .field("actual", static_cast<int64_t>(shadow_inode_count)));
-                return fail(err);
-            }
+        size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), inner_key_size(state.deny_path));
+        const size_t expected_min_path_rules = policy.deny_paths.size() + policy.protect_paths.size();
+        if (shadow_path_count < expected_min_path_rules) {
+            Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_path",
+                      "expected>=" + std::to_string(expected_min_path_rules) +
+                          " actual=" + std::to_string(shadow_path_count));
+            span.fail(err.to_string());
+            return fail(err);
+        }
 
-            size_t shadow_path_count = map_fd_entry_count(shadows.deny_path.fd(), inner_key_size(state.deny_path));
-            const size_t expected_min_path_rules = policy.deny_paths.size() + policy.protect_paths.size();
-            if (shadow_path_count < expected_min_path_rules) {
-                Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_path",
-                          "expected>=" + std::to_string(expected_min_path_rules) +
-                              " actual=" + std::to_string(shadow_path_count));
+        if (!allow_binary_matches.empty()) {
+            size_t shadow_allow_exec_count =
+                map_fd_entry_count(shadows.allow_exec_inode.fd(), inner_key_size(state.allow_exec_inode));
+            if (shadow_allow_exec_count < expected_allow_exec_inode_entries) {
+                Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for allow_exec_inode",
+                          "expected>=" + std::to_string(expected_allow_exec_inode_entries) +
+                              " actual=" + std::to_string(shadow_allow_exec_count));
                 span.fail(err.to_string());
                 return fail(err);
             }
-
-            if (!allow_binary_matches.empty()) {
-                size_t shadow_allow_exec_count =
-                    map_fd_entry_count(shadows.allow_exec_inode.fd(), inner_key_size(state.allow_exec_inode));
-                if (shadow_allow_exec_count < expected_allow_exec_inode_entries) {
-                    Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for allow_exec_inode",
-                              "expected>=" + std::to_string(expected_allow_exec_inode_entries) +
-                                  " actual=" + std::to_string(shadow_allow_exec_count));
-                    span.fail(err.to_string());
-                    return fail(err);
-                }
-            }
         }
+    }
 
-        // NO generation bump on this path, and that is the whole point.
-        //
-        // The generation guard works by making hooks see a mismatch and fall
-        // back to AUDIT-ONLY for the duration of a reload. That was the only
-        // option while a reload copied entries into live maps one at a time:
-        // enforcement had to be suspended because the maps were briefly
-        // inconsistent. It is also a real hole -- for the length of every
-        // reload, nothing was enforced.
-        //
-        // This path no longer mutates live maps at all. Each generation is
-        // built in inner maps no hook can reach, and becomes authoritative at
-        // a single active_slot write. There is no inconsistent interval to
-        // protect, so suspending enforcement would only re-open the hole the
-        // slot design exists to close.
-        //
-        // Measured, not assumed: with the bump still in place a 254-reload
-        // concurrency stress run recorded 100 accesses that BOTH policies
-        // deny; with it removed, zero. See scripts/policy_swap_stress.sh.
-        //
-        // The direct-apply fallback below DOES still write live maps in place,
-        // and keeps the guard for exactly that reason.
+    // NO generation bump on this path, and that is the whole point.
+    //
+    // The generation guard works by making hooks see a mismatch and fall
+    // back to AUDIT-ONLY for the duration of a reload. That was the only
+    // option while a reload copied entries into live maps one at a time:
+    // enforcement had to be suspended because the maps were briefly
+    // inconsistent. It is also a real hole -- for the length of every
+    // reload, nothing was enforced.
+    //
+    // This path no longer mutates live maps at all. Each generation is
+    // built in inner maps no hook can reach, and becomes authoritative at
+    // a single active_slot write. There is no inconsistent interval to
+    // protect, so suspending enforcement would only re-open the hole the
+    // slot design exists to close.
+    //
+    // Measured, not assumed: with the bump still in place a 254-reload
+    // concurrency stress run recorded 100 accesses that BOTH policies
+    // deny; with it removed, zero. See scripts/policy_swap_stress.sh.
+    //
+    // The direct-apply fallback below DOES still write live maps in place,
+    // and keeps the guard for exactly that reason.
 
-        {
-            ScopedSpan span("policy.sync_shadows_to_live", root_span.trace_id(), root_span.span_id());
-
-            if (reset) {
-                TRY(reset_policy_maps(state));
-            }
-
-            // Every policy map is slotted, so nothing is copied into a live
-            // map here. The freshly built inner maps are staged into the
-            // inactive slot and become authoritative together, at the single
-            // active_slot write inside commit_policy_slot().
-            //
-            // Each domain is staged unconditionally, including the ones whose
-            // policy section is empty: a map omitted from the commit would
-            // resolve to an empty inner map after the flip, silently dropping
-            // its rules. An empty shadow is the correct representation of an
-            // empty section; an absent one is not.
-            //
-            // On any failure before the flip nothing is installed and the
-            // previous generation stays live and enforcing.
-            TRY(commit_policy_slot(state, {
-                                              {&state.deny_inode, shadows.deny_inode.fd()},
-                                              {&state.deny_path, shadows.deny_path.fd()},
-                                              {&state.deny_comm, shadows.deny_comm.fd()},
-                                              {&state.allow_cgroup, shadows.allow_cgroup.fd()},
-                                              {&state.allow_exec_inode, shadows.allow_exec_inode.fd()},
-                                              {&state.trusted_exec_hash, shadows.trusted_exec_hash.fd()},
-                                              {&state.deny_ipv4, shadows.deny_ipv4.fd()},
-                                              {&state.deny_ipv6, shadows.deny_ipv6.fd()},
-                                              {&state.deny_port, shadows.deny_port.fd()},
-                                              {&state.deny_ip_port_v4, shadows.deny_ip_port_v4.fd()},
-                                              {&state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()},
-                                              {&state.deny_cidr_v4, shadows.deny_cidr_v4.fd()},
-                                              {&state.deny_cidr_v6, shadows.deny_cidr_v6.fd()},
-                                              {&state.deny_cgroup_inode, shadows.deny_cgroup_inode.fd()},
-                                              {&state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()},
-                                              {&state.deny_cgroup_port, shadows.deny_cgroup_port.fd()},
-                                          }));
-
-            logger().log(SLOG_INFO("Policy generation committed atomically"));
-        }
-    } else {
-        // Direct-apply path mutates live maps in place. Bump the generation now,
-        // before any live-map write, so hooks fall back to audit mode until the
-        // matching generation is committed after the writes complete.
-        {
-            auto gen_result = bump_policy_generation(state);
-            if (gen_result) {
-                pending_generation = *gen_result;
-                logger().log(SLOG_INFO("Policy generation bumped; hooks in audit-mode during direct apply")
-                                 .field("generation", static_cast<int64_t>(pending_generation)));
-            } else {
-                logger().log(SLOG_WARN("Failed to bump policy generation; direct apply proceeds without atomic guard")
-                                 .field("error", gen_result.error().to_string()));
-            }
-        }
+    {
+        ScopedSpan span("policy.sync_shadows_to_live", root_span.trace_id(), root_span.span_id());
 
         if (reset) {
-            ScopedSpan span("policy.reset_maps", root_span.trace_id(), root_span.span_id());
-            auto reset_result = reset_policy_maps(state);
-            if (!reset_result) {
-                span.fail(reset_result.error().to_string());
-                return fail(reset_result.error());
-            }
+            TRY(reset_policy_maps(state));
         }
 
-        {
-            ScopedSpan span("policy.apply_file_rules", root_span.trace_id(), root_span.span_id());
-            auto clear_allow_exec = clear_map_entries(state.allow_exec_inode);
-            if (!clear_allow_exec) {
-                span.fail(clear_allow_exec.error().to_string());
-                return fail(clear_allow_exec.error());
-            }
+        // Every policy map is slotted, so nothing is copied into a live
+        // map here. The freshly built inner maps are staged into the
+        // inactive slot and become authoritative together, at the single
+        // active_slot write inside commit_policy_slot().
+        //
+        // Each domain is staged unconditionally, including the ones whose
+        // policy section is empty: a map omitted from the commit would
+        // resolve to an empty inner map after the flip, silently dropping
+        // its rules. An empty shadow is the correct representation of an
+        // empty section; an absent one is not.
+        //
+        // On any failure before the flip nothing is installed and the
+        // previous generation stays live and enforcing.
+        TRY(commit_policy_slot(state, {
+                                          {&state.deny_inode, shadows.deny_inode.fd()},
+                                          {&state.deny_path, shadows.deny_path.fd()},
+                                          {&state.deny_comm, shadows.deny_comm.fd()},
+                                          {&state.allow_cgroup, shadows.allow_cgroup.fd()},
+                                          {&state.allow_exec_inode, shadows.allow_exec_inode.fd()},
+                                          {&state.trusted_exec_hash, shadows.trusted_exec_hash.fd()},
+                                          {&state.deny_ipv4, shadows.deny_ipv4.fd()},
+                                          {&state.deny_ipv6, shadows.deny_ipv6.fd()},
+                                          {&state.deny_port, shadows.deny_port.fd()},
+                                          {&state.deny_ip_port_v4, shadows.deny_ip_port_v4.fd()},
+                                          {&state.deny_ip_port_v6, shadows.deny_ip_port_v6.fd()},
+                                          {&state.deny_cidr_v4, shadows.deny_cidr_v4.fd()},
+                                          {&state.deny_cidr_v6, shadows.deny_cidr_v6.fd()},
+                                          {&state.deny_cgroup_inode, shadows.deny_cgroup_inode.fd()},
+                                          {&state.deny_cgroup_ipv4, shadows.deny_cgroup_ipv4.fd()},
+                                          {&state.deny_cgroup_port, shadows.deny_cgroup_port.fd()},
+                                      }));
 
-            // IMA-backed trusted exec: refresh the SHA-256 allowlist that the
-            // bpf_ima_file_hash hook checks. The hook is activated via
-            // exec_identity_flags (EXEC_IDENTITY_FLAG_USE_IMA_HASH) below when
-            // this allowlist is non-empty. Entries are parser-validated 64-hex
-            // SHA-256 digests of the file contents (matching IMA's file hash).
-            if (state.trusted_exec_hash) {
-                auto clear_ima = clear_map_entries(state.trusted_exec_hash);
-                if (!clear_ima) {
-                    span.fail(clear_ima.error().to_string());
-                    return fail(clear_ima.error());
-                }
-                const int tfd = state.trusted_exec_hash.live_fd();
-                auto nibble = [](char c) -> int {
-                    if (c >= '0' && c <= '9')
-                        return c - '0';
-                    if (c >= 'a' && c <= 'f')
-                        return 10 + (c - 'a');
-                    if (c >= 'A' && c <= 'F')
-                        return 10 + (c - 'A');
-                    return -1;
-                };
-                for (const auto& hex : policy.trusted_exec_hashes) {
-                    if (hex.size() != 64) {
-                        continue; // parser-validated; defensive
-                    }
-                    uint8_t key[32] = {};
-                    bool ok = true;
-                    for (size_t i = 0; i < 32; ++i) {
-                        int hi = nibble(hex[2 * i]);
-                        int lo = nibble(hex[2 * i + 1]);
-                        if (hi < 0 || lo < 0) {
-                            ok = false;
-                            break;
-                        }
-                        key[i] = static_cast<uint8_t>((hi << 4) | lo);
-                    }
-                    if (!ok) {
-                        continue;
-                    }
-                    uint8_t one = 1;
-                    if (bpf_map_update_elem(tfd, key, &one, BPF_ANY) != 0) {
-                        auto err = Error::system(errno, "Failed to add trusted exec hash");
-                        span.fail(err.to_string());
-                        return fail(err);
-                    }
-                }
-            }
-
-            for (const auto& deny_path : policy.deny_paths) {
-                auto result = add_deny_path(state, deny_path, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& protect_path : policy.protect_paths) {
-                auto live_inode = live_policy_map(state, state.deny_inode.outer);
-                if (!live_inode) {
-                    span.fail(live_inode.error().to_string());
-                    return fail(live_inode.error());
-                }
-                auto result = add_rule_path_to_fds(live_inode->fd(), state.deny_path.live_fd(), protect_path,
-                                                   kRuleFlagProtectByVerifiedExec, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& id : policy.deny_inodes) {
-                auto result = add_deny_inode(state, id, entries);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            if (!policy.deny_binary_hashes.empty()) {
-                auto scan_result = scan_for_binary_hashes(policy.deny_binary_hashes, policy.scan_paths);
-                if (scan_result) {
-                    for (const auto& match : *scan_result) {
-                        auto result = add_deny_inode(state, match.inode, entries);
-                        if (!result) {
-                            logger().log(SLOG_WARN("Failed to add binary hash match")
-                                             .field("path", match.path)
-                                             .field("hash", match.hash)
-                                             .field("error", result.error().message()));
-                        }
-                    }
-                } else {
-                    logger().log(SLOG_WARN("Binary hash scan failed").field("error", scan_result.error().to_string()));
-                }
-            }
-
-            for (const auto& cgid : policy.allow_cgroup_ids) {
-                auto result = add_allow_cgroup(state, cgid);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            for (const auto& cgpath : policy.allow_cgroup_paths) {
-                auto result = add_allow_cgroup_path(state, cgpath);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-
-            std::unordered_set<InodeId, InodeIdHash> allow_exec_seen;
-            for (const auto& match : allow_binary_matches) {
-                if (!allow_exec_seen.insert(match.inode).second) {
-                    continue;
-                }
-                auto result = add_allow_exec_inode(state, match.inode);
-                if (!result) {
-                    span.fail(result.error().to_string());
-                    return fail(result.error());
-                }
-            }
-            expected_allow_exec_inode_entries = allow_exec_seen.size();
-        }
-
-        if (policy.network.enabled) {
-            ScopedSpan span("policy.apply_network_rules", root_span.trace_id(), root_span.span_id());
-            for (const auto& ip : policy.network.deny_ips) {
-                auto result = add_deny_ip(state, ip);
-                if (!result) {
-                    logger().log(
-                        SLOG_WARN("Failed to add deny IP").field("ip", ip).field("error", result.error().message()));
-                }
-            }
-            for (const auto& cidr : policy.network.deny_cidrs) {
-                auto result = add_deny_cidr(state, cidr);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny CIDR")
-                                     .field("cidr", cidr)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& port_rule : policy.network.deny_ports) {
-                auto result = add_deny_port(state, port_rule.port, port_rule.protocol, port_rule.direction);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny port")
-                                     .field("port", static_cast<int64_t>(port_rule.port))
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& ip_port_rule : policy.network.deny_ip_ports) {
-                auto result = add_deny_ip_port(state, ip_port_rule);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add deny IP:port")
-                                     .field("rule", format_ip_port_rule(ip_port_rule))
-                                     .field("error", result.error().message()));
-                }
-            }
-            logger().log(SLOG_INFO("Network policy applied")
-                             .field("deny_ips", static_cast<int64_t>(policy.network.deny_ips.size()))
-                             .field("deny_cidrs", static_cast<int64_t>(policy.network.deny_cidrs.size()))
-                             .field("deny_ports", static_cast<int64_t>(policy.network.deny_ports.size()))
-                             .field("deny_ip_ports", static_cast<int64_t>(policy.network.deny_ip_ports.size())));
-        }
-
-        if (policy.cgroup.enabled) {
-            ScopedSpan span("policy.apply_cgroup_rules", root_span.trace_id(), root_span.span_id());
-            for (const auto& rule : policy.cgroup.deny_inodes) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_inode")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result =
-                    add_cgroup_deny_inode_to_fd(state.deny_cgroup_inode.live_fd(), *cgid_result, rule.inode);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny inode")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& rule : policy.cgroup.deny_ips) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_ip")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result = add_cgroup_deny_ipv4_to_fd(state.deny_cgroup_ipv4.live_fd(), *cgid_result, rule.ip);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny IPv4")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("ip", rule.ip)
-                                     .field("error", result.error().message()));
-                }
-            }
-            for (const auto& rule : policy.cgroup.deny_ports) {
-                auto cgid_result = resolve_cgroup_identifier(rule.cgroup);
-                if (!cgid_result) {
-                    logger().log(SLOG_WARN("Failed to resolve cgroup for cgroup_deny_port")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", cgid_result.error().message()));
-                    continue;
-                }
-                auto result = add_cgroup_deny_port_to_fd(state.deny_cgroup_port.live_fd(), *cgid_result, rule.port);
-                if (!result) {
-                    logger().log(SLOG_WARN("Failed to add cgroup deny port")
-                                     .field("cgroup", rule.cgroup)
-                                     .field("error", result.error().message()));
-                }
-            }
-            logger().log(SLOG_INFO("Cgroup-scoped policy applied directly")
-                             .field("deny_inodes", static_cast<int64_t>(policy.cgroup.deny_inodes.size()))
-                             .field("deny_ips", static_cast<int64_t>(policy.cgroup.deny_ips.size()))
-                             .field("deny_ports", static_cast<int64_t>(policy.cgroup.deny_ports.size())));
-        }
+        logger().log(SLOG_INFO("Policy generation committed atomically"));
     }
 
     {

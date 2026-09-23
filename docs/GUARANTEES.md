@@ -232,12 +232,57 @@ would resolve to an empty inner map after the flip and silently lose its rules.
 - *Enforcement while no agent is running.* The BPF links are owned by the
   daemon process. If it exits, the programs detach and nothing is enforced
   until it restarts. Map contents survive; attachment does not.
-- *The direct-apply fallback.* When shadow maps cannot be created, policy is
-  written into live maps in place. That path is not atomic and still drops
-  hooks to audit-only for the duration, which is the older, weaker behaviour.
-  It is a fallback, not the normal path.
+- *(Removed.)* There used to be a direct-apply fallback that wrote live maps
+  in place whenever the next generation could not be allocated. It was not
+  atomic, it suspended enforcement for the duration, it was reachable by
+  accident on any transient allocation failure, and it still reported the
+  apply as successful. It no longer exists: allocating the next generation is
+  mandatory and a reload that cannot do so fails, leaving generation A
+  enforcing. **Every policy-apply path in the product is atomic.**
 - *`--reset`.* Clearing maps before applying is an explicit operator request
   to discard state and is not a generation swap.
+
+### Which generation produced a decision
+
+`slot_generation` records the generation id held by each slot. A decision is
+attributed by resolving `active_slot` once and reading that map **with the same
+slot index**: the id and the rules then provably come from one place. Ids are
+monotonic, derived from the highest already recorded, so they survive restarts
+and are never reused.
+
+    bpftool map dump name active_slot      # which slot is live
+    bpftool map dump name slot_generation  # which generation each slot holds
+
+### Upgrade, restart and downgrade
+
+**Upgrade from a pre-slot Aegis.** Pinned maps whose layout changed (for
+example `deny_inode`, which went from `HASH` to `ARRAY_OF_MAPS`) are detected
+and replaced rather than bound blindly, so the agent starts normally. The
+legacy deny database is migrated once (below). No operator action is required.
+
+**Restart.** The outer maps, `active_slot` and `slot_generation` are pinned, so
+a restarting agent adopts the generation that was live instead of rebuilding
+it, and logs `inner_maps_created=0`. Enforcement itself stops while no agent is
+running: the BPF links are owned by the process, so the programs detach when it
+exits. Map contents survive; attachment does not.
+
+**Downgrade to a pre-slot Aegis.** *Not supported in place.* An older binary
+does not understand the new pin layout and will refuse to start — it fails
+closed rather than corrupting enforcement state, but the error it prints is
+opaque. The supported procedure is:
+
+    systemctl stop aegisbpf          # or otherwise stop the agent
+    rm -rf /sys/fs/bpf/aegisbpf      # drop the new-format pins
+    # install the older build, then start it
+
+`deny.db` is never modified by the new version, so the older build reads its
+rules exactly as before and no runtime blocks are lost. Files the older build
+does not know about (`runtime_rules.db`, the migration marker) are ignored.
+
+Blocks added *while downgraded* are recorded only in `deny.db`. On upgrading
+again the migration has already run, so they are not adopted automatically —
+the agent reports them at startup as unaccounted entries and names the action
+to take, rather than guessing.
 
 ### Runtime rule carry-forward
 
@@ -266,6 +311,33 @@ so the loss is visible rather than silent.
 
 Rules from the *previous policy file* are deliberately not carried forward —
 replacing them is what a reload is for.
+
+### Migrating a pre-registry installation
+
+Installations from before the registry recorded hand-added blocks only in
+`deny.db`, mixed with policy-derived rules and with no provenance. Adopting all
+of them would resurrect policy rules an operator had already removed; adopting
+none would silently drop every manual block.
+
+Provenance is reconstructed once, at first start, by subtracting the applied
+policy (`/var/lib/aegisbpf/policy.applied`, the exact text last applied) from
+the deny database. What remains was not produced by that policy, so it was
+added at runtime.
+
+Two cases make that subtraction untrustworthy, and both **quarantine** the
+entries instead of guessing — written to
+`/var/lib/aegisbpf/runtime_rules.quarantine`, reported at WARN, and **not
+enforced**:
+
+| Case | Why it is undecidable |
+|------|----------------------|
+| No applied policy on record | Nothing to subtract: every entry looks hand-added, but could equally be a policy whose record was lost |
+| Policy contains `[deny_binary_hash]` / `[allow_binary_hash]` | Those expand by scanning the filesystem for matching contents; the expansion cannot be replayed, so policy-derived inodes would be left behind and become sticky |
+
+The migration is idempotent (a marker records completion), crash-safe (the
+registry is written before the marker, so an interrupted run repeats rather
+than half-applies), and non-destructive (`deny.db` is never modified, which is
+what keeps downgrade lossless).
 
 ## TOCTOU stance
 

@@ -648,6 +648,24 @@ struct {
     __type(value, __u64);
 } policy_generation SEC(".maps");
 
+/* Generation id held by each policy slot.
+ *
+ * This is the generation ORACLE. A decision proves which generation produced
+ * it by reading this with the SAME slot index it used for every policy lookup:
+ * the id and the rules then provably come from one place. A separate global
+ * "current generation" counter could not prove that -- it can change between
+ * the lookups and the read.
+ *
+ * Userspace writes slot_generation[target] while staging, BEFORE flipping
+ * active_slot, so the id is already correct the instant the slot goes live.
+ * Monotonic and never reused, so a replayed event names an exact generation. */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __type(value, __u64);
+} slot_generation SEC(".maps");
+
 /* Active policy slot selector.
  *
  * Every slotted policy map is an ARRAY_OF_MAPS with two slots.  Userspace
@@ -698,6 +716,17 @@ static __always_inline __u32 policy_active_slot(void)
         __u32 __aegis_slot = (slot_value);                                                                             \
         bpf_map_lookup_elem((outer), &__aegis_slot);                                                                   \
     })
+
+/* Generation id of the slot this invocation is using.
+ *
+ * Takes the slot the caller already read, never re-reading active_slot: the
+ * point is to name the generation whose maps were actually consulted. */
+static __always_inline __u64 policy_slot_generation(__u32 slot)
+{
+    __u32 key = slot & 1u;
+    __u64 *gen = bpf_map_lookup_elem(&slot_generation, &key);
+    return gen ? *gen : 0;
+}
 
 /* Look up a key in a slotted policy map's live inner map.
  *
@@ -1207,22 +1236,6 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     return path_is_trusted_root(path);
 }
 
-/* Return 1 when the live policy maps match the expected generation.
- * During a shadow->live sync, userspace bumps agent_cfg.policy_generation
- * before copying maps, so committed != expected -> audit-only until commit. */
-static __always_inline __u8 is_policy_consistent(void)
-{
-    const volatile struct agent_config *cfg = &agent_cfg;
-    __u64 expected = cfg->policy_generation;
-    if (expected == 0)
-        return 1; /* generation 0 means feature not yet activated */
-    __u32 key = 0;
-    __u64 *committed = bpf_map_lookup_elem(&policy_generation, &key);
-    if (!committed)
-        return 1; /* map not populated yet -- don't force audit */
-    return *committed == expected;
-}
-
 static __always_inline __u8 get_effective_audit_mode(void)
 {
     const volatile struct agent_config *cfg = &agent_cfg;
@@ -1248,10 +1261,22 @@ static __always_inline __u8 get_effective_audit_mode(void)
             return 1;  /* Deadline passed and fail-open -- revert to audit */
     }
 
-    /* Policy generation mismatch: maps are mid-update -- force audit to
-     * avoid enforcing a partially-synced ruleset. */
-    if (!is_policy_consistent())
-        return 1;
+    /* No policy-generation check here, deliberately.
+     *
+     * There used to be one: a reload bumped agent_cfg.policy_generation before
+     * copying entries into the live maps, and every hook dropped to audit-only
+     * until the matching generation was committed. That was necessary while a
+     * reload mutated live maps in place -- the maps really were inconsistent
+     * mid-update -- and it was also a hole: enforcement was suspended for the
+     * length of every reload.
+     *
+     * Policy is now replaced by building a new generation in inner maps no
+     * hook can reach and flipping active_slot once. There is no inconsistent
+     * interval left to protect, and no code path that mutates a live policy
+     * map in place: allocating the next generation is mandatory, and a reload
+     * that cannot allocate one fails with the previous generation still
+     * enforcing. Re-adding a suspend-enforcement window here would only
+     * re-open the hole. */
 
     return 0;  /* Enforce mode */
 }

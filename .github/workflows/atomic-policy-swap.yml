@@ -1,0 +1,182 @@
+name: Atomic Policy Swap
+
+# Privileged coverage for the atomic policy-replacement machinery.
+#
+# The unit suite cannot cover this: the property under test is that a reload
+# never exposes a mixture of two policies, which only shows up with real BPF
+# programs attached, real enforcement, and concurrent load. These jobs need
+# root, a BPF-LSM kernel and exclusive use of the pin directory, so they live
+# here rather than in ctest.
+#
+# PR runs a short version; the extended run is nightly so ordinary PR CI stays
+# usable.
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', '.github/workflows/atomic-policy-swap.yml']
+  pull_request:
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', '.github/workflows/atomic-policy-swap.yml']
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Stress duration in seconds"
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  # Per-kernel validation of the primitives the slot design depends on.
+  # Runs the same script an engineer runs locally, so a failure reproduces.
+  kernel-validation:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          # Exactly the families docs/SUPPORT_POLICY.md lists, plus latest.
+          - label: kernel-5.14
+            runs_on: '["self-hosted","kernel-5.14"]'
+          - label: kernel-5.15
+            runs_on: '["self-hosted","kernel-5.15"]'
+          - label: kernel-6.1
+            runs_on: '["self-hosted","kernel-6.1"]'
+          - label: kernel-6.5
+            runs_on: '["self-hosted","kernel-6.5"]'
+          - label: kernel-6.8
+            runs_on: '["self-hosted","kernel-6.8"]'
+          - label: kernel-latest
+            runs_on: '["self-hosted","kernel-latest"]'
+    runs-on: ${{ fromJSON(matrix.runner.runs_on) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install dependencies
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            sudo -n apt-get update || sudo apt-get update
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+              cmake ninja-build linux-tools-common || true
+            command -v bpftool >/dev/null 2>&1 || \
+              sudo apt-get install -y "linux-tools-$(uname -r)" || true
+          fi
+
+      - name: Build with BPF
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build
+
+      # Exclusive use of the pin directory: a leftover agent from another job
+      # makes every map look "reused", which silently skips pinning and makes
+      # results meaningless. Fail loudly instead.
+      - name: Assert exclusive agent access
+        run: |
+          if pgrep -x aegisbpf >/dev/null; then
+            echo "::error::another aegisbpf is running on this runner; refusing to test"
+            exit 1
+          fi
+          sudo rm -rf /sys/fs/bpf/aegisbpf
+
+      - name: Validate atomic swap on ${{ matrix.runner.label }}
+        run: sudo BIN=./build/aegisbpf OBJ=./build/aegis.bpf.o bash scripts/validate_atomic_swap.sh
+
+      - name: Verifier complexity (veristat units)
+        run: |
+          cc -O2 -o /tmp/verifier_stats tools/verifier_stats.c -lbpf
+          sudo /tmp/verifier_stats build/aegis.bpf.o | tee "verifier-${{ matrix.runner.label }}.csv"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: atomic-swap-${{ matrix.runner.label }}
+          path: |
+            verifier-*.csv
+          retention-days: 14
+
+  # The acceptance test: A <-> B reloads under concurrent enforcement load,
+  # plus crash-during-reload. Any impossible observation fails the job.
+  stress:
+    runs-on: ${{ fromJSON('["self-hosted","kernel-latest"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install dependencies
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            sudo -n apt-get update || sudo apt-get update
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+              cmake ninja-build python3 linux-tools-common || true
+          fi
+
+      - name: Build with BPF
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build
+
+      - name: Prepare a clean environment
+        run: |
+          if pgrep -x aegisbpf >/dev/null; then
+            echo "::error::another aegisbpf is running on this runner; refusing to test"
+            exit 1
+          fi
+          sudo rm -rf /sys/fs/bpf/aegisbpf
+          sudo rm -f /var/lib/aegisbpf/policy.applied* /var/lib/aegisbpf/deny.db \
+                     /var/lib/aegisbpf/runtime_rules.db /var/lib/aegisbpf/runtime_rules.migrated \
+                     /var/lib/aegisbpf/runtime_rules.quarantine
+          grep -qw bpf /sys/kernel/security/lsm || {
+            echo "::error::BPF-LSM not enabled on this runner"; exit 1; }
+
+      - name: Start agent
+        run: |
+          sudo sh -c './build/aegisbpf run --enforce --enforce-signal=none \
+            --allow-unsigned-bpf --log-level=info > /tmp/aegis-stress-daemon.log 2>&1' &
+          for _ in $(seq 1 60); do
+            grep -q "Agent started" /tmp/aegis-stress-daemon.log && exit 0
+            sleep 0.5
+          done
+          echo "::error::agent did not reach ENFORCE"; tail -30 /tmp/aegis-stress-daemon.log; exit 1
+
+      # Short on PRs, long on the nightly schedule: the stress test finds races
+      # by running long enough to hit them, but a 5-minute PR gate is not
+      # something people will tolerate.
+      - name: Swap stress
+        env:
+          DURATION: ${{ github.event_name == 'schedule' && '300' || (github.event.inputs.duration || '45') }}
+          WORKERS: ${{ github.event_name == 'schedule' && '12' || '6' }}
+        run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_stress.sh
+
+      - name: Crash during reload
+        env:
+          ROUNDS: ${{ github.event_name == 'schedule' && '200' || '40' }}
+        run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_crash.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          sudo bpftool map dump name active_slot 2>&1 | sudo tee /tmp/aegis-swap/active_slot.json >/dev/null || true
+          sudo bpftool map dump name slot_generation 2>&1 | sudo tee /tmp/aegis-swap/slot_generation.json >/dev/null || true
+          cp /tmp/aegis-stress-daemon.log /tmp/aegis-swap/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: atomic-swap-stress-logs
+          path: /tmp/aegis-swap/
+          retention-days: 14
+
+      # Deterministic cleanup: the next job on this runner must not inherit
+      # a live agent or a populated pin directory.
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo pkill -9 -x aegisbpf || true
+          sleep 2
+          sudo rm -rf /sys/fs/bpf/aegisbpf /tmp/aegis-swap
+          sudo rm -f /var/lib/aegisbpf/policy.applied* /var/lib/aegisbpf/deny.db \
+                     /var/lib/aegisbpf/runtime_rules.db /var/lib/aegisbpf/runtime_rules.migrated \
+                     /var/lib/aegisbpf/runtime_rules.quarantine
+          rm -f /tmp/aegis_always /tmp/aegis_onlyA /tmp/aegis_onlyB
