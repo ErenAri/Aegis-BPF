@@ -207,6 +207,42 @@ else
     bad "generation oracle did not advance ($gen_before -> $gen_after)"
 fi
 
+# Rule-count sweep across the inner-map sizing floor.
+#
+# deny_inode is right-sized per reload from a hint; everything else uses its
+# template maximum. When the hint was wrong the map was pinned at the 64-entry
+# floor and any policy above it failed to apply. 64 and 65 are the exact
+# boundary, so they are tested explicitly rather than assumed from a round
+# number, and each count is applied twice to cover reload as well as first
+# apply.
+mkdir -p "$WORK/sweep"
+sweep_failed=0
+for count in 1 64 65 256; do
+    conf="$WORK/sweep/p$count.conf"
+    printf 'version=6\n\n[deny_path]\n' > "$conf"
+    for i in $(seq 1 "$count"); do
+        f="$WORK/sweep/f${count}_$i"
+        echo body > "$f"
+        echo "$f" >> "$conf"
+    done
+    if ! "$BIN" policy apply "$conf" >"$WORK/sweep/apply_$count.log" 2>&1; then
+        bad "$count-rule policy failed on first apply"
+        grep -iE "error|fail" "$WORK/sweep/apply_$count.log" | tail -2
+        sweep_failed=1
+        continue
+    fi
+    if ! "$BIN" policy apply "$conf" >>"$WORK/sweep/apply_$count.log" 2>&1; then
+        bad "$count-rule policy failed on reload"
+        sweep_failed=1
+        continue
+    fi
+    if cat "$WORK/sweep/f${count}_1" >/dev/null 2>&1; then
+        bad "$count-rule policy applied but is not enforced"
+        sweep_failed=1
+    fi
+done
+[ "$sweep_failed" -eq 0 ] && ok "rule-count sweep 1/64/65/256 applies, reloads and enforces"
+
 # A policy larger than the inner-map floor.
 #
 # deny_inode is the one slotted map right-sized per reload, so its size hint

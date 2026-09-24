@@ -371,49 +371,6 @@ size_t map_fd_entry_count(int fd, size_t key_size)
     return count;
 }
 
-Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd)
-{
-    if (!live_map || shadow_fd < 0) {
-        return {};
-    }
-
-    int live_fd = bpf_map__fd(live_map);
-    size_t key_sz = bpf_map__key_size(live_map);
-    size_t val_sz = bpf_map__value_size(live_map);
-
-    std::vector<uint8_t> key(key_sz);
-    std::vector<uint8_t> next_key(key_sz);
-    std::vector<uint8_t> val(val_sz);
-
-    int rc = bpf_map_get_next_key(shadow_fd, nullptr, key.data());
-    while (!rc) {
-        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) == 0) {
-            if (bpf_map_update_elem(live_fd, key.data(), val.data(), BPF_ANY)) {
-                return Error::system(errno, "sync_from_shadow: upsert failed");
-            }
-        }
-        rc = bpf_map_get_next_key(shadow_fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-
-    std::vector<std::vector<uint8_t>> stale_keys;
-    rc = bpf_map_get_next_key(live_fd, nullptr, key.data());
-    while (!rc) {
-        if (bpf_map_lookup_elem(shadow_fd, key.data(), val.data()) != 0) {
-            if (errno != ENOENT) {
-                return Error::system(errno, "sync_from_shadow: shadow lookup failed");
-            }
-            stale_keys.push_back(key);
-        }
-        rc = bpf_map_get_next_key(live_fd, key.data(), next_key.data());
-        key.swap(next_key);
-    }
-    for (const auto& sk : stale_keys) {
-        bpf_map_delete_elem(live_fd, sk.data());
-    }
-
-    return {};
-}
 
 MapPressureReport check_map_pressure(const BpfState& state)
 {

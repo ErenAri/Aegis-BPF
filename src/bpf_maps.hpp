@@ -81,7 +81,16 @@ size_t map_fd_entry_count(int fd, size_t key_size);
 Result<void> clear_map_fd_entries(int fd, size_t key_size);
 Result<void> verify_map_fd_entry_count(int fd, size_t key_size, size_t expected);
 
-/// True when the already-created map behind `fd` has the given layout.
+// sync_from_shadow() used to copy a shadow map's entries into the live map,
+// deleting whatever was not in the shadow. That was the non-atomic apply
+// path: it destroyed the live policy to build the new one and needed the
+// audit-only window to hide the gap. Every policy map is now slotted and
+// installed by a single active_slot flip, so nothing writes a live policy
+// map in place. The function is deleted rather than left unused, so the
+// non-atomic path cannot be reintroduced by calling something that still
+// exists.
+
+/// True when a pinned map's layout matches what this build expects.
 ///
 /// bpf_map__reuse_fd() does NOT reject a type mismatch, so a pin left behind by
 /// a different agent version binds silently and only fails much later inside
@@ -89,7 +98,6 @@ Result<void> verify_map_fd_entry_count(int fd, size_t key_size, size_t expected)
 /// deliberately NOT max_entries, which legitimately varies (runtime tuning and
 /// right-sized inner maps).
 bool pinned_map_layout_matches(int fd, uint32_t type, uint32_t key_size, uint32_t value_size);
-Result<void> sync_from_shadow(bpf_map* live_map, int shadow_fd);
 
 /// True when the kernel accepts an inner map whose max_entries differs from the
 /// outer map's template. The kernel stopped comparing max_entries in
