@@ -122,7 +122,10 @@ sleep 1
 # like a violation. That is correct behaviour, not a torn generation, so the
 # run must not begin until a policy is actually live.
 if ! sudo "$BIN" policy apply "$DIR/A.conf" >/dev/null 2>>"$RESULTS/apply.err"; then
-    echo "FATAL: could not apply the initial policy"; exit 2
+    echo "FATAL: could not apply the initial policy"
+    echo "--- apply output ---"
+    tail -20 "$RESULTS/apply.err" 2>/dev/null || echo "(no output captured)"
+    exit 2
 fi
 for _ in $(seq 1 50); do
     cat /tmp/aegis_always >/dev/null 2>&1 || break

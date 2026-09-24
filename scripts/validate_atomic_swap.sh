@@ -23,6 +23,47 @@ bad()  { printf '  FAIL  %s\n' "$*"; failures=$((failures+1)); }
 need_root() { [ "$(id -u)" -eq 0 ] || { echo "must run as root"; exit 2; }; }
 need_root
 
+# This script stops agents, wipes /sys/fs/bpf/aegisbpf and clears
+# /var/lib/aegisbpf. On a machine where Aegis is actually running that is
+# destructive, and a leftover agent also silently invalidates the results:
+# every map looks "reused", pinning is skipped, and checks then measure the
+# previous run's state rather than this build's. Refuse rather than guess, and
+# never kill someone's agent automatically.
+if pgrep -x aegisbpf >/dev/null 2>&1; then
+    cat >&2 <<'MSG'
+An aegisbpf agent is already running on this host.
+
+This script needs exclusive use of /sys/fs/bpf/aegisbpf and /var/lib/aegisbpf,
+and it will stop agents and delete that state. It will not do that to an agent
+it did not start.
+
+Leaving it running does not merely risk the host: every pinned map would be
+reused, pinning would be skipped, and the results would describe the running
+agent instead of this build.
+
+If this host is a test environment, stop the agent and re-run:
+
+    sudo pkill -x aegisbpf && sudo rm -rf /sys/fs/bpf/aegisbpf
+
+Then set AEGIS_VALIDATE_DESTRUCTIVE=1 to confirm.
+MSG
+    exit 2
+fi
+if [ -d /sys/fs/bpf/aegisbpf ] && [ "${AEGIS_VALIDATE_DESTRUCTIVE:-0}" != "1" ]; then
+    cat >&2 <<'MSG'
+/sys/fs/bpf/aegisbpf already exists but no agent is running.
+
+That is either a crashed agent's pins or another test's leftovers. Removing
+them is safe in a test environment and wrong on a production host, so this
+script will not decide for you.
+
+    sudo rm -rf /sys/fs/bpf/aegisbpf
+
+or re-run with AEGIS_VALIDATE_DESTRUCTIVE=1 to let this script clear it.
+MSG
+    exit 2
+fi
+
 say "environment"
 printf '  kernel: %s\n' "$(uname -r)"
 if grep -qw bpf /sys/kernel/security/lsm 2>/dev/null; then

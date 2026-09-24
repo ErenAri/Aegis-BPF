@@ -25,4 +25,15 @@ for i in $(seq 1 "$rounds"); do
 done
 echo
 echo "coherent generations: $ok/$rounds   torn: $torn"
-[ "$torn" -eq 0 ] && echo "PASS: no torn policy observed after a mid-reload crash" || echo "FAIL"
+
+# `a && b || c` returns 0 even when it prints FAIL, so this reported failures
+# with a success exit status -- a caller (or CI) saw green.
+if [ "$ok" -eq 0 ]; then
+    echo "INCONCLUSIVE: no round produced a coherent generation; is a policy applied at all?"
+    exit 2
+fi
+if [ "$torn" -ne 0 ]; then
+    echo "FAIL: $torn of $rounds rounds observed a torn policy"
+    exit 1
+fi
+echo "PASS: no torn policy observed after a mid-reload crash"

@@ -29,77 +29,53 @@ permissions:
   contents: read
 
 jobs:
-  # Per-kernel validation of the primitives the slot design depends on.
-  # Runs the same script an engineer runs locally, so a failure reproduces.
-  kernel-validation:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          # Exactly the families docs/SUPPORT_POLICY.md lists, plus latest.
-          - label: kernel-5.14
-            runs_on: '["self-hosted","kernel-5.14"]'
-          - label: kernel-5.15
-            runs_on: '["self-hosted","kernel-5.15"]'
-          - label: kernel-6.1
-            runs_on: '["self-hosted","kernel-6.1"]'
-          - label: kernel-6.5
-            runs_on: '["self-hosted","kernel-6.5"]'
-          - label: kernel-6.8
-            runs_on: '["self-hosted","kernel-6.8"]'
-          - label: kernel-latest
-            runs_on: '["self-hosted","kernel-latest"]'
-    runs-on: ${{ fromJSON(matrix.runner.runs_on) }}
+  # Per-kernel validation across the families docs/SUPPORT_POLICY.md lists.
+  #
+  # Runs each kernel in a virtme-ng VM rather than on a runner-per-kernel.
+  # The kernel-<version> labels the older workflows target do not exist on
+  # this repository, so jobs requesting them queue indefinitely instead of
+  # failing -- a matrix that silently never runs, which is worse than no
+  # matrix at all. This needs only KVM, so it works on any runner that can
+  # nest virtualization and reproduces locally with:
+  #
+  #     scripts/kernel_matrix_vm.sh
+  kernel-matrix-vm:
+    runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install dependencies
         run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            export DEBIAN_FRONTEND=noninteractive
-            sudo -n apt-get update || sudo apt-get update
-            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
-              cmake ninja-build linux-tools-common || true
-            command -v bpftool >/dev/null 2>&1 || \
-              sudo apt-get install -y "linux-tools-$(uname -r)" || true
-          fi
+          export DEBIAN_FRONTEND=noninteractive
+          sudo -n apt-get update || sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+            cmake ninja-build python3 qemu-system-x86 virtme-ng dpkg-dev curl || true
+          command -v vng >/dev/null || sudo pip3 install --break-system-packages virtme-ng
+
+      - name: Confirm KVM is usable
+        run: |
+          test -e /dev/kvm || { echo "::error::/dev/kvm not present; this job needs nested virtualization"; exit 1; }
+          command -v vng >/dev/null || { echo "::error::virtme-ng not available"; exit 1; }
 
       - name: Build with BPF
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build
 
-      # Exclusive use of the pin directory: a leftover agent from another job
-      # makes every map look "reused", which silently skips pinning and makes
-      # results meaningless. Fail loudly instead.
-      - name: Assert exclusive agent access
-        run: |
-          if pgrep -x aegisbpf >/dev/null; then
-            echo "::error::another aegisbpf is running on this runner; refusing to test"
-            exit 1
-          fi
-          sudo rm -rf /sys/fs/bpf/aegisbpf
-
-      - name: Validate atomic swap on ${{ matrix.runner.label }}
-        run: sudo BIN=./build/aegisbpf OBJ=./build/aegis.bpf.o bash scripts/validate_atomic_swap.sh
-
-      - name: Verifier complexity (veristat units)
-        run: |
-          cc -O2 -o /tmp/verifier_stats tools/verifier_stats.c -lbpf
-          sudo /tmp/verifier_stats build/aegis.bpf.o | tee "verifier-${{ matrix.runner.label }}.csv"
+      - name: Kernel matrix
+        run: WORKDIR="$RUNNER_TEMP/kmatrix" bash scripts/kernel_matrix_vm.sh
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: atomic-swap-${{ matrix.runner.label }}
-          path: |
-            verifier-*.csv
+          name: kernel-matrix-logs
+          path: ${{ runner.temp }}/kmatrix/out/
           retention-days: 14
 
   # The acceptance test: A <-> B reloads under concurrent enforcement load,
   # plus crash-during-reload. Any impossible observation fails the job.
   stress:
-    runs-on: ${{ fromJSON('["self-hosted","kernel-latest"]') }}
+    runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
