@@ -24,7 +24,11 @@ echo "validate_rc=$?"
 
 echo "=== SECTION:verifier ==="
 if cc -O2 -o /tmp/vstat "$REPO/tools/verifier_stats.c" -lbpf 2>/dev/null; then
-    /tmp/vstat "$REPO/build/aegis.bpf.o" 2>/dev/null | tail -3
+    # Keep the full per-program CSV: the verifier's 1,000,000-instruction limit
+    # is per program, so a total says nothing about headroom.
+    /tmp/vstat "$REPO/build/aegis.bpf.o" 2>/dev/null > "$OUT/verifier.csv"
+    echo "verifier_worst_program=$(sort -t, -k2 -rn "$OUT/verifier.csv" 2>/dev/null | grep -v '^TOTAL' | head -1)"
+    grep '^TOTAL' "$OUT/verifier.csv" 2>/dev/null
 else
     echo "verifier_stats_build=failed"
 fi
