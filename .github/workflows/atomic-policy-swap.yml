@@ -52,10 +52,27 @@ jobs:
             cmake ninja-build python3 qemu-system-x86 virtme-ng dpkg-dev curl || true
           command -v vng >/dev/null || sudo pip3 install --break-system-packages virtme-ng
 
+      # Say out loud what this job requires. A job that cannot run should fail
+      # with the reason, not sit queued or skip quietly: the kernel matrix is
+      # the evidence behind the atomicity claim, and silence looks like a pass.
+      #
+      # There is deliberately no GitHub-hosted fallback. Hosted runners have
+      # neither KVM nor BPF-LSM, so a "matrix" there would verify nothing while
+      # reporting green.
       - name: Confirm KVM is usable
         run: |
-          test -e /dev/kvm || { echo "::error::/dev/kvm not present; this job needs nested virtualization"; exit 1; }
-          command -v vng >/dev/null || { echo "::error::virtme-ng not available"; exit 1; }
+          if [ ! -e /dev/kvm ]; then
+            echo "::error title=Kernel matrix cannot run::/dev/kvm is not present."
+            echo "This job requires the self-hosted runner labelled 'kvm'."
+            echo "Kernel validation cannot be performed on GitHub-hosted runners:"
+            echo "they provide neither nested virtualization nor BPF-LSM."
+            exit 1
+          fi
+          if ! command -v vng >/dev/null; then
+            echo "::error title=Kernel matrix cannot run::virtme-ng is not installed on this runner."
+            exit 1
+          fi
+          echo "KVM present; virtme-ng $(vng --version 2>/dev/null | head -1)"
 
       - name: Build with BPF
         run: |
