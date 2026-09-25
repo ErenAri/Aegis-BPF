@@ -87,11 +87,15 @@ run_one() {   # run_one <label> <kernel-image> <attempt>
     fi
     echo "$$ $label run$attempt $(date -Is)" > "$LOCK.owner"
 
+    # </dev/null is load-bearing. script(1) and qemu both read stdin, and the
+    # caller's stdin is the kernel table this loop is reading: without it the
+    # first VM swallows every remaining line and the matrix silently runs one
+    # kernel and reports success for the whole selection.
     local start=$SECONDS
     script -qec "vng --rwdir=$out --memory 4G --cpus 4 --run $kimg \
         --append 'lsm=capability,bpf' \
         -- env AEGIS_REPO=$REPO $REPO/scripts/kernel_matrix_guest.sh $out" \
-        /dev/null > "$out/console.txt" 2>&1 &
+        /dev/null < /dev/null > "$out/console.txt" 2>&1 &
     local vm=$!
     OUR_VMS+=("$vm")
 
@@ -131,16 +135,18 @@ run_one() {   # run_one <label> <kernel-image> <attempt>
 echo "run id: $RUN_ID"
 echo "results: $RUN_DIR"
 failures=0; total=0
-while IFS='|' read -r label img mods rel; do
+selected=0
+while IFS='|' read -r -u 3 label img mods rel; do
     [ -z "$label" ] && continue
     if [ -n "${KERNELS:-}" ] && ! printf '%s\n' ${KERNELS} | grep -qx "$label"; then continue; fi
+    selected=$((selected+1))
     kimg="$(fetch_kernel "$label" "$img" "$mods" "$rel")" || {
         printf '  %-20s %s\n' "$label" "FETCH-FAILED"; failures=$((failures+1)); total=$((total+1)); continue; }
     for attempt in $(seq 1 "$RUNS"); do
         total=$((total+1))
         run_one "$label" "$kimg" "$attempt" || failures=$((failures+1))
     done
-done <<< "$KERNEL_TABLE"
+done 3<<< "$KERNEL_TABLE"
 
 # One combined machine-readable summary for the whole matrix.
 {
@@ -153,6 +159,25 @@ done <<< "$KERNEL_TABLE"
     done
     echo "]"
 } > "$RUN_DIR/matrix.json" 2>/dev/null
+
+# A selection that quietly runs fewer kernels than asked for is the failure
+# mode this harness exists to prevent: it prints PASS for a matrix that never
+# covered the kernel in question.
+requested=0
+for _ in ${KERNELS:-}; do requested=$((requested+1)); done
+if [ -n "${KERNELS:-}" ] && [ "$selected" -ne "$requested" ]; then
+    echo
+    echo "SELECTION-MISMATCH: asked for $requested kernels, matched $selected"
+    echo "  requested: ${KERNELS}"
+    echo "  labels in the table: $(printf '%s\n' "$KERNEL_TABLE" | cut -d'|' -f1 | tr '\n' ' ')"
+    failures=$((failures+1))
+fi
+expected=$(( selected * RUNS ))
+if [ "$total" -ne "$expected" ]; then
+    echo
+    echo "RUN-COUNT-MISMATCH: expected $expected runs, executed $total"
+    failures=$((failures+1))
+fi
 
 echo
 echo "runs: $total   failures: $failures"

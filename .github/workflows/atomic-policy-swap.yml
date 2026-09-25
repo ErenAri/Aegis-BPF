@@ -79,14 +79,21 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build
 
+      # RUN_ROOT is the variable the harness reads. It used to be given WORKDIR,
+      # which the harness ignores, so the run landed in /tmp and the upload below
+      # collected an empty directory -- a green job with no evidence attached.
       - name: Kernel matrix
-        run: WORKDIR="$RUNNER_TEMP/kmatrix" bash scripts/kernel_matrix_vm.sh
+        run: RUN_ROOT="$RUNNER_TEMP/kmatrix" bash scripts/kernel_matrix_vm.sh
 
+      # Upload the per-run directories and the machine-readable summaries, but
+      # not the cached kernel images (hundreds of MB, and identical every run).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: kernel-matrix-logs
-          path: ${{ runner.temp }}/kmatrix/out/
+          path: |
+            ${{ runner.temp }}/kmatrix/*/
+            !${{ runner.temp }}/kmatrix/kernels/
           retention-days: 14
 
   # The acceptance test: A <-> B reloads under concurrent enforcement load,
