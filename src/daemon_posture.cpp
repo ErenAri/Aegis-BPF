@@ -234,7 +234,8 @@ Result<void> write_capabilities_report(const std::string& output_path, const Ker
             << ",\n";
         out << "    \"deep_process_lineage\": true,\n";
         out << "    \"enhanced_rule_engine\": true,\n";
-        out << "    \"cgroup_scoped_deny\": " << (static_cast<bool>(state.deny_cgroup_inode) ? "true" : "false") << ",\n";
+        out << "    \"cgroup_scoped_deny\": " << (static_cast<bool>(state.deny_cgroup_inode) ? "true" : "false")
+            << ",\n";
         out << "    \"policy_generation\": " << (state.policy_generation_map != nullptr ? "true" : "false") << ",\n";
         out << "    \"deadman_fail_static\": true\n";
         out << "  },\n";

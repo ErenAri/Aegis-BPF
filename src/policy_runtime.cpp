@@ -1,4 +1,6 @@
 // cppcheck-suppress-file missingIncludeSystem
+#include <sys/stat.h>
+
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -6,8 +8,6 @@
 #include <fstream>
 #include <iostream>
 #include <unordered_set>
-
-#include <sys/stat.h>
 
 #include "binary_scan.hpp"
 #include "bpf_config.hpp"
@@ -397,9 +397,9 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         // explicit inode rules, path rules (resolved to inodes), protect
         // paths, binary-hash matches, and the runtime rules carried forward.
         ShadowSizeHints hints;
-        hints.deny_inode_rules = static_cast<uint32_t>(
-            policy.deny_inodes.size() + policy.deny_paths.size() + policy.protect_paths.size() +
-            allow_binary_matches.size() + carried_runtime_rules.size());
+        hints.deny_inode_rules =
+            static_cast<uint32_t>(policy.deny_inodes.size() + policy.deny_paths.size() + policy.protect_paths.size() +
+                                  allow_binary_matches.size() + carried_runtime_rules.size());
         auto shadow_result = create_shadow_map_set(state, hints);
         if (!shadow_result) {
             Error err(ErrorCode::PolicyApplyFailed,
@@ -532,8 +532,8 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             }
         }
         for (const auto& port_rule : policy.network.deny_ports) {
-            auto result = add_deny_port_to_fd(shadows.deny_port.fd(), port_rule.port, port_rule.protocol,
-                                              port_rule.direction);
+            auto result =
+                add_deny_port_to_fd(shadows.deny_port.fd(), port_rule.port, port_rule.protocol, port_rule.direction);
             if (!result) {
                 logger().log(SLOG_WARN("Failed to add deny port to shadow")
                                  .field("port", static_cast<int64_t>(port_rule.port))
@@ -612,8 +612,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         size_t shadow_inode_count = map_fd_entry_count(shadows.deny_inode.fd(), inner_key_size(state.deny_inode));
         if (shadow_inode_count != entries.size()) {
             Error err(ErrorCode::BpfMapOperationFailed, "Shadow verify failed for deny_inode",
-                      "expected=" + std::to_string(entries.size()) +
-                          " actual=" + std::to_string(shadow_inode_count));
+                      "expected=" + std::to_string(entries.size()) + " actual=" + std::to_string(shadow_inode_count));
             span.fail(err.to_string());
             logger().log(SLOG_ERROR("Shadow verify failed for deny_inode")
                              .field("expected", static_cast<int64_t>(entries.size()))

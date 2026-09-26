@@ -923,11 +923,12 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
         if (migration.ran) {
             if (migration.quarantined > 0) {
-                logger().log(SLOG_WARN("Legacy deny database could not be attributed; entries quarantined, NOT enforced")
-                                 .field("quarantined", static_cast<int64_t>(migration.quarantined))
-                                 .field("reason", migration.reason)
-                                 .field("path", migration.quarantine_path)
-                                 .field("action", "re-add with 'aegis block add <path>' if still required"));
+                logger().log(
+                    SLOG_WARN("Legacy deny database could not be attributed; entries quarantined, NOT enforced")
+                        .field("quarantined", static_cast<int64_t>(migration.quarantined))
+                        .field("reason", migration.reason)
+                        .field("path", migration.quarantine_path)
+                        .field("action", "re-add with 'aegis block add <path>' if still required"));
             } else {
                 logger().log(SLOG_INFO("Migrated legacy deny database into the runtime-rule registry")
                                  .field("runtime_rules_migrated", static_cast<int64_t>(migration.migrated))

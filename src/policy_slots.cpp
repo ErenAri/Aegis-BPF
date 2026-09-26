@@ -3,8 +3,8 @@
 #include <bpf/bpf.h>
 
 #include <cerrno>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 
 #include "bpf_ops.hpp"
 #include "logging.hpp"
@@ -149,11 +149,11 @@ Result<ShadowMap> create_shadow_map(const SlottedMap& m, uint32_t max_entries_ov
 std::vector<SlottedMap*> all_slotted_maps(BpfState& state)
 {
     std::vector<SlottedMap*> maps;
-    for (SlottedMap* m : {&state.deny_inode, &state.deny_path, &state.deny_comm, &state.allow_cgroup,
-                          &state.allow_exec_inode, &state.trusted_exec_hash, &state.deny_ipv4, &state.deny_ipv6,
-                          &state.deny_cidr_v4, &state.deny_cidr_v6, &state.deny_port, &state.deny_ip_port_v4,
-                          &state.deny_ip_port_v6, &state.deny_cgroup_inode, &state.deny_cgroup_ipv4,
-                          &state.deny_cgroup_port}) {
+    for (SlottedMap* m :
+         {&state.deny_inode, &state.deny_path, &state.deny_comm, &state.allow_cgroup, &state.allow_exec_inode,
+          &state.trusted_exec_hash, &state.deny_ipv4, &state.deny_ipv6, &state.deny_cidr_v4, &state.deny_cidr_v6,
+          &state.deny_port, &state.deny_ip_port_v4, &state.deny_ip_port_v6, &state.deny_cgroup_inode,
+          &state.deny_cgroup_ipv4, &state.deny_cgroup_port}) {
         if (m->outer) {
             maps.push_back(m);
         }
@@ -266,8 +266,8 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
                              .field("active_generation_changed", "no")
                              .field("why", "one active_slot governs every slotted map, so an omitted map "
                                            "would resolve to an empty inner map after the flip"));
-            return Error(ErrorCode::InvalidArgument,
-                         "Policy commit does not cover every slotted map; refusing to flip", name);
+            return Error(ErrorCode::InvalidArgument, "Policy commit does not cover every slotted map; refusing to flip",
+                         name);
         }
     }
 
@@ -358,11 +358,21 @@ Result<ShadowMap> create_inner_map(const SlottedMap& m, uint32_t max_entries)
         entries = max_entries;
     }
 
+    // bpf_map_create() is libbpf 0.7+. Ubuntu 22.04 is a supported platform and
+    // ships 0.5, so keep the pre-0.7 spelling too rather than quietly raising
+    // the floor on a platform the support policy commits to.
+    int fd = -1;
+#ifdef bpf_map_create_opts__last_field
     struct bpf_map_create_opts opts = {};
     opts.sz = sizeof(opts);
     opts.map_flags = m.inner_flags;
-    const int fd = bpf_map_create(static_cast<enum bpf_map_type>(m.inner_type), "aegis_inner", m.inner_key_size,
-                                  m.inner_value_size, entries, &opts);
+    fd = bpf_map_create(static_cast<enum bpf_map_type>(m.inner_type), "aegis_inner", m.inner_key_size,
+                        m.inner_value_size, entries, &opts);
+#else
+    fd = bpf_create_map_name(static_cast<enum bpf_map_type>(m.inner_type), "aegis_inner",
+                             static_cast<int>(m.inner_key_size), static_cast<int>(m.inner_value_size),
+                             static_cast<int>(entries), m.inner_flags);
+#endif
     if (fd < 0) {
         return Error::system(errno, "Failed to create inner policy map");
     }

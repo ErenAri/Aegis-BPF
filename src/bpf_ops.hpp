@@ -141,8 +141,14 @@ Result<void> set_slotted_inner_max_entries(SlottedMap& m, uint32_t max_entries, 
 /// Outer map handle of either kind of map, so pin/reuse helpers can treat a
 /// slotted map uniformly: pinning targets the OUTER, which is the stable
 /// identity across reloads (inner maps are recreated every generation).
-inline bpf_map* outer_of(bpf_map* m) { return m; }
-inline bpf_map* outer_of(const SlottedMap& m) { return m.outer; }
+inline bpf_map* outer_of(bpf_map* m)
+{
+    return m;
+}
+inline bpf_map* outer_of(const SlottedMap& m)
+{
+    return m.outer;
+}
 
 /// Pin/reuse a slotted map by its OUTER handle: the outer is the stable
 /// identity across reloads, while inner maps are recreated each generation.

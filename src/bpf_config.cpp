@@ -11,7 +11,6 @@ namespace aegis {
 
 namespace {
 
-
 bool map_is_empty(const SlottedMap& m)
 {
     return map_entry_count(m) == 0;

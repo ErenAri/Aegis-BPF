@@ -1,14 +1,13 @@
 // cppcheck-suppress-file missingIncludeSystem
 #include "bpf_maps.hpp"
 
-#include "logging.hpp"
-
 #include <unistd.h>
 
 #include <cerrno>
 #include <vector>
 
 #include "bpf_ops.hpp"
+#include "logging.hpp"
 #include "policy_slots.hpp"
 
 namespace aegis {
@@ -134,27 +133,48 @@ namespace {
 // max_entries differs from the template. Succeeds only on kernels where
 // bpf_map_meta_equal() ignores max_entries (5.11+). All fds are closed before
 // returning; nothing is pinned.
-bool probe_variable_inner_max_entries()
+// bpf_map_create() landed in libbpf 0.7. Ubuntu 22.04 -- a supported platform --
+// ships 0.5, so every creation here needs the pre-0.7 spelling too. Same
+// #ifdef the shadow-map creator below already uses.
+int create_plain_map(enum bpf_map_type type, const char* name, __u32 key_size, __u32 value_size, __u32 max_entries)
 {
+#ifdef bpf_map_create_opts__last_field
     struct bpf_map_create_opts opts = {};
     opts.sz = sizeof(opts);
+    return bpf_map_create(type, name, key_size, value_size, max_entries, &opts);
+#else
+    return bpf_create_map_name(type, name, static_cast<int>(key_size), static_cast<int>(value_size),
+                               static_cast<int>(max_entries), 0);
+#endif
+}
 
-    int tmpl = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_tmpl", 4, 1, 16, &opts);
+int create_outer_map(enum bpf_map_type type, const char* name, __u32 key_size, int inner_fd, __u32 max_entries)
+{
+#ifdef bpf_map_create_opts__last_field
+    struct bpf_map_create_opts opts = {};
+    opts.sz = sizeof(opts);
+    opts.inner_map_fd = static_cast<__u32>(inner_fd);
+    return bpf_map_create(type, name, key_size, 4, max_entries, &opts);
+#else
+    return bpf_create_map_in_map(type, name, static_cast<int>(key_size), inner_fd, static_cast<int>(max_entries), 0);
+#endif
+}
+
+bool probe_variable_inner_max_entries()
+{
+    int tmpl = create_plain_map(BPF_MAP_TYPE_HASH, "aegis_tmpl", 4, 1, 16);
     if (tmpl < 0) {
         return false;
     }
 
-    struct bpf_map_create_opts outer_opts = {};
-    outer_opts.sz = sizeof(outer_opts);
-    outer_opts.inner_map_fd = static_cast<__u32>(tmpl);
-    int outer = bpf_map_create(BPF_MAP_TYPE_ARRAY_OF_MAPS, "aegis_probe", 4, 4, 1, &outer_opts);
+    int outer = create_outer_map(BPF_MAP_TYPE_ARRAY_OF_MAPS, "aegis_probe", 4, tmpl, 1);
     if (outer < 0) {
         close(tmpl);
         return false;
     }
 
     // Deliberately a different max_entries than the template.
-    int big = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_big", 4, 1, 64, &opts);
+    int big = create_plain_map(BPF_MAP_TYPE_HASH, "aegis_big", 4, 1, 64);
     if (big < 0) {
         close(outer);
         close(tmpl);
@@ -370,7 +390,6 @@ size_t map_fd_entry_count(int fd, size_t key_size)
     }
     return count;
 }
-
 
 MapPressureReport check_map_pressure(const BpfState& state)
 {

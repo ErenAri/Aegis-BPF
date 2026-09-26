@@ -491,7 +491,7 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             }
             return r;
         };
-        
+
         uint32_t max_inodes = g_max_deny_inodes.load(std::memory_order_relaxed);
         uint32_t max_paths = g_max_deny_paths.load(std::memory_order_relaxed);
         uint32_t max_net = g_max_network_entries.load(std::memory_order_relaxed);

@@ -6,9 +6,8 @@
 #include <bpf/bpf.h>
 
 #include <gtest/gtest.h>
-#include <unistd.h>
-
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <filesystem>
 #include <fstream>
@@ -170,9 +169,9 @@ TEST(PinCompat, IgnoresMaxEntries)
 } // namespace aegis
 
 using aegis::DenyEntries;
-using aegis::migrate_legacy_runtime_rules;
 using aegis::encode_dev;
 using aegis::InodeId;
+using aegis::migrate_legacy_runtime_rules;
 using aegis::prune_stale_runtime_rules;
 
 // --- runtime-rule carry-forward -------------------------------------------
@@ -185,7 +184,7 @@ namespace {
 
 InodeId inode_of(const std::string& path)
 {
-    struct stat st{};
+    struct stat st {};
     EXPECT_EQ(::stat(path.c_str(), &st), 0) << path;
     InodeId id{};
     id.ino = st.st_ino;
@@ -314,7 +313,7 @@ struct MigrationFixture {
 
 std::string deny_line(const std::string& path)
 {
-    struct stat st{};
+    struct stat st {};
     EXPECT_EQ(::stat(path.c_str(), &st), 0) << path;
     return std::to_string(aegis::encode_dev(st.st_dev)) + " " + std::to_string(st.st_ino) + " " + path + "\n";
 }
@@ -370,9 +369,8 @@ TEST(RuntimeRuleMigration, QuarantinesWhenThePolicyExpandedBinaryHashes)
     const std::string some_file = f.file("blocked");
     f.write(some_file, "x");
     f.write(f.paths.deny_db, deny_line(some_file));
-    f.write(f.paths.applied_policy,
-            "version=6\n\n[deny_path]\n/nonexistent\n\n[deny_binary_hash]\n"
-            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n");
+    f.write(f.paths.applied_policy, "version=6\n\n[deny_path]\n/nonexistent\n\n[deny_binary_hash]\n"
+                                    "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n");
 
     auto r = migrate_legacy_runtime_rules(f.paths);
 

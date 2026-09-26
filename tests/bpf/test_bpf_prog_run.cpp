@@ -113,7 +113,8 @@ class BpfProgRunTest : public ::testing::Test {
         // same constraint the daemon works around in capture_inner_geometry().
         {
             struct bpf_map* m = nullptr;
-            bpf_object__for_each_map(m, obj_) {
+            bpf_object__for_each_map(m, obj_)
+            {
                 const char* mname = bpf_map__name(m);
                 if (!mname || bpf_map__type(m) != BPF_MAP_TYPE_ARRAY_OF_MAPS) {
                     continue;

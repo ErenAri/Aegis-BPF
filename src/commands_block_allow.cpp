@@ -5,6 +5,7 @@
 
 #include "commands_block_allow.hpp"
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -12,8 +13,6 @@
 #include <iostream>
 
 #include "bpf_ops.hpp"
-#include <sys/stat.h>
-
 #include "logging.hpp"
 #include "policy_slots.hpp"
 #include "tracing.hpp"
@@ -75,7 +74,7 @@ int block_file(const std::string& path)
     // that on its own -- it also holds policy-derived rules, which a reload is
     // supposed to replace.
     {
-        struct stat st{};
+        struct stat st {};
         if (::stat(validated->c_str(), &st) == 0) {
             InodeId id{};
             id.ino = st.st_ino;

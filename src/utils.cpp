@@ -15,8 +15,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <set>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include "bpf_ops.hpp"
@@ -711,9 +711,8 @@ AppliedPolicyPaths read_applied_policy_paths(const std::string& path)
 
 RuntimeRuleMigration migrate_legacy_runtime_rules()
 {
-    return migrate_legacy_runtime_rules(RuntimeRuleMigrationPaths{kDenyDbPath, kRuntimeRulesPath,
-                                                                  kRuntimeRulesMigratedPath,
-                                                                  kRuntimeRulesQuarantinePath, kPolicyAppliedPath});
+    return migrate_legacy_runtime_rules(RuntimeRuleMigrationPaths{
+        kDenyDbPath, kRuntimeRulesPath, kRuntimeRulesMigratedPath, kRuntimeRulesQuarantinePath, kPolicyAppliedPath});
 }
 
 RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPaths& paths)
@@ -739,7 +738,7 @@ RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPath
             known.insert({kv.first.dev, kv.first.ino});
         }
         for (const auto& p : applied_now.paths) {
-            struct stat st{};
+            struct stat st {};
             if (::stat(p.c_str(), &st) == 0) {
                 known.insert({encode_dev(st.st_dev), st.st_ino});
             }
@@ -803,7 +802,7 @@ RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPath
     // rather than becoming a sticky runtime rule.
     std::set<std::pair<uint32_t, uint64_t>> policy_derived;
     for (const auto& p : applied.paths) {
-        struct stat st{};
+        struct stat st {};
         if (::stat(p.c_str(), &st) == 0) {
             policy_derived.insert({encode_dev(st.st_dev), st.st_ino});
         }
@@ -824,8 +823,7 @@ RuntimeRuleMigration migrate_legacy_runtime_rules(const RuntimeRuleMigrationPath
         return result; // no marker written -- will be retried
     }
     result.migrated = adopted.size();
-    (void)atomic_write_stream(paths.migrated_marker,
-                              [](std::ostream& out) -> bool { return (out << "1\n").good(); });
+    (void)atomic_write_stream(paths.migrated_marker, [](std::ostream& out) -> bool { return (out << "1\n").good(); });
     return result;
 }
 
@@ -835,7 +833,7 @@ DenyEntries prune_stale_runtime_rules(const DenyEntries& rules, size_t& dropped,
     DenyEntries kept;
     dropped = 0;
     for (const auto& [id, path] : rules) {
-        struct stat st{};
+        struct stat st {};
         if (::stat(path.c_str(), &st) != 0) {
             ++dropped;
             if (on_drop) {
