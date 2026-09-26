@@ -164,7 +164,12 @@ jobs:
         run: |
           sudo bpftool map dump name active_slot 2>&1 | sudo tee /tmp/aegis-swap/active_slot.json >/dev/null || true
           sudo bpftool map dump name slot_generation 2>&1 | sudo tee /tmp/aegis-swap/slot_generation.json >/dev/null || true
-          cp /tmp/aegis-stress-daemon.log /tmp/aegis-swap/ 2>/dev/null || true
+          # sudo, and no 2>/dev/null: the daemon log is written by a root shell
+          # and the workdir is root-owned, so an unprivileged copy fails -- and
+          # the '|| true' would hide that, leaving the failure artifact without
+          # the one log that explains the failure.
+          sudo cp /tmp/aegis-stress-daemon.log /tmp/aegis-swap/ || \
+            echo '::warning::could not collect the daemon log'
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -184,4 +189,8 @@ jobs:
           sudo rm -f /var/lib/aegisbpf/policy.applied* /var/lib/aegisbpf/deny.db \
                      /var/lib/aegisbpf/runtime_rules.db /var/lib/aegisbpf/runtime_rules.migrated \
                      /var/lib/aegisbpf/runtime_rules.quarantine
-          rm -f /tmp/aegis_always /tmp/aegis_onlyA /tmp/aegis_onlyB
+          # sudo: the stress script runs as root, so these are root-owned, and
+          # /tmp is sticky -- an unprivileged unlink fails with EPERM. rm -f
+          # hides "no such file", not "operation not permitted", so without
+          # sudo this step exits 1 and fails a job whose tests all passed.
+          sudo rm -f /tmp/aegis_always /tmp/aegis_onlyA /tmp/aegis_onlyB
