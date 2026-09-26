@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786534412546,
+  "lastUpdate": 1790424307023,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49644,6 +49644,96 @@ window.BENCHMARK_DATA = {
             "value": 52.377989797881554,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 52.37008341005949 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12a74cbf8ff2807043f62ad3f7ee1bcb97593a4b",
+          "message": "fix(operator): emit the daemon's canonical network policy grammar (#318)\n\nThe operator generated network rules in a format the daemon parser\nrejects, so no AegisPolicy carrying networkRules ports or any Allow rule\never applied. Three independent mismatches, all in the same producer:\n\n  1. Port rules were emitted protocol-first as `tcp:4444:outbound`.\n     src/policy_parse.cpp accepts PORT[:PROTOCOL[:DIRECTION]], i.e.\n     `4444:tcp:egress`.\n  2. The CRD's traffic-direction vocabulary (outbound/inbound) was\n     passed through verbatim. The daemon speaks socket-operation\n     vocabulary (egress/connect, bind, both) and rejects the rest.\n  3. IP:port rules were emitted as IP:PROTOCOL:PORT:DIRECTION. The\n     daemon accepts IP:PORT[:PROTOCOL] and its IpPortRule has no\n     direction field at all. IPv6 was also left unbracketed, which the\n     grammar cannot disambiguate from a trailing port.\n\nSeparately, [allow_path], [allow_ip], [allow_cidr], [allow_port] and\n[allow_ip_port] are not in the daemon's valid_sections list, and an\nunknown section fails the whole policy file. The translator emitted all\nfive while its comment claimed \"the daemon already understands both\nhalves\".\n\nAn unparseable policy is rejected wholesale, so this failed loudly\nrather than silently degrading — but the policy never reached the\nkernel.\n\nFixed operator-side rather than by teaching the parser aliases. The\ngrammar has two independent implementations (src/policy_parse.cpp and\nrust/aegis-parser/src/policy.rs) kept byte-identical by a differential\nparity gate, every shipped .conf and fuzz corpus already uses the\ncanonical form, and translator_next.go already mapped inbound->bind\ncorrectly. Adding a second vocabulary would have to be mirrored in both\nparsers forever.\n\n  - grammar.go holds the canonical renderers, used by the translator and\n    by the admission webhook's conflict keys so a collision the webhook\n    reports is exactly one the merge sweep can resolve.\n  - Allow is resolved inside the operator: TranslateResult.AllowOverrides\n    carries the exemptions and MergePolicies applies them, preserving the\n    documented cross-policy Allow > Block precedence without emitting a\n    section the daemon rejects.\n  - An unsupported protocol or direction is now a translation error\n    rather than a mis-rendered rule.\n  - The webhook's ip:port conflict key no longer embeds direction, which\n    previously hid collisions between rules that lower to one daemon rule.\n\nThe defect survived a full test suite because translator_test.go asserted\nstrings.Contains(result.INI, \"10.0.0.2:tcp:8080:outbound\") — it proved\nthe translator generated the string it was written to generate, and\nnothing consulted the consumer. contract_test.go now runs the generated\npolicy through the real `aegisbpf policy validate` binary, with a\nnegative control that fails if the harness stops being able to observe a\nrejection, and a CI job that turns a missing daemon binary into a failure\ninstead of a skip.\n\nVerified: 442/442 C++ tests, all Go operator packages (incl. -race),\nC++/Rust parser parity 1029/1029. End to end on a BPF-LSM host, the\ngenerated policy applies and the kernel enforces it: connect to\ntcp/4444 blocked (direction=outbound), bind to tcp/2375 blocked\n(direction=inbound), controls on adjacent ports unaffected.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-26T14:53:56+03:00",
+          "tree_id": "385c55a23e26e9c09cabfd3b23259a66cf283ba1",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/12a74cbf8ff2807043f62ad3f7ee1bcb97593a4b"
+        },
+        "date": 1790424304865,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1176.58264993132,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1176.3829871985408 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 2844.0704122409934,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 2843.7958631825336 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 16340.853984269635,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 16339.260655288621 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 124223.11848785552,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 124210.53167153685 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 988460.4442682745,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 988290.80966643 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 3947905.1452447926,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3947514.825094148 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 3852.9638747907197,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3868.0296385329552 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 26092.064539648174,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 26091.035690982742 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 212572.35593322688,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 212563.78006064543 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 662396.7249488764,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 662596.1345818981 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 60.257434636234144,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 60.25209993116746 ns\nthreads: 1"
           }
         ]
       }
