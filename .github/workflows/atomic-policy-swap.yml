@@ -45,6 +45,11 @@ jobs:
   #
   #     scripts/kernel_matrix_vm.sh
   kernel-matrix-vm:
+    # Capacity gate required of every self-hosted pull_request job (see
+    # scripts/validate_ci_workflow_policy.py): a job asking for a runner fleet
+    # that is unavailable queues indefinitely instead of failing, and an
+    # invisible queue looks exactly like a slow job.
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
     runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,6 +109,7 @@ jobs:
   # The acceptance test: A <-> B reloads under concurrent enforcement load,
   # plus crash-during-reload. Any impossible observation fails the job.
   stress:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
     runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
