@@ -10,13 +10,18 @@ name: Atomic Policy Swap
 #
 # PR runs a short version; the extended run is nightly so ordinary PR CI stays
 # usable.
+#
+# The paths filter covers the harness as well as the code under test. A change
+# to kernel_matrix_*.sh or to the state readers it depends on can invalidate
+# every result the matrix produces, so it has to be able to re-run the matrix;
+# otherwise the evidence silently goes stale while CI stays green.
 
 on:
   push:
     branches: [main, develop]
-    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', '.github/workflows/atomic-policy-swap.yml']
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', 'scripts/kernel_matrix_*.sh', 'scripts/rhel_matrix_vm.sh', 'tools/slot_probe.c', 'tools/verifier_stats.c', '.github/workflows/atomic-policy-swap.yml']
   pull_request:
-    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', '.github/workflows/atomic-policy-swap.yml']
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', 'scripts/kernel_matrix_*.sh', 'scripts/rhel_matrix_vm.sh', 'tools/slot_probe.c', 'tools/verifier_stats.c', '.github/workflows/atomic-policy-swap.yml']
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
