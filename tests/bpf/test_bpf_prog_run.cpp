@@ -30,6 +30,8 @@
 #include <map>
 #include <string>
 
+#include "bpf_map_compat.hpp"
+
 namespace {
 
 // Path to the built BPF object - set via cmake or environment
@@ -218,9 +220,8 @@ class BpfProgRunTest : public ::testing::Test {
         if (geo == inner_geometry_.end()) {
             return -1;
         }
-        LIBBPF_OPTS(bpf_map_create_opts, opts, .map_flags = geo->second.map_flags);
-        int inner = bpf_map_create(static_cast<enum bpf_map_type>(geo->second.type), nullptr, geo->second.key_size,
-                                   geo->second.value_size, geo->second.max_entries, &opts);
+        int inner = aegis::map_create(static_cast<enum bpf_map_type>(geo->second.type), nullptr, geo->second.key_size,
+                                      geo->second.value_size, geo->second.max_entries, geo->second.map_flags);
         if (inner < 0) {
             return -1;
         }

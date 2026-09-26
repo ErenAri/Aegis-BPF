@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "bpf_map_compat.hpp"
 #include "bpf_maps.hpp"
 #include "bpf_ops.hpp"
 
@@ -107,9 +108,7 @@ TEST(ShadowMap, HonoursMaxEntriesOverride)
         GTEST_SKIP() << "requires privileges to create BPF maps";
     }
 
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    int live = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_live", 4, 1, 4096, &opts);
+    int live = aegis::map_create(BPF_MAP_TYPE_HASH, "aegis_live", 4, 1, 4096);
     ASSERT_GE(live, 0);
 
     auto shadow = aegis::create_shadow_map_from_fd(live, 64);
@@ -135,9 +134,7 @@ TEST(ShadowMap, ZeroOverrideClonesSourceSize)
         GTEST_SKIP() << "requires privileges to create BPF maps";
     }
 
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    int live = bpf_map_create(BPF_MAP_TYPE_HASH, "aegis_live2", 4, 1, 512, &opts);
+    int live = aegis::map_create(BPF_MAP_TYPE_HASH, "aegis_live2", 4, 1, 512);
     ASSERT_GE(live, 0);
 
     auto shadow = aegis::create_shadow_map_from_fd(live, 0);

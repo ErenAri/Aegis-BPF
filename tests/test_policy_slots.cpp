@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "bpf_map_compat.hpp"
 #include "policy_slots.hpp"
 #include "utils.hpp"
 
@@ -27,24 +28,17 @@ bool needs_root()
 
 int make_hash_map(uint32_t entries)
 {
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    return bpf_map_create(BPF_MAP_TYPE_HASH, "t_inner", 4, 1, entries, &opts);
+    return aegis::map_create(BPF_MAP_TYPE_HASH, "t_inner", 4, 1, entries);
 }
 
 int make_outer(int tmpl_fd)
 {
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    opts.inner_map_fd = static_cast<__u32>(tmpl_fd);
-    return bpf_map_create(BPF_MAP_TYPE_ARRAY_OF_MAPS, "t_outer", 4, 4, 2, &opts);
+    return aegis::map_create_in_map(BPF_MAP_TYPE_ARRAY_OF_MAPS, "t_outer", 4, tmpl_fd, 2);
 }
 
 int make_active_slot()
 {
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    return bpf_map_create(BPF_MAP_TYPE_ARRAY, "t_slot", 4, 4, 1, &opts);
+    return aegis::map_create(BPF_MAP_TYPE_ARRAY, "t_slot", 4, 4, 1);
 }
 
 } // namespace
@@ -133,9 +127,7 @@ TEST(PinCompat, DetectsLayoutMismatch)
         GTEST_SKIP() << "requires privileges to create BPF maps";
     }
 
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    const int hash = bpf_map_create(BPF_MAP_TYPE_HASH, "t_hash", 16, 1, 64, &opts);
+    const int hash = aegis::map_create(BPF_MAP_TYPE_HASH, "t_hash", 16, 1, 64);
     ASSERT_GE(hash, 0);
 
     // Same layout: compatible.
@@ -158,9 +150,7 @@ TEST(PinCompat, IgnoresMaxEntries)
         GTEST_SKIP() << "requires privileges to create BPF maps";
     }
 
-    struct bpf_map_create_opts opts = {};
-    opts.sz = sizeof(opts);
-    const int small = bpf_map_create(BPF_MAP_TYPE_HASH, "t_small", 16, 1, 64, &opts);
+    const int small = aegis::map_create(BPF_MAP_TYPE_HASH, "t_small", 16, 1, 64);
     ASSERT_GE(small, 0);
     EXPECT_TRUE(pinned_map_layout_matches(small, BPF_MAP_TYPE_HASH, 16, 1));
     close(small);
