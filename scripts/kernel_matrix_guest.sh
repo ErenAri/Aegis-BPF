@@ -32,7 +32,8 @@ DAEMON_PID=""
 # Captured before teardown so a TIMEOUT says what the system was doing, not
 # merely that it stopped responding.
 capture_diagnostics() {
-    local stage="$1" dest="$OUT/diag-$stage"
+    local stage="$1"
+    local dest="$OUT/diag-$stage"
     mkdir -p "$dest"
     ps -efH             > "$dest/process-tree.txt"    2>&1
     dmesg | tail -100   > "$dest/kernel-log.txt"      2>&1
@@ -128,12 +129,13 @@ fi
 
 STRESS_RC=99; CRASH_RC=99
 if start_daemon; then
-    STRESS_DURATION="$STRESS_DURATION" WORKERS=4 WORKDIR=/tmp/swap \
-        run_phase stress "$T_STRESS" \
+    # The env(1) prefix is what the test actually reads; a shell-level prefix on
+    # run_phase would only reach run_phase itself, not the command it execs.
+    run_phase stress "$T_STRESS" \
         env DURATION="$STRESS_DURATION" WORKERS=4 WORKDIR=/tmp/swap \
         bash scripts/policy_swap_stress.sh
     STRESS_RC=$?
-    ROUNDS="$CRASH_ROUNDS" run_phase crash "$T_CRASH" \
+    run_phase crash "$T_CRASH" \
         env ROUNDS="$CRASH_ROUNDS" WORKDIR=/tmp/swap bash scripts/policy_swap_crash.sh
     CRASH_RC=$?
 else

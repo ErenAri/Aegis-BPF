@@ -1,0 +1,40 @@
+[
+{
+  "kernel": "6.5.0-060500-generic",
+  "uname": "Linux virtme-ng 6.5.0-060500-generic #202308271831 SMP PREEMPT_DYNAMIC Thu Nov 16 11:17:07 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux",
+  "distro": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "stress": { "status": "pass", "reloads": 16, "probes": 2277, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "verifier": { "processed_insns": 197012, "peak_states": 4842 }
+}
+,
+{
+  "kernel": "6.5.0-060500-generic",
+  "uname": "Linux virtme-ng 6.5.0-060500-generic #202308271831 SMP PREEMPT_DYNAMIC Thu Nov 16 11:17:07 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux",
+  "distro": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "stress": { "status": "pass", "reloads": 14, "probes": 2190, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "verifier": { "processed_insns": 197012, "peak_states": 4842 }
+}
+,
+{
+  "kernel": "6.5.0-060500-generic",
+  "uname": "Linux virtme-ng 6.5.0-060500-generic #202308271831 SMP PREEMPT_DYNAMIC Thu Nov 16 11:17:07 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux",
+  "distro": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "stress": { "status": "pass", "reloads": 16, "probes": 2156, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "verifier": { "processed_insns": 197012, "peak_states": 4842 }
+}
+]

@@ -58,7 +58,8 @@ ubuntu-24.04-6.8|http://archive.ubuntu.com/ubuntu/pool/main/l/linux-signed/linux
 TABLE
 
 fetch_kernel() {
-    local label="$1" img="$2" mods="$3" rel="$4" dir="$KCACHE/$label"
+    local label="$1" img="$2" mods="$3" rel="$4"
+    local dir="$KCACHE/$label"
     [ -f "$dir/$rel" ] && { echo "$dir/$rel"; return 0; }
     mkdir -p "$dir"
     curl -fsSL -o "$dir/img.deb" "$img" >/dev/null 2>&1 || return 1

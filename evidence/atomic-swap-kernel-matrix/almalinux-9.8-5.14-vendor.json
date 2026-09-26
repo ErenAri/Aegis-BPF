@@ -1,0 +1,18 @@
+{
+  "kernel": "5.14.0-687.36.1.el9_8.x86_64",
+  "uname": "Linux aegis-alma 5.14.0-687.36.1.el9_8.x86_64 #1 SMP PREEMPT_DYNAMIC Fri Aug 7 05:40:49 EDT 2026 x86_64",
+  "distro": "AlmaLinux release 9.8 (Olive Jaguar)",
+  "kernel_package": "kernel-core-5.14.0-687.36.1.el9_8.x86_64",
+  "vendor_kernel": true,
+  "execution": "qemu -cpu host, AlmaLinux 9 GenericCloud qcow2, native vendor kernel, cloud-init grubby lsm=lockdown,capability,bpf",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "primitives": { "array_of_maps": "pass", "hash_struct_key_inner": "pass", "lpm_trie_inner": "pass", "variable_inner_max_entries": "pass" },
+  "stress": { "status": "pass", "reloads": 74, "probes": 14854, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "leak_detail": "60 reloads: bpf_maps +16 (one retired generation), rss_kb 0, pinned 0",
+  "verifier": { "processed_insns": 186237, "peak_states": 4322, "worst_program": "handle_execve", "worst_processed": 111407 },
+  "notes": "BPF object built on the host (CO-RE) because AlmaLinux 9.8 ships clang 21.1.8, which cannot compile bpf/aegis_file.bpf.h (BPF stack limit). That failure reproduces on main and is a pre-existing toolchain gap, not a kernel one."
+}
