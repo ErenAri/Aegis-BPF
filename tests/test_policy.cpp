@@ -128,6 +128,105 @@ version=2
     EXPECT_EQ(result->network.deny_ports.size(), 1u);
 }
 
+// The Kubernetes operator is a second producer of this grammar. These cases
+// pin the contract from the consumer's side: the daemon accepts exactly
+// PORT:PROTOCOL:DIRECTION and IP:PORT[:PROTOCOL], and rejects the operator's
+// former encoding. See operator/internal/policy/grammar.go and the
+// round-trip test in operator/internal/policy/contract_test.go.
+TEST_F(PolicyTest, PortRuleGrammarIsCanonical)
+{
+    struct Case {
+        const char* text;
+        uint16_t port;
+        uint8_t protocol;
+        uint8_t direction;
+    };
+    const Case accepted[] = {
+        {"4444:tcp:egress", 4444, 6, 0},
+        {"5353:udp:egress", 5353, 17, 0},
+        {"2375:tcp:bind", 2375, 6, 1},
+        {"6667:tcp:both", 6667, 6, 2},
+        {"9001:any:egress", 9001, 0, 0},
+        {"443:tcp:connect", 443, 6, 0},
+        /* Trailing fields are optional; omitted protocol is "any" and
+         * omitted direction is "both". */
+        {"443:tcp", 443, 6, 2},
+        {"443", 443, 0, 2},
+    };
+
+    for (const auto& c : accepted) {
+        std::string content = std::string("version=2\n\n[deny_port]\n") + c.text + "\n";
+        std::string path = CreateTestPolicy(content);
+        PolicyIssues issues;
+        auto result = parse_policy_file(path, issues);
+        ASSERT_TRUE(result) << "rejected canonical rule: " << c.text;
+        ASSERT_EQ(result->network.deny_ports.size(), 1u) << c.text;
+        EXPECT_EQ(result->network.deny_ports[0].port, c.port) << c.text;
+        EXPECT_EQ(result->network.deny_ports[0].protocol, c.protocol) << c.text;
+        EXPECT_EQ(result->network.deny_ports[0].direction, c.direction) << c.text;
+    }
+}
+
+TEST_F(PolicyTest, PortRuleGrammarRejectsOperatorLegacyEncoding)
+{
+    const char* rejected[] = {
+        /* The defect: protocol first, and the CRD's traffic-direction
+         * vocabulary instead of the daemon's socket-operation vocabulary. */
+        "tcp:4444:outbound",
+        "tcp:4444:egress",
+        "4444:tcp:outbound",
+        "4444:tcp:inbound",
+        /* Neither weakened nor accidentally widened while fixing the above. */
+        "0:tcp:egress",
+        "70000:tcp:egress",
+        "443:sctp:egress",
+        "443:tcp:sideways",
+        ":tcp:egress",
+    };
+
+    for (const char* text : rejected) {
+        std::string content = std::string("version=2\n\n[deny_port]\n") + text + "\n";
+        std::string path = CreateTestPolicy(content);
+        PolicyIssues issues;
+        auto result = parse_policy_file(path, issues);
+        EXPECT_FALSE(result) << "accepted invalid port rule: " << text;
+        EXPECT_TRUE(issues.has_errors()) << text;
+    }
+}
+
+// An unknown section fails the whole file, so the operator must never emit
+// one. These are the allow sections it used to emit.
+TEST_F(PolicyTest, UnknownAllowSectionsAreRejected)
+{
+    const char* sections[] = {"allow_path", "allow_ip", "allow_cidr", "allow_port", "allow_ip_port"};
+
+    for (const char* section : sections) {
+        std::string content = std::string("version=5\n\n[") + section + "]\n10.0.0.1\n";
+        std::string path = CreateTestPolicy(content);
+        PolicyIssues issues;
+        auto result = parse_policy_file(path, issues);
+        EXPECT_FALSE(result) << "accepted unknown section: " << section;
+    }
+}
+
+TEST_F(PolicyTest, IpPortGrammarRejectsDirectionField)
+{
+    /* IpPortRule has no direction field; a fourth component is invalid. */
+    const char* rejected[] = {
+        "10.0.0.2:tcp:8080:outbound",
+        "10.0.0.2:8080:tcp:egress",
+        "999.1.1.1:8080:tcp",
+    };
+
+    for (const char* text : rejected) {
+        std::string content = std::string("version=2\n\n[deny_ip_port]\n") + text + "\n";
+        std::string path = CreateTestPolicy(content);
+        PolicyIssues issues;
+        auto result = parse_policy_file(path, issues);
+        EXPECT_FALSE(result) << "accepted invalid ip:port rule: " << text;
+    }
+}
+
 TEST_F(PolicyTest, ParsePolicyWithIpPortRules)
 {
     std::string content = R"(

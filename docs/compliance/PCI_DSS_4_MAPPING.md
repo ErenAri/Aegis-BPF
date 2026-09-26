@@ -12,7 +12,7 @@ protection in payment processing infrastructure.
 |-------------|-------------|---------------------|----------------|
 | 1.2.5 | All services, protocols, and ports allowed are identified, approved, and have a defined business need | **Full** | `deny_port` rules explicitly enumerate blocked ports/protocols. Direction-aware rules distinguish egress, bind, listen, accept, and sendmsg. Policy files document approved services. |
 | 1.3.1 | Inbound traffic to the CDE is restricted to only that which is necessary | **Partial** | Network deny rules block unauthorized inbound connections. `deny_ip` and `deny_cidr` restrict source addresses at the socket syscall level. |
-| 1.3.2 | Outbound traffic from the CDE is restricted to only that which is necessary | **Full** | Egress deny rules (`deny_port:tcp:egress`, `deny_cidr:egress`) enforce outbound restrictions. Blocks data exfiltration channels (FTP, IRC, Telnet). |
+| 1.3.2 | Outbound traffic from the CDE is restricted to only that which is necessary | **Full** | Egress deny rules (`[deny_port]` entries such as `21:tcp:egress`, plus `[deny_cidr]`) enforce outbound restrictions. Blocks data exfiltration channels (FTP, IRC, Telnet). |
 | 1.4.2 | Inbound traffic from untrusted networks to trusted networks is controlled | **Full** | `deny_cidr` rules enforce network segmentation at kernel level. Socket hooks intercept all TCP/UDP connection attempts before they complete. |
 
 ### Requirement 2 — Apply Secure Configurations

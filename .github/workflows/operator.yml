@@ -5,9 +5,15 @@ on:
     branches: [main, develop]
     paths:
       - 'operator/**'
+      - 'src/policy_parse.cpp'
+      - 'src/network_ops.cpp'
+      - '.github/workflows/operator.yml'
   pull_request:
     paths:
       - 'operator/**'
+      - 'src/policy_parse.cpp'
+      - 'src/network_ops.cpp'
+      - '.github/workflows/operator.yml'
   workflow_dispatch:
 
 defaults:
@@ -36,6 +42,47 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1 -race -timeout 120s
+
+  # Cross-component contract: the operator's generated policy must be
+  # accepted by the real daemon parser, not by a Go reimplementation of it.
+  # This job exists because a full unit-test suite that only asserted on the
+  # generated string missed a producer/consumer mismatch that made every
+  # network port rule fail to apply.
+  contract:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      - name: Install C++ build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev pkg-config cmake ninja-build
+
+      - name: Build aegisbpf (host, no BPF object)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON
+          cmake --build build --target aegisbpf
+
+      # AEGISBPF_REQUIRE_CONTRACT_TEST turns a missing daemon binary into a
+      # failure instead of a skip, so this job cannot silently pass without
+      # having exercised the real parser.
+      - name: Operator <-> daemon policy contract
+        working-directory: operator
+        env:
+          AEGISBPF_BIN: ${{ github.workspace }}/build/aegisbpf
+          AEGISBPF_REQUIRE_CONTRACT_TEST: "1"
+        run: go test ./internal/policy/ -run TestContract -count=1 -v
 
   build:
     runs-on: ubuntu-24.04
