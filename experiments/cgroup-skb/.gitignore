@@ -1,0 +1,5 @@
+# Build outputs and raw measurement data: regenerate with `make` + the scripts.
+aegis_cgroup_skb.bpf.o
+skb_probe
+vmlinux.h
+results/
