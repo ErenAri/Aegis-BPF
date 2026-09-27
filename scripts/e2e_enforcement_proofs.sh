@@ -64,10 +64,28 @@ require_bpf_lsm() {
     fi
 }
 
+# Default to --enforce-signal=none.
+#
+# These proofs assert that operations are DENIED (EPERM), which happens
+# regardless of whether the violating process is also signalled. Signalling is
+# orthogonal to every claim here -- nothing below inspects a killed process.
+#
+# It is not orthogonal to the machine. With the default SIGTERM these ran on the
+# self-hosted runner and terminated the Actions runner itself, so the job died
+# with "The runner has received a shutdown signal" three proofs in, reporting a
+# product failure that was really the test shooting its own host. Every other
+# enforcement user in CI already passes none: the stress job spawns the agent
+# with --enforce-signal=none, and e2e.yml invokes smoke_enforce.sh with
+# ENFORCE_SIGNAL=none. This script was the sole exception.
+#
+# Override with ENFORCE_SIGNAL=term to exercise signalling deliberately, on a
+# host you are willing to have processes killed on.
+ENFORCE_SIGNAL="${ENFORCE_SIGNAL:-none}"
+
 start_daemon() {
     local log_file="$1"
     shift
-    "${BIN}" run "$@" > "${log_file}" 2>&1 &
+    "${BIN}" run --enforce-signal="${ENFORCE_SIGNAL}" "$@" > "${log_file}" 2>&1 &
     AGENT_PID=$!
     sleep 2
     if ! kill -0 "${AGENT_PID}" 2>/dev/null; then
