@@ -103,14 +103,20 @@ jobs:
 
       - name: Pinned map mismatch recovery
         run: |
-          # Ensure layout mismatch is detected and the recovery path works.
-          #
-          # 0xFFFFFFFF, not a plausible version number. This wrote 02 until the
-          # day kLayoutVersion itself became 2, at which point the step was
-          # writing the current version and asserting it was a mismatch. The
-          # assertion could then never hold, and it hid a real regression in
-          # the recovery path underneath it. A sentinel no release can reach
-          # cannot be defeated by the next bump.
+          # Three legs, in order: valid -> success, invalid -> failure,
+          # restored -> success. All three live in this step so it cannot be
+          # weakened by reordering the ones around it.
+
+          # Leg 1. Without this the step cannot distinguish "health failed for
+          # the right reason" from "health always fails", which is precisely how
+          # the assertion below was able to rot unnoticed (#326).
+          sudo ./build/aegisbpf health > /dev/null
+
+          # Leg 2. 0xFFFFFFFF is a sentinel no release can reach. This wrote
+          # 02 until kLayoutVersion itself became 2, at which point the step was
+          # writing the CURRENT version and calling it a mismatch. The assertion
+          # could never hold again, and it hid a real regression in the recovery
+          # path underneath it.
           sudo bpftool map update pinned /sys/fs/bpf/aegisbpf/agent_meta \
             key hex 00 00 00 00 \
             value hex ff ff ff ff
@@ -126,6 +132,24 @@ jobs:
           fi
           echo "$out" | grep -qi "Pinned maps layout version mismatch"
 
+          # The binary names both numbers ("found N, expected M"), so use it as
+          # the source of truth instead of restating kLayoutVersion here. If a
+          # future bump ever made the sentinel valid these would be equal, and
+          # this fails loudly rather than silently asserting nothing.
+          pair="$(sed -n 's/.*found \([0-9][0-9]*\), expected \([0-9][0-9]*\).*/\1 \2/p' <<< "$out" | head -1)"
+          if [[ -z "$pair" ]]; then
+            echo "could not read the version pair from the mismatch error" >&2
+            exit 1
+          fi
+          found="${pair% *}"
+          expected="${pair#* }"
+          echo "sentinel=${found} kLayoutVersion=${expected}"
+          if [[ "$found" == "$expected" ]]; then
+            echo "sentinel ${found} is now a valid layout version; choose another" >&2
+            exit 1
+          fi
+
+          # Leg 3. Recovery must restore a healthy agent.
           sudo ./build/aegisbpf block clear
           sudo ./build/aegisbpf network deny clear
           sudo ./build/aegisbpf health
