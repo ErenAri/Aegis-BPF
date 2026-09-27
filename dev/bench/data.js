@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790516979725,
+  "lastUpdate": 1790544366990,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -49836,6 +49836,108 @@ window.BENCHMARK_DATA = {
             "value": 56.40369806091346,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 56.398354319514226 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4edb11b58f8038d82f81c4fd95560ebb3b1a288",
+          "message": "test(e2e): make the layout-mismatch check prove both directions (#328)\n\nCloses #326.\n\nThe sentinel itself was already corrected to 0xFFFFFFFF in #324, so the\nassertion holds again. What was still missing is the reason it was able\nto rot silently for so long: the step only ever asserted the negative\nside. It corrupted agent_meta, checked health failed, and recovered. A\nhealth that ALWAYS failed would have satisfied it just as well, and\nnothing in the step could tell the two apart.\n\nThe step now runs all three legs itself -- valid -> success, invalid ->\nfailure, restored -> success -- rather than relying on a separate\n\"Health check\" step earlier in the job that a reorder could move or drop.\n\nIt also stops trusting the sentinel on faith. The binary already reports\nboth numbers (\"found N, expected M\"), so the step parses them and fails\nif they are ever equal. That keeps kLayoutVersion in exactly one place,\nsrc/types.hpp, instead of restating it in YAML, and means a future bump\nthat somehow reached the sentinel produces a loud failure rather than an\nassertion that quietly checks nothing.\n\nVerified by running the extracted step under `bash -e`, the way CI runs\nit:\n\n  sentinel=4294967295 kLayoutVersion=2\n  Health check passed\n  rc=0\n\nand by two negative tests, because a test that cannot fail is the thing\nbeing fixed here:\n\n  sentinel reverted to 02 00 00 00 (the original #326 bug)\n    -> rc=1 \"expected health to fail due to pinned map layout mismatch\"\n  found == expected (a future bump reaching the sentinel)\n    -> rc=1 \"sentinel 4294967295 is now a valid layout version\"\n\nSwept for the same brittle pattern elsewhere: kLayoutVersion has a single\ndefinition in src/types.hpp, and this workflow is the only place any\nlayout value is hardcoded. (\"layout_version\": true in\ntests/json_samples/health/ok.json is a boolean health flag, not a\nversion.)\n\n461/461 at both privilege levels; layout/health/pin-compat subset 15/15.\n\n\nClaude-Session: https://claude.ai/code/session_0127HJbw4U52n4TaRtCYwhyn\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-28T00:14:30+03:00",
+          "tree_id": "c00d571f2678f76db45a5e63d02b62447fcee19e",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/f4edb11b58f8038d82f81c4fd95560ebb3b1a288"
+        },
+        "date": 1790544364326,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1526.238972489041,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1526.1413001439923 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3850.0683380874702,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3849.56657488477 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22044.23373932407,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22043.021145456773 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 165672.67403972018,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 165662.7382169895 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1313097.4343457944,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1312934.599610592 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5240240.303994999,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5239925.240012488 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4353.846075912607,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4358.708832677156 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 30631.50711704233,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 30634.961058695593 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 247428.34970108545,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 247356.08509162124 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 742816.2235210557,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 742776.3084041197 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 60.03102516133251,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 60.0236566154882 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 82.8963415201564,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 82.8918164712872 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 64.07586507459466,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 64.06884581097978 ns\nthreads: 1"
           }
         ]
       }
