@@ -242,7 +242,7 @@ test_deny_port() {
 version=2
 
 [deny_port]
-${test_port},tcp,bind
+${test_port}:tcp:bind
 EOF
 
     start_daemon "${log}" --enforce --deadman-ttl=30 || { fail "${label}" "daemon start failed"; return; }
@@ -297,12 +297,24 @@ EOF
         return
     fi
 
-    # Activate break-glass
+    # Activate break-glass, then restart the agent.
+    #
+    # detect_break_glass() runs once during startup (daemon.cpp), and one of the
+    # things it reads is /proc/cmdline -- it is the boot-level escape hatch for
+    # "policy is locking me out", not a runtime toggle. The runtime toggle is
+    # emergency-disable, proved separately as C9 and documented as instant.
+    #
+    # This used to create the flag under a running agent and sleep 3s waiting
+    # for it to notice, which it never does, so the proof reported a product
+    # failure that was really an incorrect expectation.
     mkdir -p /etc/aegisbpf
     touch /etc/aegisbpf/break_glass
-    sleep 3  # Wait for daemon to detect break-glass
+    stop_daemon
+    start_daemon "${log}" --enforce --deadman-ttl=30 ||
+        { fail "${label}" "daemon restart under break-glass failed"; rm -f /etc/aegisbpf/break_glass; return; }
+    sleep 1
 
-    # File should now be accessible
+    # File should now be accessible: break-glass forces audit-only.
     if cat "${target}" >/dev/null 2>&1; then
         pass "${label}"
     else
@@ -408,16 +420,19 @@ EOF
     fi
 
     # Activate emergency disable
-    "${BIN}" emergency-disable 2>/dev/null || { fail "${label}" "emergency-disable command failed"; stop_daemon; return; }
+    # --reason is required; without it the command exits 1 on "Missing required
+    # --reason" and this proof reported a product failure that was its own.
+    "${BIN}" emergency-disable --reason "C9 enforcement proof" 2>/dev/null ||
+        { fail "${label}" "emergency-disable command failed"; stop_daemon; return; }
     sleep 1
 
     # File should now be accessible
     if cat "${target}" >/dev/null 2>&1; then
         # Re-enable enforcement
-        "${BIN}" emergency-enable 2>/dev/null || true
+        "${BIN}" emergency-enable --reason "C9 enforcement proof cleanup" 2>/dev/null || true
         pass "${label}"
     else
-        "${BIN}" emergency-enable 2>/dev/null || true
+        "${BIN}" emergency-enable --reason "C9 enforcement proof cleanup" 2>/dev/null || true
         fail "${label}" "file should be accessible after emergency disable"
     fi
 
