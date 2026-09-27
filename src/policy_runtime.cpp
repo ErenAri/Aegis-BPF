@@ -288,7 +288,6 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
     // re-installed into the new one. Populated below; written into the shadow
     // maps once they exist.
     DenyEntries carried_runtime_rules;
-    size_t dropped_stale_runtime_rules = 0;
     {
         stage = "prepare_entries";
         ScopedSpan span("policy.prepare_entries", root_span.trace_id(), root_span.span_id());
@@ -314,6 +313,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         // reload behind a file that will never come back -- a state this
         // codebase has already been observed to reach in practice.
         if (!reset) {
+            size_t dropped_stale_runtime_rules = 0;
             carried_runtime_rules = prune_stale_runtime_rules(
                 read_runtime_rules(), dropped_stale_runtime_rules,
                 [](const std::string& path, const std::string& reason) {
@@ -327,8 +327,6 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
             entries = carried_runtime_rules;
             if (dropped_stale_runtime_rules > 0) {
                 (void)write_runtime_rules(carried_runtime_rules);
-            }
-            if (dropped_stale_runtime_rules > 0) {
                 logger().log(SLOG_WARN("Pruned stale runtime deny rules during policy reload")
                                  .field("dropped", static_cast<int64_t>(dropped_stale_runtime_rules))
                                  .field("carried", static_cast<int64_t>(carried_runtime_rules.size())));
@@ -423,7 +421,7 @@ Result<void> apply_policy_internal_impl_fn(const std::string& path, const std::s
         // the same inode simply overwrites the entry rather than colliding
         // with it, and so the new generation is never briefly missing a
         // rule an operator added by hand.
-        for (const auto& [id, path] : carried_runtime_rules) {
+        for (const auto& [id, carried_path] : carried_runtime_rules) {
             auto result = add_deny_inode_to_fd(shadows.deny_inode.fd(), id, entries);
             if (!result) {
                 span.fail(result.error().to_string());

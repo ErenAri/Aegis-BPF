@@ -621,17 +621,17 @@ DenyEntries read_deny_entries_file(const char* path)
         std::istringstream iss(line);
         uint32_t dev = 0;
         uint64_t ino = 0;
-        std::string path;
+        std::string entry_path;
         if (!(iss >> dev >> ino)) {
             continue;
         }
-        if (!(iss >> path)) {
-            path.clear();
+        if (!(iss >> entry_path)) {
+            entry_path.clear();
         }
         InodeId id{};
         id.ino = ino;
         id.dev = dev;
-        entries[id] = path;
+        entries[id] = entry_path;
     }
     return entries;
 }
