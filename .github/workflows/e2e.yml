@@ -104,9 +104,16 @@ jobs:
       - name: Pinned map mismatch recovery
         run: |
           # Ensure layout mismatch is detected and the recovery path works.
+          #
+          # 0xFFFFFFFF, not a plausible version number. This wrote 02 until the
+          # day kLayoutVersion itself became 2, at which point the step was
+          # writing the current version and asserting it was a mismatch. The
+          # assertion could then never hold, and it hid a real regression in
+          # the recovery path underneath it. A sentinel no release can reach
+          # cannot be defeated by the next bump.
           sudo bpftool map update pinned /sys/fs/bpf/aegisbpf/agent_meta \
             key hex 00 00 00 00 \
-            value hex 02 00 00 00
+            value hex ff ff ff ff
 
           set +e
           out="$(sudo ./build/aegisbpf health 2>&1)"

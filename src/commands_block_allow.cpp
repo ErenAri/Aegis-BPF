@@ -221,14 +221,22 @@ int cmd_block_clear()
     const std::string trace_id = make_span_id("trace-block-clear");
     ScopedSpan span("cli.block_clear", trace_id);
 
-    std::remove(kDenyInodePin);
-    std::remove(kDenyPathPin);
-    std::remove(kAllowCgroupPin);
-    std::remove(kDenyCgroupStatsPin);
-    std::remove(kDenyInodeStatsPin);
-    std::remove(kDenyPathStatsPin);
-    std::remove(kAgentMetaPin);
-    std::remove(kSurvivalAllowlistPin);
+    // Remove every pin, not a hand-maintained subset.
+    //
+    // This used to name eight pins explicitly. The slotted-policy work added
+    // active_slot, slot_generation and policy_generation, which were not on
+    // that list, so they survived the "reset" -- and the reload below then hit
+    // "failed to pin map: File exists" and read active_slot from a closed fd.
+    // The documented recovery from a layout-version mismatch is this command,
+    // so it failing is the one case that must not happen.
+    //
+    // Sweeping the directory keeps that from drifting again: a pin added later
+    // is cleared without anyone remembering to update a list here.
+    std::error_code pin_ec;
+    for (const auto& entry : std::filesystem::directory_iterator(kPinRoot, pin_ec)) {
+        std::error_code rm_ec;
+        std::filesystem::remove(entry.path(), rm_ec);
+    }
     std::filesystem::remove(kDenyDbPath);
     std::filesystem::remove(kPolicyAppliedPath);
     std::filesystem::remove(kPolicyAppliedPrevPath);
