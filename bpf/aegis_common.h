@@ -406,20 +406,35 @@ struct {
     __type(value, struct process_info);
 } process_tree SEC(".maps");
 
-struct {
+/* Inner-map template for the slotted allow_cgroup_map policy map. */
+struct allow_cgroup_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ALLOW_CGROUP_ENTRIES);
     __type(key, __u64);
     __type(value, __u8);
-} allow_cgroup_map SEC(".maps");
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct allow_cgroup_inner);
+} allow_cgroup_map_outer SEC(".maps");
 
 /* Exec identity enforcement allowlist keyed by inode identity */
-struct {
+struct allow_exec_inode_map_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_INODE_ENTRIES);
-    __type(key, struct inode_id);
-    __type(value, __u8);
-} allow_exec_inode_map SEC(".maps");
+    __uint(key_size, sizeof(struct inode_id));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct allow_exec_inode_map_inner);
+} allow_exec_inode_map_outer SEC(".maps");
 
 /* Trusted exec hash map: SHA-256 hashes of allowed binaries.
  * Used by the IMA-based hash verification hook (kernel 6.1+).
@@ -428,12 +443,19 @@ struct {
 struct exec_hash_key {
     __u8 sha256[32];
 };
-struct {
+struct trusted_exec_hash_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_TRUSTED_EXEC_HASH_ENTRIES);
-    __type(key, struct exec_hash_key);
-    __type(value, __u8);
-} trusted_exec_hash SEC(".maps");
+    __uint(key_size, sizeof(struct exec_hash_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct trusted_exec_hash_inner);
+} trusted_exec_hash_outer SEC(".maps");
 
 /* Exec identity mode toggle: key=0, value=0/1 */
 struct {
@@ -458,19 +480,40 @@ struct {
     __type(value, struct agent_meta);
 } agent_meta_map SEC(".maps");
 
-struct {
+/* Inner-map template for the slotted deny-inode policy map.  Userspace creates
+ * inner maps right-sized to the actual rule count; only the type, key size,
+ * value size and flags must match this template. */
+struct deny_inode_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_INODE_ENTRIES);
-    __type(key, struct inode_id);
-    __type(value, __u8);
-} deny_inode_map SEC(".maps");
+    /* Explicit sizes, not __type(): that macro declares a *pointer* member, so
+     * a struct key reaches BTF only as a forward declaration and the load fails
+     * with "can't determine key size for type [N]". sizeof() needs no BTF entry,
+     * so every inner template here states its sizes directly. */
+    __uint(key_size, sizeof(struct inode_id));
+    __uint(value_size, sizeof(__u8));
+};
 
 struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_inode_inner);
+} deny_inode_outer SEC(".maps");
+
+struct deny_path_map_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_PATH_ENTRIES);
-    __type(key, struct path_key);
-    __type(value, __u8);
-} deny_path_map SEC(".maps");
+    __uint(key_size, sizeof(struct path_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_path_map_inner);
+} deny_path_map_outer SEC(".maps");
 
 /* Deny-by-comm map: blocks execution of binaries whose basename
  * matches a configured command name.  Key is the 16-byte comm
@@ -479,12 +522,19 @@ struct {
 struct deny_comm_key {
     char comm[16]; /* TASK_COMM_LEN */
 };
-struct {
+struct deny_comm_map_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_COMM_ENTRIES);
-    __type(key, struct deny_comm_key);
-    __type(value, __u8);
-} deny_comm_map SEC(".maps");
+    __uint(key_size, sizeof(struct deny_comm_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_comm_map_inner);
+} deny_comm_map_outer SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
@@ -598,29 +648,136 @@ struct {
     __type(value, __u64);
 } policy_generation SEC(".maps");
 
+/* Generation id held by each policy slot.
+ *
+ * This is the generation ORACLE. A decision proves which generation produced
+ * it by reading this with the SAME slot index it used for every policy lookup:
+ * the id and the rules then provably come from one place. A separate global
+ * "current generation" counter could not prove that -- it can change between
+ * the lookups and the read.
+ *
+ * Userspace writes slot_generation[target] while staging, BEFORE flipping
+ * active_slot, so the id is already correct the instant the slot goes live.
+ * Monotonic and never reused, so a replayed event names an exact generation. */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __type(value, __u64);
+} slot_generation SEC(".maps");
+
+/* Active policy slot selector.
+ *
+ * Every slotted policy map is an ARRAY_OF_MAPS with two slots.  Userspace
+ * builds a complete new generation in the inactive slot -- writes no hook can
+ * observe, because active_slot still names the other one -- and then writes the
+ * new index here.  That single u32 write is the only observable transition, so
+ * file, network and cgroup rules all switch generations together.
+ *
+ * This replaces the old generation-mismatch scheme, which degraded enforcement
+ * to audit-only for the duration of every reload.
+ *
+ * Key 0 = index of the live slot (0 or 1).
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+} active_slot SEC(".maps");
+
+/* Read the live policy slot.
+ *
+ * MUST be called exactly once per hook invocation, with the result threaded
+ * through every helper in that invocation.  Re-reading it mid-hook can straddle
+ * a flip and evaluate old file rules against new network rules, which defeats
+ * the whole point of a single commit point. */
+static __always_inline __u32 policy_active_slot(void)
+{
+    __u32 key = 0;
+    __u32 *slot = bpf_map_lookup_elem(&active_slot, &key);
+    /* Mask to the slot count so the verifier can bound the outer array access. */
+    return slot ? (*slot & 1u) : 0;
+}
+
+/* Resolve an outer ARRAY_OF_MAPS slot to its inner policy map.
+ *
+ * Deliberately a macro, not a function. Passing the outer map through a
+ * `void *` parameter erases the map-in-map relationship, and the verifier then
+ * types the result as map_value (data) instead of map_ptr, rejecting the inner
+ * lookup with "R1 type=map_value expected=map_ptr". The map reference must be
+ * textually present at the bpf_map_lookup_elem() call site.
+ *
+ * Yields NULL when the slot is unpopulated, which callers MUST treat exactly
+ * as they treat an empty map -- never as "deny everything" and never as
+ * "allow everything" beyond what an empty map already means. */
+#define policy_inner(outer, slot_value)                                                                                \
+    ({                                                                                                                 \
+        __u32 __aegis_slot = (slot_value);                                                                             \
+        bpf_map_lookup_elem((outer), &__aegis_slot);                                                                   \
+    })
+
+/* Generation id of the slot this invocation is using.
+ *
+ * Takes the slot the caller already read, never re-reading active_slot: the
+ * point is to name the generation whose maps were actually consulted. */
+static __always_inline __u64 policy_slot_generation(__u32 slot)
+{
+    __u32 key = slot & 1u;
+    __u64 *gen = bpf_map_lookup_elem(&slot_generation, &key);
+    return gen ? *gen : 0;
+}
+
+/* Look up a key in a slotted policy map's live inner map.
+ *
+ * Folds the two steps every policy lookup needs -- resolve this invocation's
+ * inner map, then look up the key -- into one expression that drops into the
+ * boolean contexts these lookups already sit in. An unpopulated slot yields
+ * NULL: the same answer as a miss in an empty map, never "deny everything".
+ * `outer` must be a literal map reference -- see policy_inner(). */
+#define policy_lookup(outer, slot_value, keyp)                                                                         \
+    ({                                                                                                                 \
+        void *__aegis_inner = policy_inner((outer), (slot_value));                                                     \
+        __aegis_inner ? bpf_map_lookup_elem(__aegis_inner, (keyp)) : NULL;                                             \
+    })
+
 /* ============================================================================
  * Network Maps
  * ============================================================================ */
 
 /* IPv4 deny list - exact match */
-struct {
+struct deny_ipv4_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_IPV4_ENTRIES);
-    __type(key, __be32);
-    __type(value, __u8);
-} deny_ipv4 SEC(".maps");
+    __uint(key_size, sizeof(__be32));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_ipv4_inner);
+} deny_ipv4_outer SEC(".maps");
 
 /* IPv6 deny list - exact match */
 struct ipv6_key {
     __u8 addr[16];
 };
 
-struct {
+struct deny_ipv6_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_IPV6_ENTRIES);
-    __type(key, struct ipv6_key);
-    __type(value, __u8);
-} deny_ipv6 SEC(".maps");
+    __uint(key_size, sizeof(struct ipv6_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_ipv6_inner);
+} deny_ipv6_outer SEC(".maps");
 
 /* Port deny key structure */
 struct port_key {
@@ -630,12 +787,19 @@ struct port_key {
 };
 
 /* Port deny list */
-struct {
+struct deny_port_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_PORT_ENTRIES);
-    __type(key, struct port_key);
-    __type(value, __u8);
-} deny_port SEC(".maps");
+    __uint(key_size, sizeof(struct port_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_port_inner);
+} deny_port_outer SEC(".maps");
 
 struct ip_port_key_v4 {
     __be32 addr;
@@ -651,19 +815,33 @@ struct ip_port_key_v6 {
     __u8 _pad;
 };
 
-struct {
+struct deny_ip_port_v4_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_IP_PORT_V4_ENTRIES);
-    __type(key, struct ip_port_key_v4);
-    __type(value, __u8);
-} deny_ip_port_v4 SEC(".maps");
+    __uint(key_size, sizeof(struct ip_port_key_v4));
+    __uint(value_size, sizeof(__u8));
+};
 
 struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_ip_port_v4_inner);
+} deny_ip_port_v4_outer SEC(".maps");
+
+struct deny_ip_port_v6_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_IP_PORT_V6_ENTRIES);
-    __type(key, struct ip_port_key_v6);
-    __type(value, __u8);
-} deny_ip_port_v6 SEC(".maps");
+    __uint(key_size, sizeof(struct ip_port_key_v6));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_ip_port_v6_inner);
+} deny_ip_port_v6_outer SEC(".maps");
 
 /* IPv4 CIDR deny list - LPM trie for prefix matching */
 struct ipv4_lpm_key {
@@ -671,26 +849,40 @@ struct ipv4_lpm_key {
     __be32 addr;
 };
 
-struct {
+struct deny_cidr_v4_inner {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(max_entries, MAX_DENY_CIDR_V4_ENTRIES);
     __uint(map_flags, BPF_F_NO_PREALLOC);
-    __type(key, struct ipv4_lpm_key);
-    __type(value, __u8);
-} deny_cidr_v4 SEC(".maps");
+    __uint(key_size, sizeof(struct ipv4_lpm_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_cidr_v4_inner);
+} deny_cidr_v4_outer SEC(".maps");
 
 struct ipv6_lpm_key {
     __u32 prefixlen;
     __u8 addr[16];
 };
 
-struct {
+struct deny_cidr_v6_inner {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(max_entries, MAX_DENY_CIDR_V6_ENTRIES);
     __uint(map_flags, BPF_F_NO_PREALLOC);
-    __type(key, struct ipv6_lpm_key);
-    __type(value, __u8);
-} deny_cidr_v6 SEC(".maps");
+    __uint(key_size, sizeof(struct ipv6_lpm_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_cidr_v6_inner);
+} deny_cidr_v6_outer SEC(".maps");
 
 /* Network block statistics */
 struct net_stats_entry {
@@ -766,26 +958,50 @@ struct cgroup_port_key {
     __u32 _pad;
 };
 
-struct {
+/* Inner-map template for the slotted deny_cgroup_inode policy map. */
+struct deny_cgroup_inode_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_CGROUP_INODE_ENTRIES);
-    __type(key, struct cgroup_inode_key);
-    __type(value, __u8);
-} deny_cgroup_inode SEC(".maps");
+    __uint(key_size, sizeof(struct cgroup_inode_key));
+    __uint(value_size, sizeof(__u8));
+};
 
 struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_cgroup_inode_inner);
+} deny_cgroup_inode_outer SEC(".maps");
+
+/* Inner-map template for the slotted deny_cgroup_ipv4 policy map. */
+struct deny_cgroup_ipv4_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_CGROUP_IPV4_ENTRIES);
-    __type(key, struct cgroup_ipv4_key);
-    __type(value, __u8);
-} deny_cgroup_ipv4 SEC(".maps");
+    __uint(key_size, sizeof(struct cgroup_ipv4_key));
+    __uint(value_size, sizeof(__u8));
+};
 
 struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_cgroup_ipv4_inner);
+} deny_cgroup_ipv4_outer SEC(".maps");
+
+/* Inner-map template for the slotted deny_cgroup_port policy map. */
+struct deny_cgroup_port_inner {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_DENY_CGROUP_PORT_ENTRIES);
-    __type(key, struct cgroup_port_key);
-    __type(value, __u8);
-} deny_cgroup_port SEC(".maps");
+    __uint(key_size, sizeof(struct cgroup_port_key));
+    __uint(value_size, sizeof(__u8));
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+    __uint(max_entries, 2);
+    __type(key, __u32);
+    __array(values, struct deny_cgroup_port_inner);
+} deny_cgroup_port_outer SEC(".maps");
 
 /* ============================================================================
  * Helper Functions
@@ -1020,22 +1236,6 @@ static __always_inline __u8 file_is_verified_exec_identity(const struct file *fi
     return path_is_trusted_root(path);
 }
 
-/* Return 1 when the live policy maps match the expected generation.
- * During a shadow->live sync, userspace bumps agent_cfg.policy_generation
- * before copying maps, so committed != expected -> audit-only until commit. */
-static __always_inline __u8 is_policy_consistent(void)
-{
-    const volatile struct agent_config *cfg = &agent_cfg;
-    __u64 expected = cfg->policy_generation;
-    if (expected == 0)
-        return 1; /* generation 0 means feature not yet activated */
-    __u32 key = 0;
-    __u64 *committed = bpf_map_lookup_elem(&policy_generation, &key);
-    if (!committed)
-        return 1; /* map not populated yet -- don't force audit */
-    return *committed == expected;
-}
-
 static __always_inline __u8 get_effective_audit_mode(void)
 {
     const volatile struct agent_config *cfg = &agent_cfg;
@@ -1061,10 +1261,22 @@ static __always_inline __u8 get_effective_audit_mode(void)
             return 1;  /* Deadline passed and fail-open -- revert to audit */
     }
 
-    /* Policy generation mismatch: maps are mid-update -- force audit to
-     * avoid enforcing a partially-synced ruleset. */
-    if (!is_policy_consistent())
-        return 1;
+    /* No policy-generation check here, deliberately.
+     *
+     * There used to be one: a reload bumped agent_cfg.policy_generation before
+     * copying entries into the live maps, and every hook dropped to audit-only
+     * until the matching generation was committed. That was necessary while a
+     * reload mutated live maps in place -- the maps really were inconsistent
+     * mid-update -- and it was also a hole: enforcement was suspended for the
+     * length of every reload.
+     *
+     * Policy is now replaced by building a new generation in inner maps no
+     * hook can reach and flipping active_slot once. There is no inconsistent
+     * interval left to protect, and no code path that mutates a live policy
+     * map in place: allocating the next generation is mandatory, and a reload
+     * that cannot allocate one fails with the previous generation still
+     * enforcing. Re-adding a suspend-enforcement window here would only
+     * re-open the hole. */
 
     return 0;  /* Enforce mode */
 }
@@ -1192,33 +1404,38 @@ static __always_inline int should_emit_event(__u32 sample_rate)
     return (bpf_get_prandom_u32() % sample_rate) == 0;
 }
 
-static __always_inline int is_cgroup_allowed(__u64 cgid)
+static __always_inline int is_cgroup_allowed(__u32 slot, __u64 cgid)
 {
-    return bpf_map_lookup_elem(&allow_cgroup_map, &cgid) != NULL;
+    void *inner = policy_inner(&allow_cgroup_map_outer, slot);
+    return inner && bpf_map_lookup_elem(inner, &cgid) != NULL;
 }
 
 /* Cgroup-scoped deny helpers -- check per-workload deny maps. */
-static __always_inline __u8 cgroup_inode_denied(__u64 cgid, const struct inode_id *id)
+static __always_inline __u8 cgroup_inode_denied(__u32 slot, __u64 cgid, const struct inode_id *id)
 {
     struct cgroup_inode_key key = {
         .cgid = cgid,
         .inode = *id,
     };
-    __u8 *v = bpf_map_lookup_elem(&deny_cgroup_inode, &key);
+    void *inner = policy_inner(&deny_cgroup_inode_outer, slot);
+    if (!inner)
+        return 0;
+    __u8 *v = bpf_map_lookup_elem(inner, &key);
     return v ? *v : 0;
 }
 
-static __always_inline int cgroup_ipv4_denied(__u64 cgid, __be32 addr)
+static __always_inline int cgroup_ipv4_denied(__u32 slot, __u64 cgid, __be32 addr)
 {
     struct cgroup_ipv4_key key = {
         .cgid = cgid,
         .addr = addr,
         ._pad = 0,
     };
-    return bpf_map_lookup_elem(&deny_cgroup_ipv4, &key) != NULL;
+    void *inner = policy_inner(&deny_cgroup_ipv4_outer, slot);
+    return inner && bpf_map_lookup_elem(inner, &key) != NULL;
 }
 
-static __always_inline int cgroup_port_denied(__u64 cgid, __u16 port, __u8 protocol, __u8 direction)
+static __always_inline int cgroup_port_denied(__u32 slot, __u64 cgid, __u16 port, __u8 protocol, __u8 direction)
 {
     struct cgroup_port_key key = {
         .cgid = cgid,
@@ -1228,20 +1445,23 @@ static __always_inline int cgroup_port_denied(__u64 cgid, __u16 port, __u8 proto
         ._pad = 0,
     };
 
-    if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
+    /* Resolved once: every probe below must consult the same generation. */
+    void *inner = policy_inner(&deny_cgroup_port_outer, slot);
+
+    if (inner && bpf_map_lookup_elem(inner, &key))
         return 1;
 
     key.protocol = 0; /* any protocol */
-    if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
+    if (inner && bpf_map_lookup_elem(inner, &key))
         return 1;
 
     key.direction = 2; /* both directions */
     key.protocol = protocol;
-    if (bpf_map_lookup_elem(&deny_cgroup_port, &key))
+    if (inner && bpf_map_lookup_elem(inner, &key))
         return 1;
 
     key.protocol = 0; /* both + any protocol */
-    return bpf_map_lookup_elem(&deny_cgroup_port, &key) != NULL;
+    return inner && bpf_map_lookup_elem(inner, &key) != NULL;
 }
 
 /* ============================================================================
@@ -1516,7 +1736,7 @@ static __always_inline __u8 fill_ancestry(
     return depth;
 }
 
-static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 direction)
+static __always_inline int port_rule_matches(__u32 slot, __u16 port, __u8 protocol, __u8 direction)
 {
     struct port_key key = {
         .port = port,
@@ -1524,23 +1744,23 @@ static __always_inline int port_rule_matches(__u16 port, __u8 protocol, __u8 dir
         .direction = direction,
     };
 
-    if (bpf_map_lookup_elem(&deny_port, &key))
+    if (policy_lookup(&deny_port_outer, slot, &key))
         return 1;
 
     key.protocol = 0;  /* any protocol */
-    if (bpf_map_lookup_elem(&deny_port, &key))
+    if (policy_lookup(&deny_port_outer, slot, &key))
         return 1;
 
     key.direction = 2; /* both directions */
     key.protocol = protocol;
-    if (bpf_map_lookup_elem(&deny_port, &key))
+    if (policy_lookup(&deny_port_outer, slot, &key))
         return 1;
 
     key.protocol = 0;  /* both + any protocol */
-    return bpf_map_lookup_elem(&deny_port, &key) != NULL;
+    return policy_lookup(&deny_port_outer, slot, &key) != NULL;
 }
 
-static __always_inline int ip_port_rule_matches_v4(__be32 addr, __u16 port, __u8 protocol)
+static __always_inline int ip_port_rule_matches_v4(__u32 slot, __be32 addr, __u16 port, __u8 protocol)
 {
     struct ip_port_key_v4 key = {
         .addr = addr,
@@ -1548,14 +1768,14 @@ static __always_inline int ip_port_rule_matches_v4(__be32 addr, __u16 port, __u8
         .protocol = protocol,
     };
 
-    if (bpf_map_lookup_elem(&deny_ip_port_v4, &key))
+    if (policy_lookup(&deny_ip_port_v4_outer, slot, &key))
         return 1;
 
     key.protocol = 0; /* any protocol */
-    return bpf_map_lookup_elem(&deny_ip_port_v4, &key) != NULL;
+    return policy_lookup(&deny_ip_port_v4_outer, slot, &key) != NULL;
 }
 
-static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key *addr, __u16 port, __u8 protocol)
+static __always_inline int ip_port_rule_matches_v6(__u32 slot, const struct ipv6_key *addr, __u16 port, __u8 protocol)
 {
     struct ip_port_key_v6 key = {
         .port = port,
@@ -1563,11 +1783,11 @@ static __always_inline int ip_port_rule_matches_v6(const struct ipv6_key *addr, 
     };
     __builtin_memcpy(key.addr, addr->addr, sizeof(key.addr));
 
-    if (bpf_map_lookup_elem(&deny_ip_port_v6, &key))
+    if (policy_lookup(&deny_ip_port_v6_outer, slot, &key))
         return 1;
 
     key.protocol = 0; /* any protocol */
-    return bpf_map_lookup_elem(&deny_ip_port_v6, &key) != NULL;
+    return policy_lookup(&deny_ip_port_v6_outer, slot, &key) != NULL;
 }
 
 /* ============================================================================

@@ -1,0 +1,27 @@
+[
+{
+  "kernel": "6.1.0-50-amd64",
+  "uname": "Linux virtme-ng 6.1.0-50-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.176-1 (2026-07-02) x86_64 x86_64 x86_64 GNU/Linux",
+  "distro": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "stress": { "status": "pass", "reloads": 16, "probes": 2255, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "verifier": { "processed_insns": 225374, "peak_states": 5355 }
+}
+,
+{
+  "kernel": "6.8.0-71-generic",
+  "uname": "Linux virtme-ng 6.8.0-71-generic #71-Ubuntu SMP PREEMPT_DYNAMIC Tue Jul 22 16:52:38 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux",
+  "distro": "Ubuntu 24.04.4 LTS",
+  "bpf_lsm": true,
+  "lsm": "lockdown,capability,bpf",
+  "validation": "pass",
+  "stress": { "status": "pass", "reloads": 46, "probes": 1757, "violations": 0 },
+  "crash": { "status": "pass", "rounds": "20/20", "torn": 0 },
+  "leak": "pass",
+  "verifier": { "processed_insns": 523038, "peak_states": 5374 }
+}
+]

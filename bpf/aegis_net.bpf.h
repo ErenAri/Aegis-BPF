@@ -41,6 +41,8 @@ SEC("lsm/socket_connect")
 int BPF_PROG(handle_socket_connect, struct socket *sock,
              struct sockaddr *address, int addrlen)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock || !address) {
         record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
@@ -57,7 +59,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_CONNECT, _start_ns);
         return 0;
     }
@@ -116,7 +118,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     if (family == AF_INET) {
         /* Check 1: Exact IPv4+port match */
-        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v4(slot, remote_ip_v4, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -124,7 +126,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
 
         /* Check 2: Exact IPv4 match */
-        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && policy_lookup(&deny_ipv4_outer, slot, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -136,7 +138,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
                 .prefixlen = 32,
                 .addr = remote_ip_v4,
             };
-            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v4_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v4(remote_ip_v4);
@@ -144,7 +146,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
     } else {
         /* Check 1: Exact IPv6+port match */
-        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v6(slot, &remote_ip_v6, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v6(&remote_ip_v6);
@@ -152,7 +154,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
         }
 
         /* Check 2: Exact IPv6 match */
-        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && policy_lookup(&deny_ipv6_outer, slot, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);
@@ -165,7 +167,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
                 .addr = {0},
             };
             __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
-            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v6_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v6(&remote_ip_v6);
@@ -175,7 +177,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
 
     /* Check 4: Port match (protocol/direction aware) */
     if (!matched) {
-        if (port_rule_matches(remote_port, protocol, 0)) {
+        if (port_rule_matches(slot, remote_port, protocol, 0)) {
             matched = 1;
             __builtin_memcpy(rule_type, "port", 5);
             increment_net_port_stat(remote_port);
@@ -183,12 +185,12 @@ int BPF_PROG(handle_socket_connect, struct socket *sock,
     }
 
     /* Check 5: Cgroup-scoped network deny (per-workload policy) */
-    if (!matched && family == AF_INET && cgroup_ipv4_denied(cgid, remote_ip_v4)) {
+    if (!matched && family == AF_INET && cgroup_ipv4_denied(slot, cgid, remote_ip_v4)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_ip", 6);
         increment_net_ip_stat_v4(remote_ip_v4);
     }
-    if (!matched && cgroup_port_denied(cgid, remote_port, protocol, 0)) {
+    if (!matched && cgroup_port_denied(slot, cgid, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_port", 8);
         increment_net_port_stat(remote_port);
@@ -303,6 +305,8 @@ SEC("lsm/socket_bind")
 int BPF_PROG(handle_socket_bind, struct socket *sock,
              struct sockaddr *address, int addrlen)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock || !address) {
         record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
@@ -318,7 +322,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
         return 0;
     }
@@ -355,7 +359,7 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
     /* Get socket protocol */
     __u8 protocol = BPF_CORE_READ(sock, sk, sk_protocol);
 
-    int matched = port_rule_matches(bind_port, protocol, 1);
+    int matched = port_rule_matches(slot, bind_port, protocol, 1);
 
     if (!matched) {
         record_hook_latency(HOOK_SOCKET_BIND, _start_ns);
@@ -461,6 +465,8 @@ int BPF_PROG(handle_socket_bind, struct socket *sock,
 SEC("lsm/socket_listen")
 int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock) {
         record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
@@ -476,7 +482,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
         return 0;
     }
@@ -501,7 +507,7 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
 
     __u8 protocol = BPF_CORE_READ(sk, sk_protocol);
 
-    if (!port_rule_matches(listen_port, protocol, 1)) {
+    if (!port_rule_matches(slot, listen_port, protocol, 1)) {
         record_hook_latency(HOOK_SOCKET_LISTEN, _start_ns);
         return 0;
     }
@@ -600,6 +606,8 @@ int BPF_PROG(handle_socket_listen, struct socket *sock, int backlog)
 SEC("lsm/socket_accept")
 int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock) {
         record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
@@ -614,7 +622,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     __u64 cgid = bpf_get_current_cgroup_id();
 
     /* Skip allowed cgroups */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
         return 0;
     }
@@ -642,7 +650,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     }
 
     __u8 protocol = BPF_CORE_READ(accepted_sk, sk_protocol);
-    if (!port_rule_matches(accept_port, protocol, 1)) {
+    if (!port_rule_matches(slot, accept_port, protocol, 1)) {
         record_hook_latency(HOOK_SOCKET_ACCEPT, _start_ns);
         return 0;
     }
@@ -663,14 +671,14 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
     char rule_type[16] = {};
 
     if (family == AF_INET) {
-        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v4(slot, remote_ip_v4, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v4(remote_ip_v4);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && policy_lookup(&deny_ipv4_outer, slot, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -681,21 +689,21 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
                 .prefixlen = 32,
                 .addr = remote_ip_v4,
             };
-            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v4_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v4(remote_ip_v4);
             }
         }
     } else {
-        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v6(slot, &remote_ip_v6, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v6(&remote_ip_v6);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && policy_lookup(&deny_ipv6_outer, slot, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);
@@ -707,7 +715,7 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
                 .addr = {0},
             };
             __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
-            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v6_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v6(&remote_ip_v6);
@@ -715,19 +723,19 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
         }
     }
 
-    if (!matched && port_rule_matches(accept_port, protocol, 1)) {
+    if (!matched && port_rule_matches(slot, accept_port, protocol, 1)) {
         matched = 1;
         __builtin_memcpy(rule_type, "port", 5);
         increment_net_port_stat(accept_port);
     }
 
     /* Cgroup-scoped network deny (per-workload policy) */
-    if (!matched && family == AF_INET && cgroup_ipv4_denied(cgid, remote_ip_v4)) {
+    if (!matched && family == AF_INET && cgroup_ipv4_denied(slot, cgid, remote_ip_v4)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_ip", 6);
         increment_net_ip_stat_v4(remote_ip_v4);
     }
-    if (!matched && cgroup_port_denied(cgid, accept_port, protocol, 1)) {
+    if (!matched && cgroup_port_denied(slot, cgid, accept_port, protocol, 1)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_port", 8);
         increment_net_port_stat(accept_port);
@@ -836,6 +844,8 @@ int BPF_PROG(handle_socket_accept, struct socket *sock, struct socket *newsock)
 SEC("lsm/socket_sendmsg")
 int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int size)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock || !msg) {
         record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
@@ -849,7 +859,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     }
 
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_SENDMSG, _start_ns);
         return 0;
     }
@@ -933,14 +943,14 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
     char rule_type[16] = {};
 
     if (family == AF_INET) {
-        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v4(slot, remote_ip_v4, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v4(remote_ip_v4);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && policy_lookup(&deny_ipv4_outer, slot, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -951,21 +961,21 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
                 .prefixlen = 32,
                 .addr = remote_ip_v4,
             };
-            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v4_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v4(remote_ip_v4);
             }
         }
     } else {
-        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v6(slot, &remote_ip_v6, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v6(&remote_ip_v6);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && policy_lookup(&deny_ipv6_outer, slot, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);
@@ -977,7 +987,7 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
                 .addr = {0},
             };
             __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
-            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v6_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v6(&remote_ip_v6);
@@ -985,19 +995,19 @@ int BPF_PROG(handle_socket_sendmsg, struct socket *sock, struct msghdr *msg, int
         }
     }
 
-    if (!matched && port_rule_matches(remote_port, protocol, 0)) {
+    if (!matched && port_rule_matches(slot, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "port", 5);
         increment_net_port_stat(remote_port);
     }
 
     /* Cgroup-scoped network deny (per-workload policy) */
-    if (!matched && family == AF_INET && cgroup_ipv4_denied(cgid, remote_ip_v4)) {
+    if (!matched && family == AF_INET && cgroup_ipv4_denied(slot, cgid, remote_ip_v4)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_ip", 6);
         increment_net_ip_stat_v4(remote_ip_v4);
     }
-    if (!matched && cgroup_port_denied(cgid, remote_port, protocol, 0)) {
+    if (!matched && cgroup_port_denied(slot, cgid, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_port", 8);
         increment_net_port_stat(remote_port);
@@ -1115,6 +1125,8 @@ SEC("lsm/socket_recvmsg")
 int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
              int size, int flags)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
     if (!sock) {
         record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
@@ -1130,7 +1142,7 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
     }
 
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_SOCKET_RECVMSG, _start_ns);
         return 0;
     }
@@ -1169,14 +1181,14 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
     char rule_type[16] = {};
 
     if (family == AF_INET) {
-        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v4(slot, remote_ip_v4, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v4(remote_ip_v4);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && policy_lookup(&deny_ipv4_outer, slot, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v4(remote_ip_v4);
@@ -1187,21 +1199,21 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
                 .prefixlen = 32,
                 .addr = remote_ip_v4,
             };
-            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v4_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v4(remote_ip_v4);
             }
         }
     } else {
-        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v6(slot, &remote_ip_v6, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
             increment_net_ip_stat_v6(&remote_ip_v6);
             increment_net_port_stat(remote_port);
         }
 
-        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && policy_lookup(&deny_ipv6_outer, slot, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
             increment_net_ip_stat_v6(&remote_ip_v6);
@@ -1213,7 +1225,7 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
                 .addr = {0},
             };
             __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
-            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v6_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
                 increment_net_ip_stat_v6(&remote_ip_v6);
@@ -1223,7 +1235,7 @@ int BPF_PROG(handle_socket_recvmsg, struct socket *sock, struct msghdr *msg,
 
     /* For recvmsg, check port rules with direction=0 (egress/peer-facing) since
      * we are evaluating the remote peer's port, not a local bind port. */
-    if (!matched && port_rule_matches(remote_port, protocol, 0)) {
+    if (!matched && port_rule_matches(slot, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "port", 5);
         increment_net_port_stat(remote_port);
@@ -1353,6 +1365,11 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
     if (agent_cfg.net_policy_empty)
         return 0;
 
+    /* One slot read per invocation. Placed before the first policy-map
+     * read below so every policy lookup in this tracepoint observes one
+     * generation; the guards above consult only agent_cfg. */
+    const __u32 slot = policy_active_slot();
+
     void *uaddr = (void *)ctx->args[1];
     int addrlen = (int)ctx->args[2];
     if (!uaddr)
@@ -1365,7 +1382,7 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
         return 0;
 
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid))
+    if (is_cgroup_allowed(slot, cgid))
         return 0;
 
     __be32 remote_ip_v4 = 0;
@@ -1395,11 +1412,11 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
     char rule_type[16] = {};
 
     if (family == AF_INET) {
-        if (!matched && ip_port_rule_matches_v4(remote_ip_v4, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v4(slot, remote_ip_v4, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
         }
-        if (!matched && bpf_map_lookup_elem(&deny_ipv4, &remote_ip_v4)) {
+        if (!matched && policy_lookup(&deny_ipv4_outer, slot, &remote_ip_v4)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
         }
@@ -1408,17 +1425,17 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
                 .prefixlen = 32,
                 .addr = remote_ip_v4,
             };
-            if (bpf_map_lookup_elem(&deny_cidr_v4, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v4_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
             }
         }
     } else {
-        if (!matched && ip_port_rule_matches_v6(&remote_ip_v6, remote_port, protocol)) {
+        if (!matched && ip_port_rule_matches_v6(slot, &remote_ip_v6, remote_port, protocol)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip_port", sizeof("ip_port"));
         }
-        if (!matched && bpf_map_lookup_elem(&deny_ipv6, &remote_ip_v6)) {
+        if (!matched && policy_lookup(&deny_ipv6_outer, slot, &remote_ip_v6)) {
             matched = 1;
             __builtin_memcpy(rule_type, "ip", 3);
         }
@@ -1428,22 +1445,22 @@ int handle_tp_connect(struct trace_event_raw_sys_enter *ctx)
                 .addr = {0},
             };
             __builtin_memcpy(lpm_key.addr, remote_ip_v6.addr, sizeof(lpm_key.addr));
-            if (bpf_map_lookup_elem(&deny_cidr_v6, &lpm_key)) {
+            if (policy_lookup(&deny_cidr_v6_outer, slot, &lpm_key)) {
                 matched = 1;
                 __builtin_memcpy(rule_type, "cidr", 5);
             }
         }
     }
 
-    if (!matched && port_rule_matches(remote_port, protocol, 0)) {
+    if (!matched && port_rule_matches(slot, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "port", 5);
     }
-    if (!matched && family == AF_INET && cgroup_ipv4_denied(cgid, remote_ip_v4)) {
+    if (!matched && family == AF_INET && cgroup_ipv4_denied(slot, cgid, remote_ip_v4)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_ip", 6);
     }
-    if (!matched && cgroup_port_denied(cgid, remote_port, protocol, 0)) {
+    if (!matched && cgroup_port_denied(slot, cgid, remote_port, protocol, 0)) {
         matched = 1;
         __builtin_memcpy(rule_type, "cg_port", 8);
     }

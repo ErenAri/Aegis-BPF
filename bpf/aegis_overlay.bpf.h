@@ -4,7 +4,7 @@
  *
  * The kernel calls security_inode_copy_up before copying a file from
  * the overlay lower layer to the upper layer. The upper-layer copy
- * receives a fresh inode that is not in deny_inode_map; without this
+ * receives a fresh inode that is not in the deny-inode map; without this
  * hook, an inode-based deny rule on a lower-layer file would be
  * silently bypassed the moment a containerised workload modifies the
  * file (the canonical container-escape pattern that motivates this
@@ -41,6 +41,8 @@ SEC("lsm/inode_copy_up")
 int BPF_PROG(handle_inode_copy_up, struct dentry *src, struct cred **new_cred)
 {
     __u64 _start_ns = bpf_ktime_get_ns();
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
 
     if (!src) {
         record_hook_latency(HOOK_INODE_COPY_UP, _start_ns);
@@ -65,7 +67,8 @@ int BPF_PROG(handle_inode_copy_up, struct dentry *src, struct cred **new_cred)
     /* Only the source (lower-layer) inode is checked here. The upper
      * inode does not exist yet at copy-up time; the kernel decides
      * whether to allocate it based on this hook's return value. */
-    __u8 *rule = bpf_map_lookup_elem(&deny_inode_map, &key);
+    void *deny_inode = policy_inner(&deny_inode_outer, slot);
+    __u8 *rule = deny_inode ? bpf_map_lookup_elem(deny_inode, &key) : NULL;
     if (!rule) {
         record_hook_latency(HOOK_INODE_COPY_UP, _start_ns);
         return 0;
@@ -86,7 +89,7 @@ int BPF_PROG(handle_inode_copy_up, struct dentry *src, struct cred **new_cred)
     /* Allowed cgroups bypass the global deny (per-workload allowlist
      * still applies to cgroup-scoped rules, but those use the
      * cgroup_inode_denied map; copy-up only consults global rules). */
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_INODE_COPY_UP, _start_ns);
         return 0;
     }

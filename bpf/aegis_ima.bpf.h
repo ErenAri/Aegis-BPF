@@ -30,6 +30,8 @@
 SEC("lsm.s/bprm_check_security")
 int BPF_PROG(handle_bprm_ima_check, struct linux_binprm *bprm)
 {
+    /* One slot read per invocation -- see policy_active_slot(). */
+    const __u32 slot = policy_active_slot();
     __u64 _start_ns = bpf_ktime_get_ns();
 
     if (!bprm) {
@@ -53,7 +55,7 @@ int BPF_PROG(handle_bprm_ima_check, struct linux_binprm *bprm)
     }
 
     __u64 cgid = bpf_get_current_cgroup_id();
-    if (is_cgroup_allowed(cgid)) {
+    if (is_cgroup_allowed(slot, cgid)) {
         record_hook_latency(HOOK_BPRM_IMA_CHECK, _start_ns);
         return 0;
     }
@@ -66,7 +68,7 @@ int BPF_PROG(handle_bprm_ima_check, struct linux_binprm *bprm)
     long ret = bpf_ima_file_hash(file, hash_key.sha256, sizeof(hash_key.sha256));
     if (ret >= 0) {
         /* Hash computed: allow if it is in the trusted allowlist. */
-        __u8 *trusted = bpf_map_lookup_elem(&trusted_exec_hash, &hash_key);
+        __u8 *trusted = policy_lookup(&trusted_exec_hash_outer, slot, &hash_key);
         if (trusted) {
             record_hook_latency(HOOK_BPRM_IMA_CHECK, _start_ns);
             return 0;

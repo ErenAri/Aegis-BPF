@@ -5,28 +5,15 @@
 #include <vector>
 
 #include "bpf_ops.hpp"
+#include "policy_slots.hpp"
 
 namespace aegis {
 
 namespace {
 
-bool map_is_empty(bpf_map* map)
+bool map_is_empty(const SlottedMap& m)
 {
-    if (!map) {
-        return true;
-    }
-    int fd = bpf_map__fd(map);
-    if (fd < 0) {
-        return false;
-    }
-    const size_t key_sz = bpf_map__key_size(map);
-    std::vector<uint8_t> key(key_sz);
-    errno = 0;
-    int rc = bpf_map_get_next_key(fd, nullptr, key.data());
-    if (rc == 0) {
-        return false;
-    }
-    return errno == ENOENT;
+    return map_entry_count(m) == 0;
 }
 
 AgentConfig default_agent_config()
@@ -41,7 +28,10 @@ AgentConfig default_agent_config()
 
 bool file_policy_maps_empty(const BpfState& state)
 {
-    return map_is_empty(state.deny_inode) && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
+    // deny_inode is slotted: emptiness is a property of the live inner map,
+    // not of the outer array that holds the slots.
+    const auto inode_stats = live_policy_stats(state, state.deny_inode);
+    return inode_stats.entries == 0 && map_is_empty(state.deny_path) && map_is_empty(state.deny_cgroup_inode);
 }
 
 bool net_policy_maps_empty(const BpfState& state)

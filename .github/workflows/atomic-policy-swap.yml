@@ -1,0 +1,202 @@
+name: Atomic Policy Swap
+
+# Privileged coverage for the atomic policy-replacement machinery.
+#
+# The unit suite cannot cover this: the property under test is that a reload
+# never exposes a mixture of two policies, which only shows up with real BPF
+# programs attached, real enforcement, and concurrent load. These jobs need
+# root, a BPF-LSM kernel and exclusive use of the pin directory, so they live
+# here rather than in ctest.
+#
+# PR runs a short version; the extended run is nightly so ordinary PR CI stays
+# usable.
+#
+# The paths filter covers the harness as well as the code under test. A change
+# to kernel_matrix_*.sh or to the state readers it depends on can invalidate
+# every result the matrix produces, so it has to be able to re-run the matrix;
+# otherwise the evidence silently goes stale while CI stays green.
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', 'scripts/kernel_matrix_*.sh', 'scripts/rhel_matrix_vm.sh', 'tools/slot_probe.c', 'tools/verifier_stats.c', '.github/workflows/atomic-policy-swap.yml']
+  pull_request:
+    paths: ['bpf/**', 'src/**', 'scripts/policy_swap_*.sh', 'scripts/validate_atomic_swap.sh', 'scripts/kernel_matrix_*.sh', 'scripts/rhel_matrix_vm.sh', 'tools/slot_probe.c', 'tools/verifier_stats.c', '.github/workflows/atomic-policy-swap.yml']
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Stress duration in seconds"
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  # Per-kernel validation across the families docs/SUPPORT_POLICY.md lists.
+  #
+  # Runs each kernel in a virtme-ng VM rather than on a runner-per-kernel.
+  # The kernel-<version> labels the older workflows target do not exist on
+  # this repository, so jobs requesting them queue indefinitely instead of
+  # failing -- a matrix that silently never runs, which is worse than no
+  # matrix at all. This needs only KVM, so it works on any runner that can
+  # nest virtualization and reproduces locally with:
+  #
+  #     scripts/kernel_matrix_vm.sh
+  kernel-matrix-vm:
+    # Capacity gate required of every self-hosted pull_request job (see
+    # scripts/validate_ci_workflow_policy.py): a job asking for a runner fleet
+    # that is unavailable queues indefinitely instead of failing, and an
+    # invisible queue looks exactly like a slow job.
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
+    runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sudo -n apt-get update || sudo apt-get update
+          sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+            cmake ninja-build python3 qemu-system-x86 virtme-ng dpkg-dev curl || true
+          command -v vng >/dev/null || sudo pip3 install --break-system-packages virtme-ng
+
+      # Say out loud what this job requires. A job that cannot run should fail
+      # with the reason, not sit queued or skip quietly: the kernel matrix is
+      # the evidence behind the atomicity claim, and silence looks like a pass.
+      #
+      # There is deliberately no GitHub-hosted fallback. Hosted runners have
+      # neither KVM nor BPF-LSM, so a "matrix" there would verify nothing while
+      # reporting green.
+      - name: Confirm KVM is usable
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error title=Kernel matrix cannot run::/dev/kvm is not present."
+            echo "This job requires the self-hosted runner labelled 'kvm'."
+            echo "Kernel validation cannot be performed on GitHub-hosted runners:"
+            echo "they provide neither nested virtualization nor BPF-LSM."
+            exit 1
+          fi
+          if ! command -v vng >/dev/null; then
+            echo "::error title=Kernel matrix cannot run::virtme-ng is not installed on this runner."
+            exit 1
+          fi
+          echo "KVM present; virtme-ng $(vng --version 2>/dev/null | head -1)"
+
+      - name: Build with BPF
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build
+
+      # RUN_ROOT is the variable the harness reads. It used to be given WORKDIR,
+      # which the harness ignores, so the run landed in /tmp and the upload below
+      # collected an empty directory -- a green job with no evidence attached.
+      - name: Kernel matrix
+        run: RUN_ROOT="$RUNNER_TEMP/kmatrix" bash scripts/kernel_matrix_vm.sh
+
+      # Upload the per-run directories and the machine-readable summaries, but
+      # not the cached kernel images (hundreds of MB, and identical every run).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: kernel-matrix-logs
+          path: |
+            ${{ runner.temp }}/kmatrix/*/
+            !${{ runner.temp }}/kmatrix/kernels/
+          retention-days: 14
+
+  # The acceptance test: A <-> B reloads under concurrent enforcement load,
+  # plus crash-during-reload. Any impossible observation fails the job.
+  stress:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
+    runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install dependencies
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            sudo -n apt-get update || sudo apt-get update
+            sudo apt-get install -y clang llvm libbpf-dev libsystemd-dev pkg-config \
+              cmake ninja-build python3 linux-tools-common || true
+          fi
+
+      - name: Build with BPF
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build
+
+      - name: Prepare a clean environment
+        run: |
+          if pgrep -x aegisbpf >/dev/null; then
+            echo "::error::another aegisbpf is running on this runner; refusing to test"
+            exit 1
+          fi
+          sudo rm -rf /sys/fs/bpf/aegisbpf
+          sudo rm -f /var/lib/aegisbpf/policy.applied* /var/lib/aegisbpf/deny.db \
+                     /var/lib/aegisbpf/runtime_rules.db /var/lib/aegisbpf/runtime_rules.migrated \
+                     /var/lib/aegisbpf/runtime_rules.quarantine
+          grep -qw bpf /sys/kernel/security/lsm || {
+            echo "::error::BPF-LSM not enabled on this runner"; exit 1; }
+
+      - name: Start agent
+        run: |
+          sudo sh -c './build/aegisbpf run --enforce --enforce-signal=none \
+            --allow-unsigned-bpf --log-level=info > /tmp/aegis-stress-daemon.log 2>&1' &
+          for _ in $(seq 1 60); do
+            grep -q "Agent started" /tmp/aegis-stress-daemon.log && exit 0
+            sleep 0.5
+          done
+          echo "::error::agent did not reach ENFORCE"; tail -30 /tmp/aegis-stress-daemon.log; exit 1
+
+      # Short on PRs, long on the nightly schedule: the stress test finds races
+      # by running long enough to hit them, but a 5-minute PR gate is not
+      # something people will tolerate.
+      - name: Swap stress
+        env:
+          DURATION: ${{ github.event_name == 'schedule' && '300' || (github.event.inputs.duration || '45') }}
+          WORKERS: ${{ github.event_name == 'schedule' && '12' || '6' }}
+        run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_stress.sh
+
+      - name: Crash during reload
+        env:
+          ROUNDS: ${{ github.event_name == 'schedule' && '200' || '40' }}
+        run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_crash.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          sudo bpftool map dump name active_slot 2>&1 | sudo tee /tmp/aegis-swap/active_slot.json >/dev/null || true
+          sudo bpftool map dump name slot_generation 2>&1 | sudo tee /tmp/aegis-swap/slot_generation.json >/dev/null || true
+          # sudo, and no 2>/dev/null: the daemon log is written by a root shell
+          # and the workdir is root-owned, so an unprivileged copy fails -- and
+          # the '|| true' would hide that, leaving the failure artifact without
+          # the one log that explains the failure.
+          sudo cp /tmp/aegis-stress-daemon.log /tmp/aegis-swap/ || \
+            echo '::warning::could not collect the daemon log'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: atomic-swap-stress-logs
+          path: /tmp/aegis-swap/
+          retention-days: 14
+
+      # Deterministic cleanup: the next job on this runner must not inherit
+      # a live agent or a populated pin directory.
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo pkill -9 -x aegisbpf || true
+          sleep 2
+          sudo rm -rf /sys/fs/bpf/aegisbpf /tmp/aegis-swap
+          sudo rm -f /var/lib/aegisbpf/policy.applied* /var/lib/aegisbpf/deny.db \
+                     /var/lib/aegisbpf/runtime_rules.db /var/lib/aegisbpf/runtime_rules.migrated \
+                     /var/lib/aegisbpf/runtime_rules.quarantine
+          # sudo: the stress script runs as root, so these are root-owned, and
+          # /tmp is sticky -- an unprivileged unlink fails with EPERM. rm -f
+          # hides "no such file", not "operation not permitted", so without
+          # sudo this step exits 1 and fails a job whose tests all passed.
+          sudo rm -f /tmp/aegis_always /tmp/aegis_onlyA /tmp/aegis_onlyB

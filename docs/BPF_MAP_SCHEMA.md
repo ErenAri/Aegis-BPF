@@ -51,7 +51,7 @@ struct process_info {
 
 ## Allowlists
 
-### `allow_cgroup_map`
+### `allow_cgroup_map_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -63,10 +63,15 @@ struct process_info {
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by `block allow add/del` CLI commands |
 
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
+
 Cgroup-based allowlist. Processes in allowed cgroups bypass all deny rules.
 The agent auto-adds its own cgroup on startup.
 
-### `allow_exec_inode_map`
+### `allow_exec_inode_map_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -77,6 +82,11 @@ The agent auto-adds its own cgroup on startup.
 | Pin path       | `/sys/fs/bpf/aegisbpf/allow_exec_inode` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by exec-identity policy |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Inode-based allowlist for verified execution. Binaries whose (dev, ino) pair
 is in this map are marked as `verified_exec=1` in the process cache.
@@ -90,7 +100,7 @@ struct inode_id {
 };
 ```
 
-### `trusted_exec_hash`
+### `trusted_exec_hash_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -101,6 +111,11 @@ struct inode_id {
 | Pin path       | `/sys/fs/bpf/aegisbpf/trusted_exec_hash` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Populated by userspace from policy when `EXEC_IDENTITY_FLAG_USE_IMA_HASH` is set |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 SHA-256 hashes of trusted (allowed) binaries for IMA-based hash verification
 on kernel 6.1+. The BPF program calls `bpf_ima_file_hash()` to compute the
@@ -149,22 +164,33 @@ agent itself.
 
 ## File Deny Rules
 
-### `deny_inode_map`
+### `deny_inode_outer`
 
 | Property       | Value |
 |----------------|-------|
-| Type           | `BPF_MAP_TYPE_HASH` |
-| Key            | `struct inode_id` (16 bytes) |
-| Value          | `__u8` (rule flags) |
-| Max entries    | 65,536 |
+| Type           | `BPF_MAP_TYPE_ARRAY_OF_MAPS` |
+| Key            | `__u32` (slot index, 0 or 1) |
+| Value          | inner map (`struct deny_inode_inner`) |
+| Max entries    | 2 (slots) |
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_inode` |
-| Access         | BPF: read; Userspace: read/write |
-| Lifecycle      | Managed by policy apply / block add/del |
+| Access         | BPF: read via `policy_inner()`; Userspace: read/write |
+| Lifecycle      | Outer map persists; inner maps are replaced per policy apply |
 
-Primary file access control map. Lookup is O(1) per file_open/inode_permission.
-Value flags: `RULE_FLAG_DENY_ALWAYS=1`, `RULE_FLAG_PROTECT_VERIFIED_EXEC=2`.
+Slotted deny-inode policy map. The outer map holds **no policy entries** — those
+live in the inner map named by [`active_slot`](#active_slot). Inner maps are
+`BPF_MAP_TYPE_HASH` keyed by `struct inode_id` with a `__u8` rule-flag value,
+matching the `deny_inode_inner` template.
 
-### `deny_path_map`
+Userspace builds a complete new inner map, right-sized to the rule count rather
+than preallocated at the template maximum, installs it into the inactive slot,
+and then flips `active_slot`. The old inner map is released and RCU-freed. A
+failed apply never flips, so the previous generation stays live and enforcing.
+
+BPF hooks read the slot once per invocation via `policy_active_slot()` and
+resolve the inner map with `policy_inner(&deny_inode_outer, slot)`; a NULL inner
+map is treated exactly as an empty map.
+
+### `deny_path_map_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -186,7 +212,7 @@ struct path_key {
 };
 ```
 
-### `deny_comm_map`
+### `deny_comm_map_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -197,6 +223,11 @@ struct path_key {
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_comm` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by policy apply (shadow map swap) |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Process comm-name deny list. Checked in `bprm_check_security` by extracting
 the basename from `bprm->filename` and looking it up in this map. Entries are
@@ -213,7 +244,7 @@ struct deny_comm_key {
 
 ## Network Deny Rules
 
-### `deny_ipv4`
+### `deny_ipv4_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -225,9 +256,14 @@ struct deny_comm_key {
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
 
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
+
 Exact IPv4 address deny list for socket_connect, socket_accept, socket_sendmsg.
 
-### `deny_ipv6`
+### `deny_ipv6_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -239,6 +275,11 @@ Exact IPv4 address deny list for socket_connect, socket_accept, socket_sendmsg.
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
 
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
+
 Exact IPv6 address deny list.
 
 **Key struct:**
@@ -248,7 +289,7 @@ struct ipv6_key {
 };
 ```
 
-### `deny_port`
+### `deny_port_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -271,7 +312,7 @@ struct port_key {
 };
 ```
 
-### `deny_ip_port_v4`
+### `deny_ip_port_v4_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -282,6 +323,11 @@ struct port_key {
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_ip_port_v4` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Combined IPv4 address + port deny rules for precise endpoint blocking.
 
@@ -295,7 +341,7 @@ struct ip_port_key_v4 {
 };
 ```
 
-### `deny_ip_port_v6`
+### `deny_ip_port_v6_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -319,7 +365,7 @@ struct ip_port_key_v6 {
 };
 ```
 
-### `deny_cidr_v4`
+### `deny_cidr_v4_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -332,6 +378,11 @@ struct ip_port_key_v6 {
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
 
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
+
 CIDR-based IPv4 deny rules using longest-prefix-match trie. Efficient for
 subnet-level blocking (e.g., `10.0.0.0/8`).
 
@@ -343,7 +394,7 @@ struct ipv4_lpm_key {
 };
 ```
 
-### `deny_cidr_v6`
+### `deny_cidr_v6_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -355,6 +406,11 @@ struct ipv4_lpm_key {
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_cidr_v6` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 CIDR-based IPv6 deny rules using longest-prefix-match trie.
 
@@ -375,7 +431,7 @@ cgroup ID with the resource being denied (inode, IPv4 address, or port), so
 the same binary or network endpoint can be allowed for one workload and
 denied for another.
 
-### `deny_cgroup_inode`
+### `deny_cgroup_inode_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -386,6 +442,11 @@ denied for another.
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_inode` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by policy apply / block add/del |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Per-cgroup file inode deny rules. Hooked alongside `deny_inode_map` so that
 deny scope can be narrowed to a single workload.
@@ -398,7 +459,7 @@ struct cgroup_inode_key {
 };
 ```
 
-### `deny_cgroup_ipv4`
+### `deny_cgroup_ipv4_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -409,6 +470,11 @@ struct cgroup_inode_key {
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_ipv4` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Per-cgroup IPv4 destination deny list. Evaluated alongside the global
 `deny_ipv4` map on socket_connect / socket_sendmsg.
@@ -422,7 +488,7 @@ struct cgroup_ipv4_key {
 };
 ```
 
-### `deny_cgroup_port`
+### `deny_cgroup_port_outer`
 
 | Property       | Value |
 |----------------|-------|
@@ -433,6 +499,11 @@ struct cgroup_ipv4_key {
 | Pin path       | `/sys/fs/bpf/aegisbpf/deny_cgroup_port` |
 | Access         | BPF: read; Userspace: read/write |
 | Lifecycle      | Managed by network deny add/del or policy |
+
+Slotted policy map: the outer array holds two slots and no rules. The live
+generation's rules are in the inner map named by `active_slot`; hooks read
+that slot once per invocation and resolve with `policy_inner()`. A NULL
+inner map is read exactly as an empty map.
 
 Per-cgroup port deny list with optional protocol and direction filtering.
 Evaluated alongside the global `deny_port` map.
@@ -582,6 +653,29 @@ Per-port block counts.
 ---
 
 ## Agent Configuration
+
+### `active_slot`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_ARRAY` |
+| Key            | `__u32` (always 0) |
+| Value          | `__u32` (live slot index, 0 or 1) |
+| Max entries    | 1 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/active_slot` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Written once per successful policy apply |
+
+Single commit point for atomic policy swaps. Every slotted policy map is an
+`ARRAY_OF_MAPS` with two slots; userspace builds a complete new generation in
+the inactive slot — writes no hook observes, because `active_slot` still names
+the other one — and then writes the new index here. That one `__u32` write is
+the only observable transition, so file, network and cgroup rules all switch
+generations together and a reload can never be seen half-applied.
+
+Replaces the former generation-mismatch scheme, which degraded enforcement to
+audit-only for the duration of every reload. A failed apply simply never writes
+here, leaving the previous generation live and enforcing.
 
 ### `agent_meta_map`
 
@@ -888,13 +982,41 @@ keyed on path for cases where inode resolution is unavailable.
 | Max entries    | 1 |
 | Pin path       | `/sys/fs/bpf/aegisbpf/policy_generation` |
 | Access         | BPF: read; Userspace: read/write |
-| Lifecycle      | Updated after policy shadow→live sync |
+| Lifecycle      | Vestigial; retained for pin compatibility |
 
-Atomic policy commit marker. Userspace bumps `agent_cfg.policy_generation`
-before syncing shadow maps to live, then writes the matching value here after
-all maps are fully synchronized. BPF hooks compare
-`agent_cfg.policy_generation` against the committed value in this map; a
-mismatch forces audit mode to avoid enforcing a half-written ruleset.
+**No longer read by any BPF hook.** This was the commit marker for the older
+scheme: userspace bumped `agent_cfg.policy_generation` before copying entries
+into the live maps and wrote the matching value here afterwards, and hooks
+dropped to audit-only while the two differed. That suspended enforcement for
+the length of every reload.
+
+Policy is now replaced by building a new generation in unreachable inner maps
+and flipping `active_slot` once, so there is no inconsistent interval to guard.
+The map is kept so a pinned instance from an older build still resolves; use
+`slot_generation` for the generation id.
+
+### `slot_generation`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_ARRAY` |
+| Key            | `__u32` (slot index, 0 or 1) |
+| Value          | `__u64` (monotonic generation id) |
+| Max entries    | 2 |
+| Pin path       | `/sys/fs/bpf/aegisbpf/slot_generation` |
+| Access         | BPF: read; Userspace: read/write |
+| Lifecycle      | Stamped on the target slot before each commit |
+
+Generation oracle. Records which generation each slot holds, so a decision can
+be attributed to an exact policy: resolve `active_slot` once, then read this
+map **with that same slot index**, and the id names the generation whose rules
+were consulted. A single global counter could not prove that — it can change
+between the lookups and the read.
+
+Written before `active_slot` flips, so the id is already correct the instant a
+slot goes live. Ids are derived from the highest value already recorded on
+either slot, so they stay monotonic across daemon restarts and are never
+reused.
 
 ### `priority_events`
 

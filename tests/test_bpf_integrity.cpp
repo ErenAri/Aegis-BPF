@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 #include "bpf_ops.hpp"
@@ -13,6 +14,23 @@
 
 namespace aegis {
 namespace {
+
+// Reads a repo source file. ctest runs with cwd=build/, but a developer may
+// run the binary from the repo root, so try both before giving up.
+std::string read_repo_file(const std::string& rel)
+{
+    for (const char* prefix : {"../", ""}) {
+        const std::filesystem::path p = std::string(prefix) + rel;
+        if (std::filesystem::exists(p)) {
+            std::ifstream in(p);
+            std::stringstream ss;
+            ss << in.rdbuf();
+            return ss.str();
+        }
+    }
+    ADD_FAILURE() << "repo file not found from cwd: " << rel;
+    return {};
+}
 
 class TempDir {
   public:
@@ -213,4 +231,19 @@ TEST(BpfIntegrityTest, ParsesRequireHashEnvFlag)
 }
 
 } // namespace
+} // namespace aegis
+
+namespace aegis {
+
+// The atomic policy swap hinges on a single commit point. If active_slot or the
+// slot helpers are dropped or renamed, every slotted map silently loses its
+// indirection, so guard their presence explicitly.
+TEST(BpfIntegrity, DeclaresActiveSlotPolicyMap)
+{
+    const std::string src = read_repo_file("bpf/aegis_common.h");
+    EXPECT_NE(src.find("} active_slot SEC(\".maps\");"), std::string::npos);
+    EXPECT_NE(src.find("policy_active_slot"), std::string::npos);
+    EXPECT_NE(src.find("policy_inner"), std::string::npos);
+}
+
 } // namespace aegis

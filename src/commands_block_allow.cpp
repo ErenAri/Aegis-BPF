@@ -5,6 +5,7 @@
 
 #include "commands_block_allow.hpp"
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <cstdio>
@@ -13,6 +14,7 @@
 
 #include "bpf_ops.hpp"
 #include "logging.hpp"
+#include "policy_slots.hpp"
 #include "tracing.hpp"
 #include "types.hpp"
 #include "utils.hpp"
@@ -65,6 +67,26 @@ int block_file(const std::string& path)
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
         return 1;
+    }
+
+    // Record provenance: this rule was added at runtime, so a later policy
+    // reload must re-install it into the new generation. deny.db cannot answer
+    // that on its own -- it also holds policy-derived rules, which a reload is
+    // supposed to replace.
+    {
+        struct stat st {};
+        if (::stat(validated->c_str(), &st) == 0) {
+            InodeId id{};
+            id.ino = st.st_ino;
+            id.dev = encode_dev(st.st_dev);
+            auto runtime = read_runtime_rules();
+            runtime[id] = *validated;
+            auto rr = write_runtime_rules(runtime);
+            if (!rr) {
+                logger().log(SLOG_WARN("Failed to record runtime deny rule; it will not survive a policy reload")
+                                 .field("error", rr.error().to_string()));
+            }
+        }
     }
 
     auto hints_result = refresh_policy_empty_hints(state);
@@ -129,6 +151,12 @@ int cmd_block_del(const std::string& path)
 
     auto entries = read_deny_db();
     entries.erase(id);
+    {
+        auto runtime = read_runtime_rules();
+        if (runtime.erase(id) > 0) {
+            (void)write_runtime_rules(runtime);
+        }
+    }
     auto write_result = write_deny_db(entries);
     if (!write_result) {
         logger().log(SLOG_ERROR("Failed to write deny database").field("error", write_result.error().to_string()));
@@ -165,7 +193,15 @@ int cmd_block_list()
     auto db = read_deny_db();
     InodeId key{};
     InodeId next_key{};
-    int rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), nullptr, &key);
+    // deny_inode is slotted; iterate the live inner map, resolved once for
+    // this listing. A concurrent flip would retire this fd, which is fine:
+    // the listing is a point-in-time snapshot either way.
+    auto live_inode = live_policy_map(state, state.deny_inode.outer);
+    if (!live_inode) {
+        return 0; // no live policy generation: nothing to list
+    }
+    const int deny_inode_fd = live_inode->fd();
+    int rc = bpf_map_get_next_key(deny_inode_fd, nullptr, &key);
     while (!rc) {
         auto it = db.find(key);
         if (it != db.end() && !it->second.empty()) {
@@ -173,7 +209,7 @@ int cmd_block_list()
         } else {
             std::cout << inode_to_string(key) << '\n';
         }
-        rc = bpf_map_get_next_key(bpf_map__fd(state.deny_inode), &key, &next_key);
+        rc = bpf_map_get_next_key(deny_inode_fd, &key, &next_key);
         key = next_key;
     }
 
@@ -185,14 +221,22 @@ int cmd_block_clear()
     const std::string trace_id = make_span_id("trace-block-clear");
     ScopedSpan span("cli.block_clear", trace_id);
 
-    std::remove(kDenyInodePin);
-    std::remove(kDenyPathPin);
-    std::remove(kAllowCgroupPin);
-    std::remove(kDenyCgroupStatsPin);
-    std::remove(kDenyInodeStatsPin);
-    std::remove(kDenyPathStatsPin);
-    std::remove(kAgentMetaPin);
-    std::remove(kSurvivalAllowlistPin);
+    // Remove every pin, not a hand-maintained subset.
+    //
+    // This used to name eight pins explicitly. The slotted-policy work added
+    // active_slot, slot_generation and policy_generation, which were not on
+    // that list, so they survived the "reset" -- and the reload below then hit
+    // "failed to pin map: File exists" and read active_slot from a closed fd.
+    // The documented recovery from a layout-version mismatch is this command,
+    // so it failing is the one case that must not happen.
+    //
+    // Sweeping the directory keeps that from drifting again: a pin added later
+    // is cleared without anyone remembering to update a list here.
+    std::error_code pin_ec;
+    for (const auto& entry : std::filesystem::directory_iterator(kPinRoot, pin_ec)) {
+        std::error_code rm_ec;
+        std::filesystem::remove(entry.path(), rm_ec);
+    }
     std::filesystem::remove(kDenyDbPath);
     std::filesystem::remove(kPolicyAppliedPath);
     std::filesystem::remove(kPolicyAppliedPrevPath);

@@ -27,6 +27,7 @@
 #include "kernel_features.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "policy_slots.hpp"
 #include "tracing.hpp"
 #include "utils.hpp"
 
@@ -137,6 +138,31 @@ Result<void> reuse_pinned_map(bpf_map* map, const char* path, bool& reused)
     if (fd < 0) {
         return {};
     }
+
+    // A pin left by a different agent version may have an entirely different
+    // layout -- deny_inode, for instance, went from HASH to ARRAY_OF_MAPS.
+    // bpf_map__reuse_fd() does not reject that; it binds happily and the load
+    // then fails deep in the verifier with an opaque type error. Check here so
+    // an in-place upgrade replaces the stale pin instead of failing to start.
+    if (!pinned_map_layout_matches(fd, bpf_map__type(map), bpf_map__key_size(map), bpf_map__value_size(map))) {
+        close(fd);
+        logger().log(SLOG_WARN("Pinned map layout differs from this build; replacing stale pin")
+                         .field("path", path)
+                         .field("expected_type", static_cast<int64_t>(bpf_map__type(map)))
+                         .field("expected_key_size", static_cast<int64_t>(bpf_map__key_size(map)))
+                         .field("expected_value_size", static_cast<int64_t>(bpf_map__value_size(map))));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        if (ec) {
+            return Error(ErrorCode::BpfLoadFailed, "Incompatible pinned map could not be removed",
+                         std::string(path) + ": " + ec.message());
+        }
+        // Not reused: the caller creates and pins a fresh map. Policy content is
+        // re-applied from the policy file, so nothing durable is lost.
+        reused = false;
+        return {};
+    }
+
     int err = bpf_map__reuse_fd(map, fd);
     if (err) {
         close(fd);
@@ -333,12 +359,27 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         ScopedSpan span("bpf.find_maps", trace_id, root_span.span_id());
 
         state.events = bpf_object__find_map_by_name(state.obj, "events");
-        state.deny_inode = bpf_object__find_map_by_name(state.obj, "deny_inode_map");
-        state.deny_path = bpf_object__find_map_by_name(state.obj, "deny_path_map");
-        state.deny_comm = bpf_object__find_map_by_name(state.obj, "deny_comm_map");
-        state.allow_cgroup = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map");
-        state.allow_exec_inode = bpf_object__find_map_by_name(state.obj, "allow_exec_inode_map");
-        state.trusted_exec_hash = bpf_object__find_map_by_name(state.obj, "trusted_exec_hash");
+        state.deny_inode.outer = bpf_object__find_map_by_name(state.obj, "deny_inode_outer");
+        state.active_slot = bpf_object__find_map_by_name(state.obj, "active_slot");
+        // Must happen pre-load: bpf_map__inner_map() stops returning the
+        // template once the object is loaded.
+        state.deny_inode.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_inode);
+        state.deny_path.outer = bpf_object__find_map_by_name(state.obj, "deny_path_map_outer");
+        state.deny_path.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_path);
+        state.deny_comm.outer = bpf_object__find_map_by_name(state.obj, "deny_comm_map_outer");
+        state.deny_comm.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_comm);
+        state.allow_cgroup.outer = bpf_object__find_map_by_name(state.obj, "allow_cgroup_map_outer");
+        state.allow_cgroup.slot_map = state.active_slot;
+        capture_inner_geometry(state.allow_cgroup);
+        state.allow_exec_inode.outer = bpf_object__find_map_by_name(state.obj, "allow_exec_inode_map_outer");
+        state.allow_exec_inode.slot_map = state.active_slot;
+        capture_inner_geometry(state.allow_exec_inode);
+        state.trusted_exec_hash.outer = bpf_object__find_map_by_name(state.obj, "trusted_exec_hash_outer");
+        state.trusted_exec_hash.slot_map = state.active_slot;
+        capture_inner_geometry(state.trusted_exec_hash);
         state.exec_identity_mode = bpf_object__find_map_by_name(state.obj, "exec_identity_mode_map");
         state.block_stats = bpf_object__find_map_by_name(state.obj, "block_stats");
         state.deny_cgroup_stats = bpf_object__find_map_by_name(state.obj, "deny_cgroup_stats");
@@ -353,11 +394,18 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         }
         state.survival_allowlist = bpf_object__find_map_by_name(state.obj, "survival_allowlist");
         state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
+        state.slot_generation = bpf_object__find_map_by_name(state.obj, "slot_generation");
 
         // Cgroup-scoped deny maps
-        state.deny_cgroup_inode = bpf_object__find_map_by_name(state.obj, "deny_cgroup_inode");
-        state.deny_cgroup_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_cgroup_ipv4");
-        state.deny_cgroup_port = bpf_object__find_map_by_name(state.obj, "deny_cgroup_port");
+        state.deny_cgroup_inode.outer = bpf_object__find_map_by_name(state.obj, "deny_cgroup_inode_outer");
+        state.deny_cgroup_inode.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_cgroup_inode);
+        state.deny_cgroup_ipv4.outer = bpf_object__find_map_by_name(state.obj, "deny_cgroup_ipv4_outer");
+        state.deny_cgroup_ipv4.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_cgroup_ipv4);
+        state.deny_cgroup_port.outer = bpf_object__find_map_by_name(state.obj, "deny_cgroup_port_outer");
+        state.deny_cgroup_port.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_cgroup_port);
 
         // Diagnostics and process cache maps (optional)
         state.diagnostics = bpf_object__find_map_by_name(state.obj, "diagnostics");
@@ -370,18 +418,33 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
         state.priority_events = bpf_object__find_map_by_name(state.obj, "priority_events");
 
         // Network maps (optional)
-        state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
-        state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
-        state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
-        state.deny_ip_port_v4 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4");
-        state.deny_ip_port_v6 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6");
-        state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
-        state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
+        state.deny_ipv4.outer = bpf_object__find_map_by_name(state.obj, "deny_ipv4_outer");
+        state.deny_ipv4.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_ipv4);
+        state.deny_ipv6.outer = bpf_object__find_map_by_name(state.obj, "deny_ipv6_outer");
+        state.deny_ipv6.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_ipv6);
+        state.deny_port.outer = bpf_object__find_map_by_name(state.obj, "deny_port_outer");
+        state.deny_port.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_port);
+        state.deny_ip_port_v4.outer = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4_outer");
+        state.deny_ip_port_v4.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_ip_port_v4);
+        state.deny_ip_port_v6.outer = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6_outer");
+        state.deny_ip_port_v6.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_ip_port_v6);
+        state.deny_cidr_v4.outer = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4_outer");
+        state.deny_cidr_v4.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_cidr_v4);
+        state.deny_cidr_v6.outer = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6_outer");
+        state.deny_cidr_v6.slot_map = state.active_slot;
+        capture_inner_geometry(state.deny_cidr_v6);
         state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
         state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
         state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
         state.backpressure = bpf_object__find_map_by_name(state.obj, "backpressure");
         state.policy_generation_map = bpf_object__find_map_by_name(state.obj, "policy_generation");
+        state.slot_generation = bpf_object__find_map_by_name(state.obj, "slot_generation");
 
         if (!state.events || !state.deny_inode || !state.deny_path || !state.allow_cgroup || !state.block_stats ||
             !state.deny_cgroup_stats || !state.deny_inode_stats || !state.deny_path_stats || !state.agent_meta ||
@@ -421,30 +484,22 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
     // Configure map sizes if overridden at runtime
     {
         ScopedSpan span("bpf.configure_map_sizes", trace_id, root_span.span_id());
-        auto try_set_max = [&](bpf_map* map, uint32_t max_entries, const char* name) -> Result<void> {
-            if (max_entries > 0 && map) {
-                int err = bpf_map__set_max_entries(map, max_entries);
-                if (err) {
-                    cleanup_bpf(state);
-                    return Error::bpf_error(err, std::string("Failed to set max entries for ") + name);
-                }
-                logger().log(SLOG_INFO("Configured map size")
-                                 .field("map", name)
-                                 .field("max_entries", static_cast<int64_t>(max_entries)));
+        auto try_set_max = [&](SlottedMap& map, uint32_t max_entries, const char* name) -> Result<void> {
+            auto r = set_slotted_inner_max_entries(map, max_entries, name);
+            if (!r) {
+                cleanup_bpf(state);
             }
-            return {};
+            return r;
         };
 
         uint32_t max_inodes = g_max_deny_inodes.load(std::memory_order_relaxed);
         uint32_t max_paths = g_max_deny_paths.load(std::memory_order_relaxed);
         uint32_t max_net = g_max_network_entries.load(std::memory_order_relaxed);
 
-        auto r = try_set_max(state.deny_inode, max_inodes, "deny_inode");
-        if (!r) {
-            span.fail(r.error().to_string());
-            return fail(r.error());
-        }
-        r = try_set_max(state.allow_exec_inode, max_inodes, "allow_exec_inode");
+        // deny_inode is slotted: its outer map has exactly two slots and the
+        // inner maps are right-sized per reload, so there is no max_entries to
+        // tune here. max_inodes is applied when the inner map is built.
+        auto r = try_set_max(state.allow_exec_inode, max_inodes, "allow_exec_inode");
         if (!r) {
             span.fail(r.error().to_string());
             return fail(r.error());
@@ -484,7 +539,8 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
     if (reuse_pins) {
         ScopedSpan span("bpf.reuse_pinned_maps", trace_id, root_span.span_id());
 
-        auto try_reuse = [&state](bpf_map* map, const char* path, bool& reused) -> Result<void> {
+        auto try_reuse = [&state](auto&& slotted_or_map, const char* path, bool& reused) -> Result<void> {
+            bpf_map* map = outer_of(slotted_or_map);
             auto result = reuse_pinned_map(map, path, reused);
             if (!result) {
                 cleanup_bpf(state);
@@ -492,7 +548,8 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             }
             return {};
         };
-        auto try_reuse_optional = [](bpf_map* map, const char* path, bool& reused) -> Result<void> {
+        auto try_reuse_optional = [](auto&& slotted_or_map, const char* path, bool& reused) -> Result<void> {
+            bpf_map* map = outer_of(slotted_or_map);
             if (!map) {
                 return {};
             }
@@ -523,7 +580,10 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             return fail(result.error());
         };
 
-        TRY(check(try_reuse(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_reuse(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_reuse_optional(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
+        // Pinned so generation ids stay monotonic across daemon restarts.
+        TRY(check(try_reuse_optional(state.slot_generation, kSlotGenerationPin, state.slot_generation_reused)));
         TRY(check(try_reuse(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         // deny_comm (comm-based exec deny) must be pinned/reused like the other deny
         // maps so a separate `policy apply` process and the running daemon share ONE
@@ -724,9 +784,9 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             return fail(pin_result.error());
         }
 
-        auto try_pin = [&state](bpf_map* map, const char* path, bool reused) -> Result<void> {
+        auto try_pin = [&state](auto&& slotted_or_map, const char* path, bool reused) -> Result<void> {
             if (!reused) {
-                auto result = pin_map(map, path);
+                auto result = pin_map(outer_of(slotted_or_map), path);
                 if (!result) {
                     cleanup_bpf(state);
                     return result.error();
@@ -743,7 +803,13 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             return fail(result.error());
         };
 
-        TRY(check(try_pin(state.deny_inode, kDenyInodePin, state.inode_reused)));
+        TRY(check(try_pin(state.deny_inode.outer, kDenyInodePin, state.inode_reused)));
+        if (state.active_slot) {
+            TRY(check(try_pin(state.active_slot, kActiveSlotPin, state.active_slot_reused)));
+        }
+        if (state.slot_generation) {
+            TRY(check(try_pin(state.slot_generation, kSlotGenerationPin, state.slot_generation_reused)));
+        }
         TRY(check(try_pin(state.deny_path, kDenyPathPin, state.deny_path_reused)));
         if (state.deny_comm) {
             TRY(check(try_pin(state.deny_comm, kDenyCommPin, state.deny_comm_reused)));
@@ -810,6 +876,20 @@ static Result<void> load_bpf_once(bool reuse_pins, bool attach_links, BpfState& 
             if (state.deny_cgroup_port) {
                 try_pin(state.deny_cgroup_port, kDenyCgroupPortPin, dummy);
             }
+        }
+    }
+
+    // Install an empty generation so the slotted maps are writable before the
+    // first policy apply -- the agent's own cgroup allowlist is set up before
+    // any policy exists. A reused pin that already has a populated slot keeps
+    // its generation, which is how policy survives a daemon restart.
+    {
+        ScopedSpan span("bpf.bootstrap_policy_slots", trace_id, root_span.span_id());
+        auto boot = bootstrap_policy_slots(state);
+        if (!boot) {
+            span.fail(boot.error().to_string());
+            cleanup_bpf(state);
+            return fail(boot.error());
         }
     }
 
@@ -1242,9 +1322,18 @@ Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf
     return out;
 }
 
-Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map)
+Result<std::vector<uint64_t>> read_allow_cgroup_ids(const SlottedMap& m)
 {
-    int fd = bpf_map__fd(map);
+    // Reads the live generation's inner map. An unresolved slot means no
+    // policy has been installed yet, i.e. an empty allowlist.
+    if (m.live_fd() < 0) {
+        return std::vector<uint64_t>{};
+    }
+    return read_allow_cgroup_ids_from_fd(m.live_fd());
+}
+
+Result<std::vector<uint64_t>> read_allow_cgroup_ids_from_fd(int fd)
+{
     uint64_t key = 0;
     uint64_t next_key = 0;
     std::vector<uint64_t> out;
@@ -1284,21 +1373,75 @@ Result<bool> check_prereqs()
     return kernel_bpf_lsm_enabled();
 }
 
+void capture_inner_geometry(SlottedMap& m)
+{
+    if (!m.outer) {
+        return;
+    }
+    const struct bpf_map* inner = bpf_map__inner_map(m.outer);
+    if (!inner) {
+        return;
+    }
+    m.inner_type = bpf_map__type(inner);
+    m.inner_key_size = bpf_map__key_size(inner);
+    m.inner_value_size = bpf_map__value_size(inner);
+    m.inner_max_entries = bpf_map__max_entries(inner);
+    m.inner_flags = bpf_map__map_flags(inner);
+}
+
+Result<void> pin_map(const SlottedMap& m, const char* path)
+{
+    return pin_map(m.outer, path);
+}
+
+Result<void> reuse_pinned_map(const SlottedMap& m, const char* path, bool& reused)
+{
+    return reuse_pinned_map(m.outer, path, reused);
+}
+
+Result<void> set_slotted_inner_max_entries(SlottedMap& m, uint32_t max_entries, const char* name)
+{
+    if (max_entries == 0 || !m.outer) {
+        return {};
+    }
+    // Pre-load the template is still reachable; after load it is not, which is
+    // why the size is also recorded on the SlottedMap for create_inner_map().
+    if (bpf_map* inner = bpf_map__inner_map(m.outer)) {
+        int err = bpf_map__set_max_entries(inner, max_entries);
+        if (err) {
+            return Error::bpf_error(err, std::string("Failed to set inner max entries for ") + name);
+        }
+    }
+    m.inner_max_entries = max_entries;
+    logger().log(SLOG_INFO("Configured slotted map inner size")
+                     .field("map", name)
+                     .field("max_entries", static_cast<int64_t>(max_entries)));
+    return {};
+}
+
 Result<void> add_deny_inode(BpfState& state, const InodeId& id, DenyEntries& entries)
 {
-    return add_rule_inode_to_fd(bpf_map__fd(state.deny_inode), id, kRuleFlagDenyAlways, entries);
+    // Resolve per operation: the handle is valid only until the next flip.
+    auto live = live_policy_map(state, state.deny_inode.outer);
+    if (!live) {
+        return live.error();
+    }
+    return add_rule_inode_to_fd(live->fd(), id, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_deny_path(BpfState& state, const std::string& path, DenyEntries& entries)
 {
-    return add_rule_path_to_fds(bpf_map__fd(state.deny_inode), bpf_map__fd(state.deny_path), path, kRuleFlagDenyAlways,
-                                entries);
+    auto live = live_policy_map(state, state.deny_inode.outer);
+    if (!live) {
+        return live.error();
+    }
+    return add_rule_path_to_fds(live->fd(), state.deny_path.live_fd(), path, kRuleFlagDenyAlways, entries);
 }
 
 Result<void> add_allow_cgroup(BpfState& state, uint64_t cgid)
 {
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.allow_cgroup.live_fd(), &cgid, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update allow_cgroup_map");
     }
     return {};
@@ -1319,7 +1462,7 @@ Result<void> add_allow_exec_inode(BpfState& state, const InodeId& id)
         return Error(ErrorCode::BpfMapOperationFailed, "allow_exec_inode map not found");
     }
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.allow_exec_inode), &id, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.allow_exec_inode.live_fd(), &id, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update allow_exec_inode_map");
     }
     return {};

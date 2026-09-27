@@ -231,6 +231,12 @@ jobs:
         run: |
           find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror
 
+      # constParameterCallback is suppressed for the same reason as
+      # constParameterReference below it: the daemon's test-hook seams
+      # (LoadBpfFn, EnsureLayoutVersionFn, SetupAgentCgroupFn, ...) deliberately
+      # share one shape, Result<void>(*)(BpfState&, ...). Constifying whichever
+      # of them happens not to mutate state today would split that family and
+      # have to be reverted the moment an implementation does.
       - name: Run cppcheck
         run: |
           cppcheck --std=c++20 --enable=all --error-exitcode=1 --inline-suppr \
@@ -249,9 +255,11 @@ jobs:
             --suppress=syntaxError:tests/test_bpf_link_pin.cpp \
             --suppress=syntaxError:tests/test_posture_gate.cpp \
             --suppress=syntaxError:tests/test_socket_api.cpp \
+            --suppress=syntaxError:tests/test_policy_slots.cpp \
             --suppress=syntaxError:tests/bpf/test_bpf_prog_run.cpp \
             --suppress=useStlAlgorithm \
             --suppress=constParameterReference \
+            --suppress=constParameterCallback \
             --suppress=constVariablePointer \
             --suppress=knownConditionTrueFalse \
             --suppress=unusedFunction \

@@ -309,13 +309,27 @@ std::string_view direction_name(uint8_t direction) noexcept
 Result<void> load_network_maps(BpfState& state, bool reuse_pins)
 {
     // Find network maps in the BPF object
-    state.deny_ipv4 = bpf_object__find_map_by_name(state.obj, "deny_ipv4");
-    state.deny_ipv6 = bpf_object__find_map_by_name(state.obj, "deny_ipv6");
-    state.deny_port = bpf_object__find_map_by_name(state.obj, "deny_port");
-    state.deny_ip_port_v4 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4");
-    state.deny_ip_port_v6 = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6");
-    state.deny_cidr_v4 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4");
-    state.deny_cidr_v6 = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6");
+    state.deny_ipv4.outer = bpf_object__find_map_by_name(state.obj, "deny_ipv4_outer");
+    state.deny_ipv4.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_ipv4);
+    state.deny_ipv6.outer = bpf_object__find_map_by_name(state.obj, "deny_ipv6_outer");
+    state.deny_ipv6.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_ipv6);
+    state.deny_port.outer = bpf_object__find_map_by_name(state.obj, "deny_port_outer");
+    state.deny_port.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_port);
+    state.deny_ip_port_v4.outer = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v4_outer");
+    state.deny_ip_port_v4.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_ip_port_v4);
+    state.deny_ip_port_v6.outer = bpf_object__find_map_by_name(state.obj, "deny_ip_port_v6_outer");
+    state.deny_ip_port_v6.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_ip_port_v6);
+    state.deny_cidr_v4.outer = bpf_object__find_map_by_name(state.obj, "deny_cidr_v4_outer");
+    state.deny_cidr_v4.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_cidr_v4);
+    state.deny_cidr_v6.outer = bpf_object__find_map_by_name(state.obj, "deny_cidr_v6_outer");
+    state.deny_cidr_v6.slot_map = state.active_slot;
+    capture_inner_geometry(state.deny_cidr_v6);
     state.net_block_stats = bpf_object__find_map_by_name(state.obj, "net_block_stats");
     state.net_ip_stats = bpf_object__find_map_by_name(state.obj, "net_ip_stats");
     state.net_port_stats = bpf_object__find_map_by_name(state.obj, "net_port_stats");
@@ -327,7 +341,8 @@ Result<void> load_network_maps(BpfState& state, bool reuse_pins)
     }
 
     if (reuse_pins) {
-        auto try_reuse_optional = [](bpf_map* map, const char* path, bool& reused) -> Result<void> {
+        auto try_reuse_optional = [](auto&& slotted_or_map, const char* path, bool& reused) -> Result<void> {
+            bpf_map* map = outer_of(slotted_or_map);
             if (!map) {
                 return {};
             }
@@ -498,7 +513,7 @@ Result<void> add_deny_ipv4_raw(BpfState& state, uint32_t ip_be)
     }
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_ipv4), &ip_be, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_ipv4.live_fd(), &ip_be, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_ipv4 map");
     }
     return {};
@@ -515,7 +530,7 @@ Result<void> del_deny_ipv4(BpfState& state, const std::string& ip)
         return Error(ErrorCode::InvalidArgument, "Invalid IPv4 address", ip);
     }
 
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_ipv4), &ip_be)) {
+    if (bpf_map_delete_elem(state.deny_ipv4.live_fd(), &ip_be)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "IP not in deny list", ip);
         }
@@ -531,7 +546,7 @@ Result<std::vector<uint32_t>> list_deny_ipv4(BpfState& state)
     }
 
     std::vector<uint32_t> ips;
-    int fd = bpf_map__fd(state.deny_ipv4);
+    int fd = state.deny_ipv4.live_fd();
     uint32_t key = 0;
     uint32_t next_key = 0;
 
@@ -560,7 +575,7 @@ Result<void> add_deny_ipv6_raw(BpfState& state, const Ipv6Key& key)
     }
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_ipv6), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_ipv6.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_ipv6 map");
     }
     return {};
@@ -577,7 +592,7 @@ Result<void> del_deny_ipv6(BpfState& state, const std::string& ip)
         return Error(ErrorCode::InvalidArgument, "Invalid IPv6 address", ip);
     }
 
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_ipv6), &key)) {
+    if (bpf_map_delete_elem(state.deny_ipv6.live_fd(), &key)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "IP not in deny list", ip);
         }
@@ -593,7 +608,7 @@ Result<std::vector<Ipv6Key>> list_deny_ipv6(BpfState& state)
     }
 
     std::vector<Ipv6Key> ips;
-    int fd = bpf_map__fd(state.deny_ipv6);
+    int fd = state.deny_ipv6.live_fd();
     Ipv6Key key{};
     Ipv6Key next_key{};
 
@@ -649,7 +664,7 @@ Result<void> add_deny_cidr_v4(BpfState& state, const std::string& cidr)
     Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ip_be};
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_cidr_v4), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_cidr_v4.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_cidr_v4 map");
     }
     return {};
@@ -669,7 +684,7 @@ Result<void> del_deny_cidr_v4(BpfState& state, const std::string& cidr)
 
     Ipv4LpmKey key = {.prefixlen = prefix_len, .addr = ip_be};
 
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_cidr_v4), &key)) {
+    if (bpf_map_delete_elem(state.deny_cidr_v4.live_fd(), &key)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "CIDR not in deny list", cidr);
         }
@@ -685,7 +700,7 @@ Result<std::vector<std::pair<uint32_t, uint8_t>>> list_deny_cidr_v4(BpfState& st
     }
 
     std::vector<std::pair<uint32_t, uint8_t>> cidrs;
-    int fd = bpf_map__fd(state.deny_cidr_v4);
+    int fd = state.deny_cidr_v4.live_fd();
     Ipv4LpmKey key{};
     Ipv4LpmKey next_key{};
 
@@ -714,7 +729,7 @@ Result<void> add_deny_cidr_v6(BpfState& state, const std::string& cidr)
     std::memcpy(key.addr, ip.addr, sizeof(key.addr));
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_cidr_v6), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_cidr_v6.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_cidr_v6 map");
     }
     return {};
@@ -735,7 +750,7 @@ Result<void> del_deny_cidr_v6(BpfState& state, const std::string& cidr)
     Ipv6LpmKey key = {.prefixlen = prefix_len, .addr = {0}};
     std::memcpy(key.addr, ip.addr, sizeof(key.addr));
 
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_cidr_v6), &key)) {
+    if (bpf_map_delete_elem(state.deny_cidr_v6.live_fd(), &key)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "CIDR not in deny list", cidr);
         }
@@ -751,7 +766,7 @@ Result<std::vector<std::pair<Ipv6Key, uint8_t>>> list_deny_cidr_v6(BpfState& sta
     }
 
     std::vector<std::pair<Ipv6Key, uint8_t>> cidrs;
-    int fd = bpf_map__fd(state.deny_cidr_v6);
+    int fd = state.deny_cidr_v6.live_fd();
     Ipv6LpmKey key{};
     Ipv6LpmKey next_key{};
 
@@ -805,7 +820,7 @@ Result<void> add_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uin
     PortKey key = {.port = port, .protocol = protocol, .direction = direction};
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_port), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_port.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_port map");
     }
     return {};
@@ -819,7 +834,7 @@ Result<void> del_deny_port(BpfState& state, uint16_t port, uint8_t protocol, uin
 
     PortKey key = {.port = port, .protocol = protocol, .direction = direction};
 
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_port), &key)) {
+    if (bpf_map_delete_elem(state.deny_port.live_fd(), &key)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "Port rule not in deny list");
         }
@@ -835,7 +850,7 @@ Result<std::vector<PortKey>> list_deny_ports(BpfState& state)
     }
 
     std::vector<PortKey> ports;
-    int fd = bpf_map__fd(state.deny_port);
+    int fd = state.deny_port.live_fd();
     PortKey key{};
     PortKey next_key{};
 
@@ -857,7 +872,7 @@ Result<void> add_deny_ip_port_v4_raw(BpfState& state, const IpPortV4Key& key)
     }
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_ip_port_v4), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_ip_port_v4.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_ip_port_v4 map");
     }
     return {};
@@ -870,7 +885,7 @@ Result<void> add_deny_ip_port_v6_raw(BpfState& state, const IpPortV6Key& key)
     }
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.deny_ip_port_v6), &key, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.deny_ip_port_v6.live_fd(), &key, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update deny_ip_port_v6 map");
     }
     return {};
@@ -919,7 +934,7 @@ Result<void> del_deny_ip_port(BpfState& state, const IpPortRule& rule)
         std::memcpy(key.addr, ipv6.addr, sizeof(key.addr));
         key.port = rule.port;
         key.protocol = rule.protocol;
-        if (bpf_map_delete_elem(bpf_map__fd(state.deny_ip_port_v6), &key)) {
+        if (bpf_map_delete_elem(state.deny_ip_port_v6.live_fd(), &key)) {
             if (errno == ENOENT) {
                 return Error(ErrorCode::ResourceNotFound, "IP:port rule not in deny list", format_ip_port_rule(rule));
             }
@@ -935,7 +950,7 @@ Result<void> del_deny_ip_port(BpfState& state, const IpPortRule& rule)
     key.addr = ipv4_be;
     key.port = rule.port;
     key.protocol = rule.protocol;
-    if (bpf_map_delete_elem(bpf_map__fd(state.deny_ip_port_v4), &key)) {
+    if (bpf_map_delete_elem(state.deny_ip_port_v4.live_fd(), &key)) {
         if (errno == ENOENT) {
             return Error(ErrorCode::ResourceNotFound, "IP:port rule not in deny list", format_ip_port_rule(rule));
         }
@@ -951,7 +966,7 @@ Result<std::vector<IpPortV4Key>> list_deny_ip_port_v4(BpfState& state)
     }
 
     std::vector<IpPortV4Key> rules;
-    int fd = bpf_map__fd(state.deny_ip_port_v4);
+    int fd = state.deny_ip_port_v4.live_fd();
     IpPortV4Key key{};
     IpPortV4Key next_key{};
 
@@ -971,7 +986,7 @@ Result<std::vector<IpPortV6Key>> list_deny_ip_port_v6(BpfState& state)
     }
 
     std::vector<IpPortV6Key> rules;
-    int fd = bpf_map__fd(state.deny_ip_port_v6);
+    int fd = state.deny_ip_port_v6.live_fd();
     IpPortV6Key key{};
     IpPortV6Key next_key{};
 

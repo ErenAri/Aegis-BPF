@@ -22,6 +22,7 @@
 #include "json_scan.hpp"
 #include "logging.hpp"
 #include "network_ops.hpp"
+#include "policy_slots.hpp"
 #include "tracing.hpp"
 #include "ttl_registry.hpp"
 #include "types.hpp"
@@ -95,18 +96,17 @@ void append_metric_sample(std::ostringstream& oss, const std::string& name,
     oss << " " << std::fixed << std::setprecision(6) << value << "\n";
 }
 
-size_t safe_map_entry_count(bpf_map* map)
+size_t safe_map_entry_count(const SlottedMap& m)
 {
-    return map ? map_entry_count(map) : 0;
+    return m ? map_entry_count(m) : 0;
 }
 
-double calculate_map_utilization(bpf_map* map, uint64_t max_entries)
+double calculate_map_utilization(const SlottedMap& m, uint64_t max_entries)
 {
-    if (!map || max_entries == 0) {
+    if (!m || max_entries == 0) {
         return 0.0;
     }
-    uint64_t current = map_entry_count(map);
-    return static_cast<double>(current) / static_cast<double>(max_entries);
+    return static_cast<double>(map_entry_count(m)) / static_cast<double>(max_entries);
 }
 
 std::string env_path_or_default(const char* env_name, const char* fallback)
@@ -528,7 +528,8 @@ Result<std::string> build_metrics_report(BpfState& state, bool detailed)
     }
 
     append_metric_header(oss, "aegisbpf_deny_inode_entries", "gauge", "Number of deny inode entries");
-    append_metric_sample(oss, "aegisbpf_deny_inode_entries", safe_map_entry_count(state.deny_inode));
+    const auto deny_inode_live = live_policy_stats(state, state.deny_inode);
+    append_metric_sample(oss, "aegisbpf_deny_inode_entries", static_cast<double>(deny_inode_live.entries));
     append_metric_header(oss, "aegisbpf_deny_path_entries", "gauge", "Number of deny path entries");
     append_metric_sample(oss, "aegisbpf_deny_path_entries", safe_map_entry_count(state.deny_path));
     append_metric_header(oss, "aegisbpf_allow_cgroup_entries", "gauge", "Number of allow cgroup entries");
@@ -549,7 +550,10 @@ Result<std::string> build_metrics_report(BpfState& state, bool detailed)
     append_metric_sample(oss, "aegisbpf_net_rules_total", {{"type", "port"}}, safe_map_entry_count(state.deny_port));
 
     append_metric_header(oss, "aegisbpf_map_utilization", "gauge", "BPF map utilization ratio (0.0 to 1.0)");
-    double deny_inode_util = calculate_map_utilization(state.deny_inode, MAX_DENY_INODE_ENTRIES);
+    // Capacity comes from the live inner map, which is right-sized per
+    // reload, rather than the compile-time template maximum.
+    double deny_inode_util =
+        deny_inode_live.capacity > 0 ? static_cast<double>(deny_inode_live.entries) / deny_inode_live.capacity : 0.0;
     double deny_path_util = calculate_map_utilization(state.deny_path, MAX_DENY_PATH_ENTRIES);
     double allow_cgroup_util = calculate_map_utilization(state.allow_cgroup, MAX_ALLOW_CGROUP_ENTRIES);
     double allow_exec_inode_util = calculate_map_utilization(state.allow_exec_inode, MAX_ALLOW_EXEC_INODE_ENTRIES);

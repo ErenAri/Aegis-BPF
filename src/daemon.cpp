@@ -42,6 +42,7 @@
 #include "logging.hpp"
 #include "map_monitor.hpp"
 #include "metrics_server.hpp"
+#include "policy_slots.hpp"
 #include "posture_gate.hpp"
 #include "proc_scan.hpp"
 #include "seccomp.hpp"
@@ -63,6 +64,10 @@ Result<void> setup_agent_cgroup(BpfState& state);
 // the old inode to the new one by re-statting the original path.
 struct OverlayCopyUpPropagator {
     int deny_inode_fd = -1;
+    // Owns the resolved inner-map descriptor. deny_inode is slotted, so the fd
+    // comes from bpf_map_get_fd_by_id() and must be kept alive for as long as
+    // the propagator uses it.
+    ShadowMap deny_inode_map;
 };
 
 void on_overlay_copy_up_propagate(void* ctx, const OverlayCopyUpEvent& ev)
@@ -194,7 +199,7 @@ Result<void> setup_agent_cgroup(BpfState& state)
     TRY(bump_memlock_rlimit());
 
     uint8_t one = 1;
-    if (bpf_map_update_elem(bpf_map__fd(state.allow_cgroup), &cgid, &one, BPF_ANY)) {
+    if (bpf_map_update_elem(state.allow_cgroup.live_fd(), &cgid, &one, BPF_ANY)) {
         return Error::system(errno, "Failed to update allow_cgroup_map");
     }
 
@@ -844,7 +849,13 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
     // Wire up overlay copy-up deny rule propagation when the hook is attached
     OverlayCopyUpPropagator overlay_propagator;
     if (state.overlay_copy_up_hook_attached && state.deny_inode) {
-        overlay_propagator.deny_inode_fd = bpf_map__fd(state.deny_inode);
+        // Resolved once at startup; the propagator re-resolves after a
+        // reload via refresh_overlay_propagator_fd().
+        auto live_inode = live_policy_map(state, state.deny_inode.outer);
+        overlay_propagator.deny_inode_fd = live_inode ? live_inode->fd() : -1;
+        if (live_inode) {
+            overlay_propagator.deny_inode_map = std::move(*live_inode);
+        }
         event_callbacks.on_overlay_copy_up = on_overlay_copy_up_propagate;
         event_callbacks.overlay_ctx = &overlay_propagator;
     }
@@ -896,6 +907,33 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
                                       has_event_callbacks ? &event_callbacks : nullptr);
         if (pri_rc < 0) {
             logger().log(SLOG_WARN("Failed to attach priority ring buffer, continuing without it"));
+        }
+    }
+
+    // One-time migration of a pre-registry deny database. Runs before any
+    // policy reload, so the first reload already sees the correct runtime set.
+    {
+        auto migration = migrate_legacy_runtime_rules();
+        if (!migration.ran && migration.unaccounted > 0) {
+            logger().log(
+                SLOG_WARN("Deny database holds entries this build cannot account for; they are NOT enforced")
+                    .field("unaccounted", static_cast<int64_t>(migration.unaccounted))
+                    .field("likely_cause", "blocks added while running an older Aegis after this one had migrated")
+                    .field("action", "re-add them with 'aegis block add <path>'"));
+        }
+        if (migration.ran) {
+            if (migration.quarantined > 0) {
+                logger().log(
+                    SLOG_WARN("Legacy deny database could not be attributed; entries quarantined, NOT enforced")
+                        .field("quarantined", static_cast<int64_t>(migration.quarantined))
+                        .field("reason", migration.reason)
+                        .field("path", migration.quarantine_path)
+                        .field("action", "re-add with 'aegis block add <path>' if still required"));
+            } else {
+                logger().log(SLOG_INFO("Migrated legacy deny database into the runtime-rule registry")
+                                 .field("runtime_rules_migrated", static_cast<int64_t>(migration.migrated))
+                                 .field("policy_derived_skipped", static_cast<int64_t>(migration.policy_derived)));
+            }
         }
     }
 
@@ -986,7 +1024,7 @@ int daemon_run(bool audit_only, bool enable_seccomp, bool enable_landlock, bool 
         }
     }
 
-    bool network_enabled = lsm_enabled && (state.deny_ipv4 != nullptr || state.deny_ipv6 != nullptr);
+    bool network_enabled = lsm_enabled && (static_cast<bool>(state.deny_ipv4) || static_cast<bool>(state.deny_ipv6));
     RuntimeStateTracker runtime_state = snapshot_runtime_state();
     logger().log(
         SLOG_INFO("Agent started")

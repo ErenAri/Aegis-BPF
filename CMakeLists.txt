@@ -373,6 +373,7 @@ set(AEGIS_SOURCES
     src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
+    src/policy_slots.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
@@ -570,6 +571,7 @@ set(AEGIS_LIB_SOURCES
     src/bpf_link_pin.cpp
     src/bpf_integrity.cpp
     src/bpf_maps.cpp
+    src/policy_slots.cpp
     src/bpf_ops.cpp
     src/btf_loader.cpp
     src/crypto.cpp
@@ -697,6 +699,7 @@ if(BUILD_TESTING)
         tests/test_result.cpp
         tests/test_sha256.cpp
         tests/test_policy.cpp
+        tests/test_policy_slots.cpp
         tests/test_network.cpp
         tests/test_json_scan.cpp
         tests/test_metrics.cpp
@@ -730,7 +733,29 @@ if(BUILD_TESTING)
     target_include_directories(aegisbpf_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
     include(GoogleTest)
-    gtest_discover_tests(aegisbpf_test DISCOVERY_MODE PRE_TEST)
+    # Point the applied-policy state at the build tree.
+    #
+    # Several rollback tests read the recorded applied policy and its hash. Left
+    # to the default they use /var/lib/aegisbpf, so a root test run inherits
+    # whatever a previously running agent left there: the stored hash does not
+    # match, the file-based rollback is skipped for the in-memory snapshot path,
+    # and four PolicyRollbackTest cases fail. That failure is the shared system
+    # state, not the code, and it only appears as root because an unprivileged
+    # run cannot get far enough to reach the rollback machinery.
+    #
+    # Isolating the path makes the suite hermetic, so "four failures are normal
+    # when run as root" stops being something people have to know.
+    set(AEGIS_TEST_STATE_DIR ${CMAKE_CURRENT_BINARY_DIR}/test-state)
+    file(MAKE_DIRECTORY ${AEGIS_TEST_STATE_DIR})
+    gtest_discover_tests(aegisbpf_test
+        DISCOVERY_MODE PRE_TEST
+        # One list element per assignment. A bare "A=1;B=2" string would be
+        # split by CMake and only the first would reach the test.
+        PROPERTIES ENVIRONMENT
+            "AEGIS_POLICY_APPLIED_PATH=${AEGIS_TEST_STATE_DIR}/policy.applied"
+            ENVIRONMENT "AEGIS_POLICY_APPLIED_PREV_PATH=${AEGIS_TEST_STATE_DIR}/policy.applied.prev"
+            ENVIRONMENT "AEGIS_POLICY_APPLIED_HASH_PATH=${AEGIS_TEST_STATE_DIR}/policy.applied.sha256"
+    )
 
     # In-process FFI parity test: drives the C ABI seams (aegis_policy_parse +
     # the bundle/event canonical seams) and the runtime Rust-parser shadow through

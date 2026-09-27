@@ -176,6 +176,169 @@ see `docs/THREAT_MODEL.md`.
 | Privileged container (`CAP_SYS_ADMIN`) | All surfaces | Treat as trust boundary breach |
 | Kernel module / root compromise | All surfaces | Out of scope (see THREAT_MODEL.md) |
 
+## Policy reload atomicity
+
+**A policy reload never exposes a partially-applied policy.**
+
+Every enforcement decision is taken against exactly one policy generation.
+Before a reload, decisions see the old policy; after it, the new one. There is
+no interval in which one rule has been applied and another has not, and no
+interval in which enforcement is suspended.
+
+### How a generation is committed
+
+Each of the 16 policy maps is a two-slot `BPF_MAP_TYPE_ARRAY_OF_MAPS`. The
+rules live in the inner map named by a single shared `active_slot` value:
+
+1. The inactive slot is determined (`target = live XOR 1`).
+2. A new inner map is built for every policy domain and fully populated.
+   No hook can observe these: `active_slot` still names the other slot.
+3. The new generation is validated and shadow-verified.
+4. Runtime rules are carried into it (see below).
+5. Each inner map is staged into the inactive slot.
+6. **Single commit point** — one `active_slot` write switches every domain
+   together.
+7. The retired slot is cleared so the kernel can free the old inner maps.
+
+Any failure before step 6 aborts the reload with the previous generation still
+live and still enforcing. The commit refuses to proceed unless *every* slotted
+map is part of it, because one `active_slot` governs them all: a map left out
+would resolve to an empty inner map after the flip and silently lose its rules.
+
+### What atomicity does and does not mean
+
+**Guaranteed:**
+
+- *Per decision.* Each BPF program reads `active_slot` once on entry and
+  threads that value through every policy lookup it makes, so a single
+  `file_open`, `connect` or `execve` decision cannot mix generations even if a
+  commit lands while it runs.
+- *Across maps.* File, exec, network and cgroup rules switch together. A
+  decision cannot see the new network policy alongside the old file policy.
+- *Across CPUs.* The commit is a single map update on a one-element array.
+  Readers on other CPUs observe the old value or the new one, never a
+  partial write.
+- *On reload failure.* A failed reload leaves the previous generation intact.
+- *Across daemon restart.* The outer maps and `active_slot` are pinned, so a
+  restarting daemon adopts the generation that was live and does not rebuild
+  it. A daemon killed mid-reload leaves the previous generation live, because
+  the flip had not happened.
+
+**Not guaranteed:**
+
+- *Decisions already in flight.* A decision that read the slot microseconds
+  before the commit completes under the old generation. This is inherent: the
+  syscall was admitted before the new policy existed.
+- *Enforcement while no agent is running.* The BPF links are owned by the
+  daemon process. If it exits, the programs detach and nothing is enforced
+  until it restarts. Map contents survive; attachment does not.
+- *(Removed.)* There used to be a direct-apply fallback that wrote live maps
+  in place whenever the next generation could not be allocated. It was not
+  atomic, it suspended enforcement for the duration, it was reachable by
+  accident on any transient allocation failure, and it still reported the
+  apply as successful. It no longer exists: allocating the next generation is
+  mandatory and a reload that cannot do so fails, leaving generation A
+  enforcing. **Every policy-apply path in the product is atomic.**
+- *`--reset`.* Clearing maps before applying is an explicit operator request
+  to discard state and is not a generation swap.
+
+### Which generation produced a decision
+
+`slot_generation` records the generation id held by each slot. A decision is
+attributed by resolving `active_slot` once and reading that map **with the same
+slot index**: the id and the rules then provably come from one place. Ids are
+monotonic, derived from the highest already recorded, so they survive restarts
+and are never reused.
+
+    bpftool map dump name active_slot      # which slot is live
+    bpftool map dump name slot_generation  # which generation each slot holds
+
+### Upgrade, restart and downgrade
+
+**Upgrade from a pre-slot Aegis.** Pinned maps whose layout changed (for
+example `deny_inode`, which went from `HASH` to `ARRAY_OF_MAPS`) are detected
+and replaced rather than bound blindly, so the agent starts normally. The
+legacy deny database is migrated once (below). No operator action is required.
+
+**Restart.** The outer maps, `active_slot` and `slot_generation` are pinned, so
+a restarting agent adopts the generation that was live instead of rebuilding
+it, and logs `inner_maps_created=0`. Enforcement itself stops while no agent is
+running: the BPF links are owned by the process, so the programs detach when it
+exits. Map contents survive; attachment does not.
+
+**Downgrade to a pre-slot Aegis.** *Not supported in place.* An older binary
+does not understand the new pin layout and will refuse to start — it fails
+closed rather than corrupting enforcement state, but the error it prints is
+opaque. The supported procedure is:
+
+    systemctl stop aegisbpf          # or otherwise stop the agent
+    rm -rf /sys/fs/bpf/aegisbpf      # drop the new-format pins
+    # install the older build, then start it
+
+`deny.db` is never modified by the new version, so the older build reads its
+rules exactly as before and no runtime blocks are lost. Files the older build
+does not know about (`runtime_rules.db`, the migration marker) are ignored.
+
+Blocks added *while downgraded* are recorded only in `deny.db`. On upgrading
+again the migration has already run, so they are not adopted automatically —
+the agent reports them at startup as unaccounted entries and names the action
+to take, rather than guessing.
+
+### Runtime rule carry-forward
+
+Rules added at runtime with `aegis block add` are not part of any policy file,
+but must survive a reload — a reload builds a brand new generation, so without
+explicit action every hand-added block would silently disappear.
+
+They are tracked in `/var/lib/aegisbpf/runtime_rules.db`, separately from
+`deny.db` (which records everything currently installed, policy rules
+included, and so cannot say which rules an operator added by hand).
+
+On each reload every runtime rule is **re-validated against the filesystem**
+before being re-installed:
+
+| Condition | Action |
+|-----------|--------|
+| Path still resolves to the recorded (device, inode) | Carried into the new generation |
+| Path no longer exists | Dropped, logged with the reason, pruned from the registry |
+| Path now resolves to a different inode | Dropped, logged with both inode numbers, pruned |
+
+Stale rules are dropped rather than failing the reload. A blocked temporary
+file that has since been deleted is not a policy error, and failing the commit
+would wedge every future reload behind a file that will never return. Each
+drop is reported at WARN with the path and the reason, plus a summary count,
+so the loss is visible rather than silent.
+
+Rules from the *previous policy file* are deliberately not carried forward —
+replacing them is what a reload is for.
+
+### Migrating a pre-registry installation
+
+Installations from before the registry recorded hand-added blocks only in
+`deny.db`, mixed with policy-derived rules and with no provenance. Adopting all
+of them would resurrect policy rules an operator had already removed; adopting
+none would silently drop every manual block.
+
+Provenance is reconstructed once, at first start, by subtracting the applied
+policy (`/var/lib/aegisbpf/policy.applied`, the exact text last applied) from
+the deny database. What remains was not produced by that policy, so it was
+added at runtime.
+
+Two cases make that subtraction untrustworthy, and both **quarantine** the
+entries instead of guessing — written to
+`/var/lib/aegisbpf/runtime_rules.quarantine`, reported at WARN, and **not
+enforced**:
+
+| Case | Why it is undecidable |
+|------|----------------------|
+| No applied policy on record | Nothing to subtract: every entry looks hand-added, but could equally be a policy whose record was lost |
+| Policy contains `[deny_binary_hash]` / `[allow_binary_hash]` | Those expand by scanning the filesystem for matching contents; the expansion cannot be replayed, so policy-derived inodes would be left behind and become sticky |
+
+The migration is idempotent (a marker records completion), crash-safe (the
+registry is written before the marker, so an interrupted run repeats rather
+than half-applies), and non-destructive (`deny.db` is never modified, which is
+what keeps downgrade lossless).
+
 ## TOCTOU stance
 
 **Inode-based enforcement is atomic.**  The kernel resolves `dentry → inode`

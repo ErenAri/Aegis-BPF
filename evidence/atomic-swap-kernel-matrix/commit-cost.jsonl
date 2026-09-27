@@ -1,0 +1,5 @@
+{"label":"mainline-5.14","kernel":"5.14.21-051421-generic","idle_ms":15.740,"loaded_ms":25.374}
+{"label":"ubuntu-22.04-5.15","kernel":"5.15.0-131-generic","idle_ms":16.115,"loaded_ms":24.373}
+{"label":"debian-12-6.1","kernel":"6.1.0-50-amd64","idle_ms":18.616,"loaded_ms":24.616}
+{"label":"mainline-6.5","kernel":"6.5.0-060500-generic","idle_ms":16.491,"loaded_ms":26.123}
+{"label":"ubuntu-24.04-6.8","kernel":"6.8.0-71-generic","idle_ms":5.998,"loaded_ms":5.625}

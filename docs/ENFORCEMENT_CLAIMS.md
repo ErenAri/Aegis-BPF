@@ -11,10 +11,24 @@ Every enforcement claim must have a corresponding automated test that proves it 
 | C3 | `allow_cgroup` bypasses deny for processes in that cgroup | `e2e_enforcement_proofs.sh::test_cgroup_bypass` | e2e.yml |
 | C4 | `deny_ipv4` blocks `connect()` to that IP | `e2e_enforcement_proofs.sh::test_deny_ipv4` | e2e.yml |
 | C5 | `deny_port` blocks `bind()` on that port | `e2e_enforcement_proofs.sh::test_deny_port` | e2e.yml |
-| C6 | Break-glass disables enforcement | `e2e_enforcement_proofs.sh::test_break_glass` | e2e.yml |
+| C6 | Break-glass disables enforcement **at agent startup** | `e2e_enforcement_proofs.sh::test_break_glass` | e2e.yml |
 | C7 | Deadman switch reverts to audit after TTL | `e2e_enforcement_proofs.sh::test_deadman` | e2e.yml |
 | C8 | Survival allowlist prevents blocking critical binaries | `e2e_enforcement_proofs.sh::test_survival` | e2e.yml |
 | C9 | Emergency disable stops all enforcement instantly | `e2e_enforcement_proofs.sh::test_emergency` | e2e.yml |
+
+## Break-glass vs emergency-disable (C6 vs C9)
+
+They are not two names for the same thing, and reaching for the wrong one during
+an incident costs time:
+
+- **Break-glass (C6)** is evaluated **once, when the agent starts**
+  (`detect_break_glass()`), and one of the things it reads is `/proc/cmdline`.
+  It is the boot-level escape hatch for "policy is locking me out". Creating
+  `/etc/aegisbpf/break_glass` under a **running** agent does nothing until that
+  agent restarts.
+- **Emergency-disable (C9)** is the **runtime** control and takes effect
+  immediately: `aegisbpf emergency-disable --reason "<text>"`. `--reason` is
+  required and is recorded in the control audit log.
 
 ## Running Proofs Locally
 

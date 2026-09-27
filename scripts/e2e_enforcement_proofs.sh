@@ -64,10 +64,28 @@ require_bpf_lsm() {
     fi
 }
 
+# Default to --enforce-signal=none.
+#
+# These proofs assert that operations are DENIED (EPERM), which happens
+# regardless of whether the violating process is also signalled. Signalling is
+# orthogonal to every claim here -- nothing below inspects a killed process.
+#
+# It is not orthogonal to the machine. With the default SIGTERM these ran on the
+# self-hosted runner and terminated the Actions runner itself, so the job died
+# with "The runner has received a shutdown signal" three proofs in, reporting a
+# product failure that was really the test shooting its own host. Every other
+# enforcement user in CI already passes none: the stress job spawns the agent
+# with --enforce-signal=none, and e2e.yml invokes smoke_enforce.sh with
+# ENFORCE_SIGNAL=none. This script was the sole exception.
+#
+# Override with ENFORCE_SIGNAL=term to exercise signalling deliberately, on a
+# host you are willing to have processes killed on.
+ENFORCE_SIGNAL="${ENFORCE_SIGNAL:-none}"
+
 start_daemon() {
     local log_file="$1"
     shift
-    "${BIN}" run "$@" > "${log_file}" 2>&1 &
+    "${BIN}" run --enforce-signal="${ENFORCE_SIGNAL}" "$@" > "${log_file}" 2>&1 &
     AGENT_PID=$!
     sleep 2
     if ! kill -0 "${AGENT_PID}" 2>/dev/null; then
@@ -242,7 +260,7 @@ test_deny_port() {
 version=2
 
 [deny_port]
-${test_port},tcp,bind
+${test_port}:tcp:bind
 EOF
 
     start_daemon "${log}" --enforce --deadman-ttl=30 || { fail "${label}" "daemon start failed"; return; }
@@ -297,12 +315,24 @@ EOF
         return
     fi
 
-    # Activate break-glass
+    # Activate break-glass, then restart the agent.
+    #
+    # detect_break_glass() runs once during startup (daemon.cpp), and one of the
+    # things it reads is /proc/cmdline -- it is the boot-level escape hatch for
+    # "policy is locking me out", not a runtime toggle. The runtime toggle is
+    # emergency-disable, proved separately as C9 and documented as instant.
+    #
+    # This used to create the flag under a running agent and sleep 3s waiting
+    # for it to notice, which it never does, so the proof reported a product
+    # failure that was really an incorrect expectation.
     mkdir -p /etc/aegisbpf
     touch /etc/aegisbpf/break_glass
-    sleep 3  # Wait for daemon to detect break-glass
+    stop_daemon
+    start_daemon "${log}" --enforce --deadman-ttl=30 ||
+        { fail "${label}" "daemon restart under break-glass failed"; rm -f /etc/aegisbpf/break_glass; return; }
+    sleep 1
 
-    # File should now be accessible
+    # File should now be accessible: break-glass forces audit-only.
     if cat "${target}" >/dev/null 2>&1; then
         pass "${label}"
     else
@@ -408,16 +438,19 @@ EOF
     fi
 
     # Activate emergency disable
-    "${BIN}" emergency-disable 2>/dev/null || { fail "${label}" "emergency-disable command failed"; stop_daemon; return; }
+    # --reason is required; without it the command exits 1 on "Missing required
+    # --reason" and this proof reported a product failure that was its own.
+    "${BIN}" emergency-disable --reason "C9 enforcement proof" 2>/dev/null ||
+        { fail "${label}" "emergency-disable command failed"; stop_daemon; return; }
     sleep 1
 
     # File should now be accessible
     if cat "${target}" >/dev/null 2>&1; then
         # Re-enable enforcement
-        "${BIN}" emergency-enable 2>/dev/null || true
+        "${BIN}" emergency-enable --reason "C9 enforcement proof cleanup" 2>/dev/null || true
         pass "${label}"
     else
-        "${BIN}" emergency-enable 2>/dev/null || true
+        "${BIN}" emergency-enable --reason "C9 enforcement proof cleanup" 2>/dev/null || true
         fail "${label}" "file should be accessible after emergency disable"
     fi
 

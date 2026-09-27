@@ -44,15 +44,133 @@ struct PinnedHook {
  * dropped from the move path — the footgun behind the `policy_generation` and
  * `deny_comm` unpinned-map regressions. **Add new maps/flags here.**
  */
+/// Handle to a policy map that lives behind an ARRAY_OF_MAPS slot.
+///
+/// Trivially copyable so it still moves wholesale with BpfMapState, but not
+/// convertible to bpf_map*, which is the point: the conversion from "handle you
+/// can read" to "handle you must resolve" is enforced by the compiler.
+struct SlottedMap {
+    SlottedMap() = default;
+    SlottedMap(SlottedMap&&) noexcept = default;
+    SlottedMap& operator=(SlottedMap&&) noexcept = default;
+
+    // Copyable, but the live handle is deliberately NOT copied: a copy is a
+    // separate view that must resolve its own handle via refresh_live().
+    // Copying the fd would give two owners of one descriptor.
+    SlottedMap(const SlottedMap& o)
+        : outer(o.outer), slot_map(o.slot_map), inner_type(o.inner_type), inner_key_size(o.inner_key_size),
+          inner_value_size(o.inner_value_size), inner_max_entries(o.inner_max_entries), inner_flags(o.inner_flags)
+    {
+    }
+    SlottedMap& operator=(const SlottedMap& o)
+    {
+        if (this != &o) {
+            outer = o.outer;
+            slot_map = o.slot_map;
+            inner_type = o.inner_type;
+            inner_key_size = o.inner_key_size;
+            inner_value_size = o.inner_value_size;
+            inner_max_entries = o.inner_max_entries;
+            inner_flags = o.inner_flags;
+            live_handle = ShadowMap();
+        }
+        return *this;
+    }
+
+    bpf_map* outer = nullptr;
+
+    // The shared active_slot map. Held here so a SlottedMap can resolve its own
+    // live inner map without every helper having to be handed the whole
+    // BpfState -- which is what lets clear/count/shadow helpers keep their
+    // existing call signatures while gaining correct slot semantics.
+    bpf_map* slot_map = nullptr;
+
+    // Inner-map geometry, captured right after bpf_object__open() while
+    // bpf_map__inner_map() is still valid -- it returns NULL once the object is
+    // loaded, and new inner maps are created later, at policy-apply time.
+    uint32_t inner_type = 0;
+    uint32_t inner_key_size = 0;
+    uint32_t inner_value_size = 0;
+    uint32_t inner_max_entries = 0;
+    uint32_t inner_flags = 0;
+
+    [[nodiscard]] explicit operator bool() const { return outer != nullptr; }
+
+    /// Resolve the inner map that active_slot currently names, as a fresh
+    /// owning handle.
+    ///
+    /// Use this for MUTATIONS, and from short-lived CLI processes: it re-reads
+    /// active_slot, so it cannot write into a retired generation.
+    [[nodiscard]] Result<ShadowMap> live() const;
+
+    // Cached handle on the live inner map, refreshed by refresh_live().
+    //
+    // Why a cache exists at all: a slotted map is read from ~50 call sites that
+    // need a plain fd (stats, listing, pressure checks). Handing each one a
+    // fresh owning handle would mean either an RAII object per site or a
+    // dangling fd, so reads share one handle whose lifetime the SlottedMap
+    // owns.
+    //
+    // The invariant that makes it safe: commit_policy_slot() refreshes every
+    // slotted map immediately after it flips active_slot, so within the process
+    // that performs commits the cache can never name a retired generation. A
+    // second process holding this handle across someone else's commit reads the
+    // previous generation until its next refresh -- acceptable for reporting,
+    // which is why mutations use live() instead.
+    ShadowMap live_handle;
+
+    /// Re-resolve the cached handle. Called after every flip and at load.
+    Result<void> refresh_live();
+
+    /// fd of the cached live inner map, or -1 when unresolved.
+    [[nodiscard]] int live_fd() const { return live_handle.fd(); }
+};
+
+/// Capture a slotted map's inner-map template geometry. Must be called after
+/// bpf_object__open() and before bpf_object__load().
+void capture_inner_geometry(SlottedMap& m);
+
+/// Apply a runtime max_entries override to a slotted map's inner template.
+///
+/// A slotted map's OUTER array has exactly two slots and never holds policy,
+/// so sizing it would be meaningless. The override belongs to the inner map,
+/// which create_inner_map() builds per reload. Must run pre-load so the
+/// declared template also matches on kernels that cannot vary inner sizes.
+Result<void> set_slotted_inner_max_entries(SlottedMap& m, uint32_t max_entries, const char* name);
+
+/// Outer map handle of either kind of map, so pin/reuse helpers can treat a
+/// slotted map uniformly: pinning targets the OUTER, which is the stable
+/// identity across reloads (inner maps are recreated every generation).
+inline bpf_map* outer_of(bpf_map* m)
+{
+    return m;
+}
+inline bpf_map* outer_of(const SlottedMap& m)
+{
+    return m.outer;
+}
+
+/// Pin/reuse a slotted map by its OUTER handle: the outer is the stable
+/// identity across reloads, while inner maps are recreated each generation.
+Result<void> pin_map(const SlottedMap& m, const char* path);
+Result<void> reuse_pinned_map(const SlottedMap& m, const char* path, bool& reused);
+
 struct BpfMapState {
     // BPF maps (borrowed; owned by BpfState::obj)
     bpf_map* events = nullptr;
-    bpf_map* deny_inode = nullptr;
-    bpf_map* deny_path = nullptr;
-    bpf_map* deny_comm = nullptr;
-    bpf_map* allow_cgroup = nullptr;
-    bpf_map* allow_exec_inode = nullptr;
-    bpf_map* trusted_exec_hash = nullptr;
+    // Slotted policy map. Deliberately NOT a bpf_map*: the handle refers to the
+    // OUTER ARRAY_OF_MAPS, which holds no policy entries -- those live in the
+    // inner map named by active_slot. Using a distinct type means every call
+    // site that treated this as a directly addressable map fails to COMPILE
+    // rather than silently reading the outer array at runtime.
+    // Resolve entries with live_policy_map(state, <map>.outer).
+    SlottedMap deny_inode;
+    bpf_map* active_slot = nullptr;
+    SlottedMap deny_path;
+    SlottedMap deny_comm;
+    SlottedMap allow_cgroup;
+    SlottedMap allow_exec_inode;
+    SlottedMap trusted_exec_hash;
     bpf_map* exec_identity_mode = nullptr;
     bpf_map* block_stats = nullptr;
     bpf_map* deny_cgroup_stats = nullptr;
@@ -62,22 +180,25 @@ struct BpfMapState {
     bpf_map* config_map = nullptr;
     bpf_map* survival_allowlist = nullptr;
     bpf_map* policy_generation_map = nullptr;
-    bpf_map* deny_cgroup_inode = nullptr;
-    bpf_map* deny_cgroup_ipv4 = nullptr;
-    bpf_map* deny_cgroup_port = nullptr;
+    // Generation id per policy slot -- the generation oracle. See
+    // slot_generation in bpf/aegis_common.h.
+    bpf_map* slot_generation = nullptr;
+    SlottedMap deny_cgroup_inode;
+    SlottedMap deny_cgroup_ipv4;
+    SlottedMap deny_cgroup_port;
     bpf_map* diagnostics = nullptr;
     bpf_map* dead_processes = nullptr;
     bpf_map* hook_latency = nullptr;
     bpf_map* event_approver_inode = nullptr;
     bpf_map* event_approver_path = nullptr;
     bpf_map* priority_events = nullptr;
-    bpf_map* deny_ipv4 = nullptr;
-    bpf_map* deny_ipv6 = nullptr;
-    bpf_map* deny_port = nullptr;
-    bpf_map* deny_ip_port_v4 = nullptr;
-    bpf_map* deny_ip_port_v6 = nullptr;
-    bpf_map* deny_cidr_v4 = nullptr;
-    bpf_map* deny_cidr_v6 = nullptr;
+    SlottedMap deny_ipv4;
+    SlottedMap deny_ipv6;
+    SlottedMap deny_port;
+    SlottedMap deny_ip_port_v4;
+    SlottedMap deny_ip_port_v6;
+    SlottedMap deny_cidr_v4;
+    SlottedMap deny_cidr_v6;
     bpf_map* net_block_stats = nullptr;
     bpf_map* net_ip_stats = nullptr;
     bpf_map* net_port_stats = nullptr;
@@ -107,6 +228,8 @@ struct BpfMapState {
     bool agent_meta_reused = false;
     bool config_map_reused = false;
     bool policy_generation_reused = false;
+    bool active_slot_reused = false;
+    bool slot_generation_reused = false;
     bool survival_allowlist_reused = false;
     bool deny_ipv4_reused = false;
     bool deny_ipv6_reused = false;
@@ -162,11 +285,12 @@ class BpfState : public BpfMapState {
         if (this != &other) {
             cleanup();
             // All borrowed map handles + reuse/attach flags + counters are in
-            // the BpfMapState base and are trivially copyable: one assignment
-            // moves every one of them, so a newly-added map/flag is a single
-            // edit to BpfMapState and can never be silently dropped from the
-            // move path. Owning members are moved explicitly below.
-            static_cast<BpfMapState&>(*this) = static_cast<const BpfMapState&>(other);
+            // the BpfMapState base: one assignment moves every one of them, so
+            // a newly-added map/flag is a single edit to BpfMapState and can
+            // never be silently dropped from the move path. Moved rather than
+            // copied because SlottedMap owns a live-inner fd. Owning members
+            // are moved explicitly below.
+            static_cast<BpfMapState&>(*this) = std::move(static_cast<BpfMapState&>(other));
             obj = other.obj;
             links = std::move(other.links);
             pin_root = std::move(other.pin_root);
@@ -256,7 +380,8 @@ Result<BlockStats> read_block_stats_map(bpf_map* map);
 Result<std::vector<std::pair<uint64_t, uint64_t>>> read_cgroup_block_counts(bpf_map* map);
 Result<std::vector<std::pair<InodeId, uint64_t>>> read_inode_block_counts(bpf_map* map);
 Result<std::vector<std::pair<std::string, uint64_t>>> read_path_block_counts(bpf_map* map);
-Result<std::vector<uint64_t>> read_allow_cgroup_ids(bpf_map* map);
+Result<std::vector<uint64_t>> read_allow_cgroup_ids(const SlottedMap& m);
+Result<std::vector<uint64_t>> read_allow_cgroup_ids_from_fd(int fd);
 Result<void> reset_block_stats_map(bpf_map* map);
 
 // Backpressure telemetry (aggregates per-CPU PERCPU_ARRAY counters)
