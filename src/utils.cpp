@@ -638,9 +638,20 @@ DenyEntries read_deny_entries_file(const char* path)
 
 Result<void> write_deny_entries_file(const char* file, const DenyEntries& entries)
 {
-    auto db_result = ensure_db_dir();
-    if (!db_result) {
-        return db_result.error();
+    // Create the directory of the file being written, not the global deny-db
+    // directory. These paths are caller-supplied -- the runtime-rule migration
+    // passes its own -- and tying every write to /var/lib/aegisbpf made writing
+    // somewhere else fail whenever that directory did not exist and could not
+    // be created. The migration then reported zero rules migrated and wrote no
+    // registry, silently, because the failure is only visible in a return value
+    // its caller discards.
+    const std::filesystem::path target(file);
+    if (target.has_parent_path()) {
+        std::error_code ec;
+        std::filesystem::create_directories(target.parent_path(), ec);
+        if (ec) {
+            return Error(ErrorCode::IoError, "Failed to create directory for " + std::string(file), ec.message());
+        }
     }
     return atomic_write_stream(file, [&](std::ostream& out) -> bool {
         for (const auto& kv : entries) {
