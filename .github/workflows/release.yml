@@ -364,7 +364,7 @@ jobs:
         uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3 (pinned back from v4.1.2 until v4 is validated at a release)
 
       - name: Install Syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 
       - name: Generate checksums
         run: |
