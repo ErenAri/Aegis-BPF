@@ -183,8 +183,11 @@ matching the `deny_inode_inner` template.
 
 Userspace builds a complete new inner map, right-sized to the rule count rather
 than preallocated at the template maximum, installs it into the inactive slot,
-and then flips `active_slot`. The old inner map is released and RCU-freed. A
-failed apply never flips, so the previous generation stays live and enforcing.
+and then flips `active_slot`. The previous coherent generation remains in the
+now-inactive slot and is replaced when the next complete generation is staged;
+the two-slot layout therefore bounds retention to one live and one inactive
+generation. A failed apply never flips, so the previous live generation stays
+authoritative and enforcing.
 
 BPF hooks read the slot once per invocation via `policy_active_slot()` and
 resolve the inner map with `policy_inner(&deny_inode_outer, slot)`; a NULL inner
