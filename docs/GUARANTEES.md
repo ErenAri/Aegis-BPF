@@ -198,7 +198,9 @@ rules live in the inner map named by a single shared `active_slot` value:
 5. Each inner map is staged into the inactive slot.
 6. **Single commit point** — one `active_slot` write switches every domain
    together.
-7. The retired slot is cleared so the kernel can free the old inner maps.
+7. The previous coherent generation remains in the now-inactive slot. Retention
+   is bounded to one inactive generation by the two-slot design; the next reload
+   replaces that slot while staging its complete new generation.
 
 Any failure before step 6 aborts the reload with the previous generation still
 live and still enforcing. The commit refuses to proceed unless *every* slotted
@@ -223,6 +225,11 @@ would resolve to an empty inner map after the flip and silently lose its rules.
   restarting daemon adopts the generation that was live and does not rebuild
   it. A daemon killed mid-reload leaves the previous generation live, because
   the flip had not happened.
+- *Bounded generation retention.* At most two complete policy generations are
+  retained: the live generation and one inactive predecessor. The inactive
+  generation is never consulted by enforcement and is replaced in full before
+  a later flip. This removes post-commit RCU-delete latency without creating an
+  unbounded cleanup backlog.
 
 **Not guaranteed:**
 
