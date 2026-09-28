@@ -156,13 +156,15 @@ jobs:
       # something people will tolerate.
       - name: Swap stress
         env:
-          DURATION: ${{ github.event_name == 'schedule' && '300' || (github.event.inputs.duration || '45') }}
+          # Nightly is deliberately long enough to cross substantially more
+          # generation boundaries; PRs keep the short gate.
+          DURATION: ${{ github.event_name == 'schedule' && '1800' || (github.event.inputs.duration || '45') }}
           WORKERS: ${{ github.event_name == 'schedule' && '12' || '6' }}
         run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_stress.sh
 
       - name: Crash during reload
         env:
-          ROUNDS: ${{ github.event_name == 'schedule' && '200' || '40' }}
+          ROUNDS: ${{ github.event_name == 'schedule' && '500' || '40' }}
         run: WORKDIR=/tmp/aegis-swap bash scripts/policy_swap_crash.sh
 
       - name: Collect diagnostics
