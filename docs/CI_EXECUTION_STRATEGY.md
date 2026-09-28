@@ -35,8 +35,9 @@ Required-check reporting:
 
 - `ubuntu-22.04`, `ubuntu-24.04` (hosted):
   - build/test/sanitizers/lint/security/coverage/benchmark
-- `self-hosted,bpf-lsm`:
+- `self-hosted,kvm` (current privileged-capacity host):
   - privileged e2e (`.github/workflows/e2e.yml`)
+  - the workflow verifies BPF-LSM explicitly before running; the scheduler label selects an existing runner, while the runtime guard proves the security capability
 - `self-hosted,kernel-*`:
   - kernel matrix (`.github/workflows/kernel-matrix.yml`)
 - `self-hosted,perf`:
@@ -63,7 +64,7 @@ Example labels:
 - `kernel-6.1` (Debian 12 host)
 - `kernel-5.14` (RHEL 9 host)
 - `kernel-6.5` (Ubuntu 24.04 host)
-- `bpf-lsm` (privileged e2e + soak)
+- `bpf-lsm` (preferred semantic label for a future/dedicated privileged e2e + soak fleet; until such a runner is registered, e2e schedules on `kvm` and proves BPF-LSM at runtime)
 - `perf` (perf regression)
 - `kvm,bpfcompat` (VM-backed bpfcompat compatibility matrix)
 
@@ -121,3 +122,15 @@ Any PR touching enforcement paths (`bpf/`, `src/bpf_ops*`, `src/policy*`,
 - Maintainers own runner health and capacity.
 - Security reviewers own coverage and threat-model alignment.
 - Release approvers verify evidence links before merge.
+
+
+## Self-hosted runner operations
+
+Operational recovery for the current self-hosted fleet is documented in
+`docs/runbooks/SELF_HOSTED_RUNNER.md`.
+
+A label must never be treated as proof of a kernel capability. Workflows that
+depend on BPF-LSM or KVM must verify the capability after scheduling and fail
+with an explicit error when the host has drifted. Conversely, do not request a
+label that no registered runner carries: GitHub leaves such jobs queued
+indefinitely rather than failing them.

@@ -28,7 +28,7 @@ permissions:
 jobs:
   e2e:
     if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
-    runs-on: [self-hosted, bpf-lsm]
+    # Schedule on the repository's actual privileged-capacity runner.\n    # BPF-LSM is verified explicitly below so a capability mismatch fails\n    # loudly instead of leaving the job queued forever on a nonexistent label.\n    runs-on: [self-hosted, kvm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
