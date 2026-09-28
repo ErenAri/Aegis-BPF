@@ -1,6 +1,6 @@
 # EXPERIMENT: workload-attributed flow aggregation over `cgroup_skb` (#323, phase 2)
 
-**Not a feature.** Phase 1 (`../cgroup-skb/`, PR #329) showed per-packet export is
+**Not a feature.** Phase 1 (PR #329, branch `experiment/cgroup-skb-audit` -- not on this branch) showed per-packet export is
 not a viable architecture. This phase tests whether in-kernel aggregation fixes
 that. The verdict is **KEEP AS EXPERIMENT ONLY** — see `FINDINGS.md`.
 

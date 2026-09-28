@@ -1,6 +1,6 @@
 # Flow aggregation over `cgroup_skb` — findings (#323, phase 2)
 
-Phase 1 (`experiments/cgroup-skb/`, PR #329) established that per-packet export
+Phase 1 (PR #329, branch `experiment/cgroup-skb-audit` -- not merged, so not present on this branch) established that per-packet export
 is not a viable architecture. This phase tests the follow-on hypothesis:
 
 > Aegis may gain useful workload-aware network behaviour signals if `cgroup_skb`
