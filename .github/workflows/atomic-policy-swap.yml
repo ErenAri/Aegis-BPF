@@ -106,6 +106,57 @@ jobs:
             !${{ runner.temp }}/kmatrix/kernels/
           retention-days: 14
 
+  # Build portability gate for the RHEL-family support row. The vendor-kernel
+  # runtime test used to consume a host-built CO-RE object, which proved runtime
+  # portability but allowed the distro clang build to stay broken. BUILD_ONLY
+  # boots a real AlmaLinux guest and requires its native toolchain to produce
+  # aegis.bpf.o.
+  rhel-native-bpf-build:
+    if: github.event_name != 'pull_request' || vars.AEGIS_ENABLE_SELF_HOSTED_PR_GATES == 'true'
+    runs-on: ${{ fromJSON('["self-hosted","kvm"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install VM prerequisites
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sudo -n apt-get update || sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils \
+            openssh-client curl git
+
+      - name: Confirm KVM is usable
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error title=RHEL native build cannot run::/dev/kvm is not present."
+            exit 1
+          fi
+
+      - name: Native AlmaLinux BPF build
+        env:
+          RHEL_VM_WORK: ${{ runner.temp }}/aegis-rhel-vm
+          RHEL_VM_OUT: ${{ runner.temp }}/rhel-native-build
+        run: |
+          BUILD_ONLY=1 WORK="$RHEL_VM_WORK" OUT="$RHEL_VM_OUT" \
+            bash scripts/rhel_matrix_vm.sh
+
+      - name: Collect VM diagnostics
+        if: always()
+        env:
+          RHEL_VM_WORK: ${{ runner.temp }}/aegis-rhel-vm
+          RHEL_VM_OUT: ${{ runner.temp }}/rhel-native-build
+        run: |
+          mkdir -p "$RHEL_VM_OUT"
+          cp "$RHEL_VM_WORK/console.log" "$RHEL_VM_OUT/console.log" 2>/dev/null || true
+          cp "$RHEL_VM_WORK/qemu.log" "$RHEL_VM_OUT/qemu.log" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: rhel-native-bpf-build
+          path: ${{ runner.temp }}/rhel-native-build/
+          if-no-files-found: warn
+          retention-days: 14
+
   # The acceptance test: A <-> B reloads under concurrent enforcement load,
   # plus crash-during-reload. Any impossible observation fails the job.
   stress:
