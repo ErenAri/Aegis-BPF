@@ -9,6 +9,15 @@
 
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
+## Generative AI usage disclosure
+
+**Substantial generative AI assistance has been used in developing AegisBPF.** This is not limited to documentation or small snippets. AI-assisted work has contributed to implementation and refactoring, test and example generation, documentation, and analysis of designs or code. Some code and written material may therefore be AI-generated or AI-assisted. **Named tool disclosure:** OpenAI ChatGPT has been used in project documentation and editorial workflows, including preparing this disclosure. A verified historical inventory of all models and coding assistants used throughout development is not maintained, so this should not be read as an exhaustive tool list. The involvement has been substantial across multiple project areas, but no reliable line-by-line or percentage breakdown exists.
+
+**Human ownership and verification:** The project maintainer remains responsible for accepting changes, architecture and security decisions, interpreting test results, handling reported vulnerabilities, and deciding what to release. AI-generated output is not itself proof of correctness or security. Contributions are subject to the repository's documented [contribution and review process](CONTRIBUTING.md), [quality gates](docs/QUALITY_GATES.md), and available CI / test evidence; automated checks have limitations and do not imply that every change has received an independent human or security audit.
+
+**External assurance:** No published independent security assessment or external design-partner pilot case study is currently recorded; see [External Validation](docs/EXTERNAL_VALIDATION.md). Users should evaluate the documented [threat model](docs/THREAT_MODEL.md), [enforcement guarantees](docs/GUARANTEES.md), and their own target environment before relying on the project for security enforcement.
+
+
 <p align="center">
   <img width="1491" height="1055" alt="f6e6b416-5ffb-4eb7-8342-c3725e82b878" src="https://github.com/user-attachments/assets/77205c28-7999-413f-ad99-a95da33507f8" />
 </p>
