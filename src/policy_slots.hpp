@@ -49,8 +49,9 @@ Result<ShadowMap> create_inner_map(const SlottedMap& m, uint32_t max_entries);
 /// slot -- writes no hook observes -- then flips active_slot with a single u32
 /// write that commits every staged map together. On any staging failure it
 /// returns an error WITHOUT flipping, leaving the previous generation live and
-/// enforcing. After a successful flip the retired slot is cleared so the kernel
-/// can RCU-free the old inner maps.
+/// enforcing. After a successful flip the previous coherent generation remains
+/// in the now-inactive slot. Retention is bounded by the two-slot design; the
+/// next commit replaces that inactive generation while staging.
 Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<SlottedMap*, int>>& staged);
 
 /// Every slotted policy map bound on this state, in a stable order.
