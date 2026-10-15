@@ -329,14 +329,21 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
      * generation; the guards above consult only agent_cfg. */
     const __u32 slot = policy_active_slot();
 
-    /* Read path from userspace */
-    struct path_key key = {};
-    long len = bpf_probe_read_user_str(key.path, sizeof(key.path), filename);
+    /* Read the path into per-CPU scratch instead of a 256-byte stack
+     * object. The full zero is required because path_key is an exact hash key:
+     * bpf_probe_read_user_str() terminates the string but does not clear the
+     * bytes after it. */
+    __u32 scratch_idx = 0;
+    struct path_key *key = bpf_map_lookup_elem(&path_key_scratch, &scratch_idx);
+    if (!key)
+        return 0;
+    __builtin_memset(key->path, 0, sizeof(key->path));
+    long len = bpf_probe_read_user_str(key->path, sizeof(key->path), filename);
     if (len <= 0)
         return 0;
 
     /* Check if path is in deny list */
-    if (!policy_lookup(&deny_path_map_outer, slot, &key))
+    if (!policy_lookup(&deny_path_map_outer, slot, key))
         return 0;
 
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -351,7 +358,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     /* Update statistics */
     increment_block_stats();
     increment_cgroup_stat(cgid);
-    increment_path_stat(&key);
+    increment_path_stat(key);
 
     /* Tier-3 signal-fallback enforcement (see header comment). A tracepoint
      * cannot return -EPERM, so when no SIGKILL escalation is configured we
@@ -383,7 +390,7 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
         bpf_get_current_comm(e->block.comm, sizeof(e->block.comm));
         e->block.ino = 0;
         e->block.dev = 0;
-        __builtin_memcpy(e->block.path, key.path, sizeof(e->block.path));
+        __builtin_memcpy(e->block.path, key->path, sizeof(e->block.path));
         set_action_string(e->block.action, audit ? 1 : 0, enforce_signal);
         bpf_ringbuf_submit(e, 0);
     } else {

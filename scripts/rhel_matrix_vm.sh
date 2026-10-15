@@ -19,17 +19,18 @@
 #   * cloud-init runs grubby to add bpf to lsm=, then reboots once. BPF-LSM is
 #     not in AlmaLinux's default LSM list.
 #
-# The BPF object is built on the HOST and copied in. AlmaLinux 9.8 ships clang
-# 21.1.8, which cannot compile bpf/aegis_file.bpf.h (BPF stack limit exceeded);
-# that reproduces on main and is a pre-existing toolchain gap, not something the
-# atomic-swap work introduced. Loading a host-built CO-RE object on the vendor
-# kernel is exactly the portability property under test.
+# The BPF object is built natively inside the guest. This is deliberate: the
+# RHEL-family row now proves both source-build portability with the distro clang
+# and CO-RE runtime portability on the vendor kernel. BUILD_ONLY=1 stops after
+# the native build so CI can gate the compiler/toolchain contract without paying
+# for the full stress/crash/leak validation.
 #
 # Env:
 #   IMAGE_URL   cloud image (default: AlmaLinux 9 GenericCloud x86_64)
 #   WORK        working directory (default: ~/aegis-rhel)
 #   OUT         result directory  (default: $WORK/out)
 #   KEEP_VM     1 to leave the VM running for inspection
+#   BUILD_ONLY  1 to stop after the native guest build
 #
 # Exit: 0 if every phase passed, 1 on a failure, 2 on missing prerequisites.
 set -uo pipefail
@@ -46,8 +47,6 @@ for t in qemu-system-x86_64 cloud-localds ssh scp qemu-img curl; do
     command -v "$t" >/dev/null 2>&1 || { echo "missing prerequisite: $t"; exit 2; }
 done
 [ -e /dev/kvm ] || { echo "/dev/kvm not available"; exit 2; }
-[ -x "$REPO/build/aegisbpf" ] || { echo "build/aegisbpf missing; build first"; exit 2; }
-[ -f "$REPO/build/aegis.bpf.o" ] || { echo "build/aegis.bpf.o missing; build first"; exit 2; }
 
 KEY="$WORK/id_alma"
 BASE="$WORK/alma9.qcow2"
@@ -156,23 +155,31 @@ echo "guest kernel: $(ssh_vm uname -r)   lsm=$lsm"
 # target dir that make the tarball three orders of magnitude larger.
 git -C "$REPO" archive --format=tar.gz -o "$WORK/aegis.tgz" HEAD || exit 1
 scp_vm "$WORK/aegis.tgz" aegis@127.0.0.1:/tmp/aegis.tgz || exit 1
-scp_vm "$REPO/build/aegis.bpf.o" aegis@127.0.0.1:/tmp/aegis.bpf.o || exit 1
 
 # crb carries libbpf-devel on AlmaLinux 9; it is disabled by default.
 ssh_vm "sudo dnf -y config-manager --set-enabled crb >/dev/null 2>&1
-        sudo dnf -y install gcc gcc-c++ cmake ninja-build libbpf-devel \
+        sudo dnf -y install gcc gcc-c++ clang llvm cmake ninja-build libbpf-devel \
              systemd-devel pkgconf-pkg-config python3 elfutils-libelf-devel \
              >/dev/null 2>&1
         rm -rf ~/aegis && mkdir -p ~/aegis && tar -C ~/aegis -xzf /tmp/aegis.tgz" || exit 1
 
-# Userspace builds fine on RHEL; only the BPF object does not (see header), so
-# build with BPF compilation off and use the host object.
-echo "building the agent in the guest"
-ssh_vm "cd ~/aegis && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-          -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=ON >/tmp/cmake.log 2>&1 &&
+echo "building userspace + BPF object natively in the guest"
+ssh_vm "cd ~/aegis && clang --version >/tmp/clang-version.txt 2>&1 &&
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_TESTING=OFF -DSKIP_BPF_BUILD=OFF >/tmp/cmake.log 2>&1 &&
         cmake --build build >>/tmp/cmake.log 2>&1 &&
-        cp /tmp/aegis.bpf.o ~/aegis/build/aegis.bpf.o" || {
-    echo "guest build failed; log:"; ssh_vm "tail -30 /tmp/cmake.log"; exit 1; }
+        test -s build/aegis.bpf.o" || {
+    echo "guest native build failed; compiler:"; ssh_vm "head -3 /tmp/clang-version.txt 2>/dev/null || true"
+    echo "build log:"; ssh_vm "tail -50 /tmp/cmake.log"; exit 1; }
+
+ssh_vm "head -3 /tmp/clang-version.txt" > "$OUT/clang-version.txt" 2>/dev/null || true
+ssh_vm "tail -100 /tmp/cmake.log" > "$OUT/native-build.log" 2>/dev/null || true
+
+if [ "${BUILD_ONLY:-0}" = 1 ]; then
+    echo "native BPF build: PASS"
+    echo "compiler: $(head -1 "$OUT/clang-version.txt" 2>/dev/null)"
+    exit 0
+fi
 
 # --- run the same phases the kernel matrix runs ---------------------------
 scp_vm "$REPO/scripts/kernel_matrix_guest.sh" aegis@127.0.0.1:/tmp/guest.sh || exit 1
