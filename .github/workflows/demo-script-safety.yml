@@ -1,0 +1,37 @@
+name: Demo Script Safety
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/demo_block_shadow.sh'
+      - 'scripts/demo_block_network.sh'
+      - '.github/workflows/demo-script-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/demo_block_shadow.sh'
+      - 'scripts/demo_block_network.sh'
+      - '.github/workflows/demo-script-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  demo-shell-lint:
+    name: demo-shell-lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Parse demo scripts
+        shell: bash
+        run: |
+          bash -n scripts/demo_block_shadow.sh
+          bash -n scripts/demo_block_network.sh
+      - name: ShellCheck demo scripts
+        shell: bash
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+          shellcheck --severity=warning scripts/demo_block_shadow.sh scripts/demo_block_network.sh
