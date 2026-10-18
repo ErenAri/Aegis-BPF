@@ -109,11 +109,14 @@ if ! kill -0 "$AGENT_PID" 2>/dev/null; then
   exit 1
 fi
 connect_check baseline
-"$BIN" network deny add --ip "$TARGET_IP"
 RULE_INSTALLED=1
+"$BIN" network deny add --ip "$TARGET_IP"
 connect_check deny
 if ! kill -0 "$AGENT_PID" 2>/dev/null; then
   echo "FAIL: the agent exited during the test" >&2
   exit 1
 fi
-echo "Only this demo's loopback deny rule and temporary directory will be removed."
+"$BIN" network deny del --ip "$TARGET_IP"
+RULE_INSTALLED=0
+connect_check baseline
+echo "PASS: TCP connectivity restored after removing this demo's rule."
