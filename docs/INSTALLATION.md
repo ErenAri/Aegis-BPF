@@ -53,4 +53,4 @@ See the [Kubernetes Quickstart](QUICKSTART_K8S.md), [RBAC guidance](KUBERNETES_R
 
 ## Package maintainer / CI instructions
 
-Maintainers: [Packaging](PACKAGING.md), [Release Drill](RELEASE_DRILL.md), [Release Readiness](RELEASE_READINESS.md) (if present in the repository), and [Evidence](EVIDENCE.md). Public hosted distro repositories, publication credentials and repeatable signed-repository distribution require separate release-engineering work.
+Maintainers: [Packaging](PACKAGING.md), [Release Drill](RELEASE_DRILL.md), and [Evidence](EVIDENCE.md). Public hosted distro repositories, publication credentials and repeatable signed-repository distribution require separate release-engineering work.
