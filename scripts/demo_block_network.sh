@@ -1,52 +1,119 @@
 #!/usr/bin/env bash
+# Opt-in network deny demo. This can temporarily affect host-wide traffic to TARGET_IP.
 set -euo pipefail
 
 BIN="${AEGIS_BIN:-./build/aegisbpf}"
-AGENT_LOG="${AEGIS_DEMO_AGENT_LOG:-/tmp/aegisbpf-demo-net-agent.log}"
+TARGET_IP="${AEGIS_DEMO_IP:-127.0.0.1}"
+TARGET_PORT="${AEGIS_DEMO_PORT:-}"
+DEMO_DIR=""
 AGENT_PID=""
-TARGET_IP="${AEGIS_DEMO_IP:-1.1.1.1}"
-TARGET_PORT="${AEGIS_DEMO_PORT:-80}"
-
-require_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    echo "run as root: sudo $0" >&2
-    exit 1
-  fi
-}
+RULE_INSTALLED=0
 
 cleanup() {
+  local rc=$?
+  trap - EXIT
   set +e
-  "${BIN}" network deny del --ip "${TARGET_IP}" >/dev/null 2>&1 || true
-  if [[ -n "${AGENT_PID}" ]]; then
-    kill "${AGENT_PID}" >/dev/null 2>&1 || true
-    wait "${AGENT_PID}" >/dev/null 2>&1 || true
+  if [[ "$RULE_INSTALLED" -eq 1 ]]; then
+    "$BIN" network deny del --ip "$TARGET_IP" >/dev/null 2>&1
   fi
+  if [[ -n "$AGENT_PID" ]]; then
+    kill "$AGENT_PID" >/dev/null 2>&1
+    wait "$AGENT_PID" >/dev/null 2>&1
+  fi
+  if [[ $rc -ne 0 && -n "$DEMO_DIR" && -f "$DEMO_DIR/agent.log" ]]; then
+    echo "Demo failed; agent log follows:" >&2
+    tail -n 60 "$DEMO_DIR/agent.log" >&2
+  fi
+  if [[ -n "$DEMO_DIR" ]]; then
+    rm -rf -- "$DEMO_DIR"
+  fi
+  exit "$rc"
 }
-
-require_root
 trap cleanup EXIT
 
-if [[ ! -x "${BIN}" ]]; then
-  echo "missing executable: ${BIN}" >&2
+if [[ "$EUID" -ne 0 ]]; then
+  echo "Run as root on a disposable test host" >&2
   exit 1
 fi
-
-if curl -m 3 "http://${TARGET_IP}:${TARGET_PORT}" >/dev/null 2>&1; then
-  echo "baseline: network reachable"
-else
-  echo "baseline: network unreachable (still proceeding)"
+if [[ "${AEGIS_DEMO_NETWORK_OPT_IN:-0}" != "1" ]]; then
+  echo "This test installs a host-wide IP deny rule. Set AEGIS_DEMO_NETWORK_OPT_IN=1 on an isolated test VM." >&2
+  exit 1
 fi
+if [[ ! -x "$BIN" ]]; then
+  echo "Executable not found: $BIN" >&2
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required" >&2
+  exit 1
+fi
+if [[ ! -r /sys/kernel/security/lsm ]] || ! grep -qw bpf /sys/kernel/security/lsm; then
+  echo "BPF LSM unavailable; refusing to report a successful network block" >&2
+  exit 1
+fi
+if [[ ! -f /sys/fs/cgroup/cgroup.controllers || ! -r /sys/kernel/btf/vmlinux ]]; then
+  echo "cgroup v2 and readable kernel BTF are required" >&2
+  exit 1
+fi
+if [[ -z "$TARGET_PORT" ]]; then
+  echo "AEGIS_DEMO_PORT is required: point it at a listening TCP service on this disposable VM" >&2
+  exit 1
+fi
+python3 - "$TARGET_IP" "$TARGET_PORT" <<'PY'
+import ipaddress
+import sys
+try:
+    ip = ipaddress.ip_address(sys.argv[1])
+    port = int(sys.argv[2])
+    assert ip.version == 4 and ip.is_loopback and 1 <= port <= 65535
+except (ValueError, AssertionError):
+    sys.exit("Specify a loopback IPv4 address and a TCP port in [1, 65535]")
+PY
 
-"${BIN}" run --enforce --enforce-signal=none --log=stdout --log-format=json >"${AGENT_LOG}" 2>&1 &
-AGENT_PID="$!"
+connect_check() {
+  python3 - "$TARGET_IP" "$TARGET_PORT" "$1" <<'PY'
+import errno
+import socket
+import sys
+
+address = (sys.argv[1], int(sys.argv[2]))
+phase = sys.argv[3]
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(3)
+try:
+    sock.connect(address)
+except OSError as exc:
+    if phase == "deny" and exc.errno == errno.EPERM:
+        print("PASS: TCP connect returned EPERM after policy installation.")
+        sys.exit(0)
+    print(f"FAIL ({phase}): TCP connect errno={exc.errno}; cannot attribute a block to AegisBPF.", file=sys.stderr)
+    sys.exit(1)
+finally:
+    sock.close()
+if phase == "deny":
+    sys.exit("FAIL: TCP connect succeeded despite the deny rule")
+print("Baseline: TCP connect succeeded.")
+PY
+}
+
+# Fail closed if the endpoint was already unavailable.
+connect_check baseline
+
+umask 077
+DEMO_DIR="$(mktemp -d -t aegisbpf-network-demo.XXXXXXXX)"
+"$BIN" run --enforce --strict-degrade --enforce-signal=none --log=stdout --log-format=json > "$DEMO_DIR/agent.log" 2>&1 &
+AGENT_PID=$!
 sleep 2
-
-"${BIN}" network deny add --ip "${TARGET_IP}"
-
-if curl -m 3 "http://${TARGET_IP}:${TARGET_PORT}" >/dev/null 2>&1; then
-  echo "failure: network was not blocked" >&2
+if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+  echo "Enforcement agent exited before the test" >&2
   exit 1
 fi
-
-echo "success: network blocked by AegisBPF"
-echo "agent log: ${AGENT_LOG}"
+connect_check baseline
+"$BIN" network deny add --ip "$TARGET_IP"
+RULE_INSTALLED=1
+connect_check deny
+if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+  echo "FAIL: the agent exited during the test" >&2
+  exit 1
+fi
+echo "Only this demo's loopback deny rule and temporary directory will be removed."
