@@ -9,6 +9,14 @@
 
 **AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
 
+## Featured In
+
+- **[LinuxLinks](https://www.linuxlinks.com/aegisbpf-ebpf-runtime-security-policy-enforcement-agent/)** — AegisBPF software profile (October 17, 2026).
+- **[Learn Kubernetes Weekly / Kube Today, Issue #200](https://kube.today/issues/200)** — featured in the *Code & tools* selection (September 9, 2026).
+- **[DevSecOps Talks](https://t.me/devsecops_weekly/1564)** — community write-up covering Linux and Kubernetes runtime security (September 8, 2026; Russian).
+
+These are third-party mentions, not independent security audits or endorsements.
+
 ## Generative AI usage disclosure
 
 **Substantial generative AI assistance has been used in developing AegisBPF.** This is not limited to documentation or small snippets. AI-assisted work has contributed to implementation and refactoring, test and example generation, documentation, and analysis of designs or code. Some code and written material may therefore be AI-generated or AI-assisted. **Named tool disclosure:** OpenAI ChatGPT has been used in project documentation and editorial workflows, including preparing this disclosure. A verified historical inventory of all models and coding assistants used throughout development is not maintained, so this should not be read as an exhaustive tool list. The involvement has been substantial across multiple project areas, but no reliable line-by-line or percentage breakdown exists.
