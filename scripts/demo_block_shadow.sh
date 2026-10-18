@@ -65,8 +65,8 @@ if ! kill -0 "$AGENT_PID" 2>/dev/null; then
   exit 1
 fi
 
-"$BIN" block add "$TARGET"
 RULE_INSTALLED=1
+"$BIN" block add "$TARGET"
 
 python3 - "$TARGET" <<'PY'
 import errno
@@ -91,4 +91,8 @@ if ! kill -0 "$AGENT_PID" 2>/dev/null; then
   echo "FAIL: the agent exited during the demonstration" >&2
   exit 1
 fi
-echo "Only this demo's rule and temporary directory will be removed."
+"$BIN" block del "$TARGET"
+RULE_INSTALLED=0
+# Verify that this test's denial was reversible before returning success.
+cat "$TARGET" >/dev/null || { echo "FAIL: access was not restored after removing the demo rule" >&2; exit 1; }
+echo "PASS: access restored after removing the demo rule."
