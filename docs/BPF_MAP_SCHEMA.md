@@ -212,6 +212,28 @@ struct path_key {
 };
 ```
 
+### `path_key_scratch`
+
+| Property       | Value |
+|----------------|-------|
+| Type           | `BPF_MAP_TYPE_PERCPU_ARRAY` |
+| Key            | `__u32` (index, always 0) |
+| Value          | `struct path_key` (256 bytes) |
+| Max entries    | 1 per CPU |
+| Pin path       | — (not pinned) |
+| Access         | BPF: read/write; Userspace: none |
+| Lifecycle      | Ephemeral scratch storage for the loaded BPF object |
+
+Per-CPU scratch used by the `sys_enter_openat` path-policy fallback. Keeping
+the 256-byte `path_key` out of the program stack preserves the kernel's
+512-byte BPF stack budget on toolchains whose inlining/stack-slot allocation
+otherwise overlaps that temporary with process-event state.
+
+The hook clears the full value before each use because `path_key` is an exact
+hash key and bytes after the userspace string's terminating NUL must remain
+zero. Per-CPU storage avoids cross-CPU sharing; the value is not policy state,
+is not pinned, and does not participate in atomic policy generations.
+
 ### `deny_comm_map_outer`
 
 | Property       | Value |

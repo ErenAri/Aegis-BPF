@@ -550,6 +550,21 @@ struct {
     __type(value, __u64);
 } deny_path_stats SEC(".maps");
 
+/* Per-CPU scratch for path-based tracepoint policy lookups.
+ *
+ * handle_openat used to place struct path_key (256 bytes) on the BPF stack.
+ * Newer clang versions keep that object live across the event/process-info
+ * path and can exceed the kernel's 512-byte BPF stack limit. This scratch map
+ * removes the large temporary from the stack without changing the policy-key
+ * ABI. It is used only by handle_openat; the value is cleared before each use
+ * so bytes after the terminating NUL cannot affect exact-key lookups. */
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct path_key);
+} path_key_scratch SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
     __uint(max_entries, MAX_DENY_INODE_STATS_ENTRIES);
