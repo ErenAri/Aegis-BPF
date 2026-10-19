@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792409549302,
+  "lastUpdate": 1792409561270,
   "repoUrl": "https://github.com/ErenAri/Aegis-BPF",
   "entries": {
     "Benchmark": [
@@ -50532,6 +50532,108 @@ window.BENCHMARK_DATA = {
             "value": 67.76693369561288,
             "unit": "ns/iter",
             "extra": "iterations: 12\ncpu: 67.76030766342225 ns\nthreads: 1"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "erenari27@gmail.com",
+            "name": "Eren Arı",
+            "username": "ErenAri"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfa936afaf35e8b3a2a5d0fa0a9a640b4ef78c43",
+          "message": "test: isolate and fail-close file and network enforcement demos (#344)\n\n* test: make file enforcement demo isolated and require EPERM\n\n* test: fail closed on network demo baseline and require opt-in\n\n* docs: document isolated enforcement demos and evidence limits\n\n* test: verify file demo rollback and clean up attempted rule installs\n\n* test: verify network demo rollback and handle partial rule install\n\n* ci: parse and shellcheck the enforcement demo scripts",
+          "timestamp": "2026-10-19T14:20:55+03:00",
+          "tree_id": "8cb0c4ebfeeea3f9c5ef07168df73040cdad6d4b",
+          "url": "https://github.com/ErenAri/Aegis-BPF/commit/bfa936afaf35e8b3a2a5d0fa0a9a640b4ef78c43"
+        },
+        "date": 1792409558928,
+        "tool": "googlecpp",
+        "benches": [
+          {
+            "name": "BM_Sha256Long/64_mean",
+            "value": 1639.0208920520488,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1638.737534512921 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/512_mean",
+            "value": 3987.080859326869,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 3986.854388651558 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/4096_mean",
+            "value": 22991.279091083128,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 22989.922777640957 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/32768_mean",
+            "value": 174620.307097995,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 174609.37750603099 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/262144_mean",
+            "value": 1387793.7746913617,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 1387662.549716384 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_Sha256Long/1048576_mean",
+            "value": 5563944.903769841,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 5563556.652777798 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/100_mean",
+            "value": 4871.487824371713,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 4883.56024125506 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/512_mean",
+            "value": 35597.1525970773,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 35603.00773305981 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/4096_mean",
+            "value": 292224.90330911527,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 292214.90724192926 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_DenyEntriesInsert/10000_mean",
+            "value": 870130.8229815277,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 870274.4418737685 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6_mean",
+            "value": 51.70567245410382,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 51.70255458351332 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseIpv6Full_mean",
+            "value": 82.82665441147358,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 82.82144792747427 ns\nthreads: 1"
+          },
+          {
+            "name": "BM_ParseCidrV6_mean",
+            "value": 64.38330305633069,
+            "unit": "ns/iter",
+            "extra": "iterations: 12\ncpu: 64.37918802216907 ns\nthreads: 1"
           }
         ]
       }
