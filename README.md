@@ -569,9 +569,11 @@ in priority order. Each is tracked in [`docs/POSITIONING.md`](docs/POSITIONING.m
    (supports Ubuntu, Debian, Fedora, RHEL, CentOS, Amazon Linux,
    Oracle, SLES, openSUSE, Arch). See
    [`docs/BTF_FALLBACK.md`](docs/BTF_FALLBACK.md).
-7. **No distro packages yet.** Install requires build-from-source or
-   the provided container image; Ubuntu PPA / Fedora COPR are on the
-   roadmap.
+7. **No publicly documented hosted distro repositories yet.** The packaging
+   workflow builds and tests `.deb` / `.rpm` artifacts; availability of a
+   tagged GitHub Release must be verified before downloading. Ubuntu PPA /
+   Fedora COPR are not established in the documented distribution path.
+   See [Linux installation options](docs/INSTALLATION.md).
 8. **Daemon runs as root for its full lifetime by default.** Opt-in
    `--drop-caps` removes `CAP_SYS_ADMIN`/`CAP_BPF`/`CAP_PERFMON` after
    BPF attach (kept: `CAP_NET_ADMIN`, `CAP_DAC_READ_SEARCH`); see

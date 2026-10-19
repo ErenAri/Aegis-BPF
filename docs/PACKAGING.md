@@ -6,14 +6,14 @@ to public hosted repositories (Ubuntu PPA, Fedora COPR, OpenSUSE OBS,
 Arch AUR).
 
 For the **operator-side** "how do I install it" recipe, see the project
-[README](../README.md#install).
+[installation guide](INSTALLATION.md).
 
 ---
 
 ## 1. What this PR ships
 
-This repository now produces two installable binary packages for every
-supported architecture, gated by CI:
+The repository's packaging workflow is configured to build two installable
+binary package formats for CI-supported target architectures. These are **build artifacts**, not evidence that public APT/DNF repositories are online:
 
 | File                              | Built by             | Smoke-tested in CI on   |
 | --------------------------------- | -------------------- | ----------------------- |

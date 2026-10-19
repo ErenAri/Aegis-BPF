@@ -6,6 +6,7 @@ A categorized map of the `docs/` tree. For a high-level overview start with the
 [evidence/](../evidence/) and the [Public Evidence Pack](EVIDENCE.md).
 
 ## Getting Started
+- [Linux Installation (source, packages, and release verification)](INSTALLATION.md)
 - [Why AegisBPF](WHY_AEGISBPF.md)
 - [Kubernetes Quickstart](QUICKSTART_K8S.md)
 - [AegisBPF Product Baseline](PRODUCT.md)
