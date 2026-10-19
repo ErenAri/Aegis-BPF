@@ -7,7 +7,26 @@
 [![Kernel](https://img.shields.io/badge/kernel-5.15%2B-orange)]()
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)]()
 
-**AegisBPF** is an eBPF-based runtime security agent that monitors and blocks unauthorized file and network activity using Linux Security Modules (LSM). It provides kernel-level enforcement for file deny rules plus outbound and selected inbound network deny surfaces, with an explicit audit-only fallback when enforce-capable hooks are unavailable.
+**AegisBPF** is an enforcement-first Linux runtime security agent built on eBPF and BPF LSM. On supported kernels it can deny selected file and network operations in-kernel; when enforcement-capable hooks are unavailable it reports its posture and supports an explicit audit-only fallback. **It is not a substitute for a validated host security policy or an independent security assessment.**
+
+## Try AegisBPF safely
+
+Start in **audit mode on a disposable Linux test host**, not on a production machine. AegisBPF needs Linux kernel 5.8+, BTF, cgroup v2 and appropriate privileges; **BPF LSM must be enabled for enforcement**.
+
+1. [Check prerequisites](#prerequisites) and [install build dependencies](#install-dependencies-ubuntudebian).
+2. Verify the host, build without optional tests, then start audit-only:
+
+```bash
+scripts/verify_env.sh --strict
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build --target aegisbpf
+sudo ./build/aegisbpf run --audit
+```
+
+Stop with `Ctrl+C`. This demonstrates **audit mode, not a successful kernel-level block**. For enforcement testing on an isolated host, see [the file-deny demo](scripts/demo_block_shadow.sh) and the [BPF-LSM E2E evidence contract](docs/ENFORCEMENT_CLAIMS.md). Check [runtime limitations](#honest-limitations) and [external validation status](docs/EXTERNAL_VALIDATION.md) before evaluation.
+
+**Explore:** [Features](#features) · [Compatibility](docs/COMPATIBILITY.md) · [Security model](docs/THREAT_MODEL.md) · [Kubernetes setup](docs/QUICKSTART_K8S.md) · [Full Quick Start](#quick-start) · [Contribute](CONTRIBUTING.md)
+
 
 ## Featured In
 
