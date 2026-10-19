@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Resource behaviour under sustained policy reloads.
 #
-# Each reload allocates a fresh inner map per policy domain and retires the
-# previous generation, which the kernel frees once the last reference goes
-# away. If a reference is held anywhere -- a cached fd never closed, a slot
-# never cleared -- the map count grows without bound and the agent eventually
-# fails to allocate. This measures that directly rather than inferring it.
+# Each reload allocates a fresh inner map per policy domain. The two-slot design
+# intentionally retains one complete inactive generation so post-flip cleanup
+# does not pay another RCU grace period per policy map. The next reload replaces
+# that inactive generation. If references grow beyond those two generations,
+# the map count rises without bound and the agent eventually fails to allocate.
+# This measures that directly rather than inferring it.
 set -uo pipefail
 
 BIN="${BIN:-./build/aegisbpf}"
@@ -47,7 +48,8 @@ for i in $(seq 1 "$RELOADS"); do
     fi
 done
 
-# Retired inner maps are freed by RCU, so settle before the final reading.
+# Replaced inactive inner maps are freed by RCU, so settle before the final
+# reading. One complete inactive generation is expected to remain resident.
 sleep 5
 read -r m1 r1 l1 p1 <<<"$(sample)"
 echo "after  : bpf_maps=$m1 rss_kb=$r1 locked_kb=$l1 pinned=$p1"
@@ -57,9 +59,11 @@ echo
 echo "delta over $RELOADS reloads: bpf_maps=$dm rss_kb=$dr pinned=$dp"
 
 fail=0
-# 16 policy maps per generation; one generation may legitimately still be
-# retired but not yet reclaimed. Anything near RELOADS*16 is a leak.
-if [ "$dm" -gt 64 ]; then echo "FAIL: BPF map count grew by $dm"; fail=1; fi
+# 16 policy maps per generation. Relative to a one-generation starting state,
+# one retained inactive generation contributes +16 maps; one extra RCU-delayed
+# replacement can transiently make that +32. More than that after settling is
+# outside the bounded two-slot contract.
+if [ "$dm" -gt 32 ]; then echo "FAIL: BPF map count grew by $dm (expected <=32 with one retained inactive generation)"; fail=1; fi
 if [ "$dp" -ne 0 ]; then echo "FAIL: pinned object count changed by $dp"; fail=1; fi
 # RSS is noisy; a real fd/allocation leak over 300 reloads is far larger.
 if [ "$dr" -gt 20480 ]; then echo "FAIL: RSS grew by ${dr} kB"; fail=1; fi

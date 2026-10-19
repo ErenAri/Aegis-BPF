@@ -339,11 +339,17 @@ Result<void> commit_policy_slot(BpfState& state, const std::vector<std::pair<Slo
         }
     }
 
-    // Retire the previous generation so the kernel can RCU-free it.
-    for (const auto& [m, inner_fd] : staged) {
-        (void)inner_fd;
-        bpf_map_delete_elem(bpf_map__fd(m->outer), &live);
-    }
+    // Keep the previous coherent generation in the now-inactive slot.
+    //
+    // ARRAY_OF_MAPS updates/deletes can wait for an RCU grace period. Clearing
+    // all 16 old slots here put ~half of the measured commit latency *after*
+    // the atomic active_slot flip even though no decision can reach them.
+    //
+    // Retention is strictly bounded by the two-slot design: at most one live
+    // and one inactive generation exist. The next commit stages into this
+    // inactive slot and replaces each old inner-map pointer in place. A failed
+    // or crashed staging attempt still cannot affect the live slot, and the
+    // next attempt overwrites the full completeness set before flipping.
     return {};
 }
 
