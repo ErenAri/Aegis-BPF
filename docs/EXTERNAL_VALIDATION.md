@@ -5,7 +5,7 @@ claim independent review unless it is recorded here with a verifiable summary.
 
 ## Transparency status (current)
 
-**As of 2026-06-22:** no independent security review has been published and no
+**As of 2026-10-18:** no independent security review has been published and no
 external design-partner pilot case study has been published. Internal staging
 pilot evidence is tracked in `docs/pilots/`, but it is product-readiness
 evidence, not third-party validation. We will update this page immediately when
@@ -19,6 +19,12 @@ dated entry appears under “Published reviews” or “Pilot case studies.”
 - **Independent security review:** not yet published.
 - **External design-partner pilot case study:** not yet published.
 - **Internal staging pilot evidence:** published in `docs/pilots/`.
+
+## Review-readiness resources
+
+- [Public security evidence matrix](SECURITY_EVIDENCE_MATRIX.md) maps claims to executable tests and missing evidence.
+- [Independent reviewer brief](INDEPENDENT_REVIEW_BRIEF.md) defines the third-party test scope and reporting requirements.
+- The project's internal [cryptographic Security Audit](SECURITY_AUDIT.md) is a maintainer-side artifact and must **not** be presented as an independent review.
 
 ## How to contribute a review
 
